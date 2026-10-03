@@ -1,2 +1,52 @@
-models: {}
+# Ollama settings the proxy applies before forwarding a request.
+#
+# Settings are layered: defaults, then the first matching profile (shell-style
+# pattern matched against the Ollama model name), then the exact alias under
+# models. Values a client sends explicitly in a request always win.
+#
+# options       Ollama runtime options (num_ctx, temperature, top_p, top_k, ...)
+# keep_alive    how long Ollama keeps the model loaded between requests
+# think         true/false to force thinking on or off for hybrid models
+# translate_openai
+#               route OpenAI Chat Completions through native /api/chat so these
+#               settings apply. Ollama's /v1 endpoint ignores num_ctx, which
+#               silently truncates long agent conversations to the server default.
 
+defaults:
+  keep_alive: 30m
+  translate_openai: true
+  options:
+    # Coding agents send large system prompts and tool schemas. 64K is a good
+    # balance for 16-24 GB GPUs; raise it to 131072 if you have the memory.
+    num_ctx: 65536
+
+profiles:
+  # Qwen coder variants (qwen3-coder, qwen3.6:27b-coding, ...): Qwen's
+  # recommended non-thinking sampling for agentic coding.
+  - name: qwen-coder
+    match: ["qwen3*coder*", "qwen3*coding*"]
+    options:
+      temperature: 0.7
+      top_p: 0.8
+      top_k: 20
+      repeat_penalty: 1.05
+
+  # Qwen 3.x hybrid reasoning models (qwen3, qwen3.5, qwen3.6, qwen3.8, ...).
+  # These are Qwen's recommended thinking-mode sampling parameters.
+  - name: qwen3
+    match: ["qwen3*"]
+    options:
+      temperature: 0.6
+      top_p: 0.95
+      top_k: 20
+      min_p: 0
+
+# Friendly aliases. The key is the name agents use, ollama_model is the tag.
+models:
+  qwen-fast:
+    # Same weights with thinking disabled for quicker edit loops.
+    ollama_model: qwen3.6:35b
+    think: false
+    options:
+      temperature: 0.7
+      top_p: 0.8

@@ -4,5 +4,7 @@ __pycache__/
 .pytest_cache/
 .venv/
 logs/
+node_modules/
+ui/dist/
 benchmarks/results/*
 !benchmarks/results/.gitkeep
