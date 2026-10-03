@@ -237,3 +237,75 @@ def test_cpu_reading_reuses_value_for_back_to_back_calls(monkeypatch):
     monkeypatch.setattr(host_metrics, "_cpu_primed", False)
     assert host_metrics._cpu_percent() == 40.0
     assert host_metrics._cpu_percent() == 40.0  # too soon to measure again
+
+
+def test_cut_off_stream_estimates_tokens_and_is_flagged():
+    item = RequestTelemetry("s", "000001", "claude", "m", "b", "/anthropic/v1/messages", 10, estimated_input_tokens=900)
+    item.streaming = True
+    item.streamed_chunks = 2703
+    record = item.finish()
+    assert record["output_tokens"] == 2703 and record["input_tokens"] == 900
+    assert record["tokens_estimated"] is True
+    assert record["error_type"] == "incomplete_stream"
+
+
+def test_completed_stream_keeps_reported_counts():
+    item = RequestTelemetry("s", "000001", "qwen", "m", "b", "/v1/chat/completions", 10, estimated_input_tokens=900)
+    item.streaming = True
+    item.streamed_chunks = 50
+    item.apply_ollama_stats({"done": True, "prompt_eval_count": 120, "eval_count": 48})
+    record = item.finish()
+    assert (record["input_tokens"], record["output_tokens"], record["tokens_estimated"], record["error_type"]) == (120, 48, False, None)
+
+
+def test_anthropic_stream_forwards_reasoning_as_thinking_blocks():
+    from agent_proxy.translate import AnthropicStreamTranslator
+
+    translator = AnthropicStreamTranslator("qwen")
+    events = translator.start()
+    events += translator.feed({"message": {"thinking": "Let me "}})
+    events += translator.feed({"message": {"thinking": "think"}})
+    events += translator.feed({"message": {"content": "Answer"}})
+    events += translator.feed({"message": {"content": ""}, "done": True, "eval_count": 3})
+    events += translator.finish()
+    parsed = [json.loads(event.decode().split("data: ", 1)[1]) for event in events]
+    starts = [(event["index"], event["content_block"]["type"]) for event in parsed if event["type"] == "content_block_start"]
+    assert starts == [(0, "thinking"), (1, "text")]
+    deltas = [event["delta"] for event in parsed if event["type"] == "content_block_delta"]
+    assert deltas[0] == {"type": "thinking_delta", "thinking": "Let me "}
+    assert deltas[2]["type"] == "signature_delta"
+    assert deltas[3] == {"type": "text_delta", "text": "Answer"}
+    assert [event["index"] for event in parsed if event["type"] == "content_block_stop"] == [0, 1]
+    assert translator.ping().startswith(b"event: ping")
+
+
+async def test_keepalive_ticks_during_silence_without_losing_lines():
+    import asyncio
+
+    from agent_proxy.routes.compat import _keepalive
+
+    async def slow():
+        await asyncio.sleep(0.25)
+        yield "first"
+        yield "second"
+
+    items = [item async for item in _keepalive(slow(), interval=0.1)]
+    assert items.count(None) >= 1
+    assert [item for item in items if item is not None] == ["first", "second"]
+
+
+def test_live_summary_describes_agent_request_and_ollama_settings():
+    from agent_proxy.live import summarize
+
+    request = {
+        "model": "fast", "stream": True, "system": "You are Claude Code.",
+        "messages": [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "yo"}],
+        "tools": [{"name": "Read"}, {"type": "function", "function": {"name": "grep"}}],
+        "max_tokens": 32000,
+    }
+    upstream = {"model": "qwen3.6:35b", "think": False, "keep_alive": "30m", "options": {"num_ctx": 65536, "temperature": 0.7, "num_predict": 32000}}
+    summary = summarize(request, upstream)
+    assert summary["messages"] == 2 and summary["tools"] == 2 and summary["tool_names"] == ["Read", "grep"]
+    assert summary["system_chars"] == len("You are Claude Code.")
+    assert (summary["ollama_model"], summary["num_ctx"], summary["temperature"], summary["think"]) == ("qwen3.6:35b", 65536, 0.7, False)
+    assert summary["translated"] is True

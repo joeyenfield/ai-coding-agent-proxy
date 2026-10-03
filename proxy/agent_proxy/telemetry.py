@@ -30,12 +30,25 @@ class RequestTelemetry:
     generation_ms: float | None = None
     status: int = 200
     error_type: str | None = None
+    # Ollama reports token counts only in a stream's final chunk. If the stream
+    # stops early these let finish() estimate the counts instead of reporting 0.
+    streaming: bool = False
+    completed: bool = False
+    streamed_chunks: int = 0
+    estimated_input_tokens: int | None = None
 
     def saw_content(self) -> None:
         if self.first_token is None:
             self.first_token = time.perf_counter()
 
     def apply_ollama_stats(self, obj: dict[str, Any]) -> None:
+        if (
+            obj.get("done") is True
+            or obj.get("type") in {"response.completed", "message_stop"}
+            or obj.get("usage")
+            or any(isinstance(choice, dict) and choice.get("finish_reason") for choice in obj.get("choices") or [])
+        ):
+            self.completed = True
         self.input_tokens = int(obj.get("prompt_eval_count") or self.input_tokens or 0)
         self.output_tokens = int(obj.get("eval_count") or self.output_tokens or 0)
         if obj.get("prompt_eval_duration") is not None:
@@ -49,6 +62,16 @@ class RequestTelemetry:
     def finish(self) -> dict[str, Any]:
         total_ms = (time.perf_counter() - self.started) * 1000
         ttft_ms = ((self.first_token - self.started) * 1000) if self.first_token else None
+        if self.streaming and not self.completed and self.error_type is None:
+            self.error_type = "incomplete_stream"
+        estimated = False
+        if self.output_tokens == 0 and self.streamed_chunks:
+            # Ollama streams roughly one token per chunk.
+            self.output_tokens = self.streamed_chunks
+            estimated = True
+        if self.input_tokens == 0 and self.estimated_input_tokens and (estimated or not self.completed):
+            self.input_tokens = self.estimated_input_tokens
+            estimated = True
         # Backend timings win. OpenAI-compatible Ollama responses sometimes only
         # include counts, so retain useful wall-clock rates as a fallback.
         prompt_ms = self.prompt_eval_ms if self.prompt_eval_ms is not None else ttft_ms
@@ -69,6 +92,7 @@ class RequestTelemetry:
             "response_bytes": self.response_bytes,
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
+            "tokens_estimated": estimated,
             "ttft_ms": _round(ttft_ms),
             "prompt_eval_ms": _round(prompt_ms),
             "generation_ms": _round(generation_ms),

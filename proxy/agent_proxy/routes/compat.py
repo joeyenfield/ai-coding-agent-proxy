@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any, AsyncIterator, Callable
@@ -118,6 +119,7 @@ async def _native_chat(
     telemetry = _telemetry(session, request_id, request.url.path, raw, ollama_payload, original.get("model", ""))
     telemetry.backend = backend.name
     runtime.track(telemetry)
+    runtime.attach(telemetry, original, ollama_payload)
     assert runtime.client
     try:
         upstream = await runtime.client.send(
@@ -161,11 +163,18 @@ async def _translated_stream(
     translator: Any,
 ) -> AsyncIterator[bytes]:
     collected: list[dict[str, Any]] = []
+    telemetry.streaming = True
     try:
         for event in translator.start():
             telemetry.response_bytes += len(event)
             yield event
-        async for line in upstream.aiter_lines():
+        async for line in _keepalive(upstream.aiter_lines()):
+            if line is None:
+                # Ollama is still evaluating the prompt; keep the agent from timing out.
+                event = translator.ping()
+                telemetry.response_bytes += len(event)
+                yield event
+                continue
             obj = parse_json_line(line.encode())
             if not obj:
                 continue
@@ -183,6 +192,10 @@ async def _translated_stream(
         for event in translator.finish():
             telemetry.response_bytes += len(event)
             yield event
+    except (asyncio.CancelledError, GeneratorExit):
+        telemetry.error_type = "client_closed"
+        LOGGER.info("client closed stream session=%s request=%s", session.session_id, telemetry.request_id)
+        raise
     except Exception as exc:
         telemetry.error_type = type(exc).__name__
         LOGGER.exception("stream failed session=%s request=%s", session.session_id, telemetry.request_id)
@@ -190,6 +203,36 @@ async def _translated_stream(
     finally:
         await upstream.aclose()
         runtime.complete(session, telemetry, original, collected, ollama_payload)
+
+
+KEEPALIVE_SECONDS = 10.0
+
+
+async def _keepalive(lines: AsyncIterator[str], interval: float = KEEPALIVE_SECONDS) -> AsyncIterator[str | None]:
+    """Yield upstream lines, or None after each interval of silence.
+
+    The pending read is never cancelled by a tick, so no upstream data is lost.
+    """
+    iterator = lines.__aiter__()
+    pending: asyncio.Future[str] | None = None
+    try:
+        while True:
+            if pending is None:
+                pending = asyncio.ensure_future(iterator.__anext__())
+            done, _ = await asyncio.wait({pending}, timeout=interval)
+            if not done:
+                yield None
+                continue
+            try:
+                line = pending.result()
+            except StopAsyncIteration:
+                return
+            finally:
+                pending = None
+            yield line
+    finally:
+        if pending is not None:
+            pending.cancel()
 
 
 async def _forward(
@@ -217,6 +260,7 @@ async def _forward(
     telemetry = _telemetry(session, request_id, request.url.path, body, payload, model)
     telemetry.backend = backend.name
     runtime.track(telemetry)
+    runtime.attach(telemetry, original_payload, payload if payload != original_payload else None)
     assert runtime.client
     try:
         upstream = await runtime.client.send(
@@ -275,17 +319,30 @@ async def _stream_upstream(
                 telemetry.saw_content()
             runtime.stream_object(telemetry, obj)
 
+    telemetry.streaming = True
+    is_sse = "event-stream" in upstream.headers.get("content-type", "")
+    at_event_boundary = True
     try:
-        async for chunk in upstream.aiter_bytes():
+        async for chunk in _keepalive(upstream.aiter_bytes()):
+            if chunk is None:
+                # SSE comments are ignored by clients; only insert one between events.
+                if is_sse and at_event_boundary:
+                    yield b": keep-alive\n\n"
+                continue
             telemetry.response_bytes += len(chunk)
             buffer += chunk
             while b"\n" in buffer:
                 line, buffer = buffer.split(b"\n", 1)
                 consume(line)
             runtime.progress(telemetry)
+            at_event_boundary = chunk.endswith(b"\n\n")
             yield chunk
         if buffer:
             consume(buffer)
+    except (asyncio.CancelledError, GeneratorExit):
+        telemetry.error_type = "client_closed"
+        LOGGER.info("client closed stream session=%s request=%s", session.session_id, telemetry.request_id)
+        raise
     except Exception as exc:
         telemetry.error_type = type(exc).__name__
         LOGGER.exception("stream failed session=%s request=%s", session.session_id, telemetry.request_id)
@@ -331,6 +388,7 @@ def _telemetry(session: Session, request_id: str, endpoint: str, body: bytes, pa
         model=model, backend=session.backend, endpoint=endpoint, request_bytes=len(body),
         context_size=options.get("num_ctx"), temperature=payload.get("temperature", options.get("temperature")),
         max_output_tokens=payload.get("max_tokens", options.get("num_predict")),
+        estimated_input_tokens=estimate_tokens(payload) if any(key in payload for key in ("messages", "input", "prompt")) else None,
     )
 
 

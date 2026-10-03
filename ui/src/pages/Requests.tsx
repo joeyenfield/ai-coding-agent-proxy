@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { isFailure, requestKey, type RequestRecord } from "../api";
+import { isFailure, outcomeLabel, requestKey, tokens, type RequestRecord } from "../api";
 import { Inspector } from "../components/Inspector";
 import { endpointPath, formatDuration, formatNumber, formatRelative, shortId } from "../format";
 import { useRequests, useSessions } from "../hooks";
@@ -154,7 +154,7 @@ function Row({ record, selected, onSelect }: { record: RequestRecord; selected: 
           >
             {record.model || "Unknown model"}
           </button>
-          {failed ? <span className="pill bad">Failed {record.status}</span> : record.trace_available && <span className="pill">Payload</span>}
+          {failed ? <span className="pill bad">{outcomeLabel(record)}</span> : record.trace_available && <span className="pill">Payload</span>}
         </span>
         <small className="mono">
           #{record.request_id} {endpointPath(record.endpoint)}
@@ -169,7 +169,7 @@ function Row({ record, selected, onSelect }: { record: RequestRecord; selected: 
         <small>{formatRelative(record.timestamp)}</small>
       </td>
       <td className="num nowrap">
-        {formatNumber(record.output_tokens)} tok
+        {tokens(record, record.output_tokens)} tok
         <small>{record.generation_tps == null ? "–" : `${formatNumber(record.generation_tps)}/s`}</small>
       </td>
     </tr>

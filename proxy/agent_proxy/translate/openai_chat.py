@@ -114,6 +114,10 @@ class OpenAIStreamTranslator:
     def start(self) -> list[bytes]:
         return []
 
+    def ping(self) -> bytes:
+        # SSE comment: ignored by clients, but keeps idle connections open.
+        return b": keep-alive\n\n"
+
     def finish(self) -> list[bytes]:
         if self.finished:
             return []

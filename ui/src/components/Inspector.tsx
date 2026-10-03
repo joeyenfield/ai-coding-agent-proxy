@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, isFailure, type RequestRecord, type Session, type Trace } from "../api";
+import { api, isFailure, outcomeLabel, tokens, type RequestRecord, type Session, type Trace } from "../api";
 import { endpointPath, formatBytes, formatDate, formatDuration, formatNumber } from "../format";
 import { download, useClipboard, useToast } from "../hooks";
 
@@ -53,7 +53,7 @@ function InspectorBody({
           <p className="mono subtle">{endpointPath(record.endpoint)}</p>
         </div>
         <div className="row">
-          <span className={`pill ${failed ? "bad" : "good"}`}>{failed ? `Failed ${record.status}` : record.status}</span>
+          <span className={`pill ${failed ? "bad" : "good"}`}>{failed ? outcomeLabel(record) : record.status}</span>
           <button type="button" onClick={() => onFullscreen(!fullscreen)}>
             {fullscreen ? "Exit full screen" : "Full screen"}
           </button>
@@ -62,11 +62,14 @@ function InspectorBody({
       <dl className="metrics">
         <Metric label="Total time" value={formatDuration(record.total_ms)} />
         <Metric label="First token" value={formatDuration(record.ttft_ms)} />
-        <Metric label="Prompt" value={`${formatNumber(record.input_tokens)} tok, ${formatNumber(record.prompt_tps)}/s`} />
-        <Metric label="Output" value={`${formatNumber(record.output_tokens)} tok, ${formatNumber(record.generation_tps)}/s`} />
+        <Metric label="Prompt" value={`${tokens(record, record.input_tokens)} tok, ${formatNumber(record.prompt_tps)}/s`} />
+        <Metric label="Output" value={`${tokens(record, record.output_tokens)} tok, ${formatNumber(record.generation_tps)}/s`} />
         <Metric label="Context" value={record.context_size ? formatNumber(record.context_size) : "server default"} />
         <Metric label="Payload" value={`${formatBytes(record.request_bytes)} in, ${formatBytes(record.response_bytes)} out`} />
       </dl>
+      {(record.tokens_estimated || record.error_type === "client_closed" || record.error_type === "incomplete_stream") && (
+        <p className="inspector-note">{outcomeNote(record)}</p>
+      )}
       {!record.trace_available ? (
         <Untraced record={record} session={session} />
       ) : trace.isPending ? (
@@ -185,7 +188,7 @@ const TAB_LABELS: Record<Tab, string> = {
   metadata: "Metadata",
 };
 
-function Conversation({ trace }: { trace: Trace }) {
+export function Conversation({ trace }: { trace: Trace }) {
   const [collapsed, setCollapsed] = useState(false);
   const entries = conversationEntries(trace);
   if (!entries.length) return <p className="empty">This trace has no message content.</p>;
@@ -262,7 +265,8 @@ function conversationEntries(trace: Trace): Entry[] {
       if (event.type === "response.output_item.done" && event.item?.type === "function_call") add("Tool call", event.item, "tool");
       for (const choice of event.choices ?? []) if (choice.delta?.tool_calls) add("Tool call", choice.delta.tool_calls, "tool");
     }
-    if (!text && !entries.some((entry) => entry.kind === "tool")) add("Response events", response, "other");
+    // Fall back to the raw events only when there is nothing readable to show.
+    if (!text && !thinking && !entries.some((entry) => entry.kind === "tool")) add("Response events", response, "other");
   } else if (response) {
     const message = response.choices?.[0]?.message ?? response.message;
     if (message?.reasoning_content || message?.thinking) add("Reasoning", message.reasoning_content ?? message.thinking, "reasoning");
@@ -290,3 +294,16 @@ function kindOf(role: string): Entry["kind"] {
 }
 
 const titleCase = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
+
+function outcomeNote(record: RequestRecord) {
+  const reason =
+    record.error_type === "client_closed"
+      ? "The agent disconnected before the reply finished, often because it timed out waiting."
+      : record.error_type === "incomplete_stream"
+        ? "The stream from Ollama ended before it finished."
+        : "";
+  const estimate = record.tokens_estimated
+    ? " Ollama only reports token counts at the end of a reply, so these counts are estimated from the streamed chunks and prompt size."
+    : "";
+  return `${reason}${estimate}`.trim();
+}

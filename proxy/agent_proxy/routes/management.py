@@ -166,6 +166,14 @@ def register(app: FastAPI, runtime: Runtime) -> None:
 
         return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
+    @app.get("/api/live/{session_id}/{request_id}")
+    async def live_details(session_id: str, request_id: str) -> dict[str, Any]:
+        """Payloads and the latest raw chunks for one live or recently finished request."""
+        details = runtime.live.details(f"{session_id}:{request_id}")
+        if details is None:
+            raise HTTPException(status_code=404, detail="This request is no longer in the live view. Find it in the request history.")
+        return details
+
     @app.get("/api/agents")
     async def list_agents() -> list[dict[str, Any]]:
         try:

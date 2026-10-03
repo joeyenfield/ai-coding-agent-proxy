@@ -3,6 +3,23 @@ import type { RequestRecord } from "./api";
 
 export type DeltaKind = "reasoning" | "content" | "tool";
 
+export interface LiveSummary {
+  messages: number | null;
+  tools: number;
+  tool_names: string[];
+  system_chars: number;
+  stream: boolean;
+  ollama_model: string | null;
+  num_ctx: number | null;
+  num_predict: number | null;
+  temperature: number | null;
+  top_p: number | null;
+  top_k: number | null;
+  think: boolean | string | null;
+  keep_alive: string | number | null;
+  translated: boolean;
+}
+
 export interface LiveRequest {
   key: string;
   session_id: string;
@@ -17,6 +34,7 @@ export interface LiveRequest {
   content: string;
   tool: string;
   chunks: Record<DeltaKind, number>;
+  summary: LiveSummary | null;
   done: boolean;
   ended_at?: number;
   record?: RequestRecord;
@@ -74,6 +92,13 @@ export function useLive(sessionId?: string): LiveState {
     source.addEventListener("start", (event) => {
       const { request } = JSON.parse((event as MessageEvent).data) as { request: LiveRequest };
       store.current.active.set(request.key, hydrate(request));
+      publish();
+    });
+    source.addEventListener("summary", (event) => {
+      const { key, summary } = JSON.parse((event as MessageEvent).data) as { key: string; summary: LiveSummary };
+      const entry = store.current.active.get(key);
+      if (!entry) return;
+      store.current.active.set(key, { ...entry, summary });
       publish();
     });
     source.addEventListener("delta", (event) => {

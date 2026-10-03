@@ -85,6 +85,8 @@ def anthropic_to_ollama(payload: dict[str, Any], profile: ModelProfile) -> dict[
 def ollama_to_anthropic(data: dict[str, Any], model: str) -> dict[str, Any]:
     message = data.get("message", {})
     content: list[dict[str, Any]] = []
+    if message.get("thinking"):
+        content.append({"type": "thinking", "thinking": message["thinking"], "signature": THINKING_SIGNATURE})
     if message.get("content"):
         content.append({"type": "text", "text": message["content"]})
     for call in message.get("tool_calls") or []:
@@ -115,12 +117,17 @@ def stop_reason(data: dict[str, Any], used_tool: bool) -> str:
 
 
 class AnthropicStreamTranslator:
-    """Convert native Ollama stream objects into Anthropic Messages SSE events."""
+    """Convert native Ollama stream objects into Anthropic Messages SSE events.
+
+    Reasoning is forwarded as thinking blocks so agents see progress while the
+    model thinks; otherwise a long reasoning phase looks like a stalled request.
+    """
 
     def __init__(self, model: str):
         self.model = model
         self.message_id = f"msg_{uuid.uuid4().hex}"
-        self.next_index = 1
+        self.next_index = 0
+        self.open_block: str | None = None
         self.used_tool = False
         self.last: dict[str, Any] = {}
 
@@ -130,10 +137,10 @@ class AnthropicStreamTranslator:
             "content": [], "stop_reason": None, "stop_sequence": None,
             "usage": {"input_tokens": 0, "output_tokens": 0},
         }
-        return [
-            _sse("message_start", {"type": "message_start", "message": message}),
-            _sse("content_block_start", {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}),
-        ]
+        return [_sse("message_start", {"type": "message_start", "message": message})]
+
+    def ping(self) -> bytes:
+        return _sse("ping", {"type": "ping"})
 
     def feed(self, obj: dict[str, Any]) -> list[bytes]:
         self.last = obj
@@ -141,13 +148,15 @@ class AnthropicStreamTranslator:
             return [_sse("error", {"type": "error", "error": {"type": "api_error", "message": str(obj["error"])}})]
         events: list[bytes] = []
         message = obj.get("message") or {}
+        if message.get("thinking"):
+            events += self._open("thinking")
+            events.append(self._delta({"type": "thinking_delta", "thinking": message["thinking"]}))
         if message.get("content"):
-            events.append(_sse("content_block_delta", {
-                "type": "content_block_delta", "index": 0,
-                "delta": {"type": "text_delta", "text": message["content"]},
-            }))
+            events += self._open("text")
+            events.append(self._delta({"type": "text_delta", "text": message["content"]}))
         for call in message.get("tool_calls") or []:
             self.used_tool = True
+            events += self._close()
             index = self.next_index
             self.next_index += 1
             function = call.get("function", {})
@@ -164,8 +173,11 @@ class AnthropicStreamTranslator:
         return events
 
     def finish(self) -> list[bytes]:
-        return [
-            _sse("content_block_stop", {"type": "content_block_stop", "index": 0}),
+        events = self._close()
+        if self.next_index == 0:
+            # Always return at least one content block.
+            events += self._open("text") + self._close()
+        return events + [
             _sse("message_delta", {
                 "type": "message_delta",
                 "delta": {"stop_reason": stop_reason(self.last, self.used_tool), "stop_sequence": None},
@@ -177,10 +189,38 @@ class AnthropicStreamTranslator:
             _sse("message_stop", {"type": "message_stop"}),
         ]
 
+    def _open(self, kind: str) -> list[bytes]:
+        if self.open_block == kind:
+            return []
+        events = self._close()
+        self.open_block = kind
+        block = {"type": "thinking", "thinking": ""} if kind == "thinking" else {"type": "text", "text": ""}
+        events.append(_sse("content_block_start", {"type": "content_block_start", "index": self.next_index, "content_block": block}))
+        return events
+
+    def _delta(self, delta: dict[str, Any]) -> bytes:
+        return _sse("content_block_delta", {"type": "content_block_delta", "index": self.next_index, "delta": delta})
+
+    def _close(self) -> list[bytes]:
+        if self.open_block is None:
+            return []
+        events = []
+        if self.open_block == "thinking":
+            events.append(self._delta({"type": "signature_delta", "signature": THINKING_SIGNATURE}))
+        events.append(_sse("content_block_stop", {"type": "content_block_stop", "index": self.next_index}))
+        self.open_block = None
+        self.next_index += 1
+        return events
+
+
+# Anthropic signs thinking blocks so they can be verified when sent back. Local
+# models have nothing to sign; the proxy ignores thinking blocks on the way in.
+THINKING_SIGNATURE = "agent-proxy-local"
+
 
 def estimate_tokens(payload: dict[str, Any]) -> int:
     """Rough count for /v1/messages/count_tokens; Ollama has no tokenizer endpoint."""
-    text = json.dumps({key: payload.get(key) for key in ("system", "messages", "tools")}, ensure_ascii=False)
+    text = json.dumps({key: payload.get(key) for key in ("system", "messages", "tools", "input", "prompt")}, ensure_ascii=False)
     return max(1, len(text) // 4)
 
 
