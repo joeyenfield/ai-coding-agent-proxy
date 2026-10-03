@@ -1,0 +1,122 @@
+# Coding agents the launcher and dashboard know how to connect to the proxy.
+#
+# Every request an agent makes is routed through a proxy session. Strings in
+# env and args are templates; available placeholders:
+#
+#   {openai_url}     http://proxy/session/<id>/v1          OpenAI Chat / Responses
+#   {anthropic_url}  http://proxy/session/<id>/anthropic   Anthropic Messages
+#   {ollama_url}     http://proxy/session/<id>             native Ollama (/api/...)
+#   {model} {session_id} {proxy_url} {project}
+#
+# An env value written as a YAML mapping or list is rendered and passed as JSON.
+# protocol: openai-chat | openai-responses | anthropic | ollama
+
+agents:
+  qwen:
+    name: Qwen Code
+    executable: qwen
+    protocol: openai-chat
+    description: Alibaba's terminal agent, tuned for the Qwen tool-calling format.
+    install: npm install -g @qwen-code/qwen-code
+    homepage: https://github.com/QwenLM/qwen-code
+    recommended_for: [qwen]
+    env:
+      OPENAI_BASE_URL: "{openai_url}"
+      OPENAI_API_KEY: local-ollama
+      OPENAI_MODEL: "{model}"
+    args: [--auth-type, openai, --model, "{model}"]
+
+  opencode:
+    name: OpenCode
+    executable: opencode
+    protocol: openai-chat
+    description: Open-source terminal agent with first-class support for local providers.
+    install: npm install -g opencode-ai
+    homepage: https://opencode.ai
+    recommended_for: [qwen, gpt-oss, devstral]
+    env:
+      OPENCODE_CONFIG_CONTENT:
+        $schema: https://opencode.ai/config.json
+        model: "agent-proxy/{model}"
+        provider:
+          agent-proxy:
+            npm: "@ai-sdk/openai-compatible"
+            name: AI Proxy (Ollama)
+            options:
+              baseURL: "{openai_url}"
+              apiKey: local-ollama
+            models:
+              "{model}":
+                name: "{model}"
+                tool_call: true
+    args: [--model, "agent-proxy/{model}"]
+
+  copilot:
+    name: GitHub Copilot CLI
+    executable: copilot
+    protocol: openai-chat
+    description: GitHub's terminal agent, using bring-your-own-model mode.
+    install: npm install -g @github/copilot
+    homepage: https://docs.github.com/copilot/how-tos/copilot-cli/customize-copilot/use-byok-models
+    env:
+      COPILOT_PROVIDER_TYPE: openai
+      COPILOT_PROVIDER_BASE_URL: "{openai_url}"
+      COPILOT_PROVIDER_API_KEY: local-ollama
+      COPILOT_MODEL: "{model}"
+      COPILOT_OFFLINE: "true"
+    notes: COPILOT_OFFLINE stops the CLI from contacting GitHub. Remove it to keep GitHub sign-in features.
+
+  claude:
+    name: Claude Code
+    executable: claude
+    protocol: anthropic
+    description: Anthropic's agent, translated from the Messages API to Ollama by the proxy.
+    install: npm install -g @anthropic-ai/claude-code
+    homepage: https://docs.anthropic.com/claude-code
+    env:
+      ANTHROPIC_BASE_URL: "{anthropic_url}"
+      ANTHROPIC_AUTH_TOKEN: local-ollama
+      ANTHROPIC_API_KEY: ""
+      ANTHROPIC_MODEL: "{model}"
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: "{model}"
+      ANTHROPIC_DEFAULT_SONNET_MODEL: "{model}"
+      ANTHROPIC_DEFAULT_OPUS_MODEL: "{model}"
+      CLAUDE_CODE_SUBAGENT_MODEL: "{model}"
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+    args: [--model, "{model}"]
+
+  codex:
+    name: OpenAI Codex CLI
+    executable: codex
+    protocol: openai-responses
+    description: OpenAI's agent in --oss mode. Uses the Responses API, passed through to Ollama.
+    install: npm install -g @openai/codex
+    homepage: https://github.com/openai/codex
+    env:
+      CODEX_OSS_BASE_URL: "{openai_url}"
+    args: [--oss, -m, "{model}"]
+    notes: The Responses API is passed through unchanged, so set OLLAMA_CONTEXT_LENGTH on the Ollama server for a larger context.
+
+  aider:
+    name: Aider
+    executable: aider
+    protocol: ollama
+    description: Pair-programming agent that talks to Ollama's native chat API.
+    install: python -m pip install aider-install && aider-install
+    homepage: https://aider.chat
+    env:
+      OLLAMA_API_BASE: "{ollama_url}"
+    args: [--model, "ollama_chat/{model}"]
+
+  goose:
+    name: Goose
+    executable: goose
+    protocol: ollama
+    description: Block's extensible open-source agent.
+    install: See https://block.github.io/goose/docs/getting-started/installation
+    homepage: https://block.github.io/goose
+    env:
+      GOOSE_PROVIDER: ollama
+      OLLAMA_HOST: "{ollama_url}"
+      GOOSE_MODEL: "{model}"
+    args: [session]
