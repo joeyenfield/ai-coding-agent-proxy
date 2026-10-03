@@ -44,6 +44,8 @@ The proxy uses the configured address and its dashboard displays active work and
 
 ### Review requests and responses
 
+Use the dashboard's **Theme** selector to choose **System**, **Light**, or **Dark**. The selection is saved in your browser; **System** follows changes to the operating-system appearance.
+
 Open **Requests** to search the saved history or filter by session, captured traces, or errors. Select a request to inspect its timing, token counts, and status. History is paginated without the previous 100-request limit.
 
 For requests with a captured trace, the inspector has **Request**, **Response**, **Conversation**, and **Metadata** tabs. The JSON tabs display the complete captured payloads, including all saved streaming events, without truncation. Use wrapping, copying, individual payload downloads, or **Full trace** to export the entire capture. Conversation is a readable view; the JSON tabs remain the authoritative captured data.

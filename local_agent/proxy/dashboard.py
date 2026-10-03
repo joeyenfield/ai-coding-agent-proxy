@@ -4,6 +4,9 @@ UI_HTML = r'''<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AI Proxy | Request Review</title>
+<script>
+try {const theme = localStorage.getItem('ai-proxy-theme') || 'system'; document.documentElement.dataset.theme = theme === 'system' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme;} catch {document.documentElement.dataset.theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';}
+</script>
 <style>
 :root{color-scheme:light;--ink:#202726;--muted:#66716e;--line:#dbe2df;--paper:#fff;--wash:#f4f7f6;--accent:#087c68;--soft:#e7f4ef;--error:#ae3535;--warn:#89600d;font-family:"IBM Plex Sans","Segoe UI",sans-serif;color:var(--ink);background:var(--wash);letter-spacing:0}
 *{box-sizing:border-box}body{margin:0}button,input,select{font:inherit}button,a,input,select{touch-action:manipulation}button{cursor:pointer}button:disabled{cursor:default;opacity:.45}button,input,select{border:1px solid var(--line);border-radius:4px;background:var(--paper);color:var(--ink);min-height:36px;padding:7px 11px}button:hover:not(:disabled){border-color:var(--accent);background:var(--soft)}button.primary{background:var(--accent);border-color:var(--accent);color:white}input,select{min-width:0;max-width:100%}input[type=checkbox]{min-height:0;accent-color:var(--accent)}a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}:focus-visible{outline:2px solid var(--accent);outline-offset:3px}h1,h2,h3,p{margin:0}h1{font-size:21px;font-weight:650}h2{font-size:18px;font-weight:600}h3{font-size:14px;font-weight:600}.muted{color:var(--muted)}.mono,pre,code{font-family:"IBM Plex Mono","DejaVu Sans Mono",monospace}.mono,code{font-size:12px;overflow-wrap:anywhere}.ok{color:var(--accent)}.warn{color:var(--warn)}.error{color:var(--error)}[hidden]{display:none!important}
@@ -15,11 +18,13 @@ main{padding:22px 28px;max-width:1800px;margin:auto}.summary{display:grid;grid-t
 .conversation-entry summary{cursor:pointer;color:var(--accent);font-size:11px;padding:5px 0}.conversation-entry summary h3{display:inline;margin:0}.conversation-entry[open] summary{margin-bottom:8px}
 body.request-focused{overflow:hidden}#request-fullscreen{margin:0;padding:0;border:0;width:100%;height:100dvh;max-width:none;max-height:none;background:var(--paper);color:var(--ink)}#request-fullscreen .inspector{position:static;display:flex;flex-direction:column;width:100%;height:100%;border:0;border-radius:0}#request-fullscreen #inspector-body{display:flex;flex-direction:column;flex:1;min-height:0;overflow:auto}#request-fullscreen .payload-area{flex:1;min-height:0;max-height:none}#request-fullscreen .inspector-head,#request-fullscreen .metrics,#request-fullscreen .tabs,#request-fullscreen .payload-toolbar,#request-fullscreen .inspector-footer{flex-shrink:0}
 .session-controls{flex-wrap:wrap;white-space:normal}.danger{color:var(--error);border-color:#e2baba}.danger:hover:not(:disabled){background:#fcebec;border-color:var(--error)}.confirmation{width:min(480px,calc(100% - 32px));max-height:calc(100dvh - 32px);padding:24px;border:1px solid var(--line);border-radius:6px;background:var(--paper);color:var(--ink)}.confirmation::backdrop{background:rgba(20,30,25,.45)}.confirmation p{margin:14px 0;font-size:13px;line-height:1.6}.confirmation .actions{justify-content:flex-end;margin-top:20px}.confirmation .mono{font-size:11px}
+:root[data-theme=dark]{color-scheme:dark;--ink:#e5eae7;--muted:#a1ada6;--line:#39413d;--paper:#202522;--wash:#181c19;--accent:#70d9b7;--soft:#243c32;--error:#ffa4a4;--warn:#e9c476}:root[data-theme=dark] tbody tr:hover td{background:#2d3630}:root[data-theme=dark] .badge{background:#343e37}:root[data-theme=dark] .badge.traced{background:var(--soft)}:root[data-theme=dark] .badge.failed,:root[data-theme=dark] .danger:hover:not(:disabled){background:#4b2b2c}:root[data-theme=dark] .payload-toolbar{background:#252c27}:root[data-theme=dark] .danger{border-color:#765153}:root[data-theme=dark] button.primary{color:#14241c}:root[data-theme=dark] .brand-mark{color:var(--paper)}.theme-control{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+:root[data-theme=dark] .flash{color:var(--paper)}
 </style>
 </head>
 <body>
 <header>
-  <div class="topbar"><div class="brand"><div class="brand-mark" aria-hidden="true">AI</div><h1>AI Proxy</h1></div><div class="connection" id="connection"><span class="dot"></span><span id="connection-text">Connecting</span></div></div>
+  <div class="topbar"><div class="brand"><div class="brand-mark" aria-hidden="true">AI</div><h1>AI Proxy</h1></div><div class="actions"><div class="connection" id="connection"><span class="dot"></span><span id="connection-text">Connecting</span></div><label class="theme-control">Theme<select id="theme"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label></div></div>
   <nav class="navigation" role="tablist" aria-label="Workspace"><button id="nav-requests" role="tab" aria-selected="true" aria-controls="view-requests" data-view="requests">Requests</button><button id="nav-sessions" role="tab" aria-selected="false" aria-controls="view-sessions" data-view="sessions">Sessions</button><button id="nav-settings" role="tab" aria-selected="false" aria-controls="view-settings" data-view="settings">Settings</button></nav>
 </header>
 <main>
@@ -51,6 +56,13 @@ body.request-focused{overflow:hidden}#request-fullscreen{margin:0;padding:0;bord
 <div id="flash" class="flash" role="status" hidden></div>
 <script>
 const $ = selector => document.querySelector(selector);
+const systemTheme = matchMedia('(prefers-color-scheme: dark)');
+function applyTheme() {document.documentElement.dataset.theme = $('#theme').value === 'system' ? (systemTheme.matches ? 'dark' : 'light') : $('#theme').value;}
+try {$('#theme').value = localStorage.getItem('ai-proxy-theme') || 'system';} catch {}
+if (!$('#theme').value) $('#theme').value = 'system';
+applyTheme();
+$('#theme').onchange = () => {applyTheme(); try {localStorage.setItem('ai-proxy-theme', $('#theme').value);} catch {}};
+systemTheme.addEventListener('change', applyTheme);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
 const format = value => value == null ? '-' : Number(value).toLocaleString(undefined, {maximumFractionDigits:1});
 const date = value => value ? new Date(value).toLocaleString() : '-';
