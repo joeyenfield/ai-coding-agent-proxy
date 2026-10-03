@@ -114,9 +114,19 @@ Codex uses the Responses API, which is passed through unchanged. Set `OLLAMA_CON
 
 The **Live** page streams every in-flight request token by token, with reasoning, the reply and tool calls in separate panes. It shows the current phase (waiting, thinking, writing or calling tools), time to first token, a running token count and live tokens per second. Finished requests stay on the page for a while so you can read the end of the output.
 
+Each card also lists what the agent asked for: endpoint, message and tool counts, the tools offered, system prompt size, and the Ollama settings the proxy applied (model, context, max output, temperature, thinking). Open **Request, payload sent to Ollama and raw stream** for:
+
+- **Conversation:** the messages, reasoning and reply so far.
+- **Request:** the exact JSON the agent sent.
+- **Sent to Ollama:** the payload after translation and model profiles.
+- **Raw stream:** the latest 200 chunks from Ollama, updating while the request runs.
+- **Metadata.**
+
+Payloads are fetched only while that panel is open.
+
 ![Live page with Qwen reasoning streaming on the laptop](docs/screenshots/live.png)
 
-Live text is held in memory only and never written to disk; saved payloads still follow each session's capture setting. Set `AI_PROXY_LIVE=0` to stream token counts without the text.
+Live text and payloads are held in memory only and never written to disk; saved payloads still follow each session's capture setting. Set `AI_PROXY_LIVE=0` to stream token counts without the text.
 
 ### One session at a time
 
@@ -192,6 +202,7 @@ Management, used by the UI and launcher (interactive docs at `/docs`):
 | `GET /api/sessions/{id}/telemetry`, `.../traces/{request}` | JSONL telemetry and captured payloads |
 | `GET /api/agents`, `POST /api/agents/{id}/sessions` | Agent registry; open a session and get its environment |
 | `GET /api/models` | Models per backend with loaded state and applied profile |
+| `GET /api/live/{session}/{request}` | Payloads and latest raw chunks for one live or recently finished request |
 | `GET /api/live[?session_id=]` | Server-sent events: snapshot, then start, delta and end events for streamed requests, optionally for one session |
 | `GET /api/hosts/{backend}` | Loaded models, machine load and traffic for one backend, sampled now |
 | `GET /api/host/metrics` | CPU, memory and GPU usage of this machine (also served by `agent-metrics`) |

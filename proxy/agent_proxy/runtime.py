@@ -124,9 +124,17 @@ class Runtime:
         }
         self.live.start(_key(telemetry), telemetry)
 
+    def attach(self, telemetry: RequestTelemetry, request: Any, upstream: Any = None) -> None:
+        """Give the live view the agent's request and the payload sent to Ollama."""
+        self.live.attach(_key(telemetry), request, upstream)
+
     def stream_object(self, telemetry: RequestTelemetry, obj: dict[str, Any]) -> None:
         """Publish the text in one streamed object to live subscribers."""
-        for kind, text in stream_deltas(obj):
+        self.live.raw(_key(telemetry), obj)
+        deltas = stream_deltas(obj)
+        if deltas:
+            telemetry.streamed_chunks += 1
+        for kind, text in deltas:
             self.live.delta(_key(telemetry), kind, text)
 
     def progress(self, telemetry: RequestTelemetry) -> None:

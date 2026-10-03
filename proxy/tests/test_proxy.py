@@ -316,9 +316,15 @@ def test_live_hub_streams_reasoning_and_content_while_request_runs(tmp_path):
         events = []
         while not queue.empty():
             events.append(queue.get_nowait())
-        assert [event["type"] for event in events] == ["start", "delta", "delta", "end"]
-        assert (events[1]["kind"], events[1]["text"]) == ("reasoning", "Let me think")
-        assert (events[2]["kind"], events[2]["text"]) == ("content", "Answer")
+        assert [event["type"] for event in events] == ["start", "summary", "delta", "delta", "end"]
+        assert events[1]["summary"]["translated"] is True
+        assert (events[2]["kind"], events[2]["text"]) == ("reasoning", "Let me think")
+        assert (events[3]["kind"], events[3]["text"]) == ("content", "Answer")
+        details = client.get(f"/api/live/{session['session_id']}/000001").json()
+        assert details["request"] == {"model": "m", "stream": True, "messages": []}
+        assert details["upstream"]["messages"] == []
+        assert details["raw_total"] == 3 and details["raw"][0]["message"]["thinking"] == "Let me think"
+        assert client.get(f"/api/live/{session['session_id']}/000099").status_code == 404
         snapshot = hub.snapshot()
         assert snapshot["active"] == []
         assert snapshot["recent"][0]["reasoning"] == "Let me think"

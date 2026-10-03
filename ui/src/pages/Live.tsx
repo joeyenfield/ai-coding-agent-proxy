@@ -1,7 +1,8 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { requestKey } from "../api";
-import { formatDuration, formatNumber, formatRelative } from "../format";
+import { endpointPath, formatDuration, formatNumber, formatRelative, shortId } from "../format";
+import { LiveDetails } from "../components/LiveDetails";
 import { liveRate, phaseOf, useLive, useTicker, type LiveRequest, type Phase } from "../live";
 
 const PHASE_LABELS: Record<Phase, string> = {
@@ -71,6 +72,7 @@ export function LiveCard({ entry }: { entry: LiveRequest }) {
   const rate = entry.done ? entry.record?.generation_tps ?? null : liveRate(entry);
   const tokens = entry.done && entry.record ? entry.record.output_tokens : entry.chunks.reasoning + entry.chunks.content + entry.chunks.tool;
   const [showReasoning, setShowReasoning] = useState(true);
+  const [showDetails, setShowDetails] = useState(false);
   const hasReasoning = entry.reasoning.length > 0 || entry.chunks.reasoning > 0;
 
   return (
@@ -105,6 +107,7 @@ export function LiveCard({ entry }: { entry: LiveRequest }) {
           <dd>{rate == null ? "–" : `${formatNumber(rate)} tok/s`}</dd>
         </div>
       </dl>
+      {entry.summary && <RequestFacts entry={entry} />}
       {hasReasoning && (
         <section className="stream-pane reasoning">
           <button type="button" className="pane-toggle" aria-expanded={showReasoning} onClick={() => setShowReasoning(!showReasoning)}>
@@ -127,15 +130,55 @@ export function LiveCard({ entry }: { entry: LiveRequest }) {
           <p className="subtle">{phase !== "done" ? "Nothing yet." : entry.tool ? "No reply text; see the tool calls above." : "No reply text."}</p>
         )}
       </section>
+      <details className="live-more" onToggle={(event) => setShowDetails(event.currentTarget.open)}>
+        <summary>Request, payload sent to Ollama and raw stream</summary>
+        {showDetails && <LiveDetails sessionId={entry.session_id} requestId={entry.request_id} done={entry.done} />}
+      </details>
       <footer className="live-card-foot subtle">
         <span>
-          Request {entry.request_id} {entry.done && entry.ended_at ? `finished ${formatRelative(new Date(entry.ended_at * 1000).toISOString())}` : ""}
+          Request {entry.request_id} in <Link to={`/sessions/${encodeURIComponent(entry.session_id)}`}>session {shortId(entry.session_id)}</Link>
+          {entry.done && entry.ended_at ? `, finished ${formatRelative(new Date(entry.ended_at * 1000).toISOString())}` : ""}
         </span>
         {entry.done && (
           <Link to={`/requests?request=${encodeURIComponent(requestKey(entry))}`}>Open in request history</Link>
         )}
       </footer>
     </article>
+  );
+}
+
+/** What the agent asked for and the Ollama settings the proxy applied. */
+function RequestFacts({ entry }: { entry: LiveRequest }) {
+  const summary = entry.summary!;
+  const thinking = summary.think === false ? "off" : summary.think === true ? "on" : "model default";
+  const facts: [string, string][] = [
+    ["Endpoint", endpointPath(entry.endpoint)],
+    ["Messages", summary.messages == null ? "–" : formatNumber(summary.messages)],
+    ["Tools", formatNumber(summary.tools)],
+    ["System prompt", summary.system_chars ? `${formatNumber(summary.system_chars)} chars` : "none"],
+    ["Ollama model", summary.ollama_model ?? entry.model],
+    ["Context", summary.num_ctx ? formatNumber(summary.num_ctx) : "server default"],
+    ["Max output", summary.num_predict ? formatNumber(summary.num_predict) : "–"],
+    ["Temperature", summary.temperature == null ? "–" : String(summary.temperature)],
+    ["Thinking", thinking],
+  ];
+  return (
+    <div className="live-facts">
+      <dl>
+        {facts.map(([label, value]) => (
+          <div key={label} className={label === "Endpoint" ? "wide" : undefined}>
+            <dt>{label}</dt>
+            <dd className={label === "Endpoint" || label === "Ollama model" ? "mono" : undefined}>{value}</dd>
+          </div>
+        ))}
+      </dl>
+      {summary.tool_names.length > 0 && (
+        <p className="subtle tool-names" title={summary.tool_names.join(", ")}>
+          Tools offered: {summary.tool_names.join(", ")}
+          {summary.tools > summary.tool_names.length ? `, and ${summary.tools - summary.tool_names.length} more` : ""}
+        </p>
+      )}
+    </div>
   );
 }
 

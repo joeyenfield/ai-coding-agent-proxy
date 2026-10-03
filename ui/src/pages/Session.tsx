@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, isFailure, requestKey } from "../api";
+import { api, isFailure, outcomeLabel, requestKey, tokens } from "../api";
 import { endpointPath, formatCompact, formatDate, formatDuration, formatNumber, formatRelative, lastTraffic } from "../format";
 import { useRequests, useStatus, useToast } from "../hooks";
 import { useLive, useTicker } from "../live";
@@ -153,14 +153,14 @@ export function SessionPage() {
                         <Link to={`/requests?request=${encodeURIComponent(requestKey(record))}`}>
                           #{record.request_id} {record.model || "Unknown model"}
                         </Link>
-                        {isFailure(record) && <span className="pill bad">Failed {record.status}</span>}
+                        {isFailure(record) && <span className="pill bad">{outcomeLabel(record)}</span>}
                       </span>
                       <small className="mono">{endpointPath(record.endpoint)}</small>
                     </td>
                     <td className="num">{formatDuration(record.ttft_ms)}</td>
                     <td className="num">{formatDuration(record.total_ms)}</td>
                     <td className="num nowrap">
-                      {formatNumber(record.output_tokens)} tok
+                      {tokens(record, record.output_tokens)} tok
                       <small>{record.generation_tps == null ? "–" : `${formatNumber(record.generation_tps)}/s`}</small>
                     </td>
                     <td className="num subtle" title={formatDate(record.timestamp)}>

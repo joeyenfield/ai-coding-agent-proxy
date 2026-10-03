@@ -29,6 +29,8 @@ export interface RequestRecord {
   response_bytes: number;
   input_tokens: number;
   output_tokens: number;
+  /** Set when the stream ended before Ollama reported counts; counts were estimated. */
+  tokens_estimated?: boolean;
   ttft_ms: number | null;
   prompt_eval_ms: number | null;
   generation_ms: number | null;
@@ -258,4 +260,48 @@ export const fetchHost = (name: string) =>
   fetch(`/api/hosts/${encodeURIComponent(name)}`).then((response) => {
     if (!response.ok) throw new ApiError(`Request failed (${response.status})`, response.status);
     return response.json() as Promise<HostSample>;
+  });
+
+const OUTCOMES: Record<string, string> = {
+  client_closed: "Client hung up",
+  incomplete_stream: "Stream cut off",
+  upstream_error: "Ollama error",
+};
+
+/** A short, plain label for why a request did not complete normally. */
+export const outcomeLabel = (record: RequestRecord) =>
+  record.error_type ? OUTCOMES[record.error_type] ?? `Failed: ${record.error_type}` : record.status >= 400 ? `Failed ${record.status}` : null;
+
+/** Token count with a marker when it was estimated rather than reported by Ollama. */
+export const tokens = (record: RequestRecord, value: number) =>
+  `${record.tokens_estimated ? "≈ " : ""}${value.toLocaleString()}`;
+
+export interface LiveDetails {
+  key: string;
+  session_id: string;
+  request_id: string;
+  enabled: boolean;
+  done: boolean;
+  request: unknown;
+  upstream: unknown;
+  raw: Record<string, unknown>[];
+  raw_total: number;
+  reasoning: string;
+  content: string;
+  tool: string;
+  [field: string]: unknown;
+}
+
+export const fetchLiveDetails = (sessionId: string, requestId: string) =>
+  fetch(`/api/live/${encodeURIComponent(sessionId)}/${encodeURIComponent(requestId)}`).then(async (response) => {
+    if (!response.ok) {
+      let message = `Request failed (${response.status})`;
+      try {
+        message = (await response.json()).detail ?? message;
+      } catch {
+        // Keep the status message.
+      }
+      throw new ApiError(message, response.status);
+    }
+    return response.json() as Promise<LiveDetails>;
   });
