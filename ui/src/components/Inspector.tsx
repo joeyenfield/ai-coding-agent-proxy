@@ -186,19 +186,30 @@ const TAB_LABELS: Record<Tab, string> = {
 };
 
 function Conversation({ trace }: { trace: Trace }) {
+  const [collapsed, setCollapsed] = useState(false);
   const entries = conversationEntries(trace);
   if (!entries.length) return <p className="empty">This trace has no message content.</p>;
   return (
-    <ol className="conversation">
-      {entries.map((entry, index) => (
-        <li key={index} className={`turn turn-${entry.kind}`}>
-          <details open={entry.kind !== "system" || entries.length < 4}>
-            <summary>{entry.role}</summary>
-            <pre className="wrap">{entry.content}</pre>
-          </details>
-        </li>
-      ))}
-    </ol>
+    <div className="conversation">
+      <div className="conversation-toolbar">
+        <button type="button" title={collapsed ? "Expand all" : "Collapse all"} onClick={() => setCollapsed((value) => !value)}>
+          {collapsed ? "Expand all" : "Collapse all"}
+        </button>
+      </div>
+      <ol className="conversation-list">
+        {entries.map((entry, index) => {
+          const open = !collapsed && entry.kind !== "system" || entries.length < 4;
+          return (
+            <li key={index} className={`turn turn-${entry.kind}`}>
+              <details open={open}>
+                <summary>{entry.role}</summary>
+                <pre className="wrap">{entry.content}</pre>
+              </details>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
   );
 }
 
