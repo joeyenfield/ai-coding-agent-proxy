@@ -1,18 +1,23 @@
 import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 import { useStatus, useTheme, type ThemeChoice } from "./hooks";
 import { OverviewPage } from "./pages/Overview";
+import { LivePage } from "./pages/Live";
 import { RequestsPage } from "./pages/Requests";
 import { SessionsPage } from "./pages/Sessions";
+import { SessionPage } from "./pages/Session";
 import { AgentsPage } from "./pages/Agents";
 import { ModelsPage } from "./pages/Models";
+import { HostsPage } from "./pages/Hosts";
 import { SettingsPage } from "./pages/Settings";
 
 const NAVIGATION = [
   { to: "/", label: "Overview", end: true },
+  { to: "/live", label: "Live" },
   { to: "/requests", label: "Requests" },
   { to: "/sessions", label: "Sessions" },
   { to: "/agents", label: "Agents" },
   { to: "/models", label: "Models" },
+  { to: "/hosts", label: "Hosts" },
   { to: "/settings", label: "Settings" },
 ];
 
@@ -34,7 +39,7 @@ export function App() {
           {NAVIGATION.map((item) => (
             <NavLink key={item.to} to={item.to} end={item.end}>
               {item.label}
-              {item.to === "/requests" && inFlight > 0 && <span className="nav-count">{inFlight}</span>}
+              {item.to === "/live" && inFlight > 0 && <span className="nav-count">{inFlight}</span>}
             </NavLink>
           ))}
         </nav>
@@ -66,10 +71,13 @@ export function App() {
         )}
         <Routes>
           <Route path="/" element={<OverviewPage />} />
+          <Route path="/live" element={<LivePage />} />
           <Route path="/requests" element={<RequestsPage />} />
           <Route path="/sessions" element={<SessionsPage />} />
+          <Route path="/sessions/:sessionId" element={<SessionPage />} />
           <Route path="/agents" element={<AgentsPage />} />
           <Route path="/models" element={<ModelsPage />} />
+          <Route path="/hosts" element={<HostsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

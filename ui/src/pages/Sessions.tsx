@@ -3,10 +3,14 @@ import { Link } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Session } from "../api";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-import { formatDate, formatNumber, formatRelative } from "../format";
+import { formatDate, formatNumber, formatRelative, lastTraffic } from "../format";
 import { useSessions, useStatus, useToast } from "../hooks";
 
 type Cleanup = { session: Session; remove: boolean } | null;
+
+/** Most recently active first; sessions without traffic fall back to their start time. */
+const byLastActivity = (a: Session, b: Session) =>
+  (b.last_activity_at ?? b.started_at).localeCompare(a.last_activity_at ?? a.started_at);
 
 export function SessionsPage() {
   const sessions = useSessions();
@@ -60,7 +64,7 @@ export function SessionsPage() {
               <tr>
                 <th scope="col">Agent</th>
                 <th scope="col">Model</th>
-                <th scope="col">Started</th>
+                <th scope="col">Last traffic</th>
                 <th scope="col" className="num">Requests</th>
                 <th scope="col">Payloads</th>
                 <th scope="col">
@@ -69,12 +73,14 @@ export function SessionsPage() {
               </tr>
             </thead>
             <tbody>
-              {sessions.data.map((session) => {
+              {[...sessions.data].sort(byLastActivity).map((session) => {
                 const inFlight = busy.has(session.session_id);
                 return (
                   <tr key={session.session_id}>
                     <td>
-                      <strong>{session.client}</strong>
+                      <Link className="strong-link" to={`/sessions/${encodeURIComponent(session.session_id)}`}>
+                        {session.client}
+                      </Link>
                       {session.project && <span className="subtle"> in {session.project}</span>}
                       <small className="mono">{session.session_id}</small>
                       <small>
@@ -89,7 +95,10 @@ export function SessionsPage() {
                       {session.model || "Set by agent"}
                       <small>{session.backend}</small>
                     </td>
-                    <td title={formatDate(session.started_at)}>{formatRelative(session.started_at)}</td>
+                    <td title={session.last_activity_at ? formatDate(session.last_activity_at) : undefined}>
+                      {inFlight ? <span className="warn">Streaming now</span> : lastTraffic(session)}
+                      <small title={formatDate(session.started_at)}>Started {formatRelative(session.started_at)}</small>
+                    </td>
                     <td className="num">{formatNumber(session.request_count)}</td>
                     <td>
                       <label className="check">
@@ -104,6 +113,9 @@ export function SessionsPage() {
                     </td>
                     <td>
                       <div className="row wrap">
+                        <Link className="button" to={`/sessions/${encodeURIComponent(session.session_id)}`}>
+                          Watch
+                        </Link>
                         <Link className="button" to={`/requests?session=${encodeURIComponent(session.session_id)}`}>
                           Review
                         </Link>

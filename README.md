@@ -110,6 +110,31 @@ If a model shows **less than 100% on GPU**, part of it runs on the CPU and gener
 
 Codex uses the Responses API, which is passed through unchanged. Set `OLLAMA_CONTEXT_LENGTH` on the server for it.
 
+## Watching requests live
+
+The **Live** page streams every in-flight request token by token, with reasoning, the reply and tool calls in separate panes. It shows the current phase (waiting, thinking, writing or calling tools), time to first token, a running token count and live tokens per second. Finished requests stay on the page for a while so you can read the end of the output.
+
+![Live page with Qwen reasoning streaming on the laptop](docs/screenshots/live.png)
+
+Live text is held in memory only and never written to disk; saved payloads still follow each session's capture setting. Set `AI_PROXY_LIVE=0` to stream token counts without the text.
+
+### One session at a time
+
+The **Sessions** list shows when traffic last passed through each session, most recent first. Select a session to open its page, which streams that session's requests live, the same way as the Live page but for that agent run only. The page also shows the session's totals, its request history and its endpoint URLs.
+
+![A session page streaming Qwen reasoning, with its request history below](docs/screenshots/session.png)
+
+## Watching the Ollama machines
+
+The **Hosts** page shows what each backend has loaded, like `ollama ps`: size, the GPU/CPU split, context length and when the model unloads. It also shows in-flight requests and recent speed for that backend, and charts CPU, memory, GPU load and GPU memory over the last five minutes, each on a fixed scale from 0 to 100% or to the machine's total memory. Hosts start collapsed; only the ones you expand are contacted, every two seconds, and collapsing one stops it. Samples are not saved.
+
+![Hosts page with live CPU, memory and GPU charts for the laptop](docs/screenshots/hosts.png)
+
+Loaded models and their VRAM use come from Ollama's API, so they work for remote backends too. CPU and GPU load need a process on the machine itself:
+
+- **On the proxy's own machine**, metrics are collected automatically. GPU figures need `nvidia-smi`.
+- **On a remote machine**, install the proxy package there and run `agent-metrics`, which listens on port 8182. Then set that backend's **Metrics URL** in Settings, for example `http://192.168.1.133:8182`.
+
 ## Reviewing requests
 
 The **Requests** page searches the full history and filters it by session, saved payloads or failures. Select a request to see:
@@ -141,7 +166,9 @@ backends:
   desktop: {type: ollama, url: http://192.168.1.133:11434}
 ```
 
-Environment overrides: `AI_PROXY_HOST`, `AI_PROXY_PORT`, `AI_PROXY_URL`, `AI_PROXY_DEFAULT_BACKEND`, `AI_PROXY_LOG_DIR`, `AI_PROXY_BACKENDS`, `AI_PROXY_MODELS`, `AI_PROXY_AGENTS`, `AI_PROXY_UI_DIR`, and `AI_PROXY_HOME` (repository root).
+Each backend can also have an optional `metrics_url` (see [Watching the Ollama machines](#watching-the-ollama-machines)).
+
+Environment overrides: `AI_PROXY_LIVE` (0 hides live text), `AI_PROXY_HOST`, `AI_PROXY_PORT`, `AI_PROXY_URL`, `AI_PROXY_DEFAULT_BACKEND`, `AI_PROXY_LOG_DIR`, `AI_PROXY_BACKENDS`, `AI_PROXY_MODELS`, `AI_PROXY_AGENTS`, `AI_PROXY_UI_DIR`, and `AI_PROXY_HOME` (repository root).
 
 ## API
 
@@ -165,6 +192,9 @@ Management, used by the UI and launcher (interactive docs at `/docs`):
 | `GET /api/sessions/{id}/telemetry`, `.../traces/{request}` | JSONL telemetry and captured payloads |
 | `GET /api/agents`, `POST /api/agents/{id}/sessions` | Agent registry; open a session and get its environment |
 | `GET /api/models` | Models per backend with loaded state and applied profile |
+| `GET /api/live[?session_id=]` | Server-sent events: snapshot, then start, delta and end events for streamed requests, optionally for one session |
+| `GET /api/hosts/{backend}` | Loaded models, machine load and traffic for one backend, sampled now |
+| `GET /api/host/metrics` | CPU, memory and GPU usage of this machine (also served by `agent-metrics`) |
 | `GET /api/config`, `PUT /api/config` | Network configuration |
 
 ## Benchmarks

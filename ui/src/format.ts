@@ -44,3 +44,7 @@ export const shortId = (id: string) => id.slice(0, 8);
 
 /** Drop the /session/<id> prefix the launcher adds; the session is shown separately. */
 export const endpointPath = (endpoint: string | null | undefined) => (endpoint ?? "").replace(/^\/session\/[^/]+/, "") || "–";
+
+/** When a session last carried traffic. Requests cut off by a proxy restart leave no timestamp. */
+export const lastTraffic = (session: { last_activity_at: string | null; request_count: number }) =>
+  session.last_activity_at ? formatRelative(session.last_activity_at) : session.request_count ? "Not recorded" : "No traffic yet";

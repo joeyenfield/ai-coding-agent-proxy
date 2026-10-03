@@ -293,3 +293,131 @@ def test_dashboard_rejects_invalid_network_config(tmp_path):
             "backends": {"test": {"type": "ollama", "url": "http://ollama.test"}},
         })
         assert response.status_code == 400
+
+
+def test_live_hub_streams_reasoning_and_content_while_request_runs(tmp_path):
+    newline = chr(10)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        lines = [
+            {"message": {"thinking": "Let me think"}, "done": False},
+            {"message": {"content": "Answer"}, "done": False},
+            {"message": {"content": ""}, "done": True, "eval_count": 2},
+        ]
+        return httpx.Response(200, headers={"content-type": "application/x-ndjson"}, content="".join(json.dumps(line) + newline for line in lines).encode())
+
+    app, client, old = make_app(tmp_path, handler)
+    try:
+        hub = app.state.runtime.live
+        queue = hub.subscribe()
+        session = client.post("/api/sessions", json={"client": "qwen", "backend": "test"}).json()
+        with client.stream("POST", f"/session/{session['session_id']}/v1/chat/completions", json={"model": "m", "stream": True, "messages": []}) as response:
+            response.read()
+        events = []
+        while not queue.empty():
+            events.append(queue.get_nowait())
+        assert [event["type"] for event in events] == ["start", "delta", "delta", "end"]
+        assert (events[1]["kind"], events[1]["text"]) == ("reasoning", "Let me think")
+        assert (events[2]["kind"], events[2]["text"]) == ("content", "Answer")
+        snapshot = hub.snapshot()
+        assert snapshot["active"] == []
+        assert snapshot["recent"][0]["reasoning"] == "Let me think"
+        assert snapshot["recent"][0]["record"]["output_tokens"] == 2
+        client.delete(f"/api/sessions/{session['session_id']}")
+        assert hub.snapshot()["recent"] == []
+    finally:
+        close_app(app, client, old)
+
+
+def test_hosts_report_ollama_ps_remote_metrics_and_traffic(tmp_path):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/ps":
+            return httpx.Response(200, json={"models": [{"name": "qwen3.6:35b", "size": 200, "size_vram": 50, "context_length": 65536, "expires_at": "2026-10-03T18:00:00Z"}]})
+        if request.url.path == "/api/version":
+            return httpx.Response(200, json={"version": "0.35.1"})
+        if request.url.host == "metrics.test":
+            return httpx.Response(200, json={"cpu": {"percent": 12.5}, "memory": {"used": 1, "total": 2, "percent": 50}, "gpus": []})
+        return httpx.Response(404)
+
+    settings_backends = {
+        "test": Backend("test", "http://ollama.test"),
+        "desk": Backend("desk", "http://desk.test", metrics_url="http://metrics.test:8182"),
+    }
+    settings = Settings(log_dir=tmp_path, default_backend="test", backends=settings_backends)
+    app = create_app(settings)
+    with TestClient(app) as client:
+        real = app.state.runtime.client
+        app.state.runtime.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        try:
+            hosts = {name: client.get(f"/api/hosts/{name}").json() for name in ("test", "desk")}
+            assert client.get("/api/hosts/missing").status_code == 404
+        finally:
+            import asyncio
+
+            asyncio.run(app.state.runtime.client.aclose())
+            app.state.runtime.client = real
+    assert hosts["test"]["online"] and hosts["test"]["version"] == "0.35.1"
+    assert hosts["test"]["models"][0]["gpu_percent"] == 25
+    assert hosts["test"]["machine"]["source"] is None and "agent-metrics" in hosts["test"]["machine"]["error"]
+    assert hosts["desk"]["machine"] == {"source": "remote", "data": {"cpu": {"percent": 12.5}, "memory": {"used": 1, "total": 2, "percent": 50}, "gpus": []}}
+    assert hosts["desk"]["traffic"]["in_flight"] == 0
+    assert hosts["desk"]["name"] == "desk" and hosts["desk"]["sampled_at"] > 0
+
+
+def test_metrics_url_survives_config_round_trip(tmp_path):
+    settings = Settings(log_dir=tmp_path, backends_file=tmp_path / "backends.yaml", default_backend="test", backends={"test": Backend("test", "http://ollama.test")})
+    with TestClient(create_app(settings)) as client:
+        body = client.get("/api/config").json()["config"]
+        body["backends"]["test"]["metrics_url"] = "http://10.0.0.6:8182/"
+        saved = client.put("/api/config", json=body)
+        assert saved.status_code == 200
+        assert saved.json()["config"]["backends"]["test"]["metrics_url"] == "http://10.0.0.6:8182"
+        body["backends"]["test"]["metrics_url"] = "not a url"
+        assert client.put("/api/config", json=body).status_code == 400
+
+
+def test_sessions_record_last_activity_and_backfill_from_history(tmp_path):
+    app, client, old = make_app(tmp_path, lambda request: httpx.Response(200, json={"message": {"content": "Hi"}}))
+    try:
+        session = client.post("/api/sessions", json={"client": "qwen", "backend": "test"}).json()
+        assert session["last_activity_at"] is None
+        client.post(f"/session/{session['session_id']}/api/chat", json={"model": "m", "stream": False})
+        updated = client.get(f"/api/sessions/{session['session_id']}").json()
+        assert updated["last_activity_at"] is not None
+        assert updated["last_activity_at"] >= session["started_at"]
+    finally:
+        close_app(app, client, old)
+
+    # A session saved before activity tracking takes its time from the newest request record.
+    store_dir = tmp_path / "sessions" / session["session_id"]
+    data = json.loads((store_dir / "session.json").read_text())
+    data.pop("last_activity_at")
+    (store_dir / "session.json").write_text(json.dumps(data))
+    record = json.loads((store_dir / "requests.jsonl").read_text().splitlines()[-1])
+    reloaded = create_app(app.state.runtime.settings).state.runtime.sessions.get(session["session_id"])
+    assert reloaded.last_activity_at == record["timestamp"]
+
+
+def test_live_snapshot_filters_by_session(tmp_path):
+    from agent_proxy.live import LiveHub
+    from agent_proxy.telemetry import RequestTelemetry
+
+    hub = LiveHub()
+    for session_id in ("one", "two"):
+        hub.start(f"{session_id}:000001", RequestTelemetry(session_id, "000001", "qwen", "m", "b", "/v1", 0))
+    assert [entry["session_id"] for entry in hub.snapshot("two")["active"]] == ["two"]
+    assert len(hub.snapshot()["active"]) == 2
+    settings = Settings(log_dir=tmp_path, default_backend="test", backends={"test": Backend("test", "http://ollama.test")})
+    with TestClient(create_app(settings)) as client:
+        assert client.get("/api/live", params={"session_id": "missing"}).status_code == 404
+
+
+def test_live_view_receives_non_streamed_replies(tmp_path):
+    app, client, old = make_app(tmp_path, lambda request: httpx.Response(200, json={"message": {"content": "Hi there"}, "eval_count": 2}))
+    try:
+        session = client.post("/api/sessions", json={"client": "aider", "backend": "test"}).json()
+        client.post(f"/session/{session['session_id']}/api/chat", json={"model": "m", "stream": False})
+        recent = app.state.runtime.live.snapshot(session["session_id"])["recent"]
+        assert recent[0]["content"] == "Hi there"
+    finally:
+        close_app(app, client, old)

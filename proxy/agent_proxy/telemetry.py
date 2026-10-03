@@ -96,17 +96,67 @@ def parse_json_line(line: bytes) -> dict[str, Any] | None:
         return None
 
 
+RESPONSES_DELTAS = {
+    "response.output_text.delta": "content",
+    "response.reasoning_text.delta": "reasoning",
+    "response.reasoning_summary_text.delta": "reasoning",
+    "response.function_call_arguments.delta": "tool",
+}
+
+
+def stream_deltas(obj: dict[str, Any]) -> list[tuple[str, str]]:
+    """Return (kind, text) pieces from one streamed object, kind being reasoning, content or tool.
+
+    Understands native Ollama chat/generate chunks, OpenAI chat completion
+    chunks and OpenAI Responses events, plus complete (non-streamed) Ollama,
+    OpenAI and Anthropic responses.
+    """
+    deltas: list[tuple[str, str]] = []
+    kind = RESPONSES_DELTAS.get(str(obj.get("type", "")))
+    if kind:
+        if obj.get("delta"):
+            deltas.append((kind, str(obj["delta"])))
+        return deltas
+    message = obj.get("message")
+    if isinstance(message, dict):
+        _add(deltas, "reasoning", message.get("thinking"))
+        _add(deltas, "content", message.get("content"))
+        for call in message.get("tool_calls") or []:
+            function = call.get("function") or {}
+            arguments = function.get("arguments", {})
+            if not isinstance(arguments, str):
+                arguments = json.dumps(arguments, ensure_ascii=False)
+            deltas.append(("tool", f"{function.get('name', '')}({arguments})\n"))
+    elif "response" in obj and isinstance(obj.get("response"), str):
+        _add(deltas, "reasoning", obj.get("thinking"))
+        _add(deltas, "content", obj.get("response"))
+    if obj.get("type") == "message" and isinstance(obj.get("content"), list):
+        # A complete Anthropic Messages response.
+        for block in obj["content"]:
+            if block.get("type") == "text":
+                _add(deltas, "content", block.get("text"))
+            elif block.get("type") == "tool_use":
+                deltas.append(("tool", f"{block.get('name', '')}({json.dumps(block.get('input', {}), ensure_ascii=False)})\n"))
+    for choice in obj.get("choices") or []:
+        if not isinstance(choice, dict):
+            continue
+        # Streamed chunks carry "delta"; complete OpenAI responses carry "message".
+        delta = choice.get("delta") or choice.get("message") or {}
+        _add(deltas, "reasoning", delta.get("reasoning_content") or delta.get("reasoning"))
+        _add(deltas, "content", delta.get("content") or choice.get("text"))
+        for call in delta.get("tool_calls") or []:
+            function = call.get("function") or {}
+            _add(deltas, "tool", (f"{function['name']}(" if function.get("name") else "") + (function.get("arguments") or ""))
+    return deltas
+
+
 def has_content(obj: dict[str, Any]) -> bool:
-    if obj.get("type") in {"response.output_text.delta", "response.reasoning_summary_text.delta"} and obj.get("delta"):
-        return True
-    if obj.get("message", {}).get("content"):
-        return True
-    choices = obj.get("choices") or []
-    return any(
-        choice.get("delta", {}).get("content") or choice.get("text")
-        for choice in choices
-        if isinstance(choice, dict)
-    )
+    return bool(stream_deltas(obj))
+
+
+def _add(deltas: list[tuple[str, str]], kind: str, value: Any) -> None:
+    if isinstance(value, str) and value:
+        deltas.append((kind, value))
 
 
 def _rate(tokens: int, duration_ms: float | None) -> float | None:

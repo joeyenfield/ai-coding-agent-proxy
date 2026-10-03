@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import shlex
+import time
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse
 
+from .. import host_metrics
 from ..runtime import Runtime
 
 
@@ -83,6 +87,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         except (OSError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         runtime.reload_history()
+        runtime.live.clear_session(session.session_id)
         return session.public()
 
     @app.delete("/api/sessions/{session_id}")
@@ -94,6 +99,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         except (OSError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         runtime.reload_history()
+        runtime.live.clear_session(session.session_id)
         return {"deleted": session_id}
 
     @app.patch("/api/sessions/{session_id}")
@@ -125,6 +131,40 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         if trace is None:
             raise HTTPException(status_code=404, detail="Trace not found")
         return trace
+
+    @app.get("/api/live")
+    async def live(request: Request, session_id: str | None = None) -> StreamingResponse:
+        """Server-sent events: a snapshot, then start/delta/end events for streamed requests.
+
+        Pass session_id to receive only that session's traffic.
+        """
+        if session_id:
+            runtime.require_session(session_id)
+        queue = runtime.live.subscribe()
+
+        def wanted(event: dict[str, Any]) -> bool:
+            if not session_id:
+                return True
+            key = event["request"]["key"] if event["type"] == "start" else event["key"]
+            return key.startswith(f"{session_id}:")
+
+        async def events():
+            try:
+                yield _sse("snapshot", runtime.live.snapshot(session_id))
+                while not await request.is_disconnected():
+                    try:
+                        event = await asyncio.wait_for(queue.get(), timeout=15)
+                    except asyncio.TimeoutError:
+                        yield b": keep-alive\n\n"
+                        continue
+                    if event is None:
+                        return
+                    if wanted(event):
+                        yield _sse(event["type"], event)
+            finally:
+                runtime.live.unsubscribe(queue)
+
+        return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
     @app.get("/api/agents")
     async def list_agents() -> list[dict[str, Any]]:
@@ -159,6 +199,20 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             **launch,
             "shell": {"bash": _bash(launch), "powershell": _powershell(launch)},
         }
+
+    @app.get("/api/host/metrics")
+    async def local_metrics() -> dict[str, Any]:
+        return await host_metrics.sample()
+
+    @app.get("/api/hosts/{name}")
+    async def host(name: str) -> dict[str, Any]:
+        """Loaded models, machine load and proxy traffic for one backend, sampled now.
+
+        One backend per call so the UI only contacts the hosts a user has open.
+        """
+        if name not in settings.backends:
+            raise HTTPException(status_code=404, detail=f"Unknown backend '{name}'")
+        return {"sampled_at": time.time(), "name": name, **await _host(runtime, name)}
 
     @app.get("/api/models")
     async def list_models(backend: str | None = None) -> dict[str, Any]:
@@ -209,6 +263,66 @@ async def _backend_models(runtime: Runtime, name: str) -> dict[str, Any]:
         "online": True, "url": backend.url,
         "version": _safe_json(version).get("version"),
         "models": sorted(models, key=lambda model: model["name"] or ""),
+    }
+
+
+def _sse(event: str, data: dict[str, Any]) -> bytes:
+    return f"event: {event}\ndata: {json.dumps(data, separators=(',', ':'), ensure_ascii=False)}\n\n".encode()
+
+
+LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
+
+
+async def _host(runtime: Runtime, name: str) -> dict[str, Any]:
+    backend = runtime.settings.backends[name]
+    base = backend.url.rstrip("/")
+    is_local = (urlparse(backend.url).hostname or "") in LOCAL_HOSTS
+    assert runtime.client
+
+    async def ollama() -> dict[str, Any]:
+        try:
+            running, version = await asyncio.gather(
+                runtime.client.get(f"{base}/api/ps", timeout=4),
+                runtime.client.get(f"{base}/api/version", timeout=4),
+            )
+            running.raise_for_status()
+        except httpx.HTTPError as exc:
+            return {"online": False, "error": f"{type(exc).__name__}: {exc}", "models": []}
+        models = []
+        for item in _safe_json(running).get("models", []):
+            size = int(item.get("size") or 0)
+            vram = int(item.get("size_vram") or 0)
+            details = item.get("details") or {}
+            models.append({
+                "name": item.get("name"), "size": size, "size_vram": vram,
+                "gpu_percent": round(vram * 100 / size) if size else None,
+                "context_length": item.get("context_length"), "expires_at": item.get("expires_at"),
+                "parameter_size": details.get("parameter_size"), "quantization": details.get("quantization_level"),
+            })
+        return {"online": True, "version": _safe_json(version).get("version"), "models": models}
+
+    async def machine() -> dict[str, Any]:
+        if backend.metrics_url:
+            try:
+                response = await runtime.client.get(f"{backend.metrics_url.rstrip('/')}/api/host/metrics", timeout=4)
+                response.raise_for_status()
+                return {"source": "remote", "data": response.json()}
+            except (httpx.HTTPError, ValueError) as exc:
+                return {"source": "remote", "error": f"Couldn't reach {backend.metrics_url}: {type(exc).__name__}"}
+        if is_local:
+            return {"source": "local", "data": await host_metrics.sample()}
+        return {"source": None, "error": "Run agent-metrics on this machine and set its metrics URL in Settings to chart CPU and GPU load."}
+
+    state, load = await asyncio.gather(ollama(), machine())
+    recent = [record for record in runtime.recent if record.get("backend") == name][-20:]
+    rates = [record["generation_tps"] for record in recent if record.get("generation_tps")]
+    return {
+        "url": backend.url, "local": is_local, **state, "machine": load,
+        "traffic": {
+            "in_flight": sum(item["backend"] == name for item in runtime.active.values()),
+            "recent_requests": len(recent),
+            "average_tps": round(sum(rates) / len(rates), 1) if rates else None,
+        },
     }
 
 

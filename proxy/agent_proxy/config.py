@@ -31,6 +31,13 @@ class Backend:
     name: str
     url: str
     type: str = "ollama"
+    metrics_url: str | None = None
+
+    def public(self) -> dict[str, Any]:
+        value = {"type": self.type, "url": self.url}
+        if self.metrics_url:
+            value["metrics_url"] = self.metrics_url
+        return value
 
 
 @dataclass
@@ -168,7 +175,7 @@ class Settings:
             },
             "default_backend": self.default_backend,
             "backends": {
-                name: {"type": backend.type, "url": backend.url}
+                name: backend.public()
                 for name, backend in self.backends.items()
             },
         }
@@ -240,6 +247,10 @@ def _validate_network_config(value: dict[str, Any]) -> dict[str, Any]:
             "type": backend_type,
             "url": _validate_http_url(raw_backend.get("url"), f"Backend '{name}' URL"),
         }
+        if str(raw_backend.get("metrics_url") or "").strip():
+            backends[name]["metrics_url"] = _validate_http_url(
+                raw_backend["metrics_url"], f"Backend '{name}' metrics URL"
+            )
     default_backend = str(value.get("default_backend", "")).strip()
     if default_backend not in backends:
         raise ValueError("Default backend must match a configured backend")

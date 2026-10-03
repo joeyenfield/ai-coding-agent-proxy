@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import uuid
 from collections import deque
 from typing import Any
@@ -13,8 +14,9 @@ from fastapi.responses import JSONResponse
 
 from .agents import AgentDefinition, load_agents
 from .config import Settings
+from .live import LiveHub
 from .sessions import Session, SessionStore
-from .telemetry import RequestTelemetry
+from .telemetry import RequestTelemetry, stream_deltas
 
 
 LOGGER = logging.getLogger("agent-proxy")
@@ -33,6 +35,8 @@ class Runtime:
         self.recent: deque[dict[str, Any]] = deque(maxlen=100)
         self.active: dict[str, dict[str, Any]] = {}
         self.config_lock = asyncio.Lock()
+        # Set AI_PROXY_LIVE=0 to stop streaming request text to the UI (counts still stream).
+        self.live = LiveHub(enabled=os.getenv("AI_PROXY_LIVE", "1") != "0")
         self.total_input_tokens = 0
         self.total_output_tokens = 0
         self.reload_history()
@@ -77,7 +81,7 @@ class Runtime:
             ),
             "default_backend": self.settings.default_backend,
             "backends": {
-                name: {"type": backend.type, "url": backend.url}
+                name: backend.public()
                 for name, backend in self.settings.backends.items()
             },
             "active_sessions": sum(item.ended_at is None for item in sessions),
@@ -118,6 +122,12 @@ class Runtime:
             "endpoint": telemetry.endpoint, "timestamp": telemetry.timestamp,
             "response_bytes": 0, "ttft_ms": None, "output_tokens": 0,
         }
+        self.live.start(_key(telemetry), telemetry)
+
+    def stream_object(self, telemetry: RequestTelemetry, obj: dict[str, Any]) -> None:
+        """Publish the text in one streamed object to live subscribers."""
+        for kind, text in stream_deltas(obj):
+            self.live.delta(_key(telemetry), kind, text)
 
     def progress(self, telemetry: RequestTelemetry) -> None:
         active = self.active.get(_key(telemetry))
@@ -138,7 +148,12 @@ class Runtime:
     ) -> dict[str, Any]:
         self.active.pop(_key(telemetry), None)
         record = telemetry.finish()
+        if isinstance(response_payload, dict):
+            # Non-streamed replies arrive in one piece; show them in the live view too.
+            self.stream_object(telemetry, response_payload)
+        self.live.end(_key(telemetry), record)
         self.sessions.append_request(session, record)
+        self.sessions.touch(session)
         self.recent.append(record)
         self.total_input_tokens += record["input_tokens"]
         self.total_output_tokens += record["output_tokens"]
