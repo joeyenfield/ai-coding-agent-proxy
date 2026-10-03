@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-coding-agent-proxy"
+version = "0.2.0"
+description = "A streaming Ollama proxy, agent launcher and benchmark runner for local coding agents"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi>=0.110",
+  "httpx>=0.27",
+  "pydantic>=2.6",
+  "PyYAML>=6.0",
+  "uvicorn[standard]>=0.27",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
+
+[project.scripts]
+agent-proxy = "agent_proxy.app:main"
+agent-benchmark = "agent_proxy.benchmark:main"
+agent = "agent_proxy.launcher:main"
+
+[tool.setuptools.packages.find]
+include = ["agent_proxy*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
