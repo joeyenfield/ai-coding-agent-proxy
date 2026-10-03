@@ -171,9 +171,9 @@ async def _translated_stream(
                 continue
             collected.append(obj)
             telemetry.apply_ollama_stats(obj)
-            message = obj.get("message") or {}
-            if message.get("content") or message.get("thinking") or message.get("tool_calls"):
+            if has_content(obj):
                 telemetry.saw_content()
+            runtime.stream_object(telemetry, obj)
             if obj.get("error"):
                 telemetry.error_type = "upstream_error"
             for event in translator.feed(obj):
@@ -273,6 +273,7 @@ async def _stream_upstream(
             telemetry.apply_ollama_stats(obj)
             if has_content(obj):
                 telemetry.saw_content()
+            runtime.stream_object(telemetry, obj)
 
     try:
         async for chunk in upstream.aiter_bytes():

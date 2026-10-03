@@ -1,6 +1,7 @@
 export interface Backend {
   type: string;
   url: string;
+  metrics_url?: string;
 }
 
 export interface ActiveRequest {
@@ -70,6 +71,7 @@ export interface Session {
   exit_status: number | null;
   tags: Record<string, unknown>;
   request_count: number;
+  last_activity_at: string | null;
 }
 
 export interface Trace {
@@ -175,6 +177,7 @@ const sessionUrl = (id: string) => `/api/sessions/${encodeURIComponent(id)}`;
 export const api = {
   status: () => request<Status>("/api/status"),
   sessions: () => request<Session[]>("/api/sessions"),
+  session: (sessionId: string) => request<Session>(sessionUrl(sessionId)),
   requests: () => request<RequestRecord[]>("/api/requests"),
   trace: (sessionId: string, requestId: string) =>
     request<Trace>(`${sessionUrl(sessionId)}/traces/${encodeURIComponent(requestId)}`),
@@ -203,3 +206,56 @@ export const requestKey = (record: { session_id: string; request_id: string }) =
   `${record.session_id}:${record.request_id}`;
 
 export const isFailure = (record: RequestRecord) => record.status >= 400 || Boolean(record.error_type);
+
+export interface GpuSample {
+  index: number;
+  name: string;
+  utilization: number | null;
+  memory_used: number | null;
+  memory_total: number | null;
+  temperature: number | null;
+  power_watts: number | null;
+}
+
+export interface MachineSample {
+  hostname: string;
+  platform: string;
+  timestamp: number;
+  cpu: { percent: number; count: number };
+  memory: { used: number; total: number; percent: number };
+  gpus: GpuSample[];
+  gpu_error: string | null;
+}
+
+export interface RunningModel {
+  name: string;
+  size: number;
+  size_vram: number;
+  gpu_percent: number | null;
+  context_length: number | null;
+  expires_at: string | null;
+  parameter_size: string | null;
+  quantization: string | null;
+}
+
+export interface HostState {
+  url: string;
+  local: boolean;
+  online: boolean;
+  version?: string;
+  error?: string;
+  models: RunningModel[];
+  machine: { source: "local" | "remote" | null; data?: MachineSample; error?: string };
+  traffic: { in_flight: number; recent_requests: number; average_tps: number | null };
+}
+
+export interface HostSample extends HostState {
+  name: string;
+  sampled_at: number;
+}
+
+export const fetchHost = (name: string) =>
+  fetch(`/api/hosts/${encodeURIComponent(name)}`).then((response) => {
+    if (!response.ok) throw new ApiError(`Request failed (${response.status})`, response.status);
+    return response.json() as Promise<HostSample>;
+  });

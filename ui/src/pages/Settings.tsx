@@ -6,6 +6,7 @@ interface Row {
   id: number;
   name: string;
   url: string;
+  metricsUrl: string;
 }
 
 let nextId = 0;
@@ -27,7 +28,7 @@ export function SettingsPage() {
     setPort(String(value.proxy.listen_port));
     setUrl(value.proxy.url);
     setDefaultBackend(value.default_backend);
-    setRows(Object.entries(value.backends).map(([name, backend]) => ({ id: nextId++, name, url: backend.url })));
+    setRows(Object.entries(value.backends).map(([name, backend]) => ({ id: nextId++, name, url: backend.url, metricsUrl: backend.metrics_url ?? "" })));
   }, [config.data]);
 
   const save = useMutation({
@@ -51,7 +52,9 @@ export function SettingsPage() {
       return;
     }
     const backends: NetworkConfig["backends"] = {};
-    for (const row of rows) backends[row.name.trim()] = { type: "ollama", url: row.url.trim() };
+    for (const row of rows) {
+      backends[row.name.trim()] = { type: "ollama", url: row.url.trim(), ...(row.metricsUrl.trim() ? { metrics_url: row.metricsUrl.trim() } : {}) };
+    }
     setMessage(null);
     save.mutate({
       proxy: { listen_host: host.trim(), listen_port: Number(port), url: url.trim() },
@@ -92,6 +95,9 @@ export function SettingsPage() {
         </section>
         <section className="section">
           <h2>Ollama backends</h2>
+          <p className="subtle">
+            The metrics URL is only needed to chart CPU and GPU load on another machine; run <code>agent-metrics</code> there.
+          </p>
           <div className="backend-rows">
             {rows.map((row) => (
               <div key={row.id} className="backend-row">
@@ -103,6 +109,10 @@ export function SettingsPage() {
                   URL
                   <input type="url" value={row.url} placeholder="http://host:11434" onChange={(event) => update(row.id, { url: event.target.value })} required />
                 </label>
+                <label className="field">
+                  Metrics URL
+                  <input type="url" value={row.metricsUrl} placeholder="Optional, http://host:8182" onChange={(event) => update(row.id, { metricsUrl: event.target.value })} />
+                </label>
                 <label className="check">
                   <input type="radio" name="default" checked={defaultBackend === row.name} onChange={() => setDefaultBackend(row.name)} />
                   Default
@@ -113,7 +123,7 @@ export function SettingsPage() {
               </div>
             ))}
           </div>
-          <button type="button" onClick={() => setRows((current) => [...current, { id: nextId++, name: "", url: "" }])}>
+          <button type="button" onClick={() => setRows((current) => [...current, { id: nextId++, name: "", url: "", metricsUrl: "" }])}>
             Add backend
           </button>
         </section>

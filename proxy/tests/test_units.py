@@ -208,3 +208,32 @@ def test_launcher_runs_agent_with_rendered_environment(tmp_path, monkeypatch):
     assert calls["command"][1:] == ["--model", "qwen3.6:35b", "--yolo"]
     assert calls["env"]["OPENAI_BASE_URL"] == "http://proxy/session/s1/v1"
     assert calls["closed"] == {"ended": True, "exit_status": 3}
+
+
+def test_stream_deltas_cover_every_stream_format():
+    from agent_proxy.telemetry import stream_deltas
+
+    assert stream_deltas({"message": {"thinking": "hm", "content": "hi"}}) == [("reasoning", "hm"), ("content", "hi")]
+    assert stream_deltas({"response": "x", "thinking": "t"}) == [("reasoning", "t"), ("content", "x")]
+    assert stream_deltas({"choices": [{"delta": {"reasoning": "r", "content": "c"}}]}) == [("reasoning", "r"), ("content", "c")]
+    assert stream_deltas({"choices": [{"delta": {"tool_calls": [{"function": {"name": "read", "arguments": "{"}}]}}]}) == [("tool", "read({")]
+    assert stream_deltas({"type": "response.reasoning_text.delta", "delta": "why"}) == [("reasoning", "why")]
+    assert stream_deltas({"type": "response.completed"}) == []
+
+
+def test_stream_deltas_read_complete_responses():
+    from agent_proxy.telemetry import stream_deltas
+
+    assert stream_deltas({"choices": [{"message": {"content": "done", "reasoning_content": "why"}}]}) == [("reasoning", "why"), ("content", "done")]
+    anthropic = {"type": "message", "content": [{"type": "text", "text": "hi"}, {"type": "tool_use", "name": "Read", "input": {"p": 1}}]}
+    assert stream_deltas(anthropic) == [("content", "hi"), ("tool", 'Read({"p": 1})' + chr(10))]
+
+
+def test_cpu_reading_reuses_value_for_back_to_back_calls(monkeypatch):
+    from agent_proxy import host_metrics
+
+    readings = iter([40.0, 0.0])
+    monkeypatch.setattr(host_metrics.psutil, "cpu_percent", lambda interval=None: next(readings))
+    monkeypatch.setattr(host_metrics, "_cpu_primed", False)
+    assert host_metrics._cpu_percent() == 40.0
+    assert host_metrics._cpu_percent() == 40.0  # too soon to measure again

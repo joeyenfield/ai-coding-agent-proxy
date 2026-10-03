@@ -47,7 +47,10 @@ export function OverviewPage() {
 
       {live.length > 0 && (
         <section className="section">
-          <h2>Streaming now</h2>
+          <div className="section-head">
+            <h2>Streaming now</h2>
+            <Link to="/live">Watch the tokens live</Link>
+          </div>
           <ul className="live-list">
             {live.map((item) => (
               <li key={requestKey(item)}>

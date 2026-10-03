@@ -66,6 +66,18 @@ if mode == "seed":
         thread.join()
     for prompt in ("Add a hold-piece feature to the Tetris game. Outline the steps.", "How should the game loop handle a paused state?"):
         openai(opencode, "qwen3.8:latest", prompt)
+elif mode == "think":
+    # Two reasoning-heavy requests at once, for the Live page.
+    sid = session("qwen", "qwen3.5:4b", "laptop", "bmo-ai")
+    sid2 = session("opencode", "qwen3.6:27b-coding", "desktop", "pygame-tetris")
+    jobs = [
+        threading.Thread(target=openai, args=(sid, "qwen3.5:4b", "A train leaves at 9:40 and arrives at 13:05 after two 12 minute stops. How long was it moving? Think it through, then give the answer and a Python function that does the calculation.", True, 2500)),
+        threading.Thread(target=openai, args=(sid2, "qwen3.6:27b-coding", "Read src/board.py and then refactor the line-clear logic into its own function.", True, 1500)),
+    ]
+    for job in jobs:
+        job.start()
+    for job in jobs:
+        job.join()
 else:
     # A long generation that stays in flight while screenshots are taken.
     sid = [s for s in client.get(f"{PROXY}/api/sessions").json() if s["client"] == "opencode"][0]["session_id"]

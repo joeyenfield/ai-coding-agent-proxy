@@ -28,6 +28,7 @@ class Session:
     tags: dict[str, Any] = field(default_factory=dict)
     request_count: int = 0
     request_sequence: int = 0
+    last_activity_at: str | None = None
 
     def public(self) -> dict[str, Any]:
         return asdict(self)
@@ -46,6 +47,9 @@ class SessionStore:
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
                 session = Session(**{k: v for k, v in data.items() if k in Session.__dataclass_fields__})
+                if session.last_activity_at is None:
+                    # Sessions saved before activity tracking: use the newest request record.
+                    session.last_activity_at = _last_timestamp(path.parent / "requests.jsonl")
                 self._sessions[session.session_id] = session
             except (OSError, ValueError, TypeError):
                 continue
@@ -79,12 +83,18 @@ class SessionStore:
         async with lock:
             session.request_sequence = max(session.request_sequence, session.request_count) + 1
             session.request_count += 1
+            session.last_activity_at = utc_now()
             self._write_session(session)
             return f"{session.request_sequence:06d}"
 
     def end(self, session: Session, exit_status: int | None = None) -> None:
         session.ended_at = utc_now()
         session.exit_status = exit_status
+        self._write_session(session)
+
+    def touch(self, session: Session) -> None:
+        """Record that traffic for this session just finished."""
+        session.last_activity_at = utc_now()
         self._write_session(session)
 
     def set_trace(self, session: Session, enabled: bool) -> None:
@@ -151,6 +161,21 @@ class SessionStore:
 
     def _write_session(self, session: Session) -> None:
         _atomic_json(self._directory(session) / "session.json", session.public())
+
+
+def _last_timestamp(path: Path) -> str | None:
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    for line in reversed(lines):
+        try:
+            value = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(value, dict) and value.get("timestamp"):
+            return str(value["timestamp"])
+    return None
 
 
 def _atomic_json(path: Path, data: dict[str, Any]) -> None:

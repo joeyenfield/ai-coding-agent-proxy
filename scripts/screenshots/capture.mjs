@@ -36,6 +36,19 @@ await shot("agents", "/agents", {
     await page.waitForTimeout(500);
   },
 });
+await shot("live", "/live", {
+  prepare: async (page) => {
+    await page.waitForTimeout(4000);
+  },
+});
+await shot("hosts", "/hosts", {
+  fullPage: true,
+  prepare: async (page) => {
+    // Hosts start collapsed; open the first one and let its charts fill.
+    await page.locator(".host-toggle").first().click();
+    await page.waitForTimeout(60000);
+  },
+});
 await shot("models", "/models", { fullPage: false });
 await shot("sessions", "/sessions");
 await shot("mobile", "/", { width: 390, height: 844, fullPage: true });
