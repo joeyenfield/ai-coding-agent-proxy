@@ -1,0 +1,7 @@
+name: reasoning
+runs: 3
+temperature: 0
+max_tokens: 512
+models:
+  - qwen3.6
+timeout: 300

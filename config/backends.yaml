@@ -1,0 +1,22 @@
+# This is the central network configuration for the whole framework.
+#
+# listen_host/listen_port control where the proxy server binds.
+# url is the address used by launchers and benchmarks. When other machines
+# connect to this proxy, set url to this computer's LAN address while keeping
+# listen_host at 0.0.0.0.
+proxy:
+  listen_host: 127.0.0.1
+  listen_port: 8181
+  url: http://127.0.0.1:8181
+
+# The profile used when --backend is not supplied.
+default_backend: laptop
+
+# Ollama servers available through the proxy.
+backends:
+  laptop:
+    type: ollama
+    url: http://localhost:11434
+  desktop:
+    type: ollama
+    url: http://192.168.1.133:11434
