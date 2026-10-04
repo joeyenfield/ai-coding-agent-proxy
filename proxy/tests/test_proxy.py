@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import httpx
+import pytest
 import yaml
 from fastapi.testclient import TestClient
 
@@ -145,6 +146,116 @@ def test_unknown_backend_is_rejected(tmp_path):
     with TestClient(create_app(settings)) as client:
         response = client.post("/api/sessions", json={"client": "test", "backend": "missing"})
         assert response.status_code == 400
+
+
+def test_anthropic_subscription_passthrough_preserves_credentials_and_payload(tmp_path):
+    payload = {"model": "claude-sonnet-4-6", "max_tokens": 20, "messages": [{"role": "user", "content": "Hi"}]}
+    headers = {"authorization": "Bearer test-subscription-token", "anthropic-beta": "oauth-2025-04-20", "anthropic-version": "2023-06-01"}
+    response_payload = {"type": "message", "content": [{"type": "text", "text": "Hello"}], "usage": {"input_tokens": 3, "output_tokens": 1}}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.host == "anthropic.test"
+        assert request.url.path in {"/v1/messages", "/v1/messages/count_tokens"}
+        assert json.loads(request.content) == payload
+        for name, value in headers.items():
+            assert request.headers[name] == value
+        assert "x-ai-proxy-backend" not in request.headers
+        if request.url.path.endswith("count_tokens"):
+            return httpx.Response(200, json={"input_tokens": 3})
+        return httpx.Response(200, json=response_payload)
+
+    app, client, old = make_app(tmp_path, handler, models={"claude-sonnet-4-6": {"ollama_model": "must-not-be-used"}})
+    app.state.runtime.settings.backends["test"] = Backend("test", "https://anthropic.test", type="anthropic")
+    try:
+        session = client.post("/api/sessions", json={"client": "claude", "backend": "test", "trace": True}).json()
+        base = f"/session/{session['session_id']}/anthropic/v1/messages"
+        response = client.post(base, json=payload, headers=headers)
+        assert response.status_code == 200
+        assert response.json() == response_payload
+        assert client.post(base + "/count_tokens", json=payload, headers=headers).json() == {"input_tokens": 3}
+        trace = client.get(f"/api/sessions/{session['session_id']}/traces/000001").json()
+        assert trace["request"] == payload
+        assert "test-subscription-token" not in json.dumps(trace)
+    finally:
+        close_app(app, client, old)
+
+
+@pytest.mark.parametrize("status", [200, 401, 429])
+def test_anthropic_subscription_stream_and_errors(tmp_path, status):
+    events = [
+        {"type": "message_start", "message": {"usage": {"input_tokens": 7, "output_tokens": 0}}},
+        {"type": "content_block_delta", "delta": {"type": "thinking_delta", "thinking": "Hmm"}},
+        {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "Hello"}},
+        {"type": "message_delta", "usage": {"output_tokens": 2}},
+        {"type": "message_stop"},
+    ]
+    body = "".join(f"event: {event['type']}\ndata: {json.dumps(event)}\n\n" for event in events).encode() if status == 200 else b'{"type":"error","error":{"type":"authentication_error","message":"original error"}}'
+
+    def handler(request):
+        assert request.url.path == "/v1/messages"
+        assert request.url.params["beta"] == "true"
+        return httpx.Response(status, content=body, headers={
+            "content-type": "text/event-stream" if status == 200 else "application/json",
+            "retry-after": "30", "x-should-retry": "false", "anthropic-ratelimit-unified-status": "allowed",
+        })
+
+    app, client, old = make_app(tmp_path, handler)
+    app.state.runtime.settings.backends["test"] = Backend("test", "https://anthropic.test", type="anthropic")
+    try:
+        session = client.post("/api/sessions", json={"client": "claude-subscription", "backend": "test", "trace": True}).json()
+        response = client.post(f"/session/{session['session_id']}/anthropic/v1/messages?beta=true", json={"model": "claude-sonnet-4-6", "stream": True, "messages": []})
+        assert response.status_code == status
+        assert response.content == body
+        assert response.headers["retry-after"] == "30"
+        assert response.headers["x-should-retry"] == "false"
+        assert response.headers["anthropic-ratelimit-unified-status"] == "allowed"
+        record = json.loads(client.get(f"/api/sessions/{session['session_id']}/telemetry").text)
+        assert record["status"] == status
+        if status == 200:
+            assert record["input_tokens"] == 7
+            assert record["output_tokens"] == 2
+            assert record["ttft_ms"] is not None
+            assert record["error_type"] is None
+            details = client.get(f"/api/live/{session['session_id']}/000001").json()
+            assert "Hello" in json.dumps(details)
+        else:
+            assert record["error_type"] == "upstream_error"
+    finally:
+        close_app(app, client, old)
+
+
+def test_anthropic_backend_rejects_ollama_protocol_and_skips_discovery(tmp_path):
+    def handler(request):
+        raise AssertionError(f"Unexpected hosted request: {request.url}")
+
+    app, client, old = make_app(tmp_path, handler)
+    app.state.runtime.settings.backends["test"] = Backend("test", "https://anthropic.test", type="anthropic")
+    try:
+        assert client.post("/api/chat", json={"model": "m"}).status_code == 400
+        assert client.post("/v1/chat/completions", json={"model": "m", "messages": []}).status_code == 400
+        models = client.get("/api/models").json()["backends"]["test"]
+        assert models["models"] == []
+        assert "Hosted backend" in models["error"]
+        host = client.get("/api/hosts/test").json()
+        assert host["models"] == []
+        assert host["machine"]["source"] is None
+    finally:
+        close_app(app, client, old)
+
+
+def test_anthropic_backend_config_round_trip_and_subscription_launcher(tmp_path):
+    settings = Settings(backends_file=tmp_path / "backends.yaml")
+    settings.update_network_config({
+        "proxy": {"listen_host": "127.0.0.1", "listen_port": 8181, "url": "http://127.0.0.1:8181"},
+        "default_backend": "anthropic",
+        "backends": {"anthropic": {"type": "anthropic", "url": "https://api.anthropic.com"}},
+    })
+    assert settings.backend(None).type == "anthropic"
+    assert yaml.safe_load(settings.backends_file.read_text())["backends"]["anthropic"]["type"] == "anthropic"
+    app = create_app(settings)
+    launch = app.state.runtime.agents()["claude-subscription"].render("http://proxy", "session", "sonnet")
+    assert launch["env"] == {"AI_PROXY_SESSION": "session", "ANTHROPIC_BASE_URL": "http://proxy/session/session/anthropic"}
+    assert launch["command"] == ["claude", "--model", "sonnet"]
 
 
 def test_request_history_includes_all_sessions_and_saved_traces(tmp_path):

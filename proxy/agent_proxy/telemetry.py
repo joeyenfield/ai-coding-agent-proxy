@@ -55,7 +55,7 @@ class RequestTelemetry:
             self.prompt_eval_ms = obj["prompt_eval_duration"] / 1_000_000
         if obj.get("eval_duration") is not None:
             self.generation_ms = obj["eval_duration"] / 1_000_000
-        usage = obj.get("usage") or (obj.get("response") or {}).get("usage") or {}
+        usage = obj.get("usage") or (obj.get("response") or {}).get("usage") or (obj.get("message") or {}).get("usage") or {}
         self.input_tokens = int(usage.get("prompt_tokens") or usage.get("input_tokens") or self.input_tokens)
         self.output_tokens = int(usage.get("completion_tokens") or usage.get("output_tokens") or self.output_tokens)
 
@@ -136,6 +136,19 @@ def stream_deltas(obj: dict[str, Any]) -> list[tuple[str, str]]:
     OpenAI and Anthropic responses.
     """
     deltas: list[tuple[str, str]] = []
+    if obj.get("type") == "content_block_delta":
+        delta = obj.get("delta") or {}
+        _add(deltas, "content", delta.get("text"))
+        _add(deltas, "reasoning", delta.get("thinking"))
+        _add(deltas, "tool", delta.get("partial_json"))
+        return deltas
+    if obj.get("type") == "content_block_start":
+        block = obj.get("content_block") or {}
+        if block.get("type") == "tool_use":
+            _add(deltas, "tool", f"{block.get('name', '')}(")
+        _add(deltas, "content", block.get("text"))
+        _add(deltas, "reasoning", block.get("thinking"))
+        return deltas
     kind = RESPONSES_DELTAS.get(str(obj.get("type", "")))
     if kind:
         if obj.get("delta"):

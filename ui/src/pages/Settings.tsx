@@ -5,6 +5,7 @@ import { api, type NetworkConfig } from "../api";
 interface Row {
   id: number;
   name: string;
+  type: string;
   url: string;
   metricsUrl: string;
 }
@@ -28,7 +29,7 @@ export function SettingsPage() {
     setPort(String(value.proxy.listen_port));
     setUrl(value.proxy.url);
     setDefaultBackend(value.default_backend);
-    setRows(Object.entries(value.backends).map(([name, backend]) => ({ id: nextId++, name, url: backend.url, metricsUrl: backend.metrics_url ?? "" })));
+    setRows(Object.entries(value.backends).map(([name, backend]) => ({ id: nextId++, name, type: backend.type, url: backend.url, metricsUrl: backend.metrics_url ?? "" })));
   }, [config.data]);
 
   const save = useMutation({
@@ -53,7 +54,7 @@ export function SettingsPage() {
     }
     const backends: NetworkConfig["backends"] = {};
     for (const row of rows) {
-      backends[row.name.trim()] = { type: "ollama", url: row.url.trim(), ...(row.metricsUrl.trim() ? { metrics_url: row.metricsUrl.trim() } : {}) };
+      backends[row.name.trim()] = { type: row.type, url: row.url.trim(), ...(row.metricsUrl.trim() ? { metrics_url: row.metricsUrl.trim() } : {}) };
     }
     setMessage(null);
     save.mutate({
@@ -94,7 +95,7 @@ export function SettingsPage() {
           </div>
         </section>
         <section className="section">
-          <h2>Ollama backends</h2>
+          <h2>Backends</h2>
           <p className="subtle">
             The metrics URL is only needed to chart CPU and GPU load on another machine; run <code>agent-metrics</code> there.
           </p>
@@ -107,7 +108,14 @@ export function SettingsPage() {
                 </label>
                 <label className="field">
                   URL
-                  <input type="url" value={row.url} placeholder="http://host:11434" onChange={(event) => update(row.id, { url: event.target.value })} required />
+                  <input type="url" value={row.url} placeholder={row.type === "anthropic" ? "https://api.anthropic.com" : "http://host:11434"} onChange={(event) => update(row.id, { url: event.target.value })} required />
+                </label>
+                <label className="field">
+                  Type
+                  <select value={row.type} onChange={(event) => update(row.id, { type: event.target.value })}>
+                    <option value="ollama">Ollama</option>
+                    <option value="anthropic">Anthropic</option>
+                  </select>
                 </label>
                 <label className="field">
                   Metrics URL
@@ -123,7 +131,7 @@ export function SettingsPage() {
               </div>
             ))}
           </div>
-          <button type="button" onClick={() => setRows((current) => [...current, { id: nextId++, name: "", url: "", metricsUrl: "" }])}>
+          <button type="button" onClick={() => setRows((current) => [...current, { id: nextId++, name: "", type: "ollama", url: "", metricsUrl: "" }])}>
             Add backend
           </button>
         </section>
