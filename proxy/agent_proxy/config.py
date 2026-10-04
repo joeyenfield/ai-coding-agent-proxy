@@ -132,7 +132,7 @@ class Settings:
         except KeyError as exc:
             choices = ", ".join(sorted(self.backends)) or "none configured"
             raise ValueError(f"Unknown backend '{selected}'. Available: {choices}") from exc
-        if backend.type != "ollama":
+        if backend.type not in {"ollama", "anthropic"}:
             raise ValueError(f"Unsupported backend type: {backend.type}")
         return backend
 
@@ -241,7 +241,7 @@ def _validate_network_config(value: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(raw_backend, dict):
             raise ValueError(f"Backend '{name}' must be an object")
         backend_type = str(raw_backend.get("type", "ollama")).strip()
-        if backend_type != "ollama":
+        if backend_type not in {"ollama", "anthropic"}:
             raise ValueError(f"Backend '{name}' has unsupported type '{backend_type}'")
         backends[name] = {
             "type": backend_type,

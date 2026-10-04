@@ -85,6 +85,18 @@ agents:
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
     args: [--model, "{model}"]
 
+  claude-subscription:
+    name: Claude Code (subscription)
+    executable: claude
+    protocol: anthropic
+    description: Claude Code using its saved claude.ai login through an Anthropic pass-through backend.
+    install: npm install -g @anthropic-ai/claude-code
+    homepage: https://code.claude.com/docs/en/llm-gateway
+    env:
+      ANTHROPIC_BASE_URL: "{anthropic_url}"
+    args: [--model, "{model}"]
+    notes: Use --backend anthropic. Sign in with claude first; unset ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN and remove any apiKeyHelper to keep subscription authentication.
+
   codex:
     name: OpenAI Codex CLI
     executable: codex

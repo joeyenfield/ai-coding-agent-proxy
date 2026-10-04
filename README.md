@@ -1,6 +1,6 @@
 # AI Coding Agent Proxy
 
-Run terminal coding agents such as Qwen Code, OpenCode, GitHub Copilot CLI, Claude Code, Codex, Aider and Goose against your own Ollama machines. Every model request flows through one streaming proxy, which records timing, tokens and payloads. The proxy also applies tuned Ollama settings, so local Qwen models get the context window and sampling they need.
+Run terminal coding agents such as Qwen Code, OpenCode, GitHub Copilot CLI, Claude Code, Codex, Aider and Goose against your own Ollama machines, or run Claude Code through the proxy to Anthropic using your existing subscription login. Requests routed through the proxy record timing, tokens and optional payloads. The proxy also applies tuned Ollama settings, so local Qwen models get the context window and sampling they need.
 
 ![Overview: live routing from agents through the proxy to two Ollama backends](docs/screenshots/overview.png)
 
@@ -26,7 +26,7 @@ The proxy and the UI are separate projects. In production the proxy serves the b
 
 ## Quick start
 
-You need Python 3.10+, Node 20+ and at least one Ollama server.
+You need Python 3.10+, Node 20+ and either an Ollama server or a Claude subscription that includes Claude Code.
 
 ```bash
 python -m venv .venv
@@ -65,6 +65,33 @@ The launcher starts the proxy if it isn't running and opens a session. It sets t
 Agents are defined in [`config/agents.yaml`](config/agents.yaml) as environment variables and arguments with placeholders such as `{openai_url}` and `{model}`. To add another agent, add an entry there; no code changes are needed. The **Agents** page shows each one's install state and builds the launch command. It can also open a session and print the environment for running an agent by hand in PowerShell or bash.
 
 ![Agents page with the Qwen Code launch panel](docs/screenshots/agents.png)
+
+### Claude Code With Your Subscription
+
+The bundled `anthropic` backend forwards to `https://api.anthropic.com` without model translation or Ollama tuning:
+
+```text
+Claude Code <-> AI Coding Agent Proxy <-> Anthropic
+```
+
+Sign in through the normal `claude` client first, then launch from your project folder:
+
+```bash
+unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN
+agent claude-subscription . --backend anthropic --model sonnet
+```
+
+Remove any `apiKeyHelper` or gateway credential overrides from your Claude settings as well. The `claude-subscription` profile sets only the base URL, leaving Claude Code responsible for account authentication and token refresh. It does not read credentials from disk or ask you to copy tokens. Subscription usage limits still apply. See Anthropic's [subscription and gateway documentation](https://code.claude.com/docs/en/llm-gateway#subscriptions-and-gateways).
+
+Streaming, tool calls, thinking, token counting, upstream errors, and subscription-limit headers pass through. Sessions and the live view work as before; add `--trace` to save request and response bodies. Authentication headers are not included in those traces, but bodies may contain sensitive code. Keep this proxy on localhost: a subscription bearer token passes through it. OAuth login, refresh and some auxiliary Claude traffic can still contact Anthropic directly.
+
+Use the existing `agent claude` profile for Ollama. Hosted Anthropic does not expose Ollama's loaded-model or GPU metrics; select its models by name rather than relying on the Ollama Models page.
+
+### Copilot Subscription Status
+
+The bundled `agent copilot` profile is BYOK/offline mode for Ollama, not GitHub subscription pass-through. A Copilot account cannot replace an external provider's API key in that mode. Subscription traffic is not currently routed or captured by this proxy.
+
+Copilot CLI supports [OpenTelemetry monitoring](https://docs.github.com/en/copilot/reference/cli-command-reference#opentelemetry-monitoring) while retaining its normal GitHub login. Integrating those exports is an alternative for usage monitoring, but would not put this service between Copilot and GitHub or provide a raw live network stream. HTTPS traffic inspection would require a separate forward-proxy design and explicit client certificate trust; this project does not install certificates or disable TLS verification.
 
 ### Which agent works best with Qwen on Ollama
 

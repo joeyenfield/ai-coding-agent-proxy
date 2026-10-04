@@ -238,6 +238,8 @@ async def _backend_models(runtime: Runtime, name: str) -> dict[str, Any]:
         backend = runtime.settings.backend(name)
     except ValueError as exc:
         return {"online": False, "error": str(exc), "models": []}
+    if backend.type != "ollama":
+        return {"online": False, "url": backend.url, "error": "Hosted backend: select a model in the signed-in client. Ollama model discovery is unavailable.", "models": []}
     assert runtime.client
     base = backend.url.rstrip("/")
     try:
@@ -321,7 +323,11 @@ async def _host(runtime: Runtime, name: str) -> dict[str, Any]:
             return {"source": "local", "data": await host_metrics.sample()}
         return {"source": None, "error": "Run agent-metrics on this machine and set its metrics URL in Settings to chart CPU and GPU load."}
 
-    state, load = await asyncio.gather(ollama(), machine())
+    if backend.type == "ollama":
+        state, load = await asyncio.gather(ollama(), machine())
+    else:
+        state = {"online": False, "error": "Hosted backend: loaded models and GPU metrics are unavailable.", "models": []}
+        load = {"source": None, "error": "Machine metrics are unavailable for hosted providers."}
     recent = [record for record in runtime.recent if record.get("backend") == name][-20:]
     rates = [record["generation_tps"] for record in recent if record.get("generation_tps")]
     return {

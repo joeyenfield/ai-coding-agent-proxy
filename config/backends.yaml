@@ -12,7 +12,7 @@ proxy:
 # The profile used when --backend is not supplied.
 default_backend: laptop
 
-# Ollama servers available through the proxy.
+# Ollama servers and hosted Anthropic pass-through available through the proxy.
 backends:
   laptop:
     type: ollama
@@ -20,3 +20,6 @@ backends:
   desktop:
     type: ollama
     url: http://192.168.1.133:11434
+  anthropic:
+    type: anthropic
+    url: https://api.anthropic.com

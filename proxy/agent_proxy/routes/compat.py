@@ -9,7 +9,7 @@ from typing import Any, AsyncIterator, Callable
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from ..runtime import Runtime, telemetry_headers
 from ..sessions import Session
@@ -81,6 +81,10 @@ def register(app: FastAPI, runtime: Runtime) -> None:
     ):
         payload = _json(await request.body())
         session_id = session_id or x_ai_proxy_session
+        session = runtime.sessions.get(session_id or "")
+        backend = _backend(runtime, x_ai_proxy_backend or (session.backend if session else None))
+        if backend.type == "anthropic":
+            return await _forward(runtime, request, session_id, "/v1/messages", x_ai_proxy_backend)
         profile = runtime.settings.profile(payload.get("model") or _session_model(runtime, session_id))
         return await _native_chat(
             runtime, request, session_id, x_ai_proxy_backend, payload,
@@ -93,7 +97,17 @@ def register(app: FastAPI, runtime: Runtime) -> None:
 
     @app.post("/anthropic/v1/messages/count_tokens")
     @app.post("/session/{session_id}/anthropic/v1/messages/count_tokens")
-    async def anthropic_count_tokens(request: Request, session_id: str | None = None) -> dict[str, int]:
+    async def anthropic_count_tokens(
+        request: Request,
+        session_id: str | None = None,
+        x_ai_proxy_session: str | None = Header(default=None),
+        x_ai_proxy_backend: str | None = Header(default=None),
+    ):
+        session_id = session_id or x_ai_proxy_session
+        session = runtime.sessions.get(session_id or "")
+        backend = _backend(runtime, x_ai_proxy_backend or (session.backend if session else None))
+        if backend.type == "anthropic":
+            return await _forward(runtime, request, session_id, "/v1/messages/count_tokens", x_ai_proxy_backend)
         return {"input_tokens": estimate_tokens(_json(await request.body()))}
 
 
@@ -113,6 +127,8 @@ async def _native_chat(
     """Send a translated request to Ollama's /api/chat and translate the reply back."""
     session = runtime.resolve_session(session_id, original, backend_override)
     backend = _backend(runtime, backend_override or session.backend)
+    if backend.type != "ollama":
+        raise HTTPException(status_code=400, detail="Ollama translation requires an Ollama backend")
     request_id = await runtime.sessions.next_request_id(session)
     ollama_payload = to_ollama()
     raw = json.dumps(original).encode()
@@ -248,9 +264,11 @@ async def _forward(
     original_payload = json.loads(json.dumps(payload))
     session = runtime.resolve_session(session_id, payload, backend_override)
     backend = _backend(runtime, backend_override or session.backend)
+    if backend.type == "anthropic" and upstream_path not in {"/v1/messages", "/v1/messages/count_tokens"}:
+        raise HTTPException(status_code=400, detail="Anthropic backends require the Anthropic Messages endpoint")
     request_id = await runtime.sessions.next_request_id(session)
     model = payload.get("model") or session.model or ""
-    if model and request.method == "POST":
+    if model and request.method == "POST" and backend.type == "ollama":
         profile = runtime.settings.profile(model)
         if upstream_path in NATIVE_PROFILE_PATHS:
             apply_profile(payload, profile)
@@ -275,7 +293,11 @@ async def _forward(
     upstream_request = payload if payload != original_payload else None
     telemetry.status = upstream.status_code
     content_type = upstream.headers.get("content-type", "application/json")
-    is_stream = bool(payload.get("stream")) or "ndjson" in content_type or "event-stream" in content_type
+    response_headers = {
+        name: value for name, value in upstream.headers.items()
+        if name in {"retry-after", "x-should-retry", "request-id"} or name.startswith("anthropic-ratelimit-")
+    }
+    is_stream = upstream.status_code < 400 and (bool(payload.get("stream")) or "ndjson" in content_type or "event-stream" in content_type)
     if upstream_path == "/api/chat" or upstream_path == "/api/generate":
         # Native Ollama streams by default when "stream" is omitted.
         is_stream = is_stream or ("stream" not in payload and "ndjson" in content_type)
@@ -290,12 +312,14 @@ async def _forward(
         if upstream.status_code >= 400:
             telemetry.error_type = "upstream_error"
         record = runtime.complete(session, telemetry, original_payload, obj, upstream_request)
+        if backend.type == "anthropic":
+            return Response(response_body, status_code=upstream.status_code, media_type=content_type, headers={**response_headers, **telemetry_headers(record)})
         return JSONResponse(obj, status_code=upstream.status_code, headers=telemetry_headers(record))
     return StreamingResponse(
         _stream_upstream(runtime, session, telemetry, original_payload, upstream_request, upstream),
         status_code=upstream.status_code,
         media_type=content_type,
-        headers={"X-Request-ID": request_id, "X-Session-ID": session.session_id},
+        headers={**response_headers, "X-Request-ID": request_id, "X-Session-ID": session.session_id},
     )
 
 
