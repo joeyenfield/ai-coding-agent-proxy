@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, isFailure, outcomeLabel, tokens, type RequestRecord, type Session, type Trace } from "../api";
+import { api, isFailure, outcomeLabel, tokens, trafficTarget, type RequestRecord, type Session, type Trace } from "../api";
 import { endpointPath, formatBytes, formatDate, formatDuration, formatNumber } from "../format";
 import { download, useClipboard, useToast } from "../hooks";
+import { HeadersView } from "./Headers";
+import { RouteBadge } from "./RouteBadge";
 
-type Tab = "request" | "response" | "conversation" | "upstream" | "metadata";
+type Tab = "request" | "response" | "conversation" | "headers" | "upstream" | "metadata";
 
 export function Inspector({ record, session }: { record: RequestRecord; session?: Session }) {
   const [fullscreen, setFullscreen] = useState(false);
@@ -46,11 +48,11 @@ function InspectorBody({
     <section className={`inspector ${fullscreen ? "is-fullscreen" : ""}`} aria-label="Request details">
       <header className="inspector-head">
         <div>
-          <h2>{record.model || "Unknown model"}</h2>
+          <h2>{record.model || (record.host ? record.host : "Unknown model")}</h2>
           <p className="subtle">
-            Request {record.request_id} from {record.client} on {record.backend}
+            Request {record.request_id} from {record.client} <RouteBadge item={record} />
           </p>
-          <p className="mono subtle">{endpointPath(record.endpoint)}</p>
+          <p className="mono subtle">{endpointPath(trafficTarget(record))}</p>
         </div>
         <div className="row">
           <span className={`pill ${failed ? "bad" : "good"}`}>{failed ? outcomeLabel(record) : record.status}</span>
@@ -66,6 +68,12 @@ function InspectorBody({
         <Metric label="Output" value={`${tokens(record, record.output_tokens)} tok, ${formatNumber(record.generation_tps)}/s`} />
         <Metric label="Context" value={record.context_size ? formatNumber(record.context_size) : "server default"} />
         <Metric label="Payload" value={`${formatBytes(record.request_bytes)} in, ${formatBytes(record.response_bytes)} out`} />
+        {Boolean(record.cache_read_tokens || record.cache_creation_tokens) && (
+          <Metric
+            label="Prompt cache"
+            value={`${formatNumber(record.cache_read_tokens ?? 0)} read, ${formatNumber(record.cache_creation_tokens ?? 0)} written`}
+          />
+        )}
       </dl>
       {(record.tokens_estimated || record.error_type === "client_closed" || record.error_type === "incomplete_stream") && (
         <p className="inspector-note">{outcomeNote(record)}</p>
@@ -135,11 +143,19 @@ function TraceView({ record, trace }: { record: RequestRecord; trace: Trace }) {
   const [tab, setTab] = useState<Tab>("conversation");
   const [wrap, setWrap] = useState(true);
   const copy = useClipboard();
-  const tabs: Tab[] = ["conversation", "request", "response", ...(trace.upstream_request ? (["upstream"] as Tab[]) : []), "metadata"];
+  const tabs: Tab[] = [
+    "conversation",
+    ...(trace.http ? (["headers"] as Tab[]) : []),
+    "request",
+    "response",
+    ...(trace.upstream_request ? (["upstream"] as Tab[]) : []),
+    "metadata",
+  ];
+  const visual = tab === "conversation" || tab === "headers";
   const text = useMemo(() => {
-    if (tab === "conversation") return "";
+    if (tab === "conversation" || tab === "headers") return "";
     const value = tab === "upstream" ? trace.upstream_request : tab === "metadata" ? trace.metadata : trace[tab];
-    return JSON.stringify(value, null, 2) ?? "null";
+    return typeof value === "string" ? value : JSON.stringify(value, null, 2) ?? "null";
   }, [tab, trace]);
   const filename = (suffix: string) => `${record.session_id}-${record.request_id}-${suffix}.json`;
   return (
@@ -152,9 +168,15 @@ function TraceView({ record, trace }: { record: RequestRecord; trace: Trace }) {
         ))}
       </div>
       <div className="payload-bar">
-        <span className="subtle">{tab === "conversation" ? "Readable view of the captured messages" : `${formatBytes(new TextEncoder().encode(text).length)}`}</span>
+        <span className="subtle">
+          {tab === "conversation"
+            ? "Readable view of the captured messages"
+            : tab === "headers"
+              ? "Credentials are redacted by the proxy"
+              : `${formatBytes(new TextEncoder().encode(text).length)}`}
+        </span>
         <div className="row">
-          {tab !== "conversation" && (
+          {!visual && (
             <>
               <label className="check">
                 <input type="checkbox" checked={wrap} onChange={(event) => setWrap(event.target.checked)} />
@@ -174,7 +196,13 @@ function TraceView({ record, trace }: { record: RequestRecord; trace: Trace }) {
         </div>
       </div>
       <div className="payload-area" role="tabpanel">
-        {tab === "conversation" ? <Conversation trace={trace} /> : <pre className={`code ${wrap ? "wrap" : ""}`}>{text}</pre>}
+        {tab === "headers" && trace.http ? (
+          <HeadersView http={trace.http} />
+        ) : tab === "conversation" ? (
+          <Conversation trace={trace} />
+        ) : (
+          <pre className={`code ${wrap ? "wrap" : ""}`}>{text}</pre>
+        )}
       </div>
     </div>
   );
@@ -182,6 +210,7 @@ function TraceView({ record, trace }: { record: RequestRecord; trace: Trace }) {
 
 const TAB_LABELS: Record<Tab, string> = {
   conversation: "Conversation",
+  headers: "Headers",
   request: "Request",
   response: "Response",
   upstream: "Sent to Ollama",
@@ -249,7 +278,13 @@ function conversationEntries(trace: Trace): Entry[] {
 
   if (Array.isArray(response)) {
     const thinking = response
-      .map((event) => event.message?.thinking ?? event.choices?.[0]?.delta?.reasoning_content ?? (event.type === "response.reasoning_summary_text.delta" ? event.delta : ""))
+      .map(
+        (event) =>
+          event.message?.thinking ??
+          event.choices?.[0]?.delta?.reasoning_content ??
+          event.delta?.thinking ??
+          (event.type === "response.reasoning_summary_text.delta" ? event.delta : ""),
+      )
       .join("");
     add("Reasoning", thinking, "reasoning");
     const text = response
@@ -300,7 +335,7 @@ function outcomeNote(record: RequestRecord) {
     record.error_type === "client_closed"
       ? "The agent disconnected before the reply finished, often because it timed out waiting."
       : record.error_type === "incomplete_stream"
-        ? "The stream from Ollama ended before it finished."
+        ? "The upstream stream ended before it finished."
         : "";
   const estimate = record.tokens_estimated
     ? " Ollama only reports token counts at the end of a reply, so these counts are estimated from the streamed chunks and prompt size."

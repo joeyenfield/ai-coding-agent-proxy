@@ -7,9 +7,18 @@
 #   {anthropic_url}  http://proxy/session/<id>/anthropic   Anthropic Messages
 #   {ollama_url}     http://proxy/session/<id>             native Ollama (/api/...)
 #   {model} {session_id} {proxy_url} {project}
+#   {intercept_url} {ca_cert} {ca_bundle}           only for intercept: true
+#                    ca_bundle is the system roots plus the proxy CA
 #
 # An env value written as a YAML mapping or list is rendered and passed as JSON.
 # protocol: openai-chat | openai-responses | anthropic | ollama
+# backend_type: ollama (default) | anthropic - which backends.yaml entries the
+# agent can use; the launcher picks a matching backend when --backend is omitted.
+#
+# intercept: true leaves the agent talking to its own service with its own
+# login, and sends all of its HTTPS through the proxy's intercept listener
+# (HTTPS_PROXY plus a local CA trusted only by the launched process tree).
+# Every request it makes, to any host, is recorded in the session.
 
 agents:
   qwen:
@@ -52,7 +61,7 @@ agents:
     args: [--model, "agent-proxy/{model}"]
 
   copilot:
-    name: GitHub Copilot CLI
+    name: GitHub Copilot CLI (Ollama, BYOK)
     executable: copilot
     protocol: openai-chat
     description: GitHub's terminal agent, using bring-your-own-model mode.
@@ -67,7 +76,7 @@ agents:
     notes: COPILOT_OFFLINE stops the CLI from contacting GitHub. Remove it to keep GitHub sign-in features.
 
   claude:
-    name: Claude Code
+    name: Claude Code (Ollama)
     executable: claude
     protocol: anthropic
     description: Anthropic's agent, translated from the Messages API to Ollama by the proxy.
@@ -86,19 +95,56 @@ agents:
     args: [--model, "{model}"]
 
   claude-subscription:
-    name: Claude Code (subscription)
+    name: Claude Code (Anthropic API pass-through)
     executable: claude
     protocol: anthropic
     description: Claude Code using its saved claude.ai login through an Anthropic pass-through backend.
     install: npm install -g @anthropic-ai/claude-code
     homepage: https://code.claude.com/docs/en/llm-gateway
+    backend_type: anthropic
     env:
       ANTHROPIC_BASE_URL: "{anthropic_url}"
     args: [--model, "{model}"]
-    notes: Use --backend anthropic. Sign in with claude first; unset ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN and remove any apiKeyHelper to keep subscription authentication.
+    notes: Sign in with claude first; unset ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN and remove any apiKeyHelper to keep subscription authentication.
+
+  claude-account:
+    name: Claude Code (claude.ai account)
+    executable: claude
+    protocol: anthropic
+    intercept: true
+    description: Claude Code signed in to your Claude account. All of its HTTPS traffic - messages, token counts, OAuth refresh, telemetry, MCP and web fetches - is recorded.
+    install: npm install -g @anthropic-ai/claude-code
+    homepage: https://code.claude.com/docs/en/network-config
+    notes: Sign in with claude first. Unset ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN and ANTHROPIC_BASE_URL, and remove any apiKeyHelper, so the account login is used. Pass a model with -- --model sonnet.
+
+  copilot-account:
+    name: GitHub Copilot CLI (GitHub account)
+    executable: copilot
+    protocol: openai-chat
+    intercept: true
+    description: Copilot CLI signed in to your GitHub Copilot subscription. All of its HTTPS traffic to GitHub and Copilot is recorded.
+    install: npm install -g @github/copilot
+    homepage: https://docs.github.com/copilot/how-tos/copilot-cli
+    notes: Sign in with copilot (/login) first. Unset COPILOT_PROVIDER_* and COPILOT_OFFLINE so the GitHub subscription is used. Pass a model with -- --model <name>.
+
+  codex-account:
+    name: OpenAI Codex CLI (ChatGPT account)
+    executable: codex
+    protocol: openai-responses
+    intercept: true
+    description: Codex signed in with your ChatGPT plan. All of its HTTPS and WebSocket traffic to OpenAI and ChatGPT is recorded.
+    install: npm install -g @openai/codex
+    homepage: https://developers.openai.com/codex/cli
+    env:
+      # Codex replaces its trusted roots with this file, so give it the full bundle.
+      CODEX_CA_CERTIFICATE: "{ca_bundle}"
+    # The interactive TUI otherwise hands conversations to a shared background
+    # app-server daemon, which runs without the proxy settings above.
+    args: [--no-daemon]
+    notes: Sign in with codex login (ChatGPT) first, and unset OPENAI_API_KEY and OPENAI_BASE_URL so the ChatGPT login is used. Pass a model with -- -m <model>.
 
   codex:
-    name: OpenAI Codex CLI
+    name: OpenAI Codex CLI (Ollama)
     executable: codex
     protocol: openai-responses
     description: OpenAI's agent in --oss mode. Uses the Responses API, passed through to Ollama.

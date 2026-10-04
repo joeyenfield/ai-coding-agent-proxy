@@ -12,13 +12,15 @@ from urllib.parse import urlparse
 import httpx
 
 from .agents import AgentDefinition, load_agents
-from .config import Settings
+from .certs import write_bundle
+from .config import DIRECT_BACKEND, Settings
 
 
 def ensure_proxy(
     proxy_url: str,
     listen_host: str = "127.0.0.1",
-    timeout: float = 15,
+    # Generous because a fresh proxy rebuilds the web UI first when its sources changed.
+    timeout: float = 120,
 ) -> subprocess.Popen[Any] | None:
     if _healthy(proxy_url):
         return None
@@ -55,8 +57,8 @@ def ensure_proxy(
 def launch(
     agent_id: str,
     project: Path,
-    model: str,
-    backend: str,
+    model: str | None,
+    backend: str | None,
     trace: bool,
     proxy_url: str,
     extra_args: list[str],
@@ -74,19 +76,30 @@ def launch(
     if not executable:
         hint = f" Install it with: {agent.install}" if agent.install else ""
         raise ValueError(f"{agent.name} ({agent.executable}) is not on PATH.{hint}")
+    if agent.needs_model and not model:
+        raise ValueError(f"{agent.name} needs --model")
     ensure_proxy(proxy_url, listen_host=listen_host)
+    intercept = None
     with httpx.Client(timeout=10) as client:
+        if agent.intercept:
+            intercept = _intercept(client, proxy_url)
+            backend = DIRECT_BACKEND
+        else:
+            # Pick a backend of the type this agent works with when none was given.
+            backend = Settings.load().backend_for(agent.backend_type, backend).name
         response = client.post(f"{proxy_url}/api/sessions", json={
-            "client": agent.id, "project": project.name, "model": model,
+            "client": agent.id, "project": project.name, "model": model or None,
             "backend": backend, "trace": trace, "tags": {"project_path": str(project)},
         })
-        response.raise_for_status()
+        if response.status_code >= 400:
+            raise ValueError(_detail(response))
         session_id = response.json()["session_id"]
-    rendered = agent.render(proxy_url, session_id, model, str(project))
+    rendered = agent.render(proxy_url, session_id, model or "", str(project), intercept=intercept)
     env = {**os.environ, **rendered["env"]}
     # Resolve through PATH so npm .cmd shims work on Windows.
     command = [executable, *rendered["command"][1:], *extra_args]
-    print(f"Session : {session_id}\nAgent   : {agent.name}\nModel   : {model}\nBackend : {backend}\nUI      : {proxy_url}", flush=True)
+    route = f"all HTTPS through {intercept['url']} (traffic goes to the agent's own service)" if intercept else backend
+    print(f"Session : {session_id}\nAgent   : {agent.name}\nModel   : {model or 'agent default'}\nBackend : {route}\nUI      : {proxy_url}/live", flush=True)
     exit_status = 1
     try:
         exit_status = subprocess.run(command, cwd=project, env=env, check=False).returncode
@@ -103,11 +116,35 @@ def launch(
     return exit_status
 
 
+def _intercept(client: httpx.Client, proxy_url: str) -> dict[str, Any]:
+    """Find the intercept proxy and make sure its CA is readable on this machine."""
+    info = client.get(f"{proxy_url}/api/intercept").raise_for_status().json()
+    if not info.get("running"):
+        raise RuntimeError(f"The proxy's HTTPS intercept listener isn't running: {info.get('error') or 'unknown error'}")
+    if not Path(info["ca_path"]).is_file():
+        # The proxy runs on another machine; fetch its CA and build a local bundle.
+        pem = client.get(f"{proxy_url}/api/intercept/ca.pem").raise_for_status().text
+        directory = Path.home() / ".cache" / "agent-proxy" / str(info["ca_fingerprint"]).replace(":", "")[:16]
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "ca.pem").write_text(pem, encoding="ascii")
+        write_bundle(pem, directory / "bundle.pem")
+        info.update(ca_path=str(directory / "ca.pem"), bundle_path=str(directory / "bundle.pem"))
+    return info
+
+
+def _detail(response: httpx.Response) -> str:
+    try:
+        return str(response.json().get("detail") or response.text)
+    except ValueError:
+        return response.text
+
+
 def print_agents(agents: dict[str, AgentDefinition]) -> None:
     width = max((len(agent_id) for agent_id in agents), default=5)
     for agent_id, agent in agents.items():
         state = "installed" if agent.installed_path() else "missing  "
-        print(f"{agent_id:<{width}}  {state}  {agent.name} ({agent.protocol})")
+        route = "account, captured via HTTPS intercept" if agent.intercept else agent.protocol
+        print(f"{agent_id:<{width}}  {state}  {agent.name} ({route})")
         if not agent.installed_path() and agent.install:
             print(f"{'':<{width}}             install: {agent.install}")
 
@@ -125,8 +162,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="agent", description="Launch a coding agent through the AI proxy")
     parser.add_argument("agent", nargs="?", help=f"One of: {', '.join(agents)}")
     parser.add_argument("project", nargs="?", type=Path, default=Path("."))
-    parser.add_argument("--model", "-m", help="Model name or alias from config/models.yaml")
-    parser.add_argument("--backend", help="Override default_backend from config/backends.yaml")
+    parser.add_argument("--model", "-m", help="Model name or alias from config/models.yaml (optional for account agents)")
+    parser.add_argument("--backend", help="Backend from config/backends.yaml (default: default_backend, or the first backend of the type the agent needs)")
     parser.add_argument("--trace", action="store_true", help="Capture full request and response payloads")
     parser.add_argument("--proxy", help="Override proxy.url from config/backends.yaml")
     parser.add_argument("--list", action="store_true", help="List configured agents and whether they are installed")
@@ -136,11 +173,12 @@ def main() -> None:
     if args.list or not args.agent:
         print_agents(agents)
         raise SystemExit(0 if args.list else 2)
-    if not args.model:
-        parser.error("--model is required")
+    agent = agents.get(args.agent)
+    if agent and agent.needs_model and not args.model:
+        parser.error(f"--model is required for {agent.name}")
     try:
         proxy_url = (args.proxy or settings.proxy_url).rstrip("/")
-        backend = args.backend or settings.default_backend
+        backend = args.backend
         raise SystemExit(launch(
             args.agent, args.project, args.model, backend, args.trace, proxy_url, extra,
             listen_host=settings.host, agents=agents,

@@ -1,20 +1,26 @@
 import { useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
-import { isFailure, outcomeLabel, requestKey, tokens, type RequestRecord } from "../api";
+import { Link, useSearchParams } from "react-router-dom";
+import { isFailure, isModelCall, outcomeLabel, requestKey, tokens, type RequestRecord } from "../api";
 import { Inspector } from "../components/Inspector";
+import { RouteBadge } from "../components/RouteBadge";
 import { endpointPath, formatDuration, formatNumber, formatRelative, shortId } from "../format";
-import { useRequests, useSessions } from "../hooks";
+import { useRequests, useSessions, useStatus } from "../hooks";
+import { ROUTE_ORDER, ROUTES, routeOf, type RouteKind } from "../routes";
 
 const PAGE_SIZE = 25;
 
 export function RequestsPage() {
   const requests = useRequests();
   const sessions = useSessions();
+  const status = useStatus();
   const [params, setParams] = useSearchParams();
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(0);
   const sessionFilter = params.get("session") ?? "";
   const kind = params.get("show") ?? "";
+  const route = (params.get("route") ?? "") as RouteKind | "";
+  // Account agents' sign-in, telemetry and MCP calls are hidden unless asked for; the Traffic page shows them.
+  const includeOther = params.get("other") === "1";
   const selectedKey = params.get("request");
 
   const records = requests.data ?? [];
@@ -23,13 +29,16 @@ export function RequestsPage() {
     return records.filter(
       (record) =>
         (!sessionFilter || record.session_id === sessionFilter) &&
+        (!route || routeOf(record, status.data?.backends) === route) &&
+        (includeOther || isModelCall(record)) &&
         (!text ||
           [record.request_id, record.session_id, record.client, record.model, record.backend, record.endpoint].some((value) =>
             String(value ?? "").toLowerCase().includes(text),
           )) &&
         (!kind || (kind === "traced" ? record.trace_available : kind === "untraced" ? !record.trace_available : isFailure(record))),
     );
-  }, [records, query, sessionFilter, kind]);
+  }, [records, query, sessionFilter, kind, route, includeOther, status.data?.backends]);
+  const hidden = records.filter((record) => !isModelCall(record)).length;
   const pages = Math.max(1, Math.ceil(matches.length / PAGE_SIZE));
   const current = Math.min(page, pages - 1);
   const visible = matches.slice(current * PAGE_SIZE, (current + 1) * PAGE_SIZE);
@@ -72,6 +81,14 @@ export function RequestsPage() {
                 </option>
               ))}
             </select>
+            <select value={route} onChange={(event) => setParam("route", event.target.value)} aria-label="Route">
+              <option value="">All routes</option>
+              {ROUTE_ORDER.map((name) => (
+                <option key={name} value={name}>
+                  {ROUTES[name].label}
+                </option>
+              ))}
+            </select>
             <select value={kind} onChange={(event) => setParam("show", event.target.value)} aria-label="Show">
               <option value="">All requests</option>
               <option value="traced">With payload</option>
@@ -79,31 +96,42 @@ export function RequestsPage() {
               <option value="errors">Failed</option>
             </select>
           </div>
+          {hidden > 0 && (
+            <p className="subtle">
+              <label className="check">
+                <input type="checkbox" checked={includeOther} onChange={(event) => setParam("other", event.target.checked ? "1" : null)} />
+                Include {formatNumber(hidden)} non-model requests from account agents (sign-in, telemetry, MCP)
+              </label>{" "}
+              or see them on the <Link to="/traffic">Traffic</Link> page.
+            </p>
+          )}
           {requests.isError ? (
             <p className="empty bad">{requests.error.message}</p>
           ) : !visible.length ? (
             <p className="empty">{records.length ? "No requests match these filters." : "No requests have been recorded yet."}</p>
           ) : (
-            <table className="table selectable">
-              <thead>
-                <tr>
-                  <th scope="col">Model</th>
-                  <th scope="col">Agent</th>
-                  <th scope="col" className="num">Duration</th>
-                  <th scope="col" className="num">Output</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visible.map((record) => (
-                  <Row
-                    key={requestKey(record)}
-                    record={record}
-                    selected={requestKey(record) === selectedKey}
-                    onSelect={() => setParam("request", requestKey(record))}
-                  />
-                ))}
-              </tbody>
-            </table>
+            <div className="table-scroll">
+              <table className="table selectable">
+                <thead>
+                  <tr>
+                    <th scope="col">Model</th>
+                    <th scope="col">Agent</th>
+                    <th scope="col" className="num">Duration</th>
+                    <th scope="col" className="num">Output</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visible.map((record) => (
+                    <Row
+                      key={requestKey(record)}
+                      record={record}
+                      selected={requestKey(record) === selectedKey}
+                      onSelect={() => setParam("request", requestKey(record))}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
           <div className="pager">
             <span className="subtle">
@@ -162,7 +190,9 @@ function Row({ record, selected, onSelect }: { record: RequestRecord; selected: 
       </td>
       <td>
         {record.client}
-        <small>{record.backend}</small>
+        <small>
+          <RouteBadge item={record} />
+        </small>
       </td>
       <td className="num nowrap">
         {formatDuration(record.total_ms)}

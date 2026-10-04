@@ -2,7 +2,9 @@ import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 import { useStatus, useTheme, type ThemeChoice } from "./hooks";
 import { OverviewPage } from "./pages/Overview";
 import { LivePage } from "./pages/Live";
+import { TrafficPage } from "./pages/Traffic";
 import { RequestsPage } from "./pages/Requests";
+import { RequestPage } from "./pages/Request";
 import { SessionsPage } from "./pages/Sessions";
 import { SessionPage } from "./pages/Session";
 import { AgentsPage } from "./pages/Agents";
@@ -10,15 +12,33 @@ import { ModelsPage } from "./pages/Models";
 import { HostsPage } from "./pages/Hosts";
 import { SettingsPage } from "./pages/Settings";
 
-const NAVIGATION = [
-  { to: "/", label: "Overview", end: true },
-  { to: "/live", label: "Live" },
-  { to: "/requests", label: "Requests" },
-  { to: "/sessions", label: "Sessions" },
-  { to: "/agents", label: "Agents" },
-  { to: "/models", label: "Models" },
-  { to: "/hosts", label: "Hosts" },
-  { to: "/settings", label: "Settings" },
+// Activity pages cover every route; the Ollama group only applies to local models.
+const NAVIGATION: { heading?: string; hint?: string; items: { to: string; label: string; end?: boolean }[] }[] = [
+  {
+    items: [
+      { to: "/", label: "Overview", end: true },
+      { to: "/agents", label: "Start an agent" },
+    ],
+  },
+  {
+    heading: "Activity",
+    hint: "All routes",
+    items: [
+      { to: "/live", label: "Live" },
+      { to: "/traffic", label: "Traffic" },
+      { to: "/requests", label: "Requests" },
+      { to: "/sessions", label: "Sessions" },
+    ],
+  },
+  {
+    heading: "Ollama",
+    hint: "Local models only",
+    items: [
+      { to: "/models", label: "Models" },
+      { to: "/hosts", label: "Machines" },
+    ],
+  },
+  { heading: "Setup", items: [{ to: "/settings", label: "Settings" }] },
 ];
 
 export function App() {
@@ -36,11 +56,21 @@ export function App() {
           <span>AI Proxy</span>
         </div>
         <nav aria-label="Main">
-          {NAVIGATION.map((item) => (
-            <NavLink key={item.to} to={item.to} end={item.end}>
-              {item.label}
-              {item.to === "/live" && inFlight > 0 && <span className="nav-count">{inFlight}</span>}
-            </NavLink>
+          {NAVIGATION.map((group, index) => (
+            <div key={group.heading ?? index} className="nav-group">
+              {group.heading && (
+                <p className="nav-heading" title={group.hint}>
+                  {group.heading}
+                  {group.hint && <span>{group.hint}</span>}
+                </p>
+              )}
+              {group.items.map((item) => (
+                <NavLink key={item.to} to={item.to} end={item.end}>
+                  {item.label}
+                  {item.to === "/live" && inFlight > 0 && <span className="nav-count">{inFlight}</span>}
+                </NavLink>
+              ))}
+            </div>
           ))}
         </nav>
         <div className="rail-foot">
@@ -72,7 +102,9 @@ export function App() {
         <Routes>
           <Route path="/" element={<OverviewPage />} />
           <Route path="/live" element={<LivePage />} />
+          <Route path="/traffic" element={<TrafficPage />} />
           <Route path="/requests" element={<RequestsPage />} />
+          <Route path="/requests/:sessionId/:requestId" element={<RequestPage />} />
           <Route path="/sessions" element={<SessionsPage />} />
           <Route path="/sessions/:sessionId" element={<SessionPage />} />
           <Route path="/agents" element={<AgentsPage />} />

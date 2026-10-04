@@ -3,12 +3,14 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchLiveDetails, type LiveDetails as Details } from "../api";
 import { formatBytes } from "../format";
 import { download, useClipboard } from "../hooks";
+import { HeadersView } from "./Headers";
 import { Conversation } from "./Inspector";
 
-type Tab = "conversation" | "request" | "upstream" | "raw" | "metadata";
+type Tab = "conversation" | "headers" | "request" | "upstream" | "raw" | "metadata";
 
 const TAB_LABELS: Record<Tab, string> = {
   conversation: "Conversation",
+  headers: "Headers",
   request: "Request",
   upstream: "Sent to Ollama",
   raw: "Raw stream",
@@ -28,8 +30,16 @@ export function LiveDetails({ sessionId, requestId, done }: { sessionId: string;
     gcTime: 0,
   });
   const data = details.data;
-  const tabs: Tab[] = ["conversation", "request", ...(data?.upstream ? (["upstream"] as Tab[]) : []), "raw", "metadata"];
-  const text = useMemo(() => (data && tab !== "conversation" ? render(data, tab) : ""), [data, tab]);
+  const tabs: Tab[] = [
+    "conversation",
+    ...(data?.http ? (["headers"] as Tab[]) : []),
+    "request",
+    ...(data?.upstream ? (["upstream"] as Tab[]) : []),
+    "raw",
+    "metadata",
+  ];
+  const visual = tab === "conversation" || tab === "headers";
+  const text = useMemo(() => (data && !visual ? render(data, tab) : ""), [data, tab, visual]);
 
   if (details.isPending) return <p className="subtle">Loading the request…</p>;
   if (details.isError) return <p className="bad">{details.error.message}</p>;
@@ -51,11 +61,13 @@ export function LiveDetails({ sessionId, requestId, done }: { sessionId: string;
         <span className="subtle">
           {tab === "conversation"
             ? "Readable view of the messages so far"
-            : tab === "raw"
-              ? `Latest ${data.raw.length} of ${data.raw_total.toLocaleString()} chunks from Ollama${done ? "" : ", updating"}`
-              : formatBytes(new TextEncoder().encode(text).length)}
+            : tab === "headers"
+              ? "Credentials are redacted by the proxy"
+              : tab === "raw"
+                ? `Latest ${data.raw.length} of ${data.raw_total.toLocaleString()} streamed chunks${done ? "" : ", updating"}`
+                : formatBytes(new TextEncoder().encode(text).length)}
         </span>
-        {tab !== "conversation" && (
+        {!visual && (
           <div className="row">
             <label className="check">
               <input type="checkbox" checked={wrap} onChange={(event) => setWrap(event.target.checked)} />
@@ -71,7 +83,9 @@ export function LiveDetails({ sessionId, requestId, done }: { sessionId: string;
         )}
       </div>
       <div className="payload-area live-payload">
-        {tab === "conversation" ? (
+        {tab === "headers" && data.http ? (
+          <HeadersView http={data.http} />
+        ) : tab === "conversation" ? (
           // The raw buffer only holds the latest chunks, so use the full accumulated text instead.
           <Conversation
             trace={{
@@ -90,8 +104,8 @@ export function LiveDetails({ sessionId, requestId, done }: { sessionId: string;
 
 function render(data: Details, tab: Tab): string {
   if (tab === "raw") return data.raw.map((chunk) => JSON.stringify(chunk)).join("\n");
-  if (tab === "request") return JSON.stringify(data.request, null, 2);
+  if (tab === "request") return typeof data.request === "string" ? data.request : JSON.stringify(data.request, null, 2);
   if (tab === "upstream") return JSON.stringify(data.upstream, null, 2);
-  const { request: _request, upstream: _upstream, raw: _raw, reasoning: _reasoning, content: _content, tool: _tool, ...metadata } = data;
+  const { request: _request, upstream: _upstream, http: _http, raw: _raw, reasoning: _reasoning, content: _content, tool: _tool, ...metadata } = data;
   return JSON.stringify(metadata, null, 2);
 }

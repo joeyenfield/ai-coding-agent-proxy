@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type NetworkConfig } from "../api";
+import { useStatus } from "../hooks";
 
 interface Row {
   id: number;
@@ -14,6 +15,7 @@ let nextId = 0;
 
 export function SettingsPage() {
   const config = useQuery({ queryKey: ["config"], queryFn: api.config });
+  const status = useStatus();
   const client = useQueryClient();
   const [host, setHost] = useState("");
   const [port, setPort] = useState("");
@@ -97,7 +99,14 @@ export function SettingsPage() {
         <section className="section">
           <h2>Backends</h2>
           <p className="subtle">
-            The metrics URL is only needed to chart CPU and GPU load on another machine; run <code>agent-metrics</code> there.
+            <span className="route-badge route-ollama">Ollama</span> backends are your local model machines; the proxy
+            translates requests for them and applies <code>config/models.yaml</code>.{" "}
+            <span className="route-badge route-hosted">Anthropic API</span> backends pass requests through unchanged for agents
+            that point their API endpoint at the proxy. Account agents (Claude, Copilot and ChatGPT sign-ins) don't use a
+            backend; they go through the intercept listener on port {status.data?.intercept?.listen_port ?? 8183}.
+          </p>
+          <p className="subtle">
+            The metrics URL is only needed to chart CPU and GPU load on another Ollama machine; run <code>agent-metrics</code> there.
           </p>
           <div className="backend-rows">
             {rows.map((row) => (
@@ -113,13 +122,13 @@ export function SettingsPage() {
                 <label className="field">
                   Type
                   <select value={row.type} onChange={(event) => update(row.id, { type: event.target.value })}>
-                    <option value="ollama">Ollama</option>
-                    <option value="anthropic">Anthropic</option>
+                    <option value="ollama">Ollama (local models)</option>
+                    <option value="anthropic">Anthropic API (hosted)</option>
                   </select>
                 </label>
                 <label className="field">
                   Metrics URL
-                  <input type="url" value={row.metricsUrl} placeholder="Optional, http://host:8182" onChange={(event) => update(row.id, { metricsUrl: event.target.value })} />
+                  <input type="url" disabled={row.type !== "ollama"} value={row.metricsUrl} placeholder="Optional, http://host:8182" onChange={(event) => update(row.id, { metricsUrl: event.target.value })} />
                 </label>
                 <label className="check">
                   <input type="radio" name="default" checked={defaultBackend === row.name} onChange={() => setDefaultBackend(row.name)} />

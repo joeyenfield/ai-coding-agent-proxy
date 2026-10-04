@@ -1,27 +1,35 @@
 import { Link } from "react-router-dom";
-import { requestKey } from "../api";
+import { isModelCall, requestKey, type RequestRecord, type Status } from "../api";
+import { RouteBadge } from "../components/RouteBadge";
 import { RoutingMap } from "../components/RoutingMap";
 import { ThroughputChart } from "../components/ThroughputChart";
 import { formatBytes, formatCompact, formatDuration, formatNumber, formatRelative } from "../format";
-import { useSessions, useStatus } from "../hooks";
+import { useRequests, useSessions, useStatus } from "../hooks";
+import { ROUTE_ORDER, ROUTES, routeOf, type RouteKind } from "../routes";
 
 export function OverviewPage() {
   const status = useStatus();
   const sessions = useSessions();
+  const requests = useRequests();
   if (status.isError) return <Offline message={status.error.message} />;
   if (!status.data) return <p className="empty">Connecting to the proxy…</p>;
   const data = status.data;
   const live = data.current_requests;
+  // Account agents also send sign-in, telemetry and MCP calls; those belong on the Traffic page.
+  const modelCalls = data.recent_requests.filter(isModelCall);
   return (
     <div className="page">
       <header className="page-head">
         <h1>{live.length ? `${live.length} ${live.length === 1 ? "request" : "requests"} streaming` : "All quiet"}</h1>
         <p className="lede">
-          Every agent request passes through this proxy on its way to Ollama.
+          Every agent request passes through this proxy, whether it goes to your Ollama machines, a hosted API, or the
+          agent's own account.
         </p>
       </header>
 
       <RoutingMap status={data} sessions={sessions.data ?? []} />
+
+      <RouteSummary status={data} records={requests.data ?? data.recent_requests} />
 
       <dl className="totals">
         <div>
@@ -57,7 +65,7 @@ export function OverviewPage() {
                 <span className="live-mark" aria-hidden="true" />
                 <strong>{item.client}</strong>
                 <span>{item.model}</span>
-                <span className="subtle">{item.backend}</span>
+                <RouteBadge item={item} />
                 <span className="subtle">
                   {item.ttft_ms == null ? "waiting for first token" : `first token ${formatDuration(item.ttft_ms)}`}
                 </span>
@@ -73,32 +81,36 @@ export function OverviewPage() {
           <h2>Generation speed</h2>
           <p className="subtle">Tokens per second for each recent request</p>
         </div>
-        <ThroughputChart records={data.recent_requests} />
+        <ThroughputChart records={modelCalls} />
       </section>
 
       <section className="section">
         <div className="section-head">
-          <h2>Latest requests</h2>
+          <h2>Latest model calls</h2>
           <Link to="/requests">Open request history</Link>
         </div>
-        {data.recent_requests.length ? (
+        {modelCalls.length ? (
           <table className="table compact">
             <thead>
               <tr>
                 <th scope="col">Model</th>
                 <th scope="col">Agent</th>
+                <th scope="col">Route</th>
                 <th scope="col" className="num">First token</th>
                 <th scope="col" className="num">Tokens/s</th>
                 <th scope="col" className="num">When</th>
               </tr>
             </thead>
             <tbody>
-              {data.recent_requests.slice(0, 8).map((record) => (
+              {modelCalls.slice(0, 8).map((record) => (
                 <tr key={requestKey(record)}>
                   <td>
                     <Link to={`/requests?request=${encodeURIComponent(requestKey(record))}`}>{record.model || "Unknown model"}</Link>
                   </td>
                   <td>{record.client}</td>
+                  <td>
+                    <RouteBadge item={record} />
+                  </td>
                   <td className="num">{formatDuration(record.ttft_ms)}</td>
                   <td className="num">{formatNumber(record.generation_tps)}</td>
                   <td className="num subtle">{formatRelative(record.timestamp)}</td>
@@ -116,6 +128,93 @@ export function OverviewPage() {
         )}
       </section>
     </div>
+  );
+}
+
+const ROUTE_LINKS: Record<RouteKind, { to: string; label: string }[]> = {
+  account: [{ to: "/traffic", label: "All traffic" }],
+  ollama: [
+    { to: "/models", label: "Models" },
+    { to: "/hosts", label: "Machines" },
+  ],
+  hosted: [{ to: "/requests", label: "Requests" }],
+};
+
+/** One card per route, so local, hosted and account traffic are never lumped together. */
+function RouteSummary({ status, records }: { status: Status; records: RequestRecord[] }) {
+  const totals = new Map<RouteKind, { requests: number; models: number; input: number; output: number; last: string | null }>();
+  for (const route of ROUTE_ORDER) totals.set(route, { requests: 0, models: 0, input: 0, output: 0, last: null });
+  for (const record of records) {
+    const total = totals.get(routeOf(record, status.backends))!;
+    total.requests++;
+    if (record.model) total.models++;
+    total.input += record.input_tokens;
+    total.output += record.output_tokens;
+    if (!total.last || record.timestamp > total.last) total.last = record.timestamp;
+  }
+  const inFlight = (route: RouteKind) => status.current_requests.filter((item) => routeOf(item, status.backends) === route).length;
+  const configured = (route: RouteKind) =>
+    route === "account"
+      ? Boolean(status.intercept?.running)
+      : Object.values(status.backends).some((backend) => (backend.type === "anthropic" ? "hosted" : "ollama") === route);
+  return (
+    <section className="route-cards" aria-label="Traffic by route">
+      {ROUTE_ORDER.map((route) => {
+        const total = totals.get(route)!;
+        const live = inFlight(route);
+        return (
+          <article key={route} className={`route-card route-${route}`}>
+            <h2>
+              <span className={`route-dot route-${route}`} aria-hidden="true" />
+              {ROUTES[route].label}
+              {live > 0 && <span className="pill live">{live} streaming</span>}
+            </h2>
+            <p className="subtle">{ROUTES[route].description}</p>
+            {total.requests ? (
+              <dl>
+                <div>
+                  <dt>Requests</dt>
+                  <dd>
+                    {formatNumber(total.requests)}
+                    {route === "account" && <small> {formatNumber(total.models)} to models</small>}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Tokens</dt>
+                  <dd>
+                    {formatCompact(total.input)} in, {formatCompact(total.output)} out
+                  </dd>
+                </div>
+                <div>
+                  <dt>Last used</dt>
+                  <dd>{formatRelative(total.last)}</dd>
+                </div>
+              </dl>
+            ) : (
+              <p className="subtle">
+                {configured(route)
+                  ? "Not used yet."
+                  : route === "account"
+                    ? "The intercept listener isn't running."
+                    : `No ${route === "ollama" ? "Ollama" : "hosted"} backend configured.`}
+              </p>
+            )}
+            <p className="row">
+              {configured(route) ? (
+                <Link to="/agents">Start an agent</Link>
+              ) : (
+                <Link to="/settings">{route === "account" ? "Check settings" : "Add a backend"}</Link>
+              )}
+              {ROUTE_LINKS[route].map((link) => (
+                <Link key={link.to} to={link.to}>
+                  {link.label}
+                </Link>
+              ))}
+            </p>
+          </article>
+        );
+      })}
+    </section>
   );
 }
 

@@ -6,13 +6,16 @@ import logging
 import os
 import uuid
 from collections import deque
+from functools import cached_property
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
 from .agents import AgentDefinition, load_agents
+from .certs import CertificateAuthority
 from .config import Settings
 from .live import LiveHub
 from .sessions import Session, SessionStore
@@ -39,7 +42,30 @@ class Runtime:
         self.live = LiveHub(enabled=os.getenv("AI_PROXY_LIVE", "1") != "0")
         self.total_input_tokens = 0
         self.total_output_tokens = 0
+        # Set by the app's lifespan when the intercept proxy is enabled.
+        self.intercept: Any = None
         self.reload_history()
+
+    @cached_property
+    def ca(self) -> CertificateAuthority:
+        return CertificateAuthority(self.settings.intercept.ca_dir)
+
+    def intercept_info(self) -> dict[str, Any]:
+        """How agents reach the HTTPS intercept proxy, for the launcher and the UI."""
+        config = self.settings.intercept
+        host = config.listen_host
+        if host in {"0.0.0.0", "::"}:
+            host = urlparse(self.settings.proxy_url).hostname or "127.0.0.1"
+        running = bool(self.intercept and self.intercept.running)
+        info: dict[str, Any] = {
+            **config.public(),
+            "running": running,
+            "error": self.intercept.error if self.intercept else ("Disabled in config/backends.yaml" if not config.enabled else None),
+            "url": f"http://{host}:{config.listen_port}",
+        }
+        if running:
+            info.update(ca_path=str(self.ca.cert_path), bundle_path=str(self.ca.bundle_path), ca_fingerprint=self.ca.fingerprint())
+        return info
 
     def agents(self) -> dict[str, AgentDefinition]:
         # Read on demand so edits to agents.yaml apply without a restart.
@@ -84,6 +110,7 @@ class Runtime:
                 name: backend.public()
                 for name, backend in self.settings.backends.items()
             },
+            "intercept": self.intercept_info(),
             "active_sessions": sum(item.ended_at is None for item in sessions),
             "total_sessions": len(sessions),
             "total_requests": sum(item.request_count for item in sessions),
@@ -120,6 +147,7 @@ class Runtime:
             "session_id": telemetry.session_id, "request_id": telemetry.request_id,
             "client": telemetry.client, "model": telemetry.model, "backend": telemetry.backend,
             "endpoint": telemetry.endpoint, "timestamp": telemetry.timestamp,
+            "kind": telemetry.kind, "method": telemetry.method, "host": telemetry.host,
             "response_bytes": 0, "ttft_ms": None, "output_tokens": 0,
         }
         self.live.start(_key(telemetry), telemetry)
@@ -153,6 +181,7 @@ class Runtime:
         request_payload: Any,
         response_payload: Any,
         upstream_request: Any = None,
+        http: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         self.active.pop(_key(telemetry), None)
         record = telemetry.finish()
@@ -172,6 +201,8 @@ class Runtime:
             }
             if upstream_request is not None:
                 trace["upstream_request"] = upstream_request
+            if http is not None:
+                trace["http"] = http
             self.sessions.write_trace(session, telemetry.request_id, trace)
         return record
 

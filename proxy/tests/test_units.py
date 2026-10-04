@@ -166,6 +166,8 @@ def test_launcher_runs_agent_with_rendered_environment(tmp_path, monkeypatch):
     calls = {}
 
     class FakeResponse:
+        status_code = 201
+
         def raise_for_status(self):
             return None
 
@@ -309,3 +311,59 @@ def test_live_summary_describes_agent_request_and_ollama_settings():
     assert summary["system_chars"] == len("You are Claude Code.")
     assert (summary["ollama_model"], summary["num_ctx"], summary["temperature"], summary["think"]) == ("qwen3.6:35b", 65536, 0.7, False)
     assert summary["translated"] is True
+
+
+def test_usage_parsing_ignores_non_model_json():
+    from agent_proxy.telemetry import RequestTelemetry
+
+    telemetry = RequestTelemetry("s", "1", "c", "", "b", "/", 0)
+    telemetry.apply_ollama_stats({"message": "Not Found", "response": "x", "usage": "n/a"})
+    assert telemetry.input_tokens == 0
+    telemetry.apply_ollama_stats({"usage": {"prompt_tokens": 5, "prompt_tokens_details": {"cached_tokens": 3}}})
+    assert (telemetry.input_tokens, telemetry.cache_read_tokens) == (5, 3)
+
+
+def test_ui_build_detects_stale_sources_and_skips_without_sources(tmp_path, monkeypatch):
+    import os
+
+    from agent_proxy import ui_build
+
+    dist = tmp_path / "ui" / "dist"
+    assert ui_build.ensure_built(dist) is False  # no package.json: nothing to build, nothing built
+    (tmp_path / "ui" / "src").mkdir(parents=True)
+    (tmp_path / "ui" / "package.json").write_text("{}")
+    source = tmp_path / "ui" / "src" / "App.tsx"
+    source.write_text("x")
+    assert ui_build.stale(dist)
+    dist.mkdir()
+    (dist / "index.html").write_text("<html>")
+    os.utime(source, (1, 1))
+    os.utime(tmp_path / "ui" / "package.json", (1, 1))
+    assert not ui_build.stale(dist)
+    source.write_text("changed")
+    assert ui_build.stale(dist)
+
+    calls = []
+    monkeypatch.setattr(ui_build.shutil, "which", lambda name: "npm")
+    monkeypatch.setattr(ui_build.subprocess, "run", lambda command, **_: calls.append(command[1:]) or type("R", (), {"returncode": 1, "stdout": "", "stderr": "boom"})())
+    # A failed build falls back to the existing dist.
+    assert ui_build.ensure_built(dist) is True
+    assert calls == [["install", "--no-audit", "--no-fund"]]
+
+
+def test_backend_for_picks_a_backend_of_the_agents_type():
+    import pytest
+
+    from agent_proxy.config import Backend
+
+    settings = Settings(default_backend="laptop", backends={
+        "laptop": Backend("laptop", "http://l"), "anthropic": Backend("anthropic", "https://a", type="anthropic"),
+    })
+    assert settings.backend_for("ollama").name == "laptop"
+    assert settings.backend_for("anthropic").name == "anthropic"
+    with pytest.raises(ValueError, match="needs a backend of type anthropic"):
+        settings.backend_for("anthropic", "laptop")
+    agents = load_agents(ROOT / "config" / "agents.yaml")
+    assert agents["claude-subscription"].route == "hosted"
+    assert agents["claude-account"].route == "account"
+    assert agents["qwen"].route == "ollama"

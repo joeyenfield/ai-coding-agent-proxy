@@ -23,3 +23,15 @@ backends:
   anthropic:
     type: anthropic
     url: https://api.anthropic.com
+
+# HTTPS intercept proxy for agents signed in to hosted accounts (agents with
+# intercept: true in agents.yaml). It decrypts and records their traffic using a
+# local CA created in certs/ on first start. That CA is only trusted by agent
+# processes the launcher starts; it is never added to the system trust store.
+# Keep listen_host on loopback: anyone who can reach this port can use it.
+intercept:
+  enabled: true
+  listen_host: 127.0.0.1
+  listen_port: 8183
+  # Hosts tunnelled without decryption; they show up as connections only.
+  passthrough: []

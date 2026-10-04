@@ -16,7 +16,8 @@ from .telemetry import RequestTelemetry
 
 
 MAX_TEXT = 24_000
-RECENT_LIMIT = 8
+# Intercepted sessions make many small requests, so keep a longer tail.
+RECENT_LIMIT = 40
 RAW_LIMIT = 200
 
 
@@ -51,14 +52,15 @@ class LiveHub:
         entry = {
             "key": key, "session_id": telemetry.session_id, "request_id": telemetry.request_id,
             "client": telemetry.client, "model": telemetry.model, "backend": telemetry.backend,
-            "endpoint": telemetry.endpoint, "started_at": time.time(), "first_token_at": None,
+            "endpoint": telemetry.endpoint, "kind": telemetry.kind, "method": telemetry.method,
+            "host": telemetry.host, "started_at": time.time(), "first_token_at": None,
             "reasoning": "", "content": "", "tool": "",
             "chunks": {"reasoning": 0, "content": 0, "tool": 0},
             "summary": None,
             "done": False,
         }
         self.active[key] = entry
-        self.payloads[key] = {"request": None, "upstream": None, "raw": deque(maxlen=RAW_LIMIT), "raw_total": 0}
+        self.payloads[key] = {"request": None, "upstream": None, "http": None, "raw": deque(maxlen=RAW_LIMIT), "raw_total": 0}
         self._publish({"type": "start", "request": entry})
 
     def attach(self, key: str, request: Any, upstream: Any = None) -> None:
@@ -70,6 +72,12 @@ class LiveHub:
         if self.enabled:
             self.payloads[key].update(request=request, upstream=upstream)
         self._publish({"type": "summary", "key": key, "summary": entry["summary"]})
+
+    def http(self, key: str, exchange: dict[str, Any]) -> None:
+        """Headers and status of an intercepted exchange (credentials already redacted)."""
+        payload = self.payloads.get(key)
+        if payload is not None and self.enabled:
+            payload["http"] = exchange
 
     def raw(self, key: str, obj: dict[str, Any]) -> None:
         payload = self.payloads.get(key)
@@ -115,6 +123,7 @@ class LiveHub:
             "enabled": self.enabled,
             "request": payload["request"],
             "upstream": payload["upstream"],
+            "http": payload["http"],
             "raw": list(payload["raw"]),
             "raw_total": payload["raw_total"],
         }

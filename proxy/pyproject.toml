@@ -7,13 +7,15 @@ name = "ai-coding-agent-proxy"
 version = "0.2.0"
 description = "A streaming Ollama proxy, agent launcher and benchmark runner for local coding agents"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.110",
   "httpx>=0.27",
   "pydantic>=2.6",
   "psutil>=5.9",
   "PyYAML>=6.0",
+  "cryptography>=42",
+  "h11>=0.14",
   "uvicorn[standard]>=0.27",
 ]
 

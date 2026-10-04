@@ -6,6 +6,7 @@ import { LineChart, type Sample } from "../components/LineChart";
 import { formatBytes, formatNumber } from "../format";
 import { useStatus } from "../hooks";
 import { useTicker } from "../live";
+import { OllamaOnlyNote } from "../components/OllamaOnlyNote";
 
 const POLL_MS = 2000;
 const WINDOW_SECONDS = 300;
@@ -56,16 +57,18 @@ function useHostHistory(sample: HostSample | undefined) {
 export function HostsPage() {
   // The host list comes from the status poll the app already runs; no backend is contacted until opened.
   const status = useStatus();
-  const backends = Object.entries(status.data?.backends ?? {});
+  const backends = Object.entries(status.data?.backends ?? {}).filter(([, backend]) => backend.type === "ollama");
   return (
     <div className="page wide">
       <header className="page-head">
-        <h1>Hosts</h1>
+        <h1>Ollama machines</h1>
         <p className="lede">
           What each Ollama machine has loaded and how hard it's working. Open a host to sample it every{" "}
           {POLL_MS / 1000} seconds. Closed hosts aren't contacted, and nothing is saved.
         </p>
       </header>
+      <OllamaOnlyNote />
+
       {status.isError && <p className="bad">{status.error.message}</p>}
       {status.isPending && <p className="empty">Connecting to the proxy…</p>}
       <div className="host-list">

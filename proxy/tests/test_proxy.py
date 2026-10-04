@@ -180,6 +180,25 @@ def test_anthropic_subscription_passthrough_preserves_credentials_and_payload(tm
         close_app(app, client, old)
 
 
+def test_anthropic_backend_forwards_other_claude_code_endpoints(tmp_path):
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/models"
+        assert request.url.params["limit"] == "5"
+        assert request.headers["authorization"] == "Bearer token"
+        return httpx.Response(200, json={"data": [{"id": "claude-x"}]})
+
+    app, client, old = make_app(tmp_path, handler)
+    try:
+        app.state.runtime.settings.backends["test"] = Backend("test", "https://anthropic.test", type="anthropic")
+        session = client.post("/api/sessions", json={"client": "claude", "backend": "test"}).json()
+        response = client.get(f"/session/{session['session_id']}/anthropic/v1/models?limit=5", headers={"authorization": "Bearer token"})
+        assert response.json() == {"data": [{"id": "claude-x"}]}
+        app.state.runtime.settings.backends["test"] = Backend("test", "http://ollama.test")
+        assert client.get(f"/session/{session['session_id']}/anthropic/v1/models").status_code == 404
+    finally:
+        close_app(app, client, old)
+
+
 @pytest.mark.parametrize("status", [200, 401, 429])
 def test_anthropic_subscription_stream_and_errors(tmp_path, status):
     events = [
@@ -536,5 +555,32 @@ def test_live_view_receives_non_streamed_replies(tmp_path):
         client.post(f"/session/{session['session_id']}/api/chat", json={"model": "m", "stream": False})
         recent = app.state.runtime.live.snapshot(session["session_id"])["recent"]
         assert recent[0]["content"] == "Hi there"
+    finally:
+        close_app(app, client, old)
+
+
+def test_delete_all_sessions_keeps_open_sessions_usable(tmp_path):
+    def handler(request):
+        return httpx.Response(200, json={"message": {"role": "assistant", "content": "hi"}, "done": True, "prompt_eval_count": 1, "eval_count": 1})
+
+    app, client, old = make_app(tmp_path, handler)
+    try:
+        ended = client.post("/api/sessions", json={"client": "a", "backend": "test"}).json()["session_id"]
+        running = client.post("/api/sessions", json={"client": "b", "backend": "test"}).json()["session_id"]
+        for session_id in (ended, running):
+            client.post(f"/session/{session_id}/api/chat", json={"model": "m", "stream": False, "messages": []})
+        client.patch(f"/api/sessions/{ended}", json={"ended": True})
+        assert len(client.get("/api/requests").json()) == 2
+
+        stale = client.post("/api/sessions", json={"client": "crashed", "backend": "test"}).json()["session_id"]
+        store = app.state.runtime.sessions
+        store.get(stale).last_activity_at = "2020-01-01T00:00:00.000Z"
+        result = client.delete("/api/sessions").json()
+        assert result == {"deleted": 2, "cleared": 1, "skipped": []}
+        assert [item["session_id"] for item in client.get("/api/sessions").json()] == [running]
+        assert client.get("/api/requests").json() == []
+        assert client.get("/api/status").json()["total_input_tokens"] == 0
+        # The open session still accepts traffic.
+        assert client.post(f"/session/{running}/api/chat", json={"model": "m", "stream": False, "messages": []}).status_code == 200
     finally:
         close_app(app, client, old)

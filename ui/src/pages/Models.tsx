@@ -1,10 +1,12 @@
 import { useState } from "react";
 import type { OllamaModel, Profile } from "../api";
 import { formatBytes, formatNumber } from "../format";
-import { useModels } from "../hooks";
+import { OllamaOnlyNote } from "../components/OllamaOnlyNote";
+import { useModels, useStatus } from "../hooks";
 
 export function ModelsPage() {
   const models = useModels();
+  const status = useStatus();
   const [query, setQuery] = useState("");
   const [loadedOnly, setLoadedOnly] = useState(false);
   const text = query.trim().toLowerCase();
@@ -12,12 +14,14 @@ export function ModelsPage() {
   return (
     <div className="page wide">
       <header className="page-head">
-        <h1>Models</h1>
+        <h1>Ollama models</h1>
         <p className="lede">
-          Models on each Ollama backend, and the settings the proxy adds before forwarding. Edit them in{" "}
+          Models on each Ollama machine, and the settings the proxy adds before forwarding. Edit them in{" "}
           <code>config/models.yaml</code>.
         </p>
       </header>
+      <OllamaOnlyNote />
+
       <div className="filters">
         <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Filter models" aria-label="Filter models" />
         <label className="check">
@@ -28,7 +32,9 @@ export function ModelsPage() {
       {models.isError && <p className="bad">{models.error.message}</p>}
       {models.isPending && <p className="empty">Asking each backend for its models…</p>}
       {models.data &&
-        Object.entries(models.data.backends).map(([name, backend]) => {
+        Object.entries(models.data.backends)
+          .filter(([name]) => status.data?.backends[name]?.type !== "anthropic")
+          .map(([name, backend]) => {
           const visible = backend.models.filter(filter);
           return (
             <section key={name} className="section">

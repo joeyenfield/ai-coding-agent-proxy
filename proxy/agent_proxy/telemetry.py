@@ -36,6 +36,13 @@ class RequestTelemetry:
     completed: bool = False
     streamed_chunks: int = 0
     estimated_input_tokens: int | None = None
+    # "api" for the reverse-proxy endpoints; "intercept", "upgrade" or "tunnel"
+    # for traffic captured by the HTTPS intercept proxy.
+    kind: str = "api"
+    method: str | None = None
+    host: str | None = None
+    cache_read_tokens: int = 0
+    cache_creation_tokens: int = 0
 
     def saw_content(self) -> None:
         if self.first_token is None:
@@ -55,9 +62,13 @@ class RequestTelemetry:
             self.prompt_eval_ms = obj["prompt_eval_duration"] / 1_000_000
         if obj.get("eval_duration") is not None:
             self.generation_ms = obj["eval_duration"] / 1_000_000
-        usage = obj.get("usage") or (obj.get("response") or {}).get("usage") or (obj.get("message") or {}).get("usage") or {}
+        usage = _mapping(obj.get("usage")) or _mapping(obj.get("response")).get("usage") or _mapping(obj.get("message")).get("usage")
+        usage = _mapping(usage)
         self.input_tokens = int(usage.get("prompt_tokens") or usage.get("input_tokens") or self.input_tokens)
         self.output_tokens = int(usage.get("completion_tokens") or usage.get("output_tokens") or self.output_tokens)
+        cached = _mapping(usage.get("prompt_tokens_details") or usage.get("input_tokens_details")).get("cached_tokens")
+        self.cache_read_tokens = int(usage.get("cache_read_input_tokens") or cached or self.cache_read_tokens)
+        self.cache_creation_tokens = int(usage.get("cache_creation_input_tokens") or self.cache_creation_tokens)
 
     def finish(self) -> dict[str, Any]:
         total_ms = (time.perf_counter() - self.started) * 1000
@@ -104,6 +115,11 @@ class RequestTelemetry:
             "context_size": self.context_size,
             "temperature": self.temperature,
             "max_output_tokens": self.max_output_tokens,
+            "kind": self.kind,
+            "method": self.method,
+            "host": self.host,
+            "cache_read_tokens": self.cache_read_tokens,
+            "cache_creation_tokens": self.cache_creation_tokens,
         }
 
 
@@ -194,6 +210,11 @@ def has_content(obj: dict[str, Any]) -> bool:
 def _add(deltas: list[tuple[str, str]], kind: str, value: Any) -> None:
     if isinstance(value, str) and value:
         deltas.append((kind, value))
+
+
+def _mapping(value: Any) -> dict[str, Any]:
+    """Treat anything but a dict as empty; non-model JSON reuses keys like "message" for strings."""
+    return value if isinstance(value, dict) else {}
 
 
 def _rate(tokens: int, duration_ms: float | None) -> float | None:
