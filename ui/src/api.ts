@@ -15,6 +15,35 @@ export interface ActiveRequest {
   response_bytes: number;
   ttft_ms: number | null;
   output_tokens: number;
+  kind?: TrafficKind;
+  method?: string | null;
+  host?: string | null;
+}
+
+/** api: a proxy endpoint. intercept/upgrade/tunnel: captured by the HTTPS intercept proxy. */
+export type TrafficKind = "api" | "intercept" | "upgrade" | "tunnel";
+
+export interface HttpExchange {
+  method: string;
+  url: string;
+  request_headers: [string, string][];
+  request_content_type?: string | null;
+  status?: number;
+  reason?: string;
+  response_headers?: [string, string][];
+  response_content_type?: string;
+}
+
+export interface InterceptInfo {
+  enabled: boolean;
+  running: boolean;
+  error: string | null;
+  url: string;
+  listen_host: string;
+  listen_port: number;
+  passthrough: string[];
+  ca_path?: string;
+  ca_fingerprint?: string;
 }
 
 export interface RequestRecord {
@@ -43,6 +72,11 @@ export interface RequestRecord {
   temperature: number | null;
   max_output_tokens: number | null;
   trace_available?: boolean;
+  kind?: TrafficKind;
+  method?: string | null;
+  host?: string | null;
+  cache_read_tokens?: number;
+  cache_creation_tokens?: number;
 }
 
 export interface Status {
@@ -52,6 +86,7 @@ export interface Status {
   restart_required: boolean;
   default_backend: string;
   backends: Record<string, Backend>;
+  intercept?: InterceptInfo;
   active_sessions: number;
   total_sessions: number;
   total_requests: number;
@@ -81,6 +116,7 @@ export interface Trace {
   request: unknown;
   response: unknown;
   upstream_request?: unknown;
+  http?: HttpExchange;
 }
 
 export interface Agent {
@@ -94,6 +130,12 @@ export interface Agent {
   recommended_for: string[];
   notes: string | null;
   installed: boolean;
+  /** Signed in to its own service; all its HTTPS goes through the intercept proxy. */
+  intercept?: boolean;
+  needs_model?: boolean;
+  /** Backend type the agent works with; null for account agents. */
+  backend_type?: string | null;
+  route?: "ollama" | "hosted" | "account";
 }
 
 export interface PreparedSession {
@@ -191,8 +233,10 @@ export const api = {
     request<Session>(sessionUrl(sessionId), { method: "PATCH", body: JSON.stringify({ ended: true }) }),
   clearSession: (sessionId: string) => request<Session>(`${sessionUrl(sessionId)}/data`, { method: "DELETE" }),
   deleteSession: (sessionId: string) => request<{ deleted: string }>(sessionUrl(sessionId), { method: "DELETE" }),
+  deleteAllSessions: () => request<{ deleted: number; cleared: number; skipped: string[] }>("/api/sessions", { method: "DELETE" }),
   telemetryUrl: (sessionId: string) => `${sessionUrl(sessionId)}/telemetry`,
   agents: () => request<Agent[]>("/api/agents"),
+  intercept: () => request<InterceptInfo>("/api/intercept"),
   prepareAgent: (agentId: string, body: { model: string; backend: string; trace: boolean; project?: string }) =>
     request<PreparedSession>(`/api/agents/${encodeURIComponent(agentId)}/sessions`, {
       method: "POST",
@@ -208,6 +252,16 @@ export const requestKey = (record: { session_id: string; request_id: string }) =
   `${record.session_id}:${record.request_id}`;
 
 export const isFailure = (record: RequestRecord) => record.status >= 400 || Boolean(record.error_type);
+
+/** Whether a request was a model call rather than other traffic an agent makes (auth, telemetry, ...). */
+export const isModelCall = (record: { kind?: TrafficKind; model: string }) =>
+  !record.kind || record.kind === "api" || Boolean(record.model);
+
+/** Method and full address for intercepted traffic, otherwise the proxy endpoint. */
+export const trafficTarget = (record: { kind?: TrafficKind; method?: string | null; host?: string | null; endpoint: string }) =>
+  record.kind && record.kind !== "api" && record.host
+    ? `${record.method ?? ""} ${record.kind === "tunnel" ? record.endpoint : record.host + record.endpoint}`.trim()
+    : record.endpoint;
 
 export interface GpuSample {
   index: number;
@@ -265,7 +319,7 @@ export const fetchHost = (name: string) =>
 const OUTCOMES: Record<string, string> = {
   client_closed: "Client hung up",
   incomplete_stream: "Stream cut off",
-  upstream_error: "Ollama error",
+  upstream_error: "Upstream error",
 };
 
 /** A short, plain label for why a request did not complete normally. */
@@ -284,6 +338,7 @@ export interface LiveDetails {
   done: boolean;
   request: unknown;
   upstream: unknown;
+  http?: HttpExchange | null;
   raw: Record<string, unknown>[];
   raw_total: number;
   reasoning: string;

@@ -1,11 +1,13 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, isFailure, outcomeLabel, requestKey, tokens } from "../api";
-import { endpointPath, formatCompact, formatDate, formatDuration, formatNumber, formatRelative, lastTraffic } from "../format";
+import { api, isFailure } from "../api";
+import { formatCompact, formatDate, formatNumber, formatRelative, lastTraffic } from "../format";
 import { useRequests, useStatus, useToast } from "../hooks";
 import { useLive, useTicker } from "../live";
-import { LiveCard } from "./Live";
+import { RouteBadge } from "../components/RouteBadge";
+import { RequestList } from "../components/RequestList";
+import { groupRepeats, mergeRows } from "../traffic";
 
 /** One session: its live traffic as it streams, then its saved request history. */
 export function SessionPage() {
@@ -19,6 +21,12 @@ export function SessionPage() {
   useTicker(live.active.length > 0 || Boolean(session.data && !session.data.ended_at), 1000);
 
   const history = useMemo(() => (requests.data ?? []).filter((record) => record.session_id === sessionId), [requests.data, sessionId]);
+  const [modelOnly, setModelOnly] = useState(false);
+  const [grouped, setGrouped] = useState(true);
+  const rows = useMemo(() => {
+    const merged = mergeRows(history, [...live.recent, ...live.active]).filter((row) => !modelOnly || row.category === "model");
+    return grouped ? groupRepeats(merged) : merged;
+  }, [history, live.active, live.recent, modelOnly, grouped]);
   const totals = useMemo(
     () => ({
       input: history.reduce((total, record) => total + (record.input_tokens || 0), 0),
@@ -52,7 +60,6 @@ export function SessionPage() {
   if (!session.data) return <p className="empty">Loading the session…</p>;
   const data = session.data;
   const streaming = live.active.length;
-  const finishedHere = live.recent;
   const proxyUrl = status.data?.proxy_url ?? "";
 
   return (
@@ -66,7 +73,7 @@ export function SessionPage() {
           {data.project && <span className="subtle"> in {data.project}</span>}
         </h1>
         <p className="lede">
-          {data.model || "Model chosen by the agent"} on {data.backend}.{" "}
+          {data.model || "Model chosen by the agent"} via <RouteBadge item={data} />.{" "}
           {data.ended_at
             ? `Ended ${formatRelative(data.ended_at)}${data.exit_status == null ? "" : ` with exit code ${data.exit_status}`}.`
             : `Open since ${formatRelative(data.started_at)}.`}
@@ -97,87 +104,38 @@ export function SessionPage() {
 
       <section className="section">
         <div className="section-head">
-          <h2>{streaming ? `Streaming now (${streaming})` : "Live traffic"}</h2>
+          <h2>{streaming ? `Requests (${streaming} streaming)` : "Requests"}</h2>
           <span className={`connection ${live.connected ? "" : "offline"}`}>
             <span className="dot" aria-hidden="true" />
-            {live.connected ? "Listening for this session's requests" : "Reconnecting…"}
+            {live.connected ? (data.ended_at ? "Session ended" : "Listening for new requests") : "Reconnecting…"}
           </span>
         </div>
-        {streaming ? (
-          <div className={`live-grid ${streaming > 1 ? "multi" : ""}`}>
-            {live.active.map((entry) => (
-              <LiveCard key={entry.key} entry={entry} />
-            ))}
-          </div>
+        <div className="filters">
+          <label className="check">
+            <input type="checkbox" checked={modelOnly} onChange={(event) => setModelOnly(event.target.checked)} />
+            Model calls only
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={grouped} onChange={(event) => setGrouped(event.target.checked)} />
+            Group repeats
+          </label>
+          <Link to={`/traffic?session=${encodeURIComponent(sessionId)}`}>Open in Traffic</Link>
+        </div>
+        {rows.length ? (
+          <RequestList key={sessionId} rows={rows} />
         ) : (
           <p className="empty">
             {data.ended_at
-              ? "This session has ended, so no new traffic will arrive."
-              : "Nothing is streaming in this session right now. New requests appear here as they start."}
+              ? "No requests were recorded in this session."
+              : "Nothing yet. Requests appear here as the agent sends them."}
           </p>
         )}
-        {finishedHere.length > 0 && (
-          <>
-            <h3>Finished while you've been watching</h3>
-            <div className="live-grid multi">
-              {finishedHere.map((entry) => (
-                <LiveCard key={entry.key} entry={entry} />
-              ))}
-            </div>
-          </>
-        )}
       </section>
 
-      <section className="section">
-        <div className="section-head">
-          <h2>Request history</h2>
-          <Link to={`/requests?session=${encodeURIComponent(sessionId)}`}>Inspect in request history</Link>
-        </div>
-        {history.length ? (
-          <div className="table-scroll">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th scope="col">Request</th>
-                  <th scope="col" className="num">First token</th>
-                  <th scope="col" className="num">Duration</th>
-                  <th scope="col" className="num">Output</th>
-                  <th scope="col" className="num">When</th>
-                </tr>
-              </thead>
-              <tbody>
-                {history.slice(0, 25).map((record) => (
-                  <tr key={requestKey(record)}>
-                    <td>
-                      <span className="title-line">
-                        <Link to={`/requests?request=${encodeURIComponent(requestKey(record))}`}>
-                          #{record.request_id} {record.model || "Unknown model"}
-                        </Link>
-                        {isFailure(record) && <span className="pill bad">{outcomeLabel(record)}</span>}
-                      </span>
-                      <small className="mono">{endpointPath(record.endpoint)}</small>
-                    </td>
-                    <td className="num">{formatDuration(record.ttft_ms)}</td>
-                    <td className="num">{formatDuration(record.total_ms)}</td>
-                    <td className="num nowrap">
-                      {tokens(record, record.output_tokens)} tok
-                      <small>{record.generation_tps == null ? "–" : `${formatNumber(record.generation_tps)}/s`}</small>
-                    </td>
-                    <td className="num subtle" title={formatDate(record.timestamp)}>
-                      {formatRelative(record.timestamp)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <p className="empty">No requests have been recorded in this session.</p>
-        )}
-      </section>
-
-      <section className="section">
-        <h2>Details</h2>
+      <details className="section collapsible">
+        <summary>
+          <h2>Details</h2>
+        </summary>
         <dl className="endpoints">
           <dt>Session</dt>
           <dd className="mono">{data.session_id}</dd>
@@ -199,7 +157,7 @@ export function SessionPage() {
             </>
           )}
         </dl>
-      </section>
+      </details>
     </div>
   );
 }

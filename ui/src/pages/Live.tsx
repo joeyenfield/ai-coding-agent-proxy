@@ -1,8 +1,9 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { requestKey } from "../api";
+import { isModelCall, requestKey } from "../api";
 import { endpointPath, formatDuration, formatNumber, formatRelative, shortId } from "../format";
 import { LiveDetails } from "../components/LiveDetails";
+import { RouteBadge } from "../components/RouteBadge";
 import { liveRate, phaseOf, useLive, useTicker, type LiveRequest, type Phase } from "../live";
 
 const PHASE_LABELS: Record<Phase, string> = {
@@ -14,7 +15,11 @@ const PHASE_LABELS: Record<Phase, string> = {
 };
 
 export function LivePage() {
-  const live = useLive();
+  const all = useLive();
+  // Account agents also make auth, telemetry and MCP calls; those are on the Traffic page.
+  const active = all.active.filter(isModelCall);
+  const live = { ...all, active, recent: all.recent.filter(isModelCall).slice(0, 8) };
+  const other = all.active.length - active.length;
   useTicker(live.active.length > 0);
   return (
     <div className="page wide">
@@ -27,6 +32,10 @@ export function LivePage() {
         <p className="lede">
           Tokens appear here as the model produces them. Reasoning, the reply and tool calls are shown separately.
           {!live.connected && <span className="bad"> Reconnecting to the proxy…</span>}
+        </p>
+        <p className="subtle">
+          Only model calls are shown here. <Link to="/traffic">See all traffic</Link>
+          {other > 0 ? `, including ${other} other ${other === 1 ? "request" : "requests"} in flight.` : "."}
         </p>
         {!live.enabled && (
           <p className="banner warn">
@@ -81,7 +90,7 @@ export function LiveCard({ entry }: { entry: LiveRequest }) {
         <div>
           <h2>{entry.model || "Unknown model"}</h2>
           <p className="subtle">
-            {entry.client} on {entry.backend}
+            {entry.client} <RouteBadge item={entry} />
           </p>
         </div>
         <span className={`phase phase-${phase}`}>
@@ -131,7 +140,7 @@ export function LiveCard({ entry }: { entry: LiveRequest }) {
         )}
       </section>
       <details className="live-more" onToggle={(event) => setShowDetails(event.currentTarget.open)}>
-        <summary>Request, payload sent to Ollama and raw stream</summary>
+        <summary>{entry.kind && entry.kind !== "api" ? "Headers, request and raw stream" : "Request, payload sent to Ollama and raw stream"}</summary>
         {showDetails && <LiveDetails sessionId={entry.session_id} requestId={entry.request_id} done={entry.done} />}
       </details>
       <footer className="live-card-foot subtle">
@@ -150,6 +159,7 @@ export function LiveCard({ entry }: { entry: LiveRequest }) {
 /** What the agent asked for and the Ollama settings the proxy applied. */
 function RequestFacts({ entry }: { entry: LiveRequest }) {
   const summary = entry.summary!;
+  if (entry.kind && entry.kind !== "api") return <InterceptFacts entry={entry} />;
   const thinking = summary.think === false ? "off" : summary.think === true ? "on" : "model default";
   const facts: [string, string][] = [
     ["Endpoint", endpointPath(entry.endpoint)],
@@ -169,6 +179,37 @@ function RequestFacts({ entry }: { entry: LiveRequest }) {
           <div key={label} className={label === "Endpoint" ? "wide" : undefined}>
             <dt>{label}</dt>
             <dd className={label === "Endpoint" || label === "Ollama model" ? "mono" : undefined}>{value}</dd>
+          </div>
+        ))}
+      </dl>
+      {summary.tool_names.length > 0 && (
+        <p className="subtle tool-names" title={summary.tool_names.join(", ")}>
+          Tools offered: {summary.tool_names.join(", ")}
+          {summary.tools > summary.tool_names.length ? `, and ${summary.tools - summary.tool_names.length} more` : ""}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** What an account agent sent its own service; there are no proxy-applied settings. */
+function InterceptFacts({ entry }: { entry: LiveRequest }) {
+  const summary = entry.summary!;
+  const facts: [string, string][] = [
+    ["Endpoint", `${entry.method ?? ""} https://${entry.host ?? entry.backend}${entry.endpoint}`],
+    ["Messages", summary.messages == null ? "–" : formatNumber(summary.messages)],
+    ["Tools", formatNumber(summary.tools)],
+    ["System prompt", summary.system_chars ? `${formatNumber(summary.system_chars)} chars` : "none"],
+    ["Max output", summary.num_predict ? formatNumber(summary.num_predict) : "–"],
+    ["Temperature", summary.temperature == null ? "–" : String(summary.temperature)],
+  ];
+  return (
+    <div className="live-facts">
+      <dl>
+        {facts.map(([label, value]) => (
+          <div key={label} className={label === "Endpoint" ? "wide" : undefined}>
+            <dt>{label}</dt>
+            <dd className={label === "Endpoint" ? "mono" : undefined}>{value}</dd>
           </div>
         ))}
       </dl>

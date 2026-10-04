@@ -110,6 +110,24 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             return await _forward(runtime, request, session_id, "/v1/messages/count_tokens", x_ai_proxy_backend)
         return {"input_tokens": estimate_tokens(_json(await request.body()))}
 
+    # Registered after the Messages routes, so this only sees Claude Code's other
+    # calls (model lists, account and feature endpoints) for hosted Anthropic.
+    @app.api_route("/anthropic/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+    @app.api_route("/session/{session_id}/anthropic/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+    async def anthropic_other(
+        request: Request,
+        path: str,
+        session_id: str | None = None,
+        x_ai_proxy_session: str | None = Header(default=None),
+        x_ai_proxy_backend: str | None = Header(default=None),
+    ):
+        session_id = session_id or x_ai_proxy_session
+        session = runtime.sessions.get(session_id or "")
+        backend = _backend(runtime, x_ai_proxy_backend or (session.backend if session else None))
+        if backend.type != "anthropic":
+            raise HTTPException(status_code=404, detail=f"/{path} is only available with a hosted Anthropic backend")
+        return await _forward(runtime, request, session_id, f"/{path}", x_ai_proxy_backend)
+
 
 async def _native_chat(
     runtime: Runtime,
@@ -264,8 +282,8 @@ async def _forward(
     original_payload = json.loads(json.dumps(payload))
     session = runtime.resolve_session(session_id, payload, backend_override)
     backend = _backend(runtime, backend_override or session.backend)
-    if backend.type == "anthropic" and upstream_path not in {"/v1/messages", "/v1/messages/count_tokens"}:
-        raise HTTPException(status_code=400, detail="Anthropic backends require the Anthropic Messages endpoint")
+    if backend.type == "anthropic" and "/anthropic/" not in request.url.path:
+        raise HTTPException(status_code=400, detail="Anthropic backends are only reachable through the /anthropic endpoints")
     request_id = await runtime.sessions.next_request_id(session)
     model = payload.get("model") or session.model or ""
     if model and request.method == "POST" and backend.type == "ollama":

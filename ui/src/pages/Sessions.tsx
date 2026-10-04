@@ -1,10 +1,14 @@
-import { useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Session } from "../api";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-import { formatDate, formatNumber, formatRelative, lastTraffic } from "../format";
-import { useSessions, useStatus, useToast } from "../hooks";
+import { formatDate, formatNumber, lastTraffic } from "../format";
+import { useRequests, useSessions, useStatus, useToast } from "../hooks";
+import { ExpandRow } from "../components/ExpandRow";
+import { RequestList } from "../components/RequestList";
+import { groupRepeats, mergeRows } from "../traffic";
+import { RouteBadge } from "../components/RouteBadge";
 
 type Cleanup = { session: Session; remove: boolean } | null;
 
@@ -18,6 +22,8 @@ export function SessionsPage() {
   const client = useQueryClient();
   const notify = useToast();
   const [cleanup, setCleanup] = useState<Cleanup>(null);
+  const [confirmAll, setConfirmAll] = useState(false);
+  const [open, setOpen] = useState<Set<string>>(() => new Set());
   const busy = new Set(status.data?.current_requests.map((item) => item.session_id));
   const refresh = () => client.invalidateQueries();
 
@@ -37,6 +43,18 @@ export function SessionsPage() {
     },
     onError: (error) => notify(error.message),
   });
+  const removeAll = useMutation({
+    mutationFn: api.deleteAllSessions,
+    onSuccess: (result) => {
+      const parts = [`${result.deleted} deleted`];
+      if (result.cleared) parts.push(`${result.cleared} recently active ${result.cleared === 1 ? "session" : "sessions"} kept but emptied`);
+      if (result.skipped.length) parts.push(`${result.skipped.length} skipped while streaming`);
+      notify(`Sessions: ${parts.join(", ")}`);
+      setConfirmAll(false);
+      setOpen(new Set());
+      refresh();
+    },
+  });
   const remove = useMutation({
     mutationFn: async ({ session, remove }: { session: Session; remove: boolean }) => {
       if (remove) await api.deleteSession(session.session_id);
@@ -49,121 +67,121 @@ export function SessionsPage() {
     },
   });
 
+  const ordered = [...(sessions.data ?? [])].sort(byLastActivity);
+  const toggle = (id: string) =>
+    setOpen((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
   return (
     <div className="page">
       <header className="page-head">
-        <h1>Sessions</h1>
+        <div className="section-head">
+          <h1>Sessions</h1>
+          {ordered.length > 0 && (
+            <button
+              type="button"
+              className="danger"
+              onClick={() => {
+                removeAll.reset();
+                setConfirmAll(true);
+              }}
+            >
+              Delete all sessions…
+            </button>
+          )}
+        </div>
         <p className="lede">
-          A session is one agent run. The launcher opens one for you; requests without a session get their own.
+          A session is one agent run. The launcher opens one for you; requests without a session get their own. Expand a
+          session to see its requests and settings, or open it on its own page.
         </p>
       </header>
-      {sessions.data?.length ? (
-        <div className="table-scroll">
-          <table className="table">
-            <thead>
-              <tr>
-                <th scope="col">Agent</th>
-                <th scope="col">Model</th>
-                <th scope="col">Last traffic</th>
-                <th scope="col" className="num">Requests</th>
-                <th scope="col">Payloads</th>
-                <th scope="col">
-                  <span className="visually-hidden">Actions</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {[...sessions.data].sort(byLastActivity).map((session) => {
-                const inFlight = busy.has(session.session_id);
-                return (
-                  <tr key={session.session_id}>
-                    <td>
-                      <Link className="strong-link" to={`/sessions/${encodeURIComponent(session.session_id)}`}>
-                        {session.client}
-                      </Link>
-                      {session.project && <span className="subtle"> in {session.project}</span>}
-                      <small className="mono">{session.session_id}</small>
-                      <small>
-                        {session.ended_at ? (
-                          session.exit_status == null ? "Ended" : `Ended with exit code ${session.exit_status}`
-                        ) : (
-                          <span className="good">Open</span>
-                        )}
-                      </small>
-                    </td>
-                    <td>
-                      {session.model || "Set by agent"}
-                      <small>{session.backend}</small>
-                    </td>
-                    <td title={session.last_activity_at ? formatDate(session.last_activity_at) : undefined}>
-                      {inFlight ? <span className="warn">Streaming now</span> : lastTraffic(session)}
-                      <small title={formatDate(session.started_at)}>Started {formatRelative(session.started_at)}</small>
-                    </td>
-                    <td className="num">{formatNumber(session.request_count)}</td>
-                    <td>
-                      <label className="check">
-                        <input
-                          type="checkbox"
-                          checked={session.trace}
-                          disabled={trace.isPending}
-                          onChange={(event) => trace.mutate({ id: session.session_id, enabled: event.target.checked })}
-                        />
-                        Capture
-                      </label>
-                    </td>
-                    <td>
-                      <div className="row wrap">
-                        <Link className="button" to={`/sessions/${encodeURIComponent(session.session_id)}`}>
-                          Watch
-                        </Link>
-                        <Link className="button" to={`/requests?session=${encodeURIComponent(session.session_id)}`}>
-                          Review
-                        </Link>
-                        <a className="button" href={api.telemetryUrl(session.session_id)}>
-                          JSONL
-                        </a>
-                        {!session.ended_at && (
-                          <button type="button" onClick={() => end.mutate(session.session_id)}>
-                            End
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          className="danger"
-                          disabled={inFlight}
-                          title={inFlight ? "Wait for in-flight requests to finish" : undefined}
-                          onClick={() => {
-                            remove.reset();
-                            setCleanup({ session, remove: false });
-                          }}
-                        >
-                          Clear data
-                        </button>
-                        <button
-                          type="button"
-                          className="danger"
-                          disabled={inFlight}
-                          title={inFlight ? "Wait for in-flight requests to finish" : undefined}
-                          onClick={() => {
-                            remove.reset();
-                            setCleanup({ session, remove: true });
-                          }}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+      {ordered.length ? (
+        <ul className="xlist" aria-label="Sessions">
+          {ordered.map((session) => {
+            const inFlight = busy.has(session.session_id);
+            const path = `/sessions/${encodeURIComponent(session.session_id)}`;
+            return (
+              <ExpandRow
+                key={session.session_id}
+                expanded={open.has(session.session_id)}
+                onToggle={() => toggle(session.session_id)}
+                tone={inFlight ? "live" : undefined}
+                summary={
+                  <>
+                    <span className="xrow-main">
+                      <strong>{session.client}</strong>
+                      {session.project && <span className="subtle">in {session.project}</span>}
+                      <RouteBadge item={session} />
+                      {session.model && <span className="pill accent">{session.model}</span>}
+                    </span>
+                    <span className="xrow-meta">
+                      {inFlight ? (
+                        <span className="pill live">
+                          <span className="live-mark" aria-hidden="true" /> streaming
+                        </span>
+                      ) : session.ended_at ? (
+                        <span className="subtle">{session.exit_status == null ? "Ended" : `Ended, exit ${session.exit_status}`}</span>
+                      ) : (
+                        <span className="good">Open</span>
+                      )}
+                      <span>
+                        {formatNumber(session.request_count)} {session.request_count === 1 ? "request" : "requests"}
+                      </span>
+                      <span className="subtle" title={session.last_activity_at ? formatDate(session.last_activity_at) : undefined}>
+                        {lastTraffic(session)}
+                      </span>
+                    </span>
+                  </>
+                }
+                actions={
+                  <Link className="button" to={path}>
+                    Open
+                  </Link>
+                }
+              >
+                <SessionBody
+                  session={session}
+                  inFlight={inFlight}
+                  onTrace={(enabled) => trace.mutate({ id: session.session_id, enabled })}
+                  traceBusy={trace.isPending}
+                  onEnd={() => end.mutate(session.session_id)}
+                  onCleanup={(removeSession) => {
+                    remove.reset();
+                    setCleanup({ session, remove: removeSession });
+                  }}
+                />
+              </ExpandRow>
+            );
+          })}
+        </ul>
       ) : (
         <p className="empty">No sessions yet.</p>
       )}
 
       <NewSession />
+
+      <ConfirmDialog
+        open={confirmAll}
+        title="Delete all sessions?"
+        confirmLabel="Delete everything"
+        busy={removeAll.isPending}
+        error={removeAll.error?.message}
+        onCancel={() => setConfirmAll(false)}
+        onConfirm={() => removeAll.mutate()}
+      >
+        <p>
+          This permanently removes every saved request, telemetry file and payload, and deletes the sessions. Sessions
+          used in the last 15 minutes stay, empty, so agents that are still running keep working. Sessions with a request
+          in flight are skipped. It can't be undone.
+        </p>
+        <p className="subtle">
+          {formatNumber(ordered.length)} sessions, {formatNumber(ordered.reduce((total, item) => total + item.request_count, 0))} requests.
+        </p>
+      </ConfirmDialog>
 
       <ConfirmDialog
         open={cleanup != null}
@@ -182,6 +200,71 @@ export function SessionsPage() {
         </p>
         <p className="mono subtle">{cleanup?.session.session_id}</p>
       </ConfirmDialog>
+    </div>
+  );
+}
+
+/** What an expanded session row shows: its settings, actions and latest requests. */
+function SessionBody({
+  session,
+  inFlight,
+  onTrace,
+  traceBusy,
+  onEnd,
+  onCleanup,
+}: {
+  session: Session;
+  inFlight: boolean;
+  onTrace: (enabled: boolean) => void;
+  traceBusy: boolean;
+  onEnd: () => void;
+  onCleanup: (remove: boolean) => void;
+}) {
+  const requests = useRequests();
+  const rows = useMemo(
+    () => groupRepeats(mergeRows((requests.data ?? []).filter((record) => record.session_id === session.session_id), [])),
+    [requests.data, session.session_id],
+  );
+  const waitTitle = inFlight ? "Wait for in-flight requests to finish" : undefined;
+  return (
+    <div className="session-body">
+      <dl className="endpoints">
+        <dt>Session</dt>
+        <dd className="mono">{session.session_id}</dd>
+        <dt>Started</dt>
+        <dd>{formatDate(session.started_at)}</dd>
+        <dt>Payloads</dt>
+        <dd>
+          <label className="check">
+            <input type="checkbox" checked={session.trace} disabled={traceBusy} onChange={(event) => onTrace(event.target.checked)} />
+            Capture full request and response payloads
+          </label>
+        </dd>
+      </dl>
+      <div className="row wrap">
+        <Link className="button" to={`/requests?session=${encodeURIComponent(session.session_id)}`}>
+          Review requests
+        </Link>
+        <Link className="button" to={`/traffic?session=${encodeURIComponent(session.session_id)}`}>
+          Traffic
+        </Link>
+        <a className="button" href={api.telemetryUrl(session.session_id)}>
+          Download JSONL
+        </a>
+        {!session.ended_at && (
+          <button type="button" onClick={onEnd}>
+            End session
+          </button>
+        )}
+        <button type="button" className="danger" disabled={inFlight} title={waitTitle} onClick={() => onCleanup(false)}>
+          Clear data
+        </button>
+        <button type="button" className="danger" disabled={inFlight} title={waitTitle} onClick={() => onCleanup(true)}>
+          Delete
+        </button>
+      </div>
+      <h3>Latest requests</h3>
+      {rows.length ? <RequestList rows={rows} limit={5} /> : <p className="subtle">No requests recorded yet.</p>}
     </div>
   );
 }

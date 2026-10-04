@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { RequestRecord } from "./api";
+import type { RequestRecord, TrafficKind } from "./api";
 
 export type DeltaKind = "reasoning" | "content" | "tool";
 
@@ -28,6 +28,9 @@ export interface LiveRequest {
   model: string;
   backend: string;
   endpoint: string;
+  kind?: TrafficKind;
+  method?: string | null;
+  host?: string | null;
   started_at: number;
   first_token_at: number | null;
   reasoning: string;
@@ -53,7 +56,8 @@ export interface LiveState {
 type Snapshot = { enabled: boolean; active: LiveRequest[]; recent: LiveRequest[] };
 type Delta = { key: string; kind: DeltaKind; text: string };
 
-const RECENT_LIMIT = 8;
+// Matches the proxy's tail; account agents make many small non-model requests.
+const RECENT_LIMIT = 40;
 const RATE_WINDOW_MS = 3000;
 
 const hydrate = (entry: LiveRequest): LiveRequest => ({ ...entry, arrivals: [], lastKind: entry.lastKind ?? null });

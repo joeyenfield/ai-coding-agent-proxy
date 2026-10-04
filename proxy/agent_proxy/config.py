@@ -24,6 +24,8 @@ def _find_root() -> Path:
 
 
 ROOT = _find_root()
+# Session backend for agents whose traffic goes to their vendor through the intercept proxy.
+DIRECT_BACKEND = "direct"
 
 
 @dataclass(frozen=True)
@@ -63,6 +65,40 @@ class ModelProfile:
 
 
 @dataclass
+class InterceptSettings:
+    """The HTTPS forward proxy that records traffic agents send to hosted services."""
+
+    enabled: bool = True
+    # Kept on loopback by default: this is an open forward proxy for whoever can reach it.
+    listen_host: str = "127.0.0.1"
+    listen_port: int = 8183
+    # Host patterns tunnelled without decryption (recorded as a connection only).
+    passthrough: list[str] = field(default_factory=list)
+    ca_dir: Path = field(default_factory=lambda: ROOT / "certs")
+
+    @classmethod
+    def load(cls, data: dict[str, Any]) -> "InterceptSettings":
+        environment_port = os.getenv("AI_PROXY_INTERCEPT_PORT")
+        return cls(
+            enabled=os.getenv("AI_PROXY_INTERCEPT", "1" if data.get("enabled", True) else "0") != "0",
+            listen_host=os.getenv("AI_PROXY_INTERCEPT_HOST", str(data.get("listen_host", "127.0.0.1"))),
+            listen_port=int(environment_port or data.get("listen_port", 8183)),
+            passthrough=[str(item) for item in data.get("passthrough") or []],
+            ca_dir=Path(os.getenv("AI_PROXY_CA_DIR", str(data.get("ca_dir") or ROOT / "certs"))).expanduser().resolve(),
+        )
+
+    def tunnelled(self, host: str) -> bool:
+        lowered = host.lower()
+        return any(fnmatch.fnmatchcase(lowered, pattern.lower()) for pattern in self.passthrough)
+
+    def public(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enabled, "listen_host": self.listen_host,
+            "listen_port": self.listen_port, "passthrough": self.passthrough,
+        }
+
+
+@dataclass
 class Settings:
     host: str = "127.0.0.1"
     port: int = 8181
@@ -77,6 +113,8 @@ class Settings:
     models: dict[str, dict[str, Any]] = field(default_factory=dict)
     model_defaults: dict[str, Any] = field(default_factory=dict)
     model_profiles: list[dict[str, Any]] = field(default_factory=list)
+    # Off unless loaded from backends.yaml, so Settings() built in code never opens a port.
+    intercept: "InterceptSettings" = field(default_factory=lambda: InterceptSettings(enabled=False))
 
     @classmethod
     def load(cls) -> "Settings":
@@ -119,6 +157,7 @@ class Settings:
             name: Backend(name=name, **value)
             for name, value in backend_data.get("backends", {}).items()
         }
+        settings.intercept = InterceptSettings.load(backend_data.get("intercept") or {})
         model_data = _read_yaml(settings.models_file)
         settings.models = model_data.get("models") or {}
         settings.model_defaults = model_data.get("defaults") or {}
@@ -135,6 +174,24 @@ class Settings:
         if backend.type not in {"ollama", "anthropic"}:
             raise ValueError(f"Unsupported backend type: {backend.type}")
         return backend
+
+    def backend_for(self, backend_type: str, name: str | None = None) -> Backend:
+        """The named backend, checked against a type, or the best backend of that type.
+
+        Prefers the default backend when it has the right type.
+        """
+        if name:
+            backend = self.backend(name)
+            if backend.type != backend_type:
+                raise ValueError(f"Backend '{name}' is {backend.type}; this agent needs a backend of type {backend_type}")
+            return backend
+        default = self.backends.get(self.default_backend)
+        if default and default.type == backend_type:
+            return default
+        for backend in self.backends.values():
+            if backend.type == backend_type:
+                return backend
+        raise ValueError(f"No {backend_type} backend is configured in {self.backends_file.name}")
 
     def model_name(self, name: str) -> str:
         return (self.models.get(name) or {}).get("ollama_model", name)

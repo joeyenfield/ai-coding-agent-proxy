@@ -1,10 +1,12 @@
 import type { ActiveRequest, RequestRecord, Session, Status } from "../api";
 import { formatNumber } from "../format";
+import { DIRECT_BACKEND, routeOf, type RouteKind } from "../routes";
 
 interface Lane {
   name: string;
   live: number;
   detail: string;
+  route?: RouteKind;
 }
 
 const WIDTH = 920;
@@ -16,15 +18,29 @@ const HUB_W = 170;
 /** Agents on the left, backends on the right, every request routed through the proxy hub. */
 export function RoutingMap({ status, sessions }: { status: Status; sessions: Session[] }) {
   const live = status.current_requests;
-  const agents = agentLanes(sessions, status.recent_requests, live);
+  const agents = agentLanes(sessions, status.recent_requests, live).map((lane) => {
+    const session = sessions.find((item) => item.client === lane.name);
+    return session ? { ...lane, route: routeOf(session, status.backends) } : lane;
+  });
+  const accountLive = live.filter((item) => routeOf(item, status.backends) === "account").length;
   const backends: Lane[] = Object.entries(status.backends).map(([name, backend]) => {
-    const count = live.filter((item) => item.backend === name).length;
+    const count = live.filter((item) => item.backend === name && routeOf(item, status.backends) !== "account").length;
+    const kind = backend.type === "anthropic" ? "Hosted API" : "Ollama";
     return {
       name,
       live: count,
-      detail: name === status.default_backend ? `${hostOf(backend.url)}, default` : hostOf(backend.url),
+      route: backend.type === "anthropic" ? "hosted" : "ollama",
+      detail: `${kind}, ${hostOf(backend.url)}${name === status.default_backend ? ", default" : ""}`,
     };
   });
+  // Account agents go straight to their vendors; show them as one destination when they're in use.
+  const accountsUsed =
+    accountLive > 0 ||
+    sessions.some((session) => session.backend === DIRECT_BACKEND) ||
+    status.recent_requests.some((record) => routeOf(record, status.backends) === "account");
+  if (accountsUsed) {
+    backends.unshift({ name: "Your accounts", live: accountLive, route: "account", detail: "Claude, Copilot, ChatGPT" });
+  }
   const rows = Math.max(agents.length, backends.length, 1);
   const height = rows * ROW + 24;
   const hubY = height / 2;
@@ -90,7 +106,7 @@ function Route({ from, to, live }: { from: [number, number]; to: [number, number
 
 function Node({ x, y, lane }: { x: number; y: number; lane: Lane }) {
   return (
-    <g className={`node ${lane.live ? "is-live" : ""}`}>
+    <g className={`node ${lane.live ? "is-live" : ""} ${lane.route ? `route-${lane.route}` : ""}`}>
       <rect x={x} y={y - NODE_H / 2} width={NODE_W} height={NODE_H} rx={10} />
       <text x={x + 14} y={y - 3} className="node-title">
         {truncate(lane.name, 22)}

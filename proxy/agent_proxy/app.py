@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -15,8 +16,10 @@ from fastapi.staticfiles import StaticFiles
 
 from . import __version__
 from .config import Settings
+from .intercept import InterceptProxy
 from .routes import compat, management
 from .runtime import LOGGER, Runtime
+from .ui_build import ensure_built
 
 
 UI_MISSING = """<!doctype html><html lang="en"><head><meta charset="utf-8"><title>AI Proxy</title>
@@ -38,7 +41,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         _configure_logging(settings.log_dir / "proxy" / "proxy.log")
         runtime.client = httpx.AsyncClient(timeout=httpx.Timeout(600, connect=10))
         LOGGER.info("proxy started instance=%s", runtime.proxy_instance_id)
+        if settings.intercept.enabled:
+            runtime.intercept = InterceptProxy(runtime)
+            await runtime.intercept.start()
         yield
+        if runtime.intercept:
+            await runtime.intercept.stop()
         assert runtime.client
         await runtime.client.aclose()
         LOGGER.info("proxy stopped instance=%s", runtime.proxy_instance_id)
@@ -91,8 +99,11 @@ def main() -> None:
     parser.add_argument("--host")
     parser.add_argument("--port", type=int)
     parser.add_argument("--reload", action="store_true", help="Restart on code changes (development)")
+    parser.add_argument("--no-build", action="store_true", help="Serve ui/dist as is, without rebuilding it when the UI sources changed")
     args = parser.parse_args()
     settings = Settings.load()
+    if not args.no_build and os.getenv("AI_PROXY_UI_BUILD", "1") != "0":
+        ensure_built(settings.ui_dir)
     if args.host:
         settings.host = args.host
     if args.port:

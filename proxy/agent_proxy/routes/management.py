@@ -7,6 +7,7 @@ import json
 import logging
 import shlex
 import time
+from datetime import datetime
 from typing import Any
 from urllib.parse import urlparse
 
@@ -15,10 +16,13 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
 from .. import host_metrics
+from ..config import DIRECT_BACKEND
 from ..runtime import Runtime
 
 
 LOGGER = logging.getLogger("agent-proxy")
+# An open session with no traffic for this long is treated as finished by "delete all".
+STALE_SESSION_SECONDS = 15 * 60
 
 
 def register(app: FastAPI, runtime: Runtime) -> None:
@@ -51,7 +55,8 @@ def register(app: FastAPI, runtime: Runtime) -> None:
     async def create_session(request: Request) -> dict[str, Any]:
         data = await request.json()
         try:
-            settings.backend(data.get("backend"))
+            if data.get("backend") != DIRECT_BACKEND:
+                settings.backend(data.get("backend"))
             return runtime.sessions.create(data).public()
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -89,6 +94,37 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         runtime.reload_history()
         runtime.live.clear_session(session.session_id)
         return session.public()
+
+    @app.delete("/api/sessions")
+    async def delete_all_sessions() -> dict[str, Any]:
+        """Remove all saved traffic.
+
+        Ended sessions are deleted, and so are open sessions idle for longer than
+        STALE_SESSION_SECONDS (their agent most likely exited without ending them).
+        Recently active open sessions keep running, since an agent may still be
+        using the session URL, but lose their saved data. Sessions with requests in
+        flight are skipped.
+        """
+        busy = {record["session_id"] for record in runtime.active.values()}
+        cutoff = time.time() - STALE_SESSION_SECONDS
+        deleted, cleared, skipped = 0, 0, []
+        for session in runtime.sessions.list():
+            if session.session_id in busy:
+                skipped.append(session.session_id)
+                continue
+            try:
+                if session.ended_at or _timestamp(session.last_activity_at or session.started_at) < cutoff:
+                    runtime.sessions.delete(session)
+                    deleted += 1
+                else:
+                    runtime.sessions.clear_data(session)
+                    cleared += 1
+            except (OSError, ValueError) as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            runtime.live.clear_session(session.session_id)
+        runtime.reload_history()
+        LOGGER.info("deleted all sessions: deleted=%s cleared=%s skipped=%s", deleted, cleared, len(skipped))
+        return {"deleted": deleted, "cleared": cleared, "skipped": skipped}
 
     @app.delete("/api/sessions/{session_id}")
     async def delete_session(session_id: str) -> dict[str, Any]:
@@ -190,23 +226,36 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             raise HTTPException(status_code=404, detail="Agent not found")
         data = await request.json()
         model = str(data.get("model") or "").strip()
-        if not model:
+        if not model and agent.needs_model:
             raise HTTPException(status_code=400, detail="A model is required")
+        intercept = runtime.intercept_info() if agent.intercept else None
+        if intercept and not intercept["running"]:
+            raise HTTPException(status_code=409, detail=f"The HTTPS intercept proxy isn't running: {intercept['error']}")
         try:
-            settings.backend(data.get("backend"))
+            backend = DIRECT_BACKEND if agent.intercept else settings.backend_for(agent.backend_type, data.get("backend") or None).name
             session = runtime.sessions.create({
-                "client": agent.id, "project": data.get("project"), "model": model,
-                "backend": data.get("backend") or settings.default_backend,
+                "client": agent.id, "project": data.get("project"), "model": model or None,
+                "backend": backend,
                 "trace": bool(data.get("trace")), "tags": {"prepared_by": "ui"},
             })
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        launch = agent.render(settings.proxy_url, session.session_id, model)
+        launch = agent.render(settings.proxy_url, session.session_id, model, intercept=intercept)
         return {
             "session": session.public(),
             **launch,
             "shell": {"bash": _bash(launch), "powershell": _powershell(launch)},
         }
+
+    @app.get("/api/intercept")
+    async def intercept() -> dict[str, Any]:
+        return runtime.intercept_info()
+
+    @app.get("/api/intercept/ca.pem")
+    async def intercept_ca() -> PlainTextResponse:
+        if not runtime.intercept_info()["running"]:
+            raise HTTPException(status_code=404, detail="The HTTPS intercept proxy isn't running")
+        return PlainTextResponse(runtime.ca.pem, media_type="application/x-pem-file")
 
     @app.get("/api/host/metrics")
     async def local_metrics() -> dict[str, Any]:
@@ -360,3 +409,11 @@ def _powershell(launch: dict[str, Any]) -> str:
     lines = [f"$env:{key} = {quote(value)}" for key, value in launch["env"].items()]
     command = launch["command"]
     return "\n".join([*lines, " ".join([command[0], *(quote(arg) for arg in command[1:])])])
+
+
+def _timestamp(value: str) -> float:
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return 0.0
+
