@@ -9,7 +9,7 @@ def test_nvidia_smi_from_path_wins():
 
 
 def test_nvidia_smi_windows_fallback():
-    expected = r"C:\\Program Files\\NVIDIA Corporation\\NVSMI\\nvidia-smi.exe"
+    expected = host_metrics.os.path.join(r"C:\\Program Files", "NVIDIA Corporation", "NVSMI", "nvidia-smi.exe")
     with patch.object(host_metrics.shutil, "which", return_value=None), patch.object(host_metrics.platform, "system", return_value="Windows"), patch.dict(host_metrics.os.environ, {"ProgramFiles": r"C:\\Program Files"}), patch.object(host_metrics.os.path, "isfile", side_effect=lambda value: value == expected):
         assert host_metrics._find_nvidia_smi() == expected
 
