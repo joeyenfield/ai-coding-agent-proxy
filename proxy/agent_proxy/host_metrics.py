@@ -69,6 +69,18 @@ def _cpu_percent() -> float:
     return _cpu_last[1]
 
 
+def _find_nvidia_smi() -> str | None:
+    """Find nvidia-smi on PATH or in its default Windows installation folder."""
+    executable = shutil.which("nvidia-smi")
+    if executable:
+        return executable
+    if platform.system() != "Windows":
+        return None
+    program_files = os.environ.get("ProgramFiles", "C:\\Program Files")
+    candidate = os.path.join(program_files, "NVIDIA Corporation", "NVSMI", "nvidia-smi.exe")
+    return candidate if os.path.isfile(candidate) else None
+
+
 def _nvidia_gpus() -> tuple[list[dict[str, Any]], str | None]:
     executable = shutil.which("nvidia-smi")
     if not executable:
