@@ -1,37 +1,12 @@
-# This is the central network configuration for the whole framework.
-#
-# listen_host/listen_port control where the proxy server binds.
-# url is the address used by launchers and benchmarks. When other machines
-# connect to this proxy, set url to this computer's LAN address while keeping
-# listen_host at 0.0.0.0.
 proxy:
-  listen_host: 127.0.0.1
-  listen_port: 8181
-  url: http://127.0.0.1:8181
-
-# The profile used when --backend is not supplied.
-default_backend: laptop
-
-# Ollama servers and hosted Anthropic pass-through available through the proxy.
+  listen_host: 0.0.0.0
+  listen_port: 9999
+  url: http://127.0.0.1:9999
+  public_url: https://aiproxy.hopto.me
 backends:
-  laptop:
-    type: ollama
-    url: http://localhost:11434
-  desktop:
-    type: ollama
-    url: http://192.168.1.133:11434
   anthropic:
     type: anthropic
     url: https://api.anthropic.com
-
-# HTTPS intercept proxy for agents signed in to hosted accounts (agents with
-# intercept: true in agents.yaml). It decrypts and records their traffic using a
-# local CA created in certs/ on first start. That CA is only trusted by agent
-# processes the launcher starts; it is never added to the system trust store.
-# Keep listen_host on loopback: anyone who can reach this port can use it.
 intercept:
   enabled: true
-  listen_host: 127.0.0.1
-  listen_port: 8183
-  # Hosts tunnelled without decryption; they show up as connections only.
   passthrough: []

@@ -1,0 +1,70 @@
+# agent-server in Docker: docker compose up -d
+#
+# The console is then on http://<this host>:9999. On first start the server creates an
+# admin with a random password: `docker compose logs agent-server` shows it, and it's
+# saved as certs/first-user-password in the agent-server-certs volume. Sign each agent
+# machine in with the Go client: agent login http://<this host>:9999
+services:
+  agent-server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+      args:
+        AI_PROXY_VERSION: ${AI_PROXY_VERSION:-}
+    image: agent-server
+    restart: unless-stopped
+    ports:
+      - "9999:9999"
+    extra_hosts:
+      # Providers on the Docker host (Ollama on 11434, ...), on Linux as on Docker Desktop.
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - agent-server-config:/app/config
+      - agent-server-logs:/app/logs
+      - agent-server-certs:/app/certs
+      # Or keep the config in this checkout instead of a volume (its backends.yaml
+      # must then name providers as the container sees them):
+      # - ./config:/app/config
+      # The builds the console's Downloads page and `agent update` hand out
+      # (scripts/build-dist.sh). The server offers the one of its own version, or the
+      # newest of the same release: build the image with AI_PROXY_VERSION set to match.
+      - ./dist:/app/dist:ro
+
+  # A sandbox machine: coding agents the console starts on it run in this container, in
+  # /workspace only. docker compose --profile sandbox up -d (with AI_PROXY_USER and
+  # AI_PROXY_PASSWORD set, or in .env, once the server has accounts). Sign-ins are kept in
+  # the agent-sandbox-home volume, so later starts don't need the password.
+  agent-sandbox:
+    profiles: [sandbox]
+    build:
+      context: .
+      dockerfile: sandbox/Dockerfile
+      args:
+        AI_PROXY_VERSION: ${AI_PROXY_VERSION:-}
+    image: agent-sandbox
+    restart: unless-stopped
+    depends_on: [agent-server]
+    hostname: agent-sandbox
+    environment:
+      AI_PROXY_SERVER: http://agent-server:9999
+      AI_PROXY_USER: ${AI_PROXY_USER:-}
+      AI_PROXY_PASSWORD: ${AI_PROXY_PASSWORD:-}
+      AI_PROXY_MACHINE_NAME: ${AI_PROXY_MACHINE_NAME:-agent-sandbox}
+      GIT_USER_NAME: ${GIT_USER_NAME:-}
+      GIT_USER_EMAIL: ${GIT_USER_EMAIL:-}
+      AGENT_REPOS: ${AGENT_REPOS:-}
+    volumes:
+      - agent-sandbox-home:/home/agent
+      - agent-sandbox-workspace:/workspace
+      # SSH keys for git (copied into ~/.ssh on start). Better a deploy key or one made
+      # for the sandbox than your own: agents here can read it.
+      # - ./sandbox-ssh:/ssh:ro
+      # Or work on a folder of this computer's:
+      # - ./projects:/workspace
+
+volumes:
+  agent-server-config:
+  agent-server-logs:
+  agent-server-certs:
+  agent-sandbox-home:
+  agent-sandbox-workspace:

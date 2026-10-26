@@ -8,7 +8,7 @@ export function RouteBadge({ item }: { item: { backend: string; client?: string;
   const route = routeOf(item, status.data?.backends);
   return (
     <span className={`route-badge route-${route}`} title={`${ROUTES[route].label}: ${ROUTES[route].description}`}>
-      {routeDetail(item, route)}
+      {routeDetail(item, route, status.data?.backends)}
     </span>
   );
 }

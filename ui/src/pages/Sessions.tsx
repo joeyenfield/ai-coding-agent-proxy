@@ -9,6 +9,8 @@ import { ExpandRow } from "../components/ExpandRow";
 import { RequestList } from "../components/RequestList";
 import { groupRepeats, mergeRows } from "../traffic";
 import { RouteBadge } from "../components/RouteBadge";
+import { PartTag } from "../components/PartTag";
+import { SharingBadge, SharingControl } from "../components/Sharing";
 
 type Cleanup = { session: Session; remove: boolean } | null;
 
@@ -79,6 +81,7 @@ export function SessionsPage() {
   return (
     <div className="page">
       <header className="page-head">
+        <PartTag />
         <div className="section-head">
           <h1>Sessions</h1>
           {ordered.length > 0 && (
@@ -117,6 +120,7 @@ export function SessionsPage() {
                       {session.project && <span className="subtle">in {session.project}</span>}
                       <RouteBadge item={session} />
                       {session.model && <span className="pill accent">{session.model}</span>}
+                      <SharingBadge you={session.you} />
                     </span>
                     <span className="xrow-meta">
                       {inFlight ? (
@@ -226,6 +230,8 @@ function SessionBody({
     [requests.data, session.session_id],
   );
   const waitTitle = inFlight ? "Wait for in-flight requests to finish" : undefined;
+  // Shared to watch only: its owner (or someone they let in) changes it.
+  const locked = Boolean(session.you && !session.you.control);
   return (
     <div className="session-body">
       <dl className="endpoints">
@@ -236,11 +242,12 @@ function SessionBody({
         <dt>Payloads</dt>
         <dd>
           <label className="check">
-            <input type="checkbox" checked={session.trace} disabled={traceBusy} onChange={(event) => onTrace(event.target.checked)} />
+            <input type="checkbox" checked={session.trace} disabled={traceBusy || locked} onChange={(event) => onTrace(event.target.checked)} />
             Capture full request and response payloads
           </label>
         </dd>
       </dl>
+      <SharingControl sessionId={session.session_id} you={session.you} />
       <div className="row wrap">
         <Link className="button" to={`/requests?session=${encodeURIComponent(session.session_id)}`}>
           Review requests
@@ -252,14 +259,14 @@ function SessionBody({
           Download JSONL
         </a>
         {!session.ended_at && (
-          <button type="button" onClick={onEnd}>
+          <button type="button" onClick={onEnd} disabled={locked}>
             End session
           </button>
         )}
-        <button type="button" className="danger" disabled={inFlight} title={waitTitle} onClick={() => onCleanup(false)}>
+        <button type="button" className="danger" disabled={inFlight || locked} title={waitTitle} onClick={() => onCleanup(false)}>
           Clear data
         </button>
-        <button type="button" className="danger" disabled={inFlight} title={waitTitle} onClick={() => onCleanup(true)}>
+        <button type="button" className="danger" disabled={inFlight || locked} title={waitTitle} onClick={() => onCleanup(true)}>
           Delete
         </button>
       </div>

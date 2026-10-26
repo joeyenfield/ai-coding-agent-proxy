@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-coding-agent-server"
+version = "0.3.0"
+description = "agent-server: the API every coding agent's traffic goes through (console API, accounts, recording, routing to LLM providers)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.110",
+  "httpx>=0.27",
+  "pydantic>=2.6",
+  "psutil>=5.9",
+  "PyYAML>=6.0",
+  "cryptography>=42",
+  "h11>=0.14",
+  "uvicorn[standard]>=0.27",
+]
+
+[project.optional-dependencies]
+# websockets: the tests' and the screenshot demo's stand-in launcher. pywinpty: playing a
+# real console for the Go client's --control on Windows.
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "websockets>=15", "pywinpty>=3; sys_platform == 'win32'"]
+
+# The agent machine's programs (agent, agent-proxy) are the Go client in ../client.
+[project.scripts]
+agent-server = "agent_server.app:main"
+agent-benchmark = "agent_server.benchmark:main"
+
+[tool.setuptools.packages.find]
+include = ["agent_server*"]
+
+# The one-line installers the server fills in (installer.py).
+[tool.setuptools.package-data]
+agent_server = ["install/*.sh", "install/*.ps1"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

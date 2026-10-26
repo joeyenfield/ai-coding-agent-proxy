@@ -8,6 +8,7 @@ import { formatBytes, formatDuration, formatNumber, shortId } from "../format";
 import { useRequests, useSessions, useStatus } from "../hooks";
 import { useLive, useTicker } from "../live";
 import { CATEGORY_LABELS, CATEGORY_ORDER, groupRepeats, mergeRows, type Category, type Row } from "../traffic";
+import { PartTag } from "../components/PartTag";
 
 const ROW_LIMIT = 300;
 
@@ -65,22 +66,24 @@ export function TrafficPage() {
   return (
     <div className="page wide">
       <header className="page-head">
+        <PartTag />
         <h1>Traffic</h1>
         <p className="lede">
           Every request that passes through the proxy: model calls on proxy endpoints, and everything account agents send
-          to their own services through the HTTPS intercept listener, including sign-in, telemetry and MCP calls.
+          to their own services through their machine's agent-proxy, including sign-in, telemetry and MCP calls.
           {!live.connected && <span className="bad"> Reconnecting to the proxy…</span>}
         </p>
         {intercept && (
           <p className={`subtle ${intercept.running ? "" : "bad"}`}>
             {intercept.running ? (
               <>
-                Intercept listener on <span className="mono">{intercept.url}</span>. Start an account agent from the{" "}
+                Account agents use the agent-proxy's HTTPS proxy, <span className="mono">{intercept.url}</span> on their
+                machine. Start one from the{" "}
                 <Link to="/agents">Agents</Link> page, for example <code>agent claude-account .</code>,{" "}
                 <code>agent copilot-account .</code> or <code>agent codex-account .</code>
               </>
             ) : (
-              <>Intercept listener is off: {intercept.error}</>
+              <>HTTPS capture is off on this server: {intercept.error}</>
             )}
           </p>
         )}

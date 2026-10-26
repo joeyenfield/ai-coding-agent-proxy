@@ -111,13 +111,13 @@ await shot("requests", "/requests", {
     await page.waitForTimeout(400);
   },
 });
-await shot("models", "/models");
-await shot("hosts", "/hosts", {
+// A machine's page: its model servers, then one Ollama's models, then the machine's load.
+await shot("machine", "/machines/ai-desktop", { fullPage: true });
+await shot("models", "/machines/ai-desktop/ollama-18435");
+await shot("hosts", "/machines/ai-laptop/load", {
   fullPage: true,
-  prepare: async (page) => {
-    // Hosts start collapsed; open the first one and let its charts fill.
-    await page.locator(".host-toggle").first().click();
-    await page.waitForTimeout(30000);
-  },
+  // Let the charts fill.
+  prepare: async (page) => page.waitForTimeout(30000),
 });
+await shot("downloads", "/get", { fullPage: true });
 await browser.close();

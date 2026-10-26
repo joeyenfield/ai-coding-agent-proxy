@@ -9,3 +9,8 @@ ui/dist/
 benchmarks/results/*
 !benchmarks/results/.gitkeep
 certs/
+client/bin/
+client/dist/
+/dist/
+machine/bin/
+.history/

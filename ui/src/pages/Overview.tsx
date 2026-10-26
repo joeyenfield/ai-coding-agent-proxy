@@ -1,11 +1,15 @@
+import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { isModelCall, requestKey, type RequestRecord, type Status } from "../api";
+import { PartNumber } from "../components/PartTag";
+import { providerState, StateDot } from "../components/ProviderState";
 import { RouteBadge } from "../components/RouteBadge";
 import { RoutingMap } from "../components/RoutingMap";
 import { ThroughputChart } from "../components/ThroughputChart";
 import { formatBytes, formatCompact, formatDuration, formatNumber, formatRelative } from "../format";
-import { useRequests, useSessions, useStatus } from "../hooks";
-import { ROUTE_ORDER, ROUTES, routeOf, type RouteKind } from "../routes";
+import { useAgents, useMachines, useModels, useRequests, useSessions, useStatus } from "../hooks";
+import { isGroup, PARTS, type NavLinkItem, type Part } from "../navigation";
+import { providerLabel, ROUTE_ORDER, ROUTES, routeOf, type RouteKind } from "../routes";
 
 export function OverviewPage() {
   const status = useStatus();
@@ -22,36 +26,15 @@ export function OverviewPage() {
       <header className="page-head">
         <h1>{live.length ? `${live.length} ${live.length === 1 ? "request" : "requests"} streaming` : "All quiet"}</h1>
         <p className="lede">
-          Every agent request passes through this proxy, whether it goes to your Ollama machines, a hosted API, or the
-          agent's own account.
+          You start an agent, its traffic passes through this server, the hub, and a machine answers it: the Ollama, Strata or
+          Docker server one of your machines runs, or a container it runs for you. Hosted APIs and agents' own accounts are the
+          only answers that don't come from a machine.
         </p>
       </header>
 
       <RoutingMap status={data} sessions={sessions.data ?? []} />
 
-      <RouteSummary status={data} records={requests.data ?? data.recent_requests} />
-
-      <dl className="totals">
-        <div>
-          <dt>Requests</dt>
-          <dd>{formatNumber(data.total_requests)}</dd>
-        </div>
-        <div>
-          <dt>Tokens read</dt>
-          <dd>{formatCompact(data.total_input_tokens)}</dd>
-        </div>
-        <div>
-          <dt>Tokens written</dt>
-          <dd>{formatCompact(data.total_output_tokens)}</dd>
-        </div>
-        <div>
-          <dt>Sessions</dt>
-          <dd>
-            {formatNumber(data.active_sessions)}
-            <small> open of {formatNumber(data.total_sessions)}</small>
-          </dd>
-        </div>
-      </dl>
+      <PartCards status={data} />
 
       {live.length > 0 && (
         <section className="section">
@@ -75,6 +58,14 @@ export function OverviewPage() {
           </ul>
         </section>
       )}
+
+      <section className="section">
+        <div className="section-head">
+          <h2>Traffic by route</h2>
+          <p className="subtle">How each request reached its model</p>
+        </div>
+        <RouteSummary status={data} records={requests.data ?? data.recent_requests} />
+      </section>
 
       <section className="section">
         <div className="section-head">
@@ -120,7 +111,7 @@ export function OverviewPage() {
           </table>
         ) : (
           <div className="empty">
-            <p>No requests yet. Start an agent from the Agents page to see traffic here.</p>
+            <p>No requests yet. Start an agent to see its traffic here.</p>
             <Link className="button primary" to="/agents">
               Choose an agent
             </Link>
@@ -131,12 +122,132 @@ export function OverviewPage() {
   );
 }
 
+/** The parts in the order a request flows (agent, server, machine), each with its key numbers and pages. */
+function PartCards({ status }: { status: Status }) {
+  const agents = useAgents();
+  const models = useModels();
+  const machines = useMachines();
+  const [agentsPart, serverPart, machinesPart] = PARTS;
+  const fleet = machines.data?.machines ?? [];
+  const installed = (agents.data ?? []).filter((agent) => agent.installed).length;
+  const live = status.current_requests.length;
+  return (
+    <section className="part-cards" aria-label="The three parts">
+      <PartCard
+        part={agentsPart}
+        action={
+          <>
+            <Link className="button primary" to="/agents">
+              Start an agent
+            </Link>
+            <Link to="/terminals">Running agents</Link>
+          </>
+        }
+      >
+        <dl>
+          <div>
+            <dt>Open sessions</dt>
+            <dd>
+              {formatNumber(status.active_sessions)}
+              <small>of {formatNumber(status.total_sessions)} runs</small>
+            </dd>
+          </div>
+          <div>
+            <dt>Installed</dt>
+            <dd>
+              {agents.data ? formatNumber(installed) : "–"}
+              <small>of {agents.data ? formatNumber(agents.data.length) : "–"} agents set up</small>
+            </dd>
+          </div>
+        </dl>
+      </PartCard>
+      <PartCard
+        part={serverPart}
+        links={[
+          { to: "/live", label: "Live" },
+          { to: "/traffic", label: "Traffic" },
+          { to: "/settings", label: "Server settings" },
+        ]}
+      >
+        <dl>
+          <div>
+            <dt>Requests</dt>
+            <dd>
+              {formatNumber(status.total_requests)}
+              <small className={live ? "warn" : undefined}>{live ? `${live} streaming now` : "none in flight"}</small>
+            </dd>
+          </div>
+          <div>
+            <dt>Tokens</dt>
+            <dd>
+              {formatCompact(status.total_input_tokens)}
+              <small>read, {formatCompact(status.total_output_tokens)} written</small>
+            </dd>
+          </div>
+        </dl>
+      </PartCard>
+      <PartCard
+        part={machinesPart}
+        links={[
+          { to: "/machines", label: "Machines" },
+          { to: "/machines#add", label: "Add a machine" },
+        ]}
+      >
+        <dl>
+          <div>
+            <dt>Machines</dt>
+            <dd>
+              {machines.data ? formatNumber(fleet.filter((machine) => machine.connected).length) : "–"}
+              <small>online of {formatNumber(fleet.length)}</small>
+            </dd>
+          </div>
+        </dl>
+        <ul className="provider-states">
+          {Object.entries(status.backends).map(([name, backend]) => {
+            const state = providerState(backend.type, models.data?.backends[name], models.isPending);
+            return (
+              <li key={name}>
+                <StateDot tone={state.tone} />
+                <strong>{name}</strong>
+                <span className="subtle">
+                  {providerLabel(backend.type, true)}
+                  {backend.machine_name ? ` on ${backend.machine_name}` : backend.type === "anthropic" ? ", hosted" : ""}
+                </span>
+                <span className={`state-text ${state.tone}`}>{state.text}</span>
+              </li>
+            );
+          })}
+        </ul>
+      </PartCard>
+    </section>
+  );
+}
+
+function PartCard({ part, children, action, links }: { part: Part; children: ReactNode; action?: ReactNode; links?: NavLinkItem[] }) {
+  const pages = links ?? part.items.filter((item): item is NavLinkItem => !isGroup(item));
+  return (
+    <article className={`part-card part-${part.id}`}>
+      <h2>
+        <PartNumber value={part.number} />
+        {part.label}
+      </h2>
+      <p className="subtle">{part.summary}</p>
+      {children}
+      <p className="row wrap part-card-links">
+        {action ??
+          pages.map((item) => (
+            <Link key={item.to} to={item.to}>
+              {item.label}
+            </Link>
+          ))}
+      </p>
+    </article>
+  );
+}
+
 const ROUTE_LINKS: Record<RouteKind, { to: string; label: string }[]> = {
   account: [{ to: "/traffic", label: "All traffic" }],
-  ollama: [
-    { to: "/models", label: "Models" },
-    { to: "/hosts", label: "Machines" },
-  ],
+  ollama: [{ to: "/machines", label: "Machines" }],
   hosted: [{ to: "/requests", label: "Requests" }],
 };
 
@@ -158,7 +269,7 @@ function RouteSummary({ status, records }: { status: Status; records: RequestRec
       ? Boolean(status.intercept?.running)
       : Object.values(status.backends).some((backend) => (backend.type === "anthropic" ? "hosted" : "ollama") === route);
   return (
-    <section className="route-cards" aria-label="Traffic by route">
+    <div className="route-cards">
       {ROUTE_ORDER.map((route) => {
         const total = totals.get(route)!;
         const live = inFlight(route);
@@ -195,15 +306,19 @@ function RouteSummary({ status, records }: { status: Status; records: RequestRec
                 {configured(route)
                   ? "Not used yet."
                   : route === "account"
-                    ? "The intercept listener isn't running."
-                    : `No ${route === "ollama" ? "Ollama" : "hosted"} backend configured.`}
+                    ? "HTTPS capture is off on this server."
+                    : route === "ollama"
+                      ? "No machine supplies a local provider yet."
+                      : "No hosted API added."}
               </p>
             )}
             <p className="row">
               {configured(route) ? (
                 <Link to="/agents">Start an agent</Link>
               ) : (
-                <Link to="/settings">{route === "account" ? "Check settings" : "Add a backend"}</Link>
+                <Link to={route === "account" ? "/settings" : route === "ollama" ? "/machines#add" : "/settings"}>
+                  {route === "account" ? "Check settings" : route === "ollama" ? "Add a machine" : "Add a hosted API"}
+                </Link>
               )}
               {ROUTE_LINKS[route].map((link) => (
                 <Link key={link.to} to={link.to}>
@@ -214,7 +329,7 @@ function RouteSummary({ status, records }: { status: Status; records: RequestRec
           </article>
         );
       })}
-    </section>
+    </div>
   );
 }
 
@@ -224,7 +339,7 @@ export function Offline({ message }: { message: string }) {
       <header className="page-head">
         <h1>Can't reach the proxy</h1>
         <p className="lede">
-          Start it with <code>agent-proxy</code> and this page reconnects on its own. ({message})
+          Start it with <code>agent-server</code> and this page reconnects on its own. ({message})
         </p>
       </header>
     </div>

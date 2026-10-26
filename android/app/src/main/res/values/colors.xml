@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The console's palette (ui/src/styles.css), so the app and the console match. -->
+<resources>
+    <color name="accent">#4F46E5</color>
+    <color name="accent_soft">#EEF0FE</color>
+    <color name="ground">#F6F7F9</color>
+    <color name="paper">#FFFFFF</color>
+    <color name="ink">#16181D</color>
+    <color name="steel">#5D6470</color>
+    <color name="line">#E5E7EB</color>
+    <color name="good">#1F7A4D</color>
+    <color name="bad">#B83A32</color>
+</resources>

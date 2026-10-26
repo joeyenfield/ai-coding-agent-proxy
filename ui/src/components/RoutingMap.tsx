@@ -1,6 +1,7 @@
 import type { ActiveRequest, RequestRecord, Session, Status } from "../api";
 import { formatNumber } from "../format";
-import { DIRECT_BACKEND, routeOf, type RouteKind } from "../routes";
+import { PARTS } from "../navigation";
+import { DIRECT_BACKEND, providerLabel, routeOf, type RouteKind } from "../routes";
 
 interface Lane {
   name: string;
@@ -14,8 +15,10 @@ const ROW = 64;
 const NODE_W = 230;
 const NODE_H = 46;
 const HUB_W = 170;
+// Space above the lanes for the column captions.
+const CAPTION = 36;
 
-/** Agents on the left, backends on the right, every request routed through the proxy hub. */
+/** Agents on the left, machines' providers on the right, every request routed through the server, the hub: the console's parts 1, 2 and 3. */
 export function RoutingMap({ status, sessions }: { status: Status; sessions: Session[] }) {
   const live = status.current_requests;
   const agents = agentLanes(sessions, status.recent_requests, live).map((lane) => {
@@ -25,12 +28,12 @@ export function RoutingMap({ status, sessions }: { status: Status; sessions: Ses
   const accountLive = live.filter((item) => routeOf(item, status.backends) === "account").length;
   const backends: Lane[] = Object.entries(status.backends).map(([name, backend]) => {
     const count = live.filter((item) => item.backend === name && routeOf(item, status.backends) !== "account").length;
-    const kind = backend.type === "anthropic" ? "Hosted API" : "Ollama";
+    const kind = providerLabel(backend.type, true);
     return {
       name,
       live: count,
       route: backend.type === "anthropic" ? "hosted" : "ollama",
-      detail: `${kind}, ${hostOf(backend.url)}${name === status.default_backend ? ", default" : ""}`,
+      detail: `${kind}, ${backend.machine_name ? `on ${backend.machine_name}` : hostOf(backend.url)}${name === status.default_backend ? ", default" : ""}`,
     };
   });
   // Account agents go straight to their vendors; show them as one destination when they're in use.
@@ -42,10 +45,11 @@ export function RoutingMap({ status, sessions }: { status: Status; sessions: Ses
     backends.unshift({ name: "Your accounts", live: accountLive, route: "account", detail: "Claude, Copilot, ChatGPT" });
   }
   const rows = Math.max(agents.length, backends.length, 1);
-  const height = rows * ROW + 24;
-  const hubY = height / 2;
+  const height = CAPTION + rows * ROW + 24;
+  const hubY = CAPTION + (height - CAPTION) / 2;
   const hubX = (WIDTH - HUB_W) / 2;
-  const laneY = (index: number, count: number) => height / 2 + (index - (count - 1) / 2) * ROW;
+  const laneY = (index: number, count: number) => hubY + (index - (count - 1) / 2) * ROW;
+  const [agentsPart, serverPart, machinesPart] = PARTS;
 
   return (
     <figure className="routing-map">
@@ -56,6 +60,11 @@ export function RoutingMap({ status, sessions }: { status: Status; sessions: Ses
             ? `${live.length} requests in flight. ${live.map((item) => `${item.client} to ${item.backend} using ${item.model}`).join(". ")}.`
             : "No requests in flight."}
         </desc>
+        <g className="map-captions" aria-hidden="true">
+          <Caption x={0} number={agentsPart.number} label={agentsPart.label} />
+          <Caption x={hubX} number={serverPart.number} label={serverPart.label} />
+          <Caption x={WIDTH - NODE_W} number={machinesPart.number} label={machinesPart.label} />
+        </g>
         {agents.map((agent, index) => {
           const y = laneY(index, agents.length);
           return (
@@ -79,7 +88,7 @@ export function RoutingMap({ status, sessions }: { status: Status; sessions: Ses
         <g className={`hub ${live.length ? "is-live" : ""}`}>
           <rect x={hubX} y={hubY - 34} width={HUB_W} height={68} rx={14} />
           <text x={hubX + HUB_W / 2} y={hubY - 6} textAnchor="middle" className="hub-title">
-            Proxy
+            Server
           </text>
           <text x={hubX + HUB_W / 2} y={hubY + 16} textAnchor="middle" className="hub-detail">
             {live.length ? `${live.length} in flight` : "idle"}
@@ -90,6 +99,20 @@ export function RoutingMap({ status, sessions }: { status: Status; sessions: Ses
         ))}
       </svg>
     </figure>
+  );
+}
+
+function Caption({ x, number, label }: { x: number; number: number; label: string }) {
+  return (
+    <g className="map-caption">
+      <circle cx={x + 10} cy={12} r={10} />
+      <text x={x + 10} y={16} textAnchor="middle" className="map-caption-number">
+        {number}
+      </text>
+      <text x={x + 28} y={17} className="map-caption-label">
+        {label}
+      </text>
+    </g>
   );
 }
 

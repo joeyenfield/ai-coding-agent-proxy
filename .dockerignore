@@ -1,0 +1,20 @@
+# The build context of both images: agent-server (server/Dockerfile: server/, ui/, config/,
+# benchmarks/tests) and agent-sandbox (sandbox/Dockerfile: client/, machine/, sandbox/).
+.git
+**/__pycache__
+**/*.py[cod]
+**/*.egg-info
+**/.pytest_cache
+**/node_modules
+ui/dist
+ui/tsconfig.tsbuildinfo
+logs
+certs
+client/bin
+machine/bin
+dist
+android
+docs
+benchmarks/results
+server/tests
+scripts

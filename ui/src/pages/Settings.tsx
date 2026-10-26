@@ -1,14 +1,37 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type NetworkConfig } from "../api";
+import { api, MACHINE_TYPES, type NetworkConfig } from "../api";
+import { Icon } from "../components/Icon";
+import { PartTag } from "../components/PartTag";
+import { RestartButton } from "../components/Restart";
 import { useStatus } from "../hooks";
+import { machinePath } from "./Machine";
+
+const URL_PLACEHOLDERS: Record<string, string> = {
+  ollama: "http://host:11434",
+  docker: "http://localhost:12434",
+  strata: "http://127.0.0.1:18500",
+  anthropic: "https://api.anthropic.com",
+};
+
+/** What each backend type is, in a line under its card. */
+const TYPE_HINTS: Record<string, string> = {
+  ollama: "Local models; the proxy translates requests and applies models.yaml.",
+  docker: "Docker Model Runner; requests pass through unchanged.",
+  strata: "A Strata server; requests pass through with Strata's API key added.",
+  anthropic: "Hosted API; requests pass through with the agent's own credentials.",
+};
 
 interface Row {
   id: number;
   name: string;
   type: string;
   url: string;
-  metricsUrl: string;
+  /** Run in a container by its machine: changed on the Containers page, not here. */
+  managed?: boolean;
+  /** A model server on a machine: added from the machine, so its type and URL aren't edited here. */
+  local?: boolean;
 }
 
 let nextId = 0;
@@ -31,7 +54,12 @@ export function SettingsPage() {
     setPort(String(value.proxy.listen_port));
     setUrl(value.proxy.url);
     setDefaultBackend(value.default_backend);
-    setRows(Object.entries(value.backends).map(([name, backend]) => ({ id: nextId++, name, type: backend.type, url: backend.url, metricsUrl: backend.metrics_url ?? "" })));
+    setRows(
+      Object.entries(value.backends).map(([name, backend]) => ({
+        id: nextId++, name, type: backend.type, url: backend.url, managed: Boolean(backend.container),
+        local: MACHINE_TYPES.includes(backend.type),
+      })),
+    );
   }, [config.data]);
 
   const save = useMutation({
@@ -56,105 +84,164 @@ export function SettingsPage() {
     }
     const backends: NetworkConfig["backends"] = {};
     for (const row of rows) {
-      backends[row.name.trim()] = { type: row.type, url: row.url.trim(), ...(row.metricsUrl.trim() ? { metrics_url: row.metricsUrl.trim() } : {}) };
+      backends[row.name.trim()] = { type: row.type, url: row.url.trim() };
     }
     setMessage(null);
     save.mutate({
       proxy: { listen_host: host.trim(), listen_port: Number(port), url: url.trim() },
-      default_backend: names.includes(defaultBackend) ? defaultBackend : names[0] ?? "",
+      default_backend: names.includes(defaultBackend) ? defaultBackend : (names[0] ?? ""),
       backends,
     });
+  };
+  const machineOf = (row: Row) => status.data?.backends[row.name]?.machine_name;
+  // The machine's page for a backend's model server, where it's managed.
+  const pageOf = (row: Row) => {
+    const backend = status.data?.backends[row.name];
+    return backend?.machine ? machinePath(backend.machine, backend.provider) : "/machines";
   };
   const update = (id: number, patch: Partial<Row>) => setRows((current) => current.map((row) => (row.id === id ? { ...row, ...patch } : row)));
 
   return (
     <div className="page">
       <header className="page-head">
-        <h1>Settings</h1>
+        <PartTag />
+        <h1>Server settings</h1>
         <p className="lede">
-          Network settings are saved to <code>config/backends.yaml</code>. Backend changes apply right away.
+          The hub's address, and which provider agents use by default. Saved to <code>config/backends.yaml</code>; provider
+          changes apply right away. To script the server, see its{" "}
+          <a href="/docs" target="_blank" rel="noreferrer">API reference</a> (<code>/openapi.json</code>).
         </p>
       </header>
       {config.isError && <p className="bad">{config.error.message}</p>}
-      <form onSubmit={submit}>
-        <section className="section">
-          <h2>Proxy address</h2>
-          <div className="form-grid">
-            <label className="field">
-              Listen host
-              <input value={host} onChange={(event) => setHost(event.target.value)} required />
-              <small>Use 0.0.0.0 to accept connections from other machines.</small>
-            </label>
-            <label className="field">
-              Listen port
-              <input type="number" min={1} max={65535} value={port} onChange={(event) => setPort(event.target.value)} required />
-            </label>
-            <label className="field span-2">
-              Address agents use
-              <input type="url" value={url} onChange={(event) => setUrl(event.target.value)} required />
-              <small>The URL the launcher gives agents. Use this machine's LAN address when sharing the proxy.</small>
-            </label>
+      <form className="settings-form" onSubmit={submit}>
+        <section className="section" aria-labelledby="server-heading">
+          <div className="section-head">
+            <h2 id="server-heading">Server</h2>
+          </div>
+          <div className="panel">
+            <div className="form-grid">
+              <label className="field">
+                Listen host
+                <input value={host} onChange={(event) => setHost(event.target.value)} required />
+                <small>0.0.0.0 accepts other machines, and turns sign-in on.</small>
+              </label>
+              <label className="field">
+                Listen port
+                <input type="number" min={1} max={65535} value={port} onChange={(event) => setPort(event.target.value)} required />
+                <small>A change needs a restart.</small>
+              </label>
+              <label className="field span-2">
+                Address agent machines use
+                <input type="url" value={url} onChange={(event) => setUrl(event.target.value)} required />
+                <small>Shown for <code>agent login</code> and pairing. Use this machine's LAN or public address when sharing it.</small>
+              </label>
+            </div>
           </div>
         </section>
-        <section className="section">
-          <h2>Backends</h2>
+        <section className="section" aria-labelledby="backends-heading">
+          <div className="section-head">
+            <h2 id="backends-heading">Providers</h2>
+            <button type="button" onClick={() => setRows((current) => [...current, { id: nextId++, name: "", type: "anthropic", url: "https://api.anthropic.com" }])}>
+              <Icon name="plus" size={16} />
+              Add hosted API
+            </button>
+          </div>
           <p className="subtle">
-            <span className="route-badge route-ollama">Ollama</span> backends are your local model machines; the proxy
-            translates requests for them and applies <code>config/models.yaml</code>.{" "}
-            <span className="route-badge route-hosted">Anthropic API</span> backends pass requests through unchanged for agents
-            that point their API endpoint at the proxy. Account agents (Claude, Copilot and ChatGPT sign-ins) don't use a
-            backend; they go through the intercept listener on port {status.data?.intercept?.listen_port ?? 8183}.
+            Local model servers come from your machines: add them, and manage their models, on each machine's page under{" "}
+            <Link to="/machines">Machines</Link>. Here you pick the default, which agents started without{" "}
+            <code>--backend</code> use, and remove ones you no longer need. Agents signed in to their own accounts don't use one.
           </p>
-          <p className="subtle">
-            The metrics URL is only needed to chart CPU and GPU load on another Ollama machine; run <code>agent-metrics</code> there.
-          </p>
-          <div className="backend-rows">
+          {rows.length === 0 && <p className="subtle">No providers yet.</p>}
+          <ul className="backend-cards">
             {rows.map((row) => (
-              <div key={row.id} className="backend-row">
-                <label className="field">
-                  Name
-                  <input value={row.name} onChange={(event) => update(row.id, { name: event.target.value })} required pattern="[A-Za-z0-9][A-Za-z0-9_\-]*" />
-                </label>
-                <label className="field">
-                  URL
-                  <input type="url" value={row.url} placeholder={row.type === "anthropic" ? "https://api.anthropic.com" : "http://host:11434"} onChange={(event) => update(row.id, { url: event.target.value })} required />
-                </label>
-                <label className="field">
-                  Type
-                  <select value={row.type} onChange={(event) => update(row.id, { type: event.target.value })}>
-                    <option value="ollama">Ollama (local models)</option>
-                    <option value="anthropic">Anthropic API (hosted)</option>
-                  </select>
-                </label>
-                <label className="field">
-                  Metrics URL
-                  <input type="url" disabled={row.type !== "ollama"} value={row.metricsUrl} placeholder="Optional, http://host:8182" onChange={(event) => update(row.id, { metricsUrl: event.target.value })} />
-                </label>
-                <label className="check">
-                  <input type="radio" name="default" checked={defaultBackend === row.name} onChange={() => setDefaultBackend(row.name)} />
-                  Default
-                </label>
-                <button type="button" disabled={rows.length === 1} onClick={() => setRows((current) => current.filter((item) => item.id !== row.id))}>
-                  Remove
-                </button>
-              </div>
+              <li key={row.id} className={`backend-card ${row.managed ? "managed" : ""} ${defaultBackend === row.name ? "is-default" : ""}`}>
+                <div className="backend-card-grid">
+                  <label className="field">
+                    Name
+                    <input value={row.name} onChange={(event) => update(row.id, { name: event.target.value })} required pattern="[A-Za-z0-9][A-Za-z0-9_\-]*" disabled={row.managed || row.local} />
+                  </label>
+                  <label className="field">
+                    Type
+                    <select value={row.type} onChange={(event) => update(row.id, { type: event.target.value })} disabled={row.managed || row.local}>
+                      {row.local && (
+                        <>
+                          <option value="ollama">Ollama</option>
+                          <option value="docker">Docker Model Runner</option>
+                          <option value="strata">Strata</option>
+                        </>
+                      )}
+                      <option value="anthropic">Anthropic API</option>
+                    </select>
+                  </label>
+                  <label className="field url-field">
+                    URL
+                    <input type="url" value={row.url} placeholder={URL_PLACEHOLDERS[row.type] ?? URL_PLACEHOLDERS.ollama} onChange={(event) => update(row.id, { url: event.target.value })} required disabled={row.managed || row.local} />
+                  </label>
+                </div>
+                <div className="backend-card-foot">
+                  <span className="subtle backend-hint">
+                    {row.managed ? (
+                      <>
+                        A container on {machineOf(row) ?? "a machine"}; change or delete it on{" "}
+                        <Link to={machinePath(status.data?.backends[row.name]?.machine ?? "", "containers")}>its machine's Containers</Link>.
+                      </>
+                    ) : row.local ? (
+                      machineOf(row) ? (
+                        <>On <Link to={pageOf(row)}>{machineOf(row)}</Link>. {TYPE_HINTS[row.type]}</>
+                      ) : (
+                        <>Not on a machine yet: sign in the machine that runs it. {TYPE_HINTS[row.type]}</>
+                      )
+                    ) : (
+                      TYPE_HINTS[row.type]
+                    )}
+                  </span>
+                  <label className="check">
+                    <input type="radio" name="default" checked={defaultBackend === row.name} onChange={() => setDefaultBackend(row.name)} />
+                    Default
+                  </label>
+                  <button
+                    type="button"
+                    className="icon-button danger"
+                    title="Remove"
+                    aria-label={`Remove ${row.name || "this backend"}`}
+                    disabled={row.managed}
+                    onClick={() => setRows((current) => current.filter((item) => item.id !== row.id))}
+                  >
+                    <Icon name="trash" />
+                  </button>
+                </div>
+              </li>
             ))}
-          </div>
-          <button type="button" onClick={() => setRows((current) => [...current, { id: nextId++, name: "", type: "ollama", url: "", metricsUrl: "" }])}>
-            Add backend
-          </button>
+          </ul>
         </section>
-        <div className="row sticky-actions">
-          <button className="primary" type="submit" disabled={save.isPending || !config.data}>
-            Save settings
-          </button>
-          {message && (
+        <div className="save-bar floating">
+          {message ? (
             <span className={message.tone} role="status">
               {message.text}
             </span>
+          ) : (
+            <span className="subtle">Changes are saved to config/backends.yaml.</span>
           )}
+          <button className="primary" type="submit" disabled={save.isPending || !config.data}>
+            {save.isPending ? "Saving…" : "Save changes"}
+          </button>
         </div>
       </form>
+      {status.data?.restart?.available && (
+        <section className="panel" aria-labelledby="restart-heading">
+          <div className="panel-head">
+            <h2 id="restart-heading">Restart the server</h2>
+            <p className="subtle">
+              Picks up edits to <code>config/</code> made outside this page and a new listen address. It waits for requests in
+              flight; running agents and their terminals reconnect by themselves.
+            </p>
+          </div>
+          <div className="row wrap">
+            <RestartButton status={status.data} />
+            <span className="subtle">Running since {new Date(status.data.started_at * 1000).toLocaleString()}</span>
+          </div>
+        </section>
+      )}
     </div>
   );
 }

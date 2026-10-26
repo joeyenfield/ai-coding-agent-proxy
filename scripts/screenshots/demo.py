@@ -2,9 +2,9 @@
 
 Starts fake Ollama machines and a fake Anthropic API, seeds account-agent
 sessions (Claude Code, Copilot CLI, Codex) shaped like real captured traffic
-but with made-up content, then starts agent-proxy against them and keeps real
-traffic streaming through it. Nothing touches your real logs, config or
-accounts.
+but with made-up content, then starts agent-proxy against them, shares three
+made-up agent terminals with it and keeps real traffic streaming through it.
+Nothing touches your real logs, config, accounts or access key.
 
     python scripts/screenshots/demo.py                # proxy on http://127.0.0.1:8199
     node scripts/screenshots/capture.mjs http://127.0.0.1:8199 docs/screenshots
@@ -18,6 +18,7 @@ import asyncio
 import json
 import os
 import random
+import re
 import shutil
 import subprocess
 import sys
@@ -26,6 +27,7 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 import httpx
 import uvicorn
@@ -33,13 +35,14 @@ import yaml
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from agent_proxy.sessions import SessionStore
-from agent_proxy.telemetry import RequestTelemetry
+from agent_server.sessions import SessionStore
+from agent_server.version import build_version
+from agent_server.telemetry import RequestTelemetry
 
 ROOT = Path(__file__).resolve().parents[2]
 PROXY_PORT = 8199
 INTERCEPT_PORT = 18199
-LAPTOP, DESKTOP, ANTHROPIC = 18434, 18435, 18436
+LAPTOP, DESKTOP, ANTHROPIC, DOCKER = 18434, 18435, 18436, 18437
 PROXY = f"http://127.0.0.1:{PROXY_PORT}"
 GB = 1024**3
 
@@ -73,23 +76,8 @@ CODEX_ANSWER = (
 )
 
 
-def ollama_app(models: list[tuple[str, float, str, str]], loaded: dict[str, float], delay: float, machine: dict) -> FastAPI:
+def ollama_app(models: list[tuple[str, float, str, str]], loaded: dict[str, float], delay: float) -> FastAPI:
     app = FastAPI()
-
-    @app.get("/api/host/metrics")
-    async def metrics():
-        # Stands in for agent-metrics on the machine, so screenshots don't show the real host.
-        wave = (time.time() % 20) / 20
-        gpu_total = machine["gpu_gb"] * GB
-        return {
-            "hostname": machine["hostname"], "platform": "Linux 6.14.0", "timestamp": time.time(),
-            "cpu": {"percent": round(18 + 14 * wave + random.random() * 6, 1), "count": machine["cores"]},
-            "memory": {"used": int(machine["ram_gb"] * 0.42 * GB), "total": int(machine["ram_gb"] * GB), "percent": 42.0},
-            "gpus": [{"index": 0, "name": machine["gpu"], "utilization": round(72 + 20 * wave + random.random() * 6, 1),
-                      "memory_used": int(gpu_total * 0.93), "memory_total": int(gpu_total),
-                      "temperature": 67 + int(6 * wave), "power_watts": round(280 + 60 * wave, 1)}],
-            "gpu_error": None,
-        }
 
     @app.get("/api/version")
     async def version():
@@ -175,6 +163,78 @@ def anthropic_app() -> FastAPI:
             yield sse({"type": "message_stop"})
 
         return StreamingResponse(stream(), media_type="text/event-stream")
+
+    return app
+
+
+def model_runner_app() -> FastAPI:
+    """Docker Model Runner: its model store, loaded models and OpenAI streaming under /engines/v1."""
+    app = FastAPI()
+    pulled = [
+        {"id": "sha256:4f1c", "tags": ["docker.io/ai/qwen3-coder:latest"], "created": 1_790_000_000,
+         "config": {"format": "gguf", "quantization": "Q4_K_M", "parameters": "30.53 B", "architecture": "qwen3moe", "size": "17.28 GiB", "context_size": 65536}},
+        {"id": "sha256:9a2e", "tags": ["docker.io/ai/qwen3:latest", "docker.io/ai/qwen3:8B-Q4_K_M"], "created": 1_786_000_000,
+         "config": {"format": "gguf", "quantization": "Q4_K_M", "parameters": "8.19 B", "architecture": "qwen3", "size": "4.68 GiB", "context_size": 40960}},
+        {"id": "sha256:77b0", "tags": ["hf.co/unsloth/gemma-3-12b-it-gguf:Q4_K_M"], "created": 1_780_000_000,
+         "config": {"format": "gguf", "quantization": "Q4_K_M", "parameters": "11.77 B", "architecture": "gemma3", "size": "6.79 GiB", "context_size": 131072}},
+    ]
+    loaded = {"ai/qwen3-coder"}
+
+    @app.get("/engines/status")
+    async def engines():
+        return {"llama.cpp": "running llama.cpp latest-cuda (sha256:5d3e) version: b6410", "vllm": "not installed"}
+
+    @app.get("/models")
+    async def models():
+        return pulled
+
+    @app.get("/engines/ps")
+    async def ps():
+        return [{"backend_name": "llama.cpp", "model_name": name, "mode": "completion", "in_use": False} for name in sorted(loaded)]
+
+    @app.get("/engines/df")
+    async def df():
+        return {"models_disk_usage": int(28.75 * GB), "default_backend_disk_usage": 96_000_000}
+
+    @app.post("/engines/unload")
+    async def unload(request: Request):
+        names = (await request.json()).get("models") or []
+        loaded.difference_update(names)
+        return {"unloaded_runners": len(names)}
+
+    @app.post("/engines/v1/chat/completions")
+    async def chat(request: Request):
+        body = await request.json()
+        model = body.get("model", "ai/qwen3-coder")
+        loaded.add(model.removesuffix(":latest"))
+        if request.headers.get("x-preload-only"):
+            return JSONResponse({})
+
+        async def stream():
+            await asyncio.sleep(0.4)
+            words = ANSWER.split(" ")
+            for word in words:
+                yield f"data: {json.dumps({'model': model, 'choices': [{'index': 0, 'delta': {'content': word + ' '}}]})}\n\n"
+                await asyncio.sleep(0.04)
+            usage = {"prompt_tokens": 8200 + random.randint(0, 3000), "completion_tokens": len(words)}
+            yield f"data: {json.dumps({'model': model, 'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}], 'usage': usage})}\n\n"
+            yield "data: [DONE]\n\n"
+
+        return StreamingResponse(stream(), media_type="text/event-stream")
+
+    @app.post("/models/create")
+    async def pull(request: Request):
+        name = (await request.json()).get("from", "")
+        total = int(2.1 * GB)
+
+        async def progress():
+            for step in range(1, 21):
+                await asyncio.sleep(0.15)
+                yield json.dumps({"type": "progress", "message": "", "total": total, "layer": {"id": "sha256:demo", "size": total, "current": total * step // 20}, "mode": "pull"}) + "\n"
+            pulled.insert(0, {"id": f"sha256:{abs(hash(name)) % 10**6:06d}", "tags": [name], "created": int(time.time()), "config": {"format": "gguf"}})
+            yield json.dumps({"type": "success", "message": "Model pulled successfully", "mode": "pull"}) + "\n"
+
+        return StreamingResponse(progress(), media_type="application/json")
 
     return app
 
@@ -372,6 +432,422 @@ def anthropic_turn(client: httpx.Client, session_id: str, model: str) -> None:
             pass
 
 
+def _box(lines: list[str], width: int = 78) -> str:
+    """A bordered prompt like the agent's permission dialogs; lines may carry colour codes."""
+    blue, reset = "\x1b[34m", "\x1b[0m"
+    rows = [f"{blue}╭{'─' * width}╮{reset}"]
+    for line in lines:
+        padding = width - 1 - len(re.sub(r"\x1b\[[\d;]*m", "", line))
+        rows.append(f"{blue}│{reset} {line}{' ' * padding}{blue}│{reset}")
+    rows.append(f"{blue}╰{'─' * width}╯{reset}")
+    return "\r\n".join(rows) + "\r\n"
+
+
+AGENT_SCREEN = (
+    "\x1b[38;2;215;119;87m✻\x1b[0m \x1b[1mWelcome to Claude Code\x1b[0m\r\n"
+    "  \x1b[2mcwd: C:\\work\\payments-api\x1b[0m\r\n\r\n"
+    "\x1b[2m>\x1b[0m Add retries with backoff to PaymentClient.charge and cover them with tests\r\n\r\n"
+    "\x1b[38;2;215;119;87m⏺\x1b[0m I'll wrap the charge call in an exponential backoff and add tests for the retry limits.\r\n\r\n"
+    "\x1b[32m⏺\x1b[0m \x1b[1mUpdate\x1b[0m(src/payments/client.py)\r\n"
+    "  ⎿  Updated src/payments/client.py with \x1b[32m18 additions\x1b[0m and \x1b[31m3 removals\x1b[0m\r\n\r\n"
+    "\x1b[32m⏺\x1b[0m \x1b[1mBash\x1b[0m(pytest tests/test_client.py -q)\r\n"
+    "  ⎿  \x1b[32m12 passed\x1b[0m in 0.84s\r\n\r\n"
+    "\x1b[38;2;215;119;87m⏺\x1b[0m Retries are in. One more edit adds a test for the jitter bounds.\r\n\r\n"
+    + _box([
+        "\x1b[1mEdit file\x1b[0m tests/test_client.py",
+        "",
+        "Do you want to make this edit to test_client.py?",
+        "\x1b[36m❯ 1. Yes\x1b[0m",
+        "  2. Yes, and don't ask again this session",
+        "  3. No, and tell Claude what to do differently",
+    ])
+)
+
+
+class FakeLauncher:
+    """The launcher's side of a shared terminal, for made-up agents: what they print goes to
+    the server as the Go client sends it, and what the console types comes back to typed."""
+
+    def __init__(self, session_id: str, command: str, size: tuple[int, int], typed: Any):
+        from websockets.sync.client import connect
+
+        url = PROXY.replace("http", "ws", 1) + f"/api/terminals/{session_id}/host"
+        self.socket = connect(url, proxy=None, max_size=None)
+        self.socket.send(json.dumps({"type": "hello", "cols": size[0], "rows": size[1], "command": command}))
+        self.socket.recv(timeout=10)  # resume
+        self.lock = threading.Lock()
+        self.typed = typed
+        threading.Thread(target=self._receive, daemon=True).start()
+
+    def append(self, data: bytes) -> None:
+        with self.lock:
+            self.socket.send(data)
+
+    def finish(self, status: int) -> None:
+        with self.lock:
+            self.socket.send(json.dumps({"type": "exit", "status": status}))
+            self.socket.close()
+
+    def _receive(self) -> None:
+        try:
+            for message in self.socket:
+                data = json.loads(message) if isinstance(message, str) else {}
+                for part in data.get("parts") or [] if data.get("type") == "input" else []:
+                    self.typed(part, self)
+        except Exception:  # noqa: BLE001 - the demo is stopping
+            pass
+
+
+def share_terminals() -> None:
+    """Agents' terminals, shared the way the launcher shares them: one waiting, one working, one finished."""
+    client = httpx.Client(timeout=10)
+
+    def typed(text: str, terminal: FakeLauncher) -> None:
+        if text not in {"\r", "\x1b"}:
+            terminal.append(f"\r\n\x1b[2m>\x1b[0m {text}\r\n\r\n\x1b[38;2;215;119;87m⏺\x1b[0m On it.\r\n".encode())
+
+    def start(agent: str, model: str, backend: str, project: str, size: tuple[int, int], tags: dict[str, str]) -> tuple[str, FakeLauncher, FakeLauncher]:
+        body = {"client": agent, "model": model, "backend": backend, "project": project, "tags": tags}
+        session_id = client.post(f"{PROXY}/api/sessions", json=body).json()["session_id"]
+        terminal = FakeLauncher(session_id, agent, size, typed)
+        return session_id, terminal, terminal
+
+    _, waiting, _ = start("claude-account", "", "direct", "payments-api", (82, 30), {"hostname": "ai-laptop", "machine_name": "ai-laptop"})
+    waiting.append(AGENT_SCREEN.encode())
+
+    _, working, _ = start("opencode", "qwen3.8:latest", "desktop", "web-dashboard", (100, 28), {"machine": "ai-desktop", "machine_name": "ai-desktop"})
+    working.append(b"\x1b[1mopencode\x1b[0m  qwen3.8:latest via agent-proxy\r\n\r\n> Make the usage chart load lazily\r\n\r\n"
+                   b"Reading src/charts/Usage.tsx\r\nReading src/pages/Dashboard.tsx\r\n\r\n")
+
+    def spin() -> None:
+        frames, seconds = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏", 0
+        while True:
+            working.append(f"\r\x1b[K\x1b[33m{frames[seconds % len(frames)]}\x1b[0m Thinking… ({seconds}s)".encode())
+            seconds += 1
+            time.sleep(1)
+
+    threading.Thread(target=spin, daemon=True).start()
+
+    finished_id, finished, share = start("codex", "gpt-oss:20b", "desktop", "cli-tools", (90, 24), {"machine": "ai-desktop", "machine_name": "ai-desktop"})
+    finished.append(b"> Rename the --out flag to --output\r\n\r\nUpdated 3 files. All 41 tests pass.\r\n")
+    time.sleep(1)
+    share.finish(0)
+    client.patch(f"{PROXY}/api/sessions/{finished_id}", json={"ended": True, "exit_status": 0})
+
+
+CONTAINERS = {
+    "strata-iq3": {"engine": "strata", "image": "ghcr.io/niko1221/strata:latest-cuda13", "port": 18438, "gpus": "all",
+                   "env": {"MODEL": "IQ3_XXS", "CONTEXT": "32768", "KV": "q4_0", "VISION": "off"}},
+    "strata-coder": {"engine": "strata", "image": "ghcr.io/niko1221/strata:latest-cuda13", "port": 18439, "gpus": "all",
+                     "env": {"FAMILY": "coder", "MODEL": "IQ1_M", "CONTEXT": "64k"}},
+    # Points at the fake laptop Ollama, so it answers like a running container.
+    "ollama-cpu": {"engine": "ollama", "image": "ollama/ollama:latest", "port": LAPTOP, "gpus": "none",
+                   "env": {"OLLAMA_KV_CACHE_TYPE": "q8_0", "OLLAMA_CONTEXT_LENGTH": "32768"}},
+}
+CONTAINER_MACHINES = {"strata-iq3": "ai-desktop", "strata-coder": "ai-desktop", "ollama-cpu": "ai-laptop"}
+
+
+# The engines a machine's client offers (client/internal/containers), trimmed to what the console shows.
+ENGINES = [
+    {"id": "strata", "label": "Strata", "backend_type": "strata", "image": "ghcr.io/niko1221/strata:latest-cuda13",
+     "images": [f"ghcr.io/niko1221/strata:latest-{flavor}" for flavor in ("cuda13", "cuda12", "rocm-gfx120x")],
+     "port": 8080, "data_path": "/data", "volume": "strata-data", "health_path": "/health", "stop_timeout": 120,
+     "options": [{"env": env, "label": label, "choices": [], "hint": ""} for env, label in
+                 (("MODEL", "Model size"), ("FAMILY", "Family"), ("CONTEXT", "Context"), ("KV", "KV cache"), ("VISION", "Vision"), ("PARALLEL", "Parallel requests"))],
+     "summary": "Strata's own image. The first start downloads the model into the shared volume (tens of GB), later starts take a minute or two to load it."},
+    {"id": "ollama", "label": "Ollama", "backend_type": "ollama", "image": "ollama/ollama:latest", "images": ["ollama/ollama:latest", "ollama/ollama:rocm"],
+     "port": 11434, "data_path": "/root/.ollama", "volume": "ollama-models", "health_path": "/api/version", "stop_timeout": 30,
+     "options": [{"env": env, "label": label, "choices": [], "hint": ""} for env, label in
+                 (("OLLAMA_CONTEXT_LENGTH", "Context"), ("OLLAMA_KV_CACHE_TYPE", "KV cache"), ("OLLAMA_FLASH_ATTENTION", "Flash attention"))],
+     "summary": "The official Ollama image. Models pulled into the shared volume are there for every Ollama container."},
+]
+RUNS_CONTAINERS = {"enabled": True, "cli": "docker", "found": True, "online": True, "version": "28.4.0", "error": "", "engines": ENGINES}
+
+# The demo server's own version (VERSION and the commit), so the model machines are up to date.
+SERVER_VERSION = build_version()
+
+# Model machines say they're this computer (127.0.0.1), where the demo's fake model servers listen, so the
+# backends above are theirs. build-box runs an Ollama nobody has added yet.
+FLEET = [
+    {"id": "ai-desktop", "name": "ai-desktop", "os": "linux", "arch": "amd64", "version": SERVER_VERSION, "address": "127.0.0.1",
+     "agents": ["qwen", "opencode"], "providers": [{"type": "ollama", "port": DESKTOP, "models": 4, "version": "0.12.3"},
+                                                   {"type": "docker", "port": DOCKER, "models": 2, "version": ""}],
+     "containers": RUNS_CONTAINERS, "launches": False, "roots": [],
+     # Its Ollama runs as a service (not agent-machine's to stop); two Strata profiles wait to start.
+     "servers": {"enabled": True, "ollama": {"found": True, "running": True, "managed": False, "version": "0.12.3"},
+                 "strata": {"found": True, "profiles": [{"id": "qwen-iq3", "state": "stopped"}, {"id": "coder", "state": "stopped"}]}}},
+    {"id": "ai-laptop", "name": "ai-laptop", "os": "windows", "arch": "amd64", "version": SERVER_VERSION, "address": "127.0.0.1",
+     "agents": ["claude-account", "copilot-account"], "providers": [{"type": "ollama", "port": LAPTOP, "models": 2, "version": "0.12.3"}],
+     "containers": RUNS_CONTAINERS, "launches": False, "roots": []},
+    {"id": "build-box", "name": "build-box", "os": "linux", "arch": "amd64", "version": "0.3.2", "address": "192.168.1.40",
+     "agents": ["claude-account", "codex-account", "qwen", "opencode"], "providers": [{"type": "ollama", "port": 11434, "models": 6, "version": "0.12.3"}],
+     "containers": {"enabled": False, "cli": "docker", "found": True, "online": False, "version": "", "error": "", "engines": []},
+     "servers": {"enabled": True, "ollama": {"found": True, "running": True, "managed": True, "version": "0.12.3", "bind": "0.0.0.0"},
+                 "strata": {"found": False, "profiles": []}},
+     "launches": True, "roots": ["/home/joey/code", "/srv/repos"]},
+]
+
+
+class FakeContainers:
+    """A machine's containers, kept in memory: answers the server's requests the way the client does."""
+
+    def __init__(self):
+        self.running: dict[str, dict[str, Any]] = {}
+        self.jobs: dict[str, dict[str, Any]] = {}
+
+    def handle(self, request: dict) -> dict:
+        op = request.get("op")
+        if op == "status":
+            reports = {}
+            for name, item in request.get("containers", {}).items():
+                current = self.running.get(name)
+                state = None
+                if current:
+                    # Strata reports healthy once its model is loaded.
+                    state = {"status": "running" if current["running"] else "exited", "running": current["running"],
+                             "health": "healthy" if current["running"] and item["spec"]["engine"] == "strata" else None,
+                             "started_at": "2026-10-26T09:00:00Z", "finished_at": None, "exit_code": 0, "error": None, "spec": "demo", "image": item["spec"]["image"]}
+                env = " ".join(f"-e {key}={value}" for key, value in sorted(item["spec"].get("env", {}).items()))
+                command = f"docker run -d --name ai-proxy-{name} -p {item['bind']}:{item['spec']['port']}:8080 {env} {item['spec']['image']}"
+                reports[name] = {"state": state, "job": self.jobs.get(name), "outdated": False, "command": command, "problem": None}
+            return {"ok": True, "runtime": {"online": True}, "containers": reports}
+        name = request["name"]
+        if op in {"start", "restart"}:
+            for other in request.get("stop_first", []):
+                self.running.get(other["name"], {})["running"] = False
+            self.running[name] = {"running": True}
+        elif op == "stop" and name in self.running:
+            self.running[name]["running"] = False
+        elif op == "remove":
+            self.running.pop(name, None)
+            return {"ok": True}
+        elif op == "logs":
+            return {"ok": True, "text": "strata: serving on :8080\nstrata: model loaded\n"}
+        now = time.time()
+        self.jobs[name] = {"action": "switch" if request.get("stop_first") else op, "state": "done", "started_at": now, "finished_at": now, "error": None, "lines": ["Started"]}
+        return {"ok": True, "job": self.jobs[name]}
+
+
+HARDWARE = {
+    "ai-laptop": {"cores": 16, "ram_gb": 64, "gpu": "NVIDIA RTX 5000 Ada Laptop", "gpu_gb": 32},
+    "ai-desktop": {"cores": 24, "ram_gb": 128, "gpu": "NVIDIA RTX 5090", "gpu_gb": 32},
+    "build-box": {"cores": 32, "ram_gb": 256, "gpu": "NVIDIA RTX 6000 Ada", "gpu_gb": 48},
+}
+# A few of the settings agent-machine starts Ollama with (machine/internal/servers has them all).
+OLLAMA_SETTINGS = [
+    {"key": "context_length", "group": "Memory / KV cache", "label": "Context length (tokens)", "kind": "int", "default": 16384,
+     "help": "16384 = recommended, 65536 = large agent sessions.", "env": ["OLLAMA_CONTEXT_LENGTH"], "choices": [], "editable": False, "minimum": 1024, "maximum": 1048576},
+    {"key": "kv_cache_type", "group": "Memory / KV cache", "label": "KV cache type", "kind": "choice", "default": "q4_0",
+     "help": "Quantized types require Flash Attention.", "env": ["OLLAMA_KV_CACHE_TYPE"], "choices": ["f16", "q8_0", "q4_0"], "editable": False, "minimum": 0, "maximum": 0},
+    {"key": "flash_attention", "group": "Memory / KV cache", "label": "Flash Attention", "kind": "bool", "default": True,
+     "help": "Required for a quantized KV cache.", "env": ["OLLAMA_FLASH_ATTENTION"], "choices": [], "editable": False, "minimum": 0, "maximum": 0},
+    {"key": "num_parallel", "group": "Concurrency / scheduling", "label": "Parallel requests", "kind": "int", "default": 1,
+     "help": "Each extra slot multiplies KV cache use.", "env": ["OLLAMA_NUM_PARALLEL"], "choices": [], "editable": False, "minimum": 1, "maximum": 128},
+    {"key": "keep_alive", "group": "Concurrency / scheduling", "label": "Keep alive", "kind": "choice", "default": "-1",
+     "help": "-1 = keep loaded forever.", "env": ["OLLAMA_KEEP_ALIVE"], "choices": ["-1", "0", "5m", "30m"], "editable": True, "minimum": 0, "maximum": 0},
+]
+LOGS = {
+    "strata": "[strata] serving qwen3.6-35b-a3b IQ3_XXS on :8080\n[strata] done: 812 tokens in 9.4 s\n",
+    "ollama": "time=2026-10-26T09:00:00Z level=INFO msg=\"Listening on 0.0.0.0:11434\"\n",
+}
+
+
+# The fake model servers' ports: the only ones FakeProviders asks over HTTP.
+DEMO_PORTS = {LAPTOP, DESKTOP, DOCKER}
+
+
+class FakeProviders:
+    """A machine's model servers, answered the way agent-machine does: it asks the demo's fake servers on loopback."""
+
+    def __init__(self, machine_id: str):
+        self.machine_id = machine_id
+        self.ollama_config: dict[str, Any] = {setting["key"]: setting["default"] for setting in OLLAMA_SETTINGS} | {"extra_env": ""}
+
+    def handle(self, request: dict, send: Any) -> dict:
+        op, kind = request.get("op"), request.get("kind")
+        base = f"http://127.0.0.1:{request.get('port')}"
+        if op == "metrics":
+            return {"ok": True, "metrics": self.metrics()}
+        if op == "search":
+            return {"ok": True, "result": search(request)}
+        if op == "status":
+            try:
+                return {"ok": True, "state": self.status(kind, base, request)}
+            except httpx.HTTPError as exc:
+                return {"ok": True, "state": {"online": False, "error": f"{type(exc).__name__}: {exc}", "models": []}}
+        if op == "pull":
+            total = int(2.1 * GB)
+            for step in range(1, 21):
+                time.sleep(0.15)
+                send({"type": "provider_progress", "request": request["request"], "progress": {"status": "downloading", "total": total, "completed": total * step // 20}})
+            return {"ok": True}
+        if op in {"delete", "load", "unload"}:
+            if kind == "strata":
+                return {"ok": True, "result": {"status": "loaded" if op == "load" else "unloaded"}}
+            return {"ok": True, "result": {{"delete": "deleted", "load": "loaded", "unload": "unloaded"}[op]: request.get("model")}}
+        if op == "log":
+            return {"ok": True, "text": LOGS.get(kind, "")}
+        return {"ok": False, "error": f"unknown request: {op} {kind}"}
+
+    def status(self, kind: str, base: str, request: dict) -> dict:
+        if kind == "ollama" and request.get("port") not in DEMO_PORTS:
+            # build-box's Ollama isn't served by the demo: never ask a real one on this computer.
+            return {"online": True, "version": "0.12.3", "models": [
+                {"name": name, "size": int(size * GB), "modified_at": "2026-10-20T10:00:00Z", "family": family, "parameter_size": params,
+                 "quantization": "Q4_K_M", "loaded": False, "context_length": None, "size_loaded": None, "size_vram": None, "gpu_percent": None, "expires_at": None}
+                for name, size, family, params in (("qwen3.6:35b", 21.1, "qwen35moe", "35.5B"), ("devstral:24b", 14.3, "mistral3", "23.6B"), ("gpt-oss:20b", 13.8, "gptoss", "20.9B"))
+            ]}
+        if kind == "ollama":
+            tags, running = httpx.get(f"{base}/api/tags", timeout=4).json(), httpx.get(f"{base}/api/ps", timeout=4).json()
+            loaded = {item["name"]: item for item in running["models"]}
+            models = []
+            for item in tags["models"]:
+                state, details = loaded.get(item["name"]), item.get("details") or {}
+                models.append({
+                    "name": item["name"], "size": item["size"], "modified_at": item["modified_at"], "family": details.get("family"),
+                    "parameter_size": details.get("parameter_size"), "quantization": details.get("quantization_level"), "loaded": state is not None,
+                    "context_length": state and state["context_length"], "size_loaded": state and state["size"], "size_vram": state and state["size_vram"],
+                    "gpu_percent": round(state["size_vram"] * 100 / state["size"]) if state else None, "expires_at": state and state["expires_at"],
+                })
+            version = httpx.get(f"{base}/api/version", timeout=4).json()["version"]
+            return {"online": True, "version": version, "models": sorted(models, key=lambda model: model["name"])}
+        if kind == "docker":
+            pulled, running = httpx.get(f"{base}/models", timeout=4).json(), httpx.get(f"{base}/engines/ps", timeout=4).json()
+            loaded = {item["model_name"] for item in running}
+            models = []
+            for item in pulled:
+                tags = [tag.removeprefix("docker.io/").removesuffix(":latest") for tag in item["tags"]]
+                config = item.get("config") or {}
+                models.append({
+                    "id": item["id"], "name": tags[0], "tags": tags, "created": item["created"], "format": config.get("format"),
+                    "quantization": config.get("quantization"), "parameters": config.get("parameters"), "architecture": config.get("architecture"),
+                    "size": config.get("size"), "context_size": config.get("context_size"), "loaded": tags[0] in loaded, "loading": False,
+                    "in_use": False, "engine": "llama.cpp" if tags[0] in loaded else None,
+                })
+            return {"online": True, "engines": httpx.get(f"{base}/engines/status", timeout=4).json(), "models": models,
+                    "disk": httpx.get(f"{base}/engines/df", timeout=4).json()}
+        # Strata: the demo serves no Strata, so answer as a loaded one would.
+        model = {"id": "qwen3.6-35b-a3b", "status": {"value": "loaded"}, "meta": {"n_ctx": 32768}}
+        return {
+            "online": True, "health": {"service": "strata", "model": model["id"], "loaded": True, "max_context": 32768, "api_key": True},
+            "status": {"service": "strata", "model": model["id"], "loaded": True, "engine": "0.1.48",
+                       "machine": {"gpu": {"name": "NVIDIA RTX 5090", "used_mib": 29800, "total_mib": 32607}}},
+            "key": {"state": "ok", "source": "container" if request.get("key") else "profile qwen-iq3"},
+            "models": [model, {**model, "id": "iq3", "alias_of": model["id"]}], "instance": None,
+        }
+
+    def metrics(self) -> dict:
+        machine, wave = HARDWARE[self.machine_id], (time.time() % 20) / 20
+        gpu_total = machine["gpu_gb"] * GB
+        return {
+            "hostname": self.machine_id, "platform": "Linux 6.14.0", "timestamp": time.time(),
+            "cpu": {"percent": round(18 + 14 * wave + random.random() * 6, 1), "count": machine["cores"]},
+            "memory": {"used": int(machine["ram_gb"] * 0.42 * GB), "total": int(machine["ram_gb"] * GB), "percent": 42.0},
+            "gpus": [{"index": 0, "name": machine["gpu"], "utilization": round(72 + 20 * wave + random.random() * 6, 1),
+                      "memory_used": int(gpu_total * 0.93), "memory_total": int(gpu_total),
+                      "temperature": 67 + int(6 * wave), "power_watts": round(280 + 60 * wave, 1)}],
+            "gpu_source": "nvidia-smi", "gpu_error": None,
+        }
+
+    def ollama_settings(self, request: dict, servers: dict) -> dict:
+        if request["op"] == "configure":
+            self.ollama_config.update({key: value for key, value in (request.get("config") or {}).items() if key in self.ollama_config})
+        env = {name: str(self.ollama_config[setting["key"]]) for setting in OLLAMA_SETTINGS for name in setting["env"]}
+        groups = list(dict.fromkeys(setting["group"] for setting in OLLAMA_SETTINGS))
+        return {
+            "schema": {"groups": groups, "settings": OLLAMA_SETTINGS}, "config": self.ollama_config, "env": env, "warnings": [],
+            "applied_matches_saved": True if servers.get("ollama", {}).get("managed") else None,
+            "config_path": "/home/joey/.config/agent-machine/ollama.json", "log_path": "/home/joey/.config/agent-machine/ollama.log",
+        }
+
+
+def search(request: dict) -> dict:
+    """Made-up catalogue results, so the demo never reaches ollama.com, Hugging Face or Docker Hub."""
+    catalog, query, repo = request.get("catalog"), request.get("query") or "", request.get("repo") or ""
+    if catalog == "ollama":
+        models = [{"name": "qwen3-coder", "description": "Qwen3's coding models, for agents.", "capabilities": ["tools"], "sizes": ["30b", "480b"], "pulls": 1_200_000},
+                  {"name": "devstral", "description": "Mistral's agentic coding model.", "capabilities": ["tools"], "sizes": ["24b"], "pulls": 640_000}]
+        return {"query": query, "models": [model for model in models if query.lower() in model["name"]], "note": None}
+    if catalog == "huggingface":
+        return {"query": query, "repos": [{"repo": f"unsloth/{query or 'Qwen3-Coder-30B-A3B-Instruct'}-GGUF", "downloads": 182_000, "likes": 410}], "note": None}
+    if catalog == "huggingface-quants":
+        return {"repo": repo, "quants": [{"quant": "UD-Q4_K_XL", "size": int(17.7 * GB), "split": False}, {"quant": "Q8_0", "size": int(32.5 * GB), "split": True}], "note": None}
+    if catalog == "docker-hub":
+        return {"query": query, "models": [{"name": "ai/qwen3-coder", "description": "Qwen3 Coder", "pulls": 210_000, "stars": 40, "updated": "2026-10-01T00:00:00Z"}], "note": None}
+    return {"repo": repo, "tags": [{"tag": "latest", "size": int(17.3 * GB), "engine": None, "updated": "2026-10-01T00:00:00Z"}]}
+
+
+def join_fleet() -> None:
+    """The made-up machines, joined the way the client's agent-proxy joins: build-box takes launches, two run containers."""
+    from websockets.sync.client import connect
+
+    def member(hello: dict) -> None:
+        socket = connect(PROXY.replace("http", "ws", 1) + "/api/machines/connect", proxy=None)
+        socket.send(json.dumps({"type": "hello", **hello}))
+        socket.recv(timeout=10)
+        containers = FakeContainers()
+        providers = FakeProviders(hello["id"])
+        servers = json.loads(json.dumps(hello.get("servers") or {"enabled": False}))
+        lock = threading.Lock()
+
+        def send(value: dict) -> None:
+            with lock:
+                socket.send(json.dumps(value))
+
+        def provide(request: dict) -> None:
+            send({"type": "provider_result", "request": request["request"], **providers.handle(request, send)})
+
+        for message in socket:
+            request = json.loads(message)
+            if request.get("type") == "provider":
+                # Pulls take a while: each request on its own thread, as agent-machine does.
+                threading.Thread(target=provide, args=(request,), daemon=True).start()
+                continue
+            if request.get("type") == "server" and request.get("op") in {"settings", "configure"}:
+                send({"type": "server_result", "request": request["request"], "ok": True, "servers": servers,
+                      "ollama_settings": providers.ollama_settings(request, servers)})
+                continue
+            if request.get("type") == "server":
+                # Start or stop the fake Ollama or Strata profile: just flip its state.
+                running = request["op"] in {"start", "restart"}
+                if request.get("kind") == "ollama":
+                    servers["ollama"].update(running=running, managed=running, bind="0.0.0.0" if running else None)
+                for profile in servers.get("strata", {}).get("profiles", []):
+                    if profile["id"] == request.get("profile"):
+                        profile["state"] = "ready" if running else "stopped"
+                send({"type": "server_result", "request": request["request"], "ok": True, "servers": servers})
+                continue
+            if request.get("type") == "container":
+                send({"type": "container_result", "request": request["request"], **containers.handle(request)})
+                continue
+            if request.get("type") != "launch":
+                continue
+            # Started "remotely": a session with a made-up terminal, as the client would open.
+            session_id = httpx.post(f"{PROXY}/api/sessions", json={
+                "client": request["agent"], "model": request.get("model") or None, "backend": "direct" if request["agent"].endswith("-account") else "laptop",
+                "project": request["project"].rstrip("/").rsplit("/", 1)[-1], "tags": {"machine": hello["id"], "machine_name": hello["name"], "launch": request["launch"]},
+            }).json()["session_id"]
+            terminal = FakeLauncher(session_id, request["agent"], (110, 30), lambda text, term: term.append(f"> {text}\r\n".encode()))
+            terminal.append(f"\x1b[1m{request['agent']}\x1b[0m started on {hello['name']} in {request['project']}\r\n\r\n> ".encode())
+            send({"type": "launched", "launch": request["launch"], "session_id": session_id})
+
+    for hello in FLEET:
+        threading.Thread(target=member, args=(hello,), daemon=True).start()
+    # Wait until they're in, so the containers below have their machines.
+    for _ in range(100):
+        listed = httpx.get(f"{PROXY}/api/machines").json().get("machines", [])
+        if sum(machine["connected"] for machine in listed) == len(FLEET):
+            break
+        time.sleep(0.1)
+
+
+def run_containers() -> None:
+    """Start two containers the way the console does; strata-coder stays off, waiting to switch in."""
+    client = httpx.Client(timeout=30)
+    for name in ("strata-iq3", "ollama-cpu"):
+        client.post(f"{PROXY}/api/containers/{name}/start", json={})
+
+
 def drive() -> None:
     client = httpx.Client(timeout=600)
 
@@ -383,7 +859,9 @@ def drive() -> None:
     opencode = session("opencode", "qwen3.8:latest", "desktop", "web-dashboard")
     claude = session("claude", "qwen3.6:27b-coding", "desktop", "data-pipeline")
     hosted = session("claude-subscription", "sonnet", "anthropic", "payments-api")
+    docker = session("opencode", "ai/qwen3-coder", "docker", "cli-tools")
     openai_turn(client, qwen, "qwen3.6:35b")
+    openai_turn(client, docker, "ai/qwen3-coder")
     anthropic_turn(client, claude, "qwen3.6:27b-coding")
     anthropic_turn(client, hosted, "claude-sonnet-5")
     client.post(f"{PROXY}/session/{hosted}/anthropic/v1/messages/count_tokens", json={"model": "claude-sonnet-5", "messages": []})
@@ -403,7 +881,7 @@ def drive() -> None:
 def main() -> None:
     import socket
 
-    for port in (PROXY_PORT, INTERCEPT_PORT, LAPTOP, DESKTOP, ANTHROPIC):
+    for port in (PROXY_PORT, INTERCEPT_PORT, LAPTOP, DESKTOP, ANTHROPIC, DOCKER):
         with socket.socket() as probe:
             if probe.connect_ex(("127.0.0.1", port)) == 0:
                 sys.exit(f"Port {port} is already in use; is another demo still running?")
@@ -412,27 +890,32 @@ def main() -> None:
     logs = work / "logs"
     seed_accounts(logs)
     backends = {
-        "proxy": {"listen_host": "127.0.0.1", "listen_port": PROXY_PORT, "url": PROXY},
+        # A made-up public name, so Running agents shows how a phone pairs from anywhere.
+        "proxy": {"listen_host": "127.0.0.1", "listen_port": PROXY_PORT, "url": PROXY, "public_url": "https://agents.example.net"},
         "default_backend": "laptop",
         "backends": {
-            "laptop": {"type": "ollama", "url": f"http://127.0.0.1:{LAPTOP}", "metrics_url": f"http://127.0.0.1:{LAPTOP}"},
-            "desktop": {"type": "ollama", "url": f"http://127.0.0.1:{DESKTOP}", "metrics_url": f"http://127.0.0.1:{DESKTOP}"},
+            # Every local provider is on one of the FLEET machines below; only the hosted API isn't.
+            "laptop": {"type": "ollama", "url": f"http://127.0.0.1:{LAPTOP}", "machine": "ai-laptop"},
+            "desktop": {"type": "ollama", "url": f"http://127.0.0.1:{DESKTOP}", "machine": "ai-desktop"},
+            "docker": {"type": "docker", "url": f"http://127.0.0.1:{DOCKER}", "machine": "ai-desktop"},
             "anthropic": {"type": "anthropic", "url": f"http://127.0.0.1:{ANTHROPIC}"},
+            # Containers the machines run, answered by FakeContainers.
+            **{name: {"type": spec["engine"], "url": f"http://127.0.0.1:{spec['port']}", "machine": CONTAINER_MACHINES[name], "container": spec}
+               for name, spec in CONTAINERS.items()},
         },
         "intercept": {"enabled": True, "listen_host": "127.0.0.1", "listen_port": INTERCEPT_PORT},
     }
     (work / "backends.yaml").write_text(yaml.safe_dump(backends, sort_keys=False))
     serve(ollama_app([("qwen3.6:35b", 21.1, "qwen35moe", "35.5B"), ("qwen3.6:9b", 6.1, "qwen35", "9.0B")],
-                     {"qwen3.6:35b": 1.0}, delay=0.07,
-                     machine={"hostname": "ai-laptop", "cores": 16, "ram_gb": 64, "gpu": "NVIDIA RTX 5000 Ada Laptop", "gpu_gb": 32}), LAPTOP)
+                     {"qwen3.6:35b": 1.0}, delay=0.07), LAPTOP)
     serve(ollama_app([("qwen3.8:latest", 19.4, "qwen38", "32.8B"), ("qwen3.6:27b-coding", 17.2, "qwen35", "27.4B"),
                       ("devstral:24b", 14.3, "mistral3", "23.6B"), ("gpt-oss:20b", 13.8, "gptoss", "20.9B")],
-                     {"qwen3.8:latest": 1.0, "qwen3.6:27b-coding": 0.82}, delay=0.05,
-                     machine={"hostname": "ai-desktop", "cores": 24, "ram_gb": 128, "gpu": "NVIDIA RTX 5090", "gpu_gb": 32}), DESKTOP)
+                     {"qwen3.8:latest": 1.0, "qwen3.6:27b-coding": 0.82}, delay=0.05), DESKTOP)
     serve(anthropic_app(), ANTHROPIC)
+    serve(model_runner_app(), DOCKER)
     env = {**os.environ, "AI_PROXY_BACKENDS": str(work / "backends.yaml"), "AI_PROXY_LOG_DIR": str(logs),
-           "AI_PROXY_CA_DIR": str(work / "certs")}
-    proxy = subprocess.Popen([sys.executable, "-m", "agent_proxy.app", "--port", str(PROXY_PORT), "--no-build"], env=env, cwd=ROOT)
+           "AI_PROXY_CA_DIR": str(work / "certs"), "AI_PROXY_REMOTE_KEY_FILE": str(work / "remote-access-key")}
+    proxy = subprocess.Popen([sys.executable, "-m", "agent_server.app", "--port", str(PROXY_PORT), "--no-build"], env=env, cwd=ROOT)
     try:
         for _ in range(50):
             try:
@@ -441,6 +924,9 @@ def main() -> None:
             except httpx.HTTPError:
                 time.sleep(0.2)
         print(f"demo proxy on {PROXY} (data in {work})", flush=True)
+        share_terminals()
+        join_fleet()
+        run_containers()
         drive()
     except KeyboardInterrupt:
         pass

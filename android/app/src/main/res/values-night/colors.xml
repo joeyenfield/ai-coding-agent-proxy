@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="accent">#818CF8</color>
+    <color name="accent_soft">#1F2242</color>
+    <color name="ground">#0E0F13</color>
+    <color name="paper">#16181D</color>
+    <color name="ink">#EBECF0</color>
+    <color name="steel">#9AA1AD</color>
+    <color name="line">#262931</color>
+    <color name="good">#5CC08A</color>
+    <color name="bad">#F0827A</color>
+</resources>

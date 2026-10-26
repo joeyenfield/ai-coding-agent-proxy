@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { api, type Agent, type PreparedSession } from "../api";
-import { useAgents, useClipboard, useModels, useStatus } from "../hooks";
-import { ROUTE_ORDER, ROUTES, type RouteKind } from "../routes";
+import { api, preferredModel, providerModels, PROTOCOL_LABELS, type Agent, type InstallEnvironment, type PreparedSession } from "../api";
+import { CodeLine } from "../components/CodeLine";
+import { useAgents, useAuth, useClipboard, useModels, useStatus } from "../hooks";
+import { PartTag } from "../components/PartTag";
+import { ShareChoice, shareArgs } from "../components/Sharing";
+import { providerLabel, ROUTE_ORDER, ROUTES, type RouteKind } from "../routes";
 
 const ROUTE_INTROS: Record<RouteKind, string> = {
   account: "Use the agent's own sign-in and plan. Nothing is translated: the proxy records every request on its way to the vendor.",
-  ollama: "Run the agent against your own Ollama machines. The proxy translates requests and applies the context size and sampling from models.yaml.",
+  ollama: "Run the agent against your own Ollama machines, Docker Model Runner or Strata, on your machines. For Ollama the proxy translates requests and applies the context size and sampling from models.yaml; Docker and Strata take them as they are.",
   hosted: "Point the agent's API endpoint at the proxy and pass requests through unchanged to a hosted API backend.",
 };
 
@@ -15,13 +18,6 @@ const ROUTE_INTROS: Record<RouteKind, string> = {
 const HOSTED_MODELS = ["sonnet", "opus", "haiku"];
 
 const routeOfAgent = (agent: Agent): RouteKind => agent.route ?? (agent.intercept ? "account" : "ollama");
-
-const PROTOCOL_LABELS: Record<Agent["protocol"], string> = {
-  "openai-chat": "OpenAI Chat Completions",
-  "openai-responses": "OpenAI Responses",
-  anthropic: "Anthropic Messages",
-  ollama: "Native Ollama",
-};
 
 export function AgentsPage() {
   const agents = useAgents();
@@ -34,10 +30,11 @@ export function AgentsPage() {
   return (
     <div className="page wide">
       <header className="page-head">
+        <PartTag />
         <h1>Start an agent</h1>
         <p className="lede">
           Every agent runs through this proxy so its requests are recorded. Choose how it reaches a model: your own account,
-          your Ollama machines, or a hosted API.
+          a local model on Ollama, Docker or Strata, or a hosted API.
         </p>
       </header>
       {agents.isError && <p className="bad">{agents.error.message}</p>}
@@ -86,12 +83,27 @@ function LaunchPanel({ agent }: { agent: Agent }) {
   return <ProxyLaunchPanel agent={agent} />;
 }
 
+/** --control: share the agent's terminal with this server, to watch and type into from Running agents. */
+function ControlCheck({ checked, onChange }: { checked: boolean; onChange: (checked: boolean) => void }) {
+  return (
+    <label className="check">
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+      <span>
+        Watch and type into it from <Link to="/terminals">Running agents</Link>, on any device (<code>--control</code>)
+      </span>
+    </label>
+  );
+}
+
 /** Agents signed in to their own service: no backend or model to pick, traffic is captured in transit. */
 function AccountLaunchPanel({ agent }: { agent: Agent }) {
   const status = useStatus();
   const copy = useClipboard();
   const client = useQueryClient();
   const [trace, setTrace] = useState(true);
+  const [control, setControl] = useState(false);
+  const [share, setShare] = useState({ value: "private", control: false });
+  const identity = useAuth().data?.identity;
   const [shell, setShell] = useState<"powershell" | "bash">(navigator.userAgent.includes("Windows") ? "powershell" : "bash");
   const [prepared, setPrepared] = useState<PreparedSession | null>(null);
   const intercept = status.data?.intercept;
@@ -102,33 +114,26 @@ function AccountLaunchPanel({ agent }: { agent: Agent }) {
       client.invalidateQueries({ queryKey: ["sessions"] });
     },
   });
-  const launcher = ["agent", agent.id, ".", ...(trace ? ["--trace"] : [])].join(" ");
+  const launcher = ["agent", agent.id, ".", ...(trace ? ["--trace"] : []), ...(control ? ["--control"] : []), ...shareArgs(identity, share.value, share.control)].join(" ");
   return (
     <section className="panel" aria-labelledby="launch-title">
       <h2 id="launch-title">Start {agent.name}</h2>
       <p>
         <span className="route-badge route-account">{ROUTES.account.label}</span>
       </p>
-      {!agent.installed && agent.install && (
-        <div className="callout">
-          <p>
-            <code>{agent.executable}</code> isn't on this machine's PATH. Install it first:
-          </p>
-          <CodeLine text={agent.install} onCopy={() => copy(agent.install!, "Install command copied")} />
-        </div>
-      )}
+      <InstallCommand agent={agent} />
       <p>
-        The agent keeps its own sign-in and talks to its own service. The launcher sends all of its HTTPS through the
-        proxy's intercept listener, so every request it makes shows up on the <Link to="/traffic">Traffic</Link> page,
-        and model calls also stream on the <Link to="/live">Live</Link> page.
+        The agent keeps its own sign-in and talks to its own service. The launcher sends all of its HTTPS to the
+        agent-proxy on its machine, which carries it here to be recorded. Every request it makes shows up on the{" "}
+        <Link to="/traffic">Traffic</Link> page, and model calls also stream on the <Link to="/live">Live</Link> page.
       </p>
       {intercept && !intercept.running ? (
-        <p className="bad">The intercept listener isn't running: {intercept.error}</p>
+        <p className="bad">HTTPS capture is off on this server: {intercept.error}</p>
       ) : (
         intercept && (
           <p className="subtle">
-            Intercept listener <span className="mono">{intercept.url}</span>. Its certificate authority is trusted only by
-            the processes the launcher starts.
+            The agent-proxy's HTTPS proxy is <span className="mono">{intercept.url}</span> on each agent machine. This
+            server's certificate authority is trusted only by the processes the launcher starts.
           </p>
         )
       )}
@@ -136,13 +141,18 @@ function AccountLaunchPanel({ agent }: { agent: Agent }) {
         <input type="checkbox" checked={trace} onChange={(event) => setTrace(event.target.checked)} />
         Save full request and response bodies (credentials are redacted)
       </label>
+      <ControlCheck checked={control} onChange={setControl} />
+      <ShareChoice value={share.value} control={share.control} onChange={(value, control) => setShare({ value, control })} />
       <h3>Run it from your project folder</h3>
       <CodeLine text={launcher} onCopy={() => copy(launcher, "Command copied")} />
       <p className="subtle">Arguments after <code>--</code> go to the agent, for example <code>{launcher} -- --model sonnet</code>.</p>
       {agent.notes && <p className="subtle">{agent.notes}</p>}
       <details className="manual" onToggle={() => prepare.reset()}>
         <summary>Set it up by hand instead</summary>
-        <p className="subtle">Opens a session now and shows the environment for {agent.executable}.</p>
+        <p className="subtle">
+          Opens a session now and shows the environment for {agent.executable}, on a machine whose agent-proxy is
+          running. Started this way, its terminal isn't shared with Running agents.
+        </p>
         <button type="button" disabled={prepare.isPending || !intercept?.running} onClick={() => prepare.mutate()}>
           Open session and show environment
         </button>
@@ -182,15 +192,17 @@ function ProxyLaunchPanel({ agent }: { agent: Agent }) {
   const copy = useClipboard();
   const client = useQueryClient();
   const route = routeOfAgent(agent);
-  const backendType = agent.backend_type ?? "ollama";
-  // Only offer backends this agent's protocol can use.
-  const backends = Object.entries(status.data?.backends ?? {})
-    .filter(([, value]) => value.type === backendType)
-    .map(([name]) => name);
-  const preferredBackend = backends.includes(status.data?.default_backend ?? "") ? status.data!.default_backend : backends[0] ?? "";
+  // The proxy lists the backends this agent's protocol can use: Ollama, and Docker or Strata for local-model agents.
+  const backends = (agent.backends ?? []).filter((name) => status.data?.backends[name]);
+  const offersPassThrough = backends.some((name) => status.data?.backends[name]?.type !== "ollama");
+  // The one the server picks when a launch names none.
+  const preferredBackend = backends.includes(agent.default_backend ?? "") ? agent.default_backend! : backends[0] ?? "";
   const [backend, setBackend] = useState("");
   const [model, setModel] = useState("");
   const [trace, setTrace] = useState(false);
+  const [control, setControl] = useState(false);
+  const [share, setShare] = useState({ value: "private", control: false });
+  const identity = useAuth().data?.identity;
   const [shell, setShell] = useState<"powershell" | "bash">(navigator.userAgent.includes("Windows") ? "powershell" : "bash");
   const [prepared, setPrepared] = useState<PreparedSession | null>(null);
 
@@ -199,9 +211,8 @@ function ProxyLaunchPanel({ agent }: { agent: Agent }) {
   }, [backend, preferredBackend]);
   const available = useMemo(() => {
     if (route === "hosted") return HOSTED_MODELS;
-    const names = (models.data?.backends[backend]?.models ?? []).map((item) => item.name);
-    return [...Object.keys(models.data?.aliases ?? {}), ...names];
-  }, [models.data, backend, route]);
+    return providerModels(models.data?.backends[backend], models.data?.aliases, status.data?.backends[backend]?.type);
+  }, [models.data, status.data, backend, route]);
   useEffect(() => {
     if (route === "hosted" ? model : !available.length || available.includes(model)) return;
     setModel(route === "hosted" ? HOSTED_MODELS[0] : preferredModel(available));
@@ -215,7 +226,7 @@ function ProxyLaunchPanel({ agent }: { agent: Agent }) {
     },
   });
   // The launcher picks preferredBackend itself, so only name a different one.
-  const launcher = ["agent", agent.id, ".", "--model", model || "<model>", ...(backend && backend !== preferredBackend ? ["--backend", backend] : []), ...(trace ? ["--trace"] : [])].join(" ");
+  const launcher = ["agent", agent.id, ".", "--model", model || "<model>", ...(backend && backend !== preferredBackend ? ["--backend", backend] : []), ...(trace ? ["--trace"] : []), ...(control ? ["--control"] : []), ...shareArgs(identity, share.value, share.control)].join(" ");
   const backendState = route === "ollama" ? models.data?.backends[backend] : undefined;
 
   return (
@@ -225,26 +236,30 @@ function ProxyLaunchPanel({ agent }: { agent: Agent }) {
         <span className={`route-badge route-${route}`}>{ROUTES[route].label}</span>{" "}
         <span className="subtle">{ROUTES[route].description}</span>
       </p>
-      {!agent.installed && agent.install && (
-        <div className="callout">
-          <p>
-            <code>{agent.executable}</code> isn't on this machine's PATH. Install it first:
-          </p>
-          <CodeLine text={agent.install} onCopy={() => copy(agent.install!, "Install command copied")} />
-        </div>
-      )}
+      <InstallCommand agent={agent} />
       {!backends.length ? (
         <p className="bad">
-          No {backendType === "ollama" ? "Ollama" : backendType} backend is configured. Add one on the <Link to="/settings">Settings</Link> page.
+          No {route === "ollama" ? "local-model provider (Ollama, Docker or Strata)" : `${providerLabel(agent.backend_type ?? undefined)} provider`} that this
+          agent can use is set up.{" "}
+          {route === "ollama" ? (
+            <>
+              Local providers come from your machines: add one on <Link to="/machines">Machines</Link>.
+            </>
+          ) : (
+            <>
+              Add a hosted API on <Link to="/settings">Server settings</Link>.
+            </>
+          )}
         </p>
       ) : (
         <div className="form-grid two">
           <label className="field">
-            {route === "ollama" ? "Ollama machine" : "Hosted backend"}
+            {route !== "ollama" ? "Hosted API" : offersPassThrough ? "Local provider" : "Ollama provider"}
             <select value={backend} onChange={(event) => setBackend(event.target.value)}>
               {backends.map((name) => (
                 <option key={name} value={name}>
-                  {name} ({hostOf(status.data?.backends[name]?.url ?? "")})
+                  {name} ({providerLabel(status.data?.backends[name]?.type, true)}
+                  {status.data?.backends[name]?.machine_name ? ` on ${status.data.backends[name].machine_name}` : `, ${hostOf(status.data?.backends[name]?.url ?? "")}`})
                 </option>
               ))}
             </select>
@@ -275,17 +290,23 @@ function ProxyLaunchPanel({ agent }: { agent: Agent }) {
         <input type="checkbox" checked={trace} onChange={(event) => setTrace(event.target.checked)} />
         Capture full request and response payloads
       </label>
+      <ControlCheck checked={control} onChange={setControl} />
+      <ShareChoice value={share.value} control={share.control} onChange={(value, control) => setShare({ value, control })} />
 
       <h3>Run it from your project folder</h3>
       <CodeLine text={launcher} onCopy={() => copy(launcher, "Command copied")} />
       <p className="subtle">
-        The launcher opens a session, sets the agent's environment and closes the session when the agent exits.
+        The launcher opens a session through the agent-proxy on its machine, points the agent at it and closes the
+        session when the agent exits. The agent-proxy carries every request here.
       </p>
       {agent.notes && <p className="subtle">{agent.notes}</p>}
 
       <details className="manual" onToggle={() => prepare.reset()}>
         <summary>Set it up by hand instead</summary>
-        <p className="subtle">Opens a session now and shows the environment for {agent.executable}.</p>
+        <p className="subtle">
+          Opens a session now and shows the environment for {agent.executable}, on a machine whose agent-proxy is
+          running. Started this way, its terminal isn't shared with Running agents.
+        </p>
         <button type="button" disabled={!model || prepare.isPending} onClick={() => prepare.mutate()}>
           Open session and show environment
         </button>
@@ -327,23 +348,73 @@ function hostOf(url: string) {
   }
 }
 
-function CodeLine({ text, onCopy }: { text: string; onCopy: () => void }) {
-  return (
-    <div className="code-block">
-      <pre className="code">{text}</pre>
-      <button type="button" onClick={onCopy}>
-        Copy
-      </button>
-    </div>
-  );
+const ENVIRONMENTS: { id: InstallEnvironment; label: string }[] = [
+  { id: "linux", label: "Linux" },
+  { id: "macos", label: "macOS" },
+  { id: "windows", label: "Windows" },
+  { id: "wsl", label: "WSL" },
+];
+const ENVIRONMENT_KEY = "ai-proxy-install-environment";
+
+/** The browser's own system, until the user picks another. */
+function guessEnvironment(): InstallEnvironment {
+  const saved = localStorage.getItem(ENVIRONMENT_KEY);
+  if (saved && ENVIRONMENTS.some((item) => item.id === saved)) return saved as InstallEnvironment;
+  const platform = navigator.userAgent.toLowerCase();
+  if (platform.includes("windows")) return "windows";
+  if (platform.includes("mac os") || platform.includes("macintosh")) return "macos";
+  return "linux";
 }
 
-/** Prefer the newest Qwen 3.x release, coder variants first, then any Qwen, then anything. */
-function preferredModel(names: string[]): string {
-  const version = (name: string) => Number(/^qwen3\.(\d+)/.exec(name)?.[1] ?? -1);
-  const coder = (name: string) => (/cod(er|ing)/.test(name) ? 1 : 0);
-  const ranked = names
-    .filter((name) => version(name) >= 0)
-    .sort((a, b) => version(b) - version(a) || coder(b) - coder(a) || a.localeCompare(b));
-  return ranked[0] ?? names.find((name) => name.startsWith("qwen")) ?? names[0];
+/** How to install the agent where it'll run: the command for the environment picked, always shown. */
+function InstallCommand({ agent }: { agent: Agent }) {
+  const copy = useClipboard();
+  const [environment, setEnvironment] = useState<InstallEnvironment>(guessEnvironment);
+  const pick = (value: InstallEnvironment) => {
+    setEnvironment(value);
+    localStorage.setItem(ENVIRONMENT_KEY, value);
+  };
+  const command = agent.installs?.[environment] ?? agent.install;
+  return (
+    <div className="install-command">
+      <div className="install-command-head">
+        <h3>Install {agent.name}</h3>
+        <div className="env-switch" role="radiogroup" aria-label="Where it runs">
+          {ENVIRONMENTS.map((item) => (
+            <button key={item.id} type="button" role="radio" aria-checked={environment === item.id} onClick={() => pick(item.id)}>
+              {item.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {command ? (
+        <CodeLine text={command} onCopy={() => copy(command, "Install command copied")} />
+      ) : (
+        <p className="subtle">The server has no install command for it.</p>
+      )}
+      <p className="subtle">
+        {agent.installed ? (
+          <>
+            Installed on the server's computer (<code>{agent.executable}</code> is on its PATH).{" "}
+          </>
+        ) : (
+          <>
+            <code>{agent.executable}</code> isn't on the server's computer. Install it on the computer that runs the agent.{" "}
+          </>
+        )}
+        {environment === "wsl" && command?.startsWith("npm ") && (
+          <>
+            In WSL, use a Linux Node.js (<code>sudo apt install nodejs npm</code>, or nvm): Windows' npm installs the Windows build, which
+            agents started in WSL can't run.{" "}
+          </>
+        )}
+        {environment === "windows" && command?.includes("| bash") && <>Run it in Git Bash. </>}
+        {agent.homepage && (
+          <a href={agent.homepage} target="_blank" rel="noreferrer">
+            Other ways to install it
+          </a>
+        )}
+      </p>
+    </div>
+  );
 }

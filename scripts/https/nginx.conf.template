@@ -1,0 +1,48 @@
+# nginx in front of agent-server: HTTPS with a Let's Encrypt certificate.
+# Written by scripts/https/setup-https.ps1 from scripts/https/nginx.conf.template; edit
+# the template and rerun the script rather than this file.
+#
+#   {{HTTP_PORT}}   plain HTTP, only for Let's Encrypt's challenge files (the router sends 80 here);
+#                   everything else is sent to HTTPS
+#   {{HTTPS_LISTEN}}   HTTPS (the router sends 443 to the first), proxied to {{BACKEND}}
+#
+# agent-server checks a browser's Origin against Host, so Host goes through as the
+# browser sent it. X-Forwarded-For carries the client's own address, so nobody reaching
+# it through here counts as "this computer"; X-Forwarded-Proto tells it the page was
+# HTTPS, for its secure cookies. WebSockets (terminals, the fleet, account agents'
+# tunnels) and streamed replies (live text, pulls) pass through unbuffered.
+
+worker_processes  1;
+error_log  logs/error.log;
+pid        logs/nginx.pid;
+
+events {
+    worker_connections  1024;
+}
+
+http {
+    access_log  logs/access.log;
+    sendfile    on;
+    server_tokens off;
+
+    map $http_upgrade $connection_upgrade {
+        default  upgrade;
+        ''       close;
+    }
+
+    # Let's Encrypt's HTTP check, and a redirect for anyone typing http://.
+    server {
+        listen       {{HTTP_PORT}} default_server;
+        server_name  _;
+
+        location ^~ /.well-known/acme-challenge/ {
+            root       "{{ACME_ROOT}}";
+            default_type text/plain;
+        }
+        location / {
+            return 301 https://{{HOST}}$request_uri;
+        }
+    }
+
+{{HTTPS_BLOCK}}
+}

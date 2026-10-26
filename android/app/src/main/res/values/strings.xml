@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AI Proxy</string>
+    <string name="servers_title">Your servers</string>
+    <string name="servers_lede">Watch and drive your coding agents from anywhere. Add the agent-server you sign in to.</string>
+    <string name="servers_empty">No servers yet. Add the address of your agent-server, such as http://192.168.1.10:9999 or its Tailscale name.</string>
+    <string name="add_server">Add a server</string>
+    <string name="server_address">Server address</string>
+    <string name="server_address_hint">http://server:9999</string>
+    <string name="server_name">Name (optional)</string>
+    <string name="add">Add</string>
+    <string name="cancel">Cancel</string>
+    <string name="remove">Remove</string>
+    <string name="checking">Checking…</string>
+    <string name="unreachable">Couldn\'t reach %1$s: %2$s</string>
+    <string name="not_a_server">%1$s answered, but it isn\'t an agent-server.</string>
+    <string name="remove_server">Remove %1$s? Its sign-in on this phone is forgotten too.</string>
+    <string name="offline_title">Can\'t reach %1$s</string>
+    <string name="offline_detail">Check the phone is on the same network, or on Tailscale, and the server is running.</string>
+    <string name="retry">Try again</string>
+    <string name="servers">Servers</string>
+    <string name="update_available">Update available: the server is %1$s</string>
+    <string name="update">Update</string>
+    <string name="plain_http">Not encrypted: use Tailscale or HTTPS on networks you don\'t trust.</string>
+</resources>

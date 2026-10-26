@@ -1,27 +1,188 @@
-import { useState } from "react";
-import type { OllamaModel, Profile } from "../api";
+import { useId, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { api, type OllamaProviderModel, type OllamaState, type Profile, type ProviderRef } from "../api";
 import { formatBytes, formatNumber } from "../format";
-import { OllamaOnlyNote } from "../components/OllamaOnlyNote";
-import { useModels, useStatus } from "../hooks";
+import { ConfirmDialog } from "../components/ConfirmDialog";
+import { ModelSearch, PullStatus, pullPercent, usePull } from "../components/ModelSearch";
+import { TabBar, TabCount, TabPanel, useTabParam } from "../components/Tabs";
+import { useModels, useToast } from "../hooks";
 
-export function ModelsPage() {
-  const models = useModels();
-  const status = useStatus();
+const TABS = ["models", "find", "aliases"] as const;
+const POLL_MS = 3000;
+type SortKey = "name" | "size" | "memory";
+type Sort = { key: SortKey; dir: 1 | -1 };
+
+function compareModels(sort: Sort, a: OllamaProviderModel, b: OllamaProviderModel): number {
+  if (sort.key === "name") return a.name.localeCompare(b.name) * sort.dir;
+  if (sort.key === "size") return ((a.size ?? 0) - (b.size ?? 0)) * sort.dir;
+  // Memory: loaded models (by VRAM used) sort ahead of unloaded ones.
+  const av = a.loaded ? a.size_vram ?? 0 : -1;
+  const bv = b.loaded ? b.size_vram ?? 0 : -1;
+  return (av - bv) * sort.dir;
+}
+
+/**
+ * One Ollama on one machine: its models (load, unload, delete), finding and pulling more, and
+ * the aliases agents can use. The machine does all of it (agent-machine). backend names the
+ * backend agents use it as, whose models.yaml settings the server adds to their requests;
+ * manageable, when set, says why changes can't be made now.
+ */
+export function OllamaProvider({ target, label, backend, manageable }: { target: ProviderRef; label: string; backend: string | null; manageable: string | null }) {
+  const key = ["provider", target.machine, target.provider];
+  const state = useQuery({ queryKey: key, queryFn: () => api.providerStatus<OllamaState>(target), refetchInterval: POLL_MS });
+  const listing = useModels();
+  const client = useQueryClient();
+  const [tab, setTab] = useTabParam(TABS);
+  const tabs = useId();
+  const puller = usePull(target, label, () => {
+    client.invalidateQueries({ queryKey: key });
+    client.invalidateQueries({ queryKey: ["models"] });
+  });
+  const percent = pullPercent(puller.pull?.progress ?? null);
+  const profiles = new Map((backend ? listing.data?.backends[backend]?.models ?? [] : []).map((model) => [model.name, model.profile]));
+  const aliases = backend ? Object.entries(listing.data?.aliases ?? {}) : [];
+
+  if (state.isPending) return <p className="empty">Asking {label} for its models…</p>;
+  if (state.isError) return <p className="bad">{state.error.message}</p>;
+  const data = state.data;
+  return (
+    <>
+      <ModelTotals state={data} />
+      <div className="tabbed">
+        <TabBar
+          label="Ollama sections"
+          idPrefix={tabs}
+          className="page-tabs"
+          active={tab}
+          onSelect={setTab}
+          tabs={[
+            { id: "models", label: "Models", badge: <TabCount value={data.models.length} /> },
+            {
+              id: "find",
+              label: "Find and pull",
+              badge: puller.active ? <TabCount tone="live" value={percent != null ? `${percent}%` : "…"} /> : undefined,
+            },
+            ...(backend ? [{ id: "aliases" as const, label: "Aliases", badge: <TabCount value={aliases.length} /> }] : []),
+          ]}
+        />
+        <PullStatus puller={puller} />
+        <TabPanel idPrefix={tabs} id="models" active={tab === "models"} keepMounted>
+          <ModelTable state={data} target={target} label={label} profiles={profiles} manageable={manageable} onFind={() => setTab("find")} />
+        </TabPanel>
+        <TabPanel idPrefix={tabs} id="find" active={tab === "find"} keepMounted>
+          <ModelSearch puller={puller} disabled={data.online ? manageable : `${label} is offline.`} />
+        </TabPanel>
+        {backend && (
+          <TabPanel idPrefix={tabs} id="aliases" active={tab === "aliases"} keepMounted>
+            <AliasesTab aliases={aliases} />
+          </TabPanel>
+        )}
+      </div>
+    </>
+  );
+}
+
+function ModelTotals({ state }: { state: OllamaState }) {
+  const loaded = state.models.filter((model) => model.loaded);
+  const resident = loaded.reduce((total, model) => total + (model.size_loaded ?? 0), 0);
+  const vram = loaded.reduce((total, model) => total + (model.size_vram ?? 0), 0);
+  const traffic = state.traffic;
+  return (
+    <dl className="stat-cards">
+      <div>
+        <dt>Ollama</dt>
+        <dd className={state.online ? undefined : "bad"}>{state.online ? state.version ?? "Online" : "Offline"}</dd>
+      </div>
+      <div>
+        <dt>Models</dt>
+        <dd>
+          {state.models.length} <small>{formatBytes(state.models.reduce((total, model) => total + (model.size ?? 0), 0))} on disk</small>
+        </dd>
+      </div>
+      <div>
+        <dt>Loaded now</dt>
+        <dd>
+          {loaded.length} {resident > 0 && <small>{formatBytes(resident)}, {Math.round((vram / resident) * 100)}% on GPU</small>}
+        </dd>
+      </div>
+      <div>
+        <dt>Agent requests</dt>
+        <dd>
+          {traffic ? traffic.in_flight : "–"}{" "}
+          <small>
+            {traffic
+              ? `in flight${traffic.average_tps ? `, ${formatNumber(Math.round(traffic.average_tps))} tok/s lately` : ""}`
+              : "not a provider yet"}
+          </small>
+        </dd>
+      </div>
+    </dl>
+  );
+}
+
+function ModelTable({
+  state,
+  target,
+  label,
+  profiles,
+  manageable,
+  onFind,
+}: {
+  state: OllamaState;
+  target: ProviderRef;
+  label: string;
+  profiles: Map<string, Profile>;
+  manageable: string | null;
+  onFind: () => void;
+}) {
+  const client = useQueryClient();
+  const notify = useToast();
   const [query, setQuery] = useState("");
   const [loadedOnly, setLoadedOnly] = useState(false);
+  const [sort, setSort] = useState<Sort>({ key: "name", dir: 1 });
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const refresh = () => {
+    client.invalidateQueries({ queryKey: ["provider", target.machine, target.provider] });
+    client.invalidateQueries({ queryKey: ["models"] });
+  };
+  const load = useMutation({
+    mutationFn: (model: string) => api.providerModelAction(target, "load", model),
+    onSuccess: (_, model) => { notify(`Loaded ${model}`); refresh(); },
+    onError: (error: Error) => notify(error.message),
+  });
+  const unload = useMutation({
+    mutationFn: (model: string) => api.providerModelAction(target, "unload", model),
+    onSuccess: (_, model) => { notify(`Unloaded ${model}`); refresh(); },
+    onError: (error: Error) => notify(error.message),
+  });
+  const remove = useMutation({
+    mutationFn: (model: string) => api.providerModelAction(target, "delete", model),
+    onSuccess: (_, model) => { notify(`Deleted ${model}`); refresh(); },
+    onError: (error: Error) => notify(error.message),
+    onSettled: () => setConfirmDelete(null),
+  });
+  const working = (model: string) =>
+    Boolean(manageable) || (load.isPending && load.variables === model) || (unload.isPending && unload.variables === model) || (remove.isPending && remove.variables === model);
   const text = query.trim().toLowerCase();
-  const filter = (model: OllamaModel) => (!text || model.name.toLowerCase().includes(text)) && (!loadedOnly || model.loaded);
-  return (
-    <div className="page wide">
-      <header className="page-head">
-        <h1>Ollama models</h1>
-        <p className="lede">
-          Models on each Ollama machine, and the settings the proxy adds before forwarding. Edit them in{" "}
-          <code>config/models.yaml</code>.
-        </p>
-      </header>
-      <OllamaOnlyNote />
+  const toggleSort = (key: SortKey) => setSort((current) => (current.key === key ? { key, dir: current.dir === 1 ? -1 : 1 } : { key, dir: 1 }));
+  const visible = state.models
+    .filter((model) => (!text || model.name.toLowerCase().includes(text)) && (!loadedOnly || model.loaded))
+    .sort((a, b) => compareModels(sort, a, b));
 
+  if (!state.online) return <p className="bad">Offline: {state.error ?? "no answer"}</p>;
+  if (!state.models.length) {
+    return (
+      <div className="empty">
+        <p>No models on {label} yet.</p>
+        <button type="button" className="primary" onClick={onFind}>
+          Find a model to pull
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="tab-stack">
+      {manageable && <p className="callout">{manageable}</p>}
       <div className="filters">
         <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Filter models" aria-label="Filter models" />
         <label className="check">
@@ -29,96 +190,124 @@ export function ModelsPage() {
           Loaded in memory only
         </label>
       </div>
-      {models.isError && <p className="bad">{models.error.message}</p>}
-      {models.isPending && <p className="empty">Asking each backend for its models…</p>}
-      {models.data &&
-        Object.entries(models.data.backends)
-          .filter(([name]) => status.data?.backends[name]?.type !== "anthropic")
-          .map(([name, backend]) => {
-          const visible = backend.models.filter(filter);
-          return (
-            <section key={name} className="section">
-              <div className="section-head">
-                <h2>{name}</h2>
-                <p className={backend.online ? "subtle" : "bad"}>
-                  {backend.online
-                    ? `${backend.url}, Ollama ${backend.version}, ${backend.models.length} models, ${backend.models.filter((model) => model.loaded).length} loaded`
-                    : `Offline: ${backend.error}`}
-                </p>
-              </div>
-              {backend.online && (
-                <div className="table-scroll">
-                  <table className="table">
-                    <thead>
-                      <tr>
-                        <th scope="col">Model</th>
-                        <th scope="col" className="num">Size</th>
-                        <th scope="col">Memory</th>
-                        <th scope="col">Proxy settings</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {visible.map((model) => (
-                        <tr key={model.name}>
-                          <td>
-                            <strong className="mono">{model.name}</strong>
-                            <small>
-                              {[model.family, model.parameter_size, model.quantization].filter(Boolean).join(", ")}
-                            </small>
-                          </td>
-                          <td className="num nowrap">{formatBytes(model.size)}</td>
-                          <td>
-                            {model.loaded ? (
-                              <GpuShare model={model} />
-                            ) : (
-                              <span className="subtle">Not loaded</span>
-                            )}
-                          </td>
-                          <td>
-                            <ProfileSummary profile={model.profile} />
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {!visible.length && <p className="empty">No models match.</p>}
-                </div>
-              )}
-            </section>
-          );
-        })}
-      {models.data && Object.keys(models.data.aliases).length > 0 && (
-        <section className="section">
-          <h2>Aliases</h2>
-          <p className="subtle">Names agents can use in place of an Ollama tag.</p>
-          <table className="table">
-            <thead>
-              <tr>
-                <th scope="col">Alias</th>
-                <th scope="col">Ollama model</th>
-                <th scope="col">Proxy settings</th>
-              </tr>
-            </thead>
-            <tbody>
-              {Object.entries(models.data.aliases).map(([alias, profile]) => (
-                <tr key={alias}>
-                  <td className="mono">{alias}</td>
-                  <td className="mono">{profile.ollama_model}</td>
+      <div className="table-scroll">
+        <table className="table">
+          <thead>
+            <tr>
+              <SortHeader label="Model" col="name" sort={sort} onSort={toggleSort} />
+              <SortHeader label="Size" col="size" sort={sort} onSort={toggleSort} className="num" />
+              <SortHeader label="Memory" col="memory" sort={sort} onSort={toggleSort} />
+              <th scope="col">Server settings</th>
+              <th scope="col">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visible.map((model) => {
+              const profile = profiles.get(model.name);
+              return (
+                <tr key={model.name}>
                   <td>
-                    <ProfileSummary profile={profile} />
+                    <strong className="mono">{model.name}</strong>
+                    <small>{[model.family, model.parameter_size, model.quantization].filter(Boolean).join(", ")}</small>
+                  </td>
+                  <td className="num nowrap">{formatBytes(model.size)}</td>
+                  <td>{model.loaded ? <GpuShare model={model} /> : <span className="subtle nowrap">Not loaded</span>}</td>
+                  <td>{profile ? <ProfileSummary profile={profile} /> : <span className="subtle">Add it as a provider to apply models.yaml</span>}</td>
+                  <td>
+                    <div className="model-actions">
+                      {model.loaded ? (
+                        <button type="button" disabled={working(model.name)} onClick={() => unload.mutate(model.name)}>
+                          Unload
+                        </button>
+                      ) : (
+                        <button type="button" disabled={working(model.name)} onClick={() => load.mutate(model.name)}>
+                          Load
+                        </button>
+                      )}
+                      <button type="button" className="danger" disabled={working(model.name)} onClick={() => setConfirmDelete(model.name)}>
+                        Delete
+                      </button>
+                    </div>
                   </td>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
-      )}
+              );
+            })}
+          </tbody>
+        </table>
+        {!visible.length && <p className="empty">No models match.</p>}
+      </div>
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title="Delete model?"
+        confirmLabel={remove.isPending ? "Deleting…" : "Delete model"}
+        busy={remove.isPending}
+        onConfirm={() => confirmDelete && remove.mutate(confirmDelete)}
+        onCancel={() => setConfirmDelete(null)}
+      >
+        <p>
+          Permanently delete <strong className="mono">{confirmDelete}</strong> from <strong>{label}</strong>? Blobs shared with other
+          models are kept. You can pull it again later.
+        </p>
+      </ConfirmDialog>
     </div>
   );
 }
 
+function AliasesTab({ aliases }: { aliases: [string, Profile][] }) {
+  if (!aliases.length) {
+    return (
+      <p className="empty">
+        No aliases yet. Add one under <code>models:</code> in <code>config/models.yaml</code> to give agents a short name for an Ollama
+        tag and its settings.
+      </p>
+    );
+  }
+  return (
+    <div className="tab-stack">
+      <p className="subtle">
+        Names agents can use in place of an Ollama tag, on every Ollama provider. Edit them under <code>models:</code> in{" "}
+        <code>config/models.yaml</code> on the server.
+      </p>
+      <div className="table-scroll">
+        <table className="table">
+          <thead>
+            <tr>
+              <th scope="col">Alias</th>
+              <th scope="col">Ollama model</th>
+              <th scope="col">Server settings</th>
+            </tr>
+          </thead>
+          <tbody>
+            {aliases.map(([alias, profile]) => (
+              <tr key={alias}>
+                <td className="mono">{alias}</td>
+                <td className="mono">{profile.ollama_model}</td>
+                <td>
+                  <ProfileSummary profile={profile} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function SortHeader({ label, col, sort, onSort, className }: { label: string; col: SortKey; sort: Sort; onSort: (key: SortKey) => void; className?: string }) {
+  const active = sort.key === col;
+  return (
+    <th scope="col" className={className} aria-sort={active ? (sort.dir === 1 ? "ascending" : "descending") : "none"}>
+      <button type="button" className="sort-th" onClick={() => onSort(col)}>
+        {label}
+        <span className="sort-caret" aria-hidden="true">{active ? (sort.dir === 1 ? "▲" : "▼") : ""}</span>
+      </button>
+    </th>
+  );
+}
+
 /** Ollama reports the loaded size and the part of it in VRAM; anything else runs on the CPU. */
-function GpuShare({ model }: { model: OllamaModel }) {
+function GpuShare({ model }: { model: OllamaProviderModel }) {
   const total = model.size_loaded ?? 0;
   const share = total && model.size_vram != null ? Math.round((model.size_vram / total) * 100) : null;
   const spilled = share != null && share < 100;

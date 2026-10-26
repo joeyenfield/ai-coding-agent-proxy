@@ -6,6 +6,7 @@ import { RouteBadge } from "../components/RouteBadge";
 import { endpointPath, formatDuration, formatNumber, formatRelative, shortId } from "../format";
 import { useRequests, useSessions, useStatus } from "../hooks";
 import { ROUTE_ORDER, ROUTES, routeOf, type RouteKind } from "../routes";
+import { PartTag } from "../components/PartTag";
 
 const PAGE_SIZE = 25;
 
@@ -55,6 +56,7 @@ export function RequestsPage() {
   return (
     <div className="page wide">
       <header className="page-head">
+        <PartTag />
         <h1>Request history</h1>
         <p className="lede">
           {formatNumber(records.length)} saved requests across {formatNumber(sessions.data?.length ?? 0)} sessions.

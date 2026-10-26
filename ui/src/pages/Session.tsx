@@ -7,9 +7,13 @@ import { useRequests, useStatus, useToast } from "../hooks";
 import { useLive, useTicker } from "../live";
 import { RouteBadge } from "../components/RouteBadge";
 import { RequestList } from "../components/RequestList";
+import { SessionChat } from "../components/SessionChat";
+import { TabBar, TabPanel, useTabParam } from "../components/Tabs";
 import { groupRepeats, mergeRows } from "../traffic";
 
-/** One session: its live traffic as it streams, then its saved request history. */
+const VIEWS = ["requests", "chat"] as const;
+
+/** One session: its live traffic as it streams and its saved request history, or the same read back as a chat. */
 export function SessionPage() {
   const { sessionId = "" } = useParams();
   const session = useQuery({ queryKey: ["session", sessionId], queryFn: () => api.session(sessionId), refetchInterval: 3000 });
@@ -23,6 +27,7 @@ export function SessionPage() {
   const history = useMemo(() => (requests.data ?? []).filter((record) => record.session_id === sessionId), [requests.data, sessionId]);
   const [modelOnly, setModelOnly] = useState(false);
   const [grouped, setGrouped] = useState(true);
+  const [view, setView] = useTabParam(VIEWS, "view");
   const rows = useMemo(() => {
     const merged = mergeRows(history, [...live.recent, ...live.active]).filter((row) => !modelOnly || row.category === "model");
     return grouped ? groupRepeats(merged) : merged;
@@ -104,32 +109,47 @@ export function SessionPage() {
 
       <section className="section">
         <div className="section-head">
-          <h2>{streaming ? `Requests (${streaming} streaming)` : "Requests"}</h2>
+          <TabBar
+            label="Session views"
+            idPrefix="session-"
+            className="session-views"
+            active={view}
+            onSelect={setView}
+            tabs={[
+              { id: "requests", label: streaming ? `Requests (${streaming} streaming)` : "Requests" },
+              { id: "chat", label: "Chat" },
+            ]}
+          />
           <span className={`connection ${live.connected ? "" : "offline"}`}>
             <span className="dot" aria-hidden="true" />
             {live.connected ? (data.ended_at ? "Session ended" : "Listening for new requests") : "Reconnecting…"}
           </span>
         </div>
-        <div className="filters">
-          <label className="check">
-            <input type="checkbox" checked={modelOnly} onChange={(event) => setModelOnly(event.target.checked)} />
-            Model calls only
-          </label>
-          <label className="check">
-            <input type="checkbox" checked={grouped} onChange={(event) => setGrouped(event.target.checked)} />
-            Group repeats
-          </label>
-          <Link to={`/traffic?session=${encodeURIComponent(sessionId)}`}>Open in Traffic</Link>
-        </div>
-        {rows.length ? (
-          <RequestList key={sessionId} rows={rows} />
-        ) : (
-          <p className="empty">
-            {data.ended_at
-              ? "No requests were recorded in this session."
-              : "Nothing yet. Requests appear here as the agent sends them."}
-          </p>
-        )}
+        <TabPanel idPrefix="session-" id="chat" active={view === "chat"}>
+          <SessionChat session={data} records={history} streaming={live.active} />
+        </TabPanel>
+        <TabPanel idPrefix="session-" id="requests" active={view === "requests"}>
+          <div className="filters">
+            <label className="check">
+              <input type="checkbox" checked={modelOnly} onChange={(event) => setModelOnly(event.target.checked)} />
+              Model calls only
+            </label>
+            <label className="check">
+              <input type="checkbox" checked={grouped} onChange={(event) => setGrouped(event.target.checked)} />
+              Group repeats
+            </label>
+            <Link to={`/traffic?session=${encodeURIComponent(sessionId)}`}>Open in Traffic</Link>
+          </div>
+          {rows.length ? (
+            <RequestList key={sessionId} rows={rows} />
+          ) : (
+            <p className="empty">
+              {data.ended_at
+                ? "No requests were recorded in this session."
+                : "Nothing yet. Requests appear here as the agent sends them."}
+            </p>
+          )}
+        </TabPanel>
       </section>
 
       <details className="section collapsible">

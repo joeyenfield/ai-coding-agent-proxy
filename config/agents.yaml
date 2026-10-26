@@ -1,24 +1,38 @@
 # Coding agents the launcher and dashboard know how to connect to the proxy.
 #
-# Every request an agent makes is routed through a proxy session. Strings in
-# env and args are templates; available placeholders:
+# This file is the agent-server's: launchers (the Go client's `agent`) get the agents
+# from it (GET /api/agents) and the server renders these templates for each session,
+# so a new agent here is available on every agent machine at once; only its
+# executable has to be installed there.
 #
-#   {openai_url}     http://proxy/session/<id>/v1          OpenAI Chat / Responses
-#   {anthropic_url}  http://proxy/session/<id>/anthropic   Anthropic Messages
-#   {ollama_url}     http://proxy/session/<id>             native Ollama (/api/...)
+# Every request an agent makes is routed through a session, to its machine's
+# agent-proxy (http://127.0.0.1:8184), which carries it to the agent-server.
+# Strings in env and args are templates; available placeholders:
+#
+#   {openai_url}     http://127.0.0.1:8184/session/<id>/v1          OpenAI Chat / Responses
+#   {anthropic_url}  http://127.0.0.1:8184/session/<id>/anthropic   Anthropic Messages
+#   {ollama_url}     http://127.0.0.1:8184/session/<id>             native Ollama (/api/...)
 #   {model} {session_id} {proxy_url} {project}
 #   {intercept_url} {ca_cert} {ca_bundle}           only for intercept: true
-#                    ca_bundle is the system roots plus the proxy CA
+#                    ca_bundle is the system roots plus the server's CA
 #
 # An env value written as a YAML mapping or list is rendered and passed as JSON.
 # protocol: openai-chat | openai-responses | anthropic | ollama
 # backend_type: ollama (default) | anthropic - which backends.yaml entries the
 # agent can use; the launcher picks a matching backend when --backend is omitted.
+# ollama agents can also use a strata or docker (Docker Model Runner) backend,
+# e.g. --backend strata, unless their protocol is ollama and the backend is
+# Strata: Strata has no native Ollama API. Docker Model Runner has all four.
+#
+# install is the command that installs the agent: one string for everywhere, or one per
+# environment (linux, macos, windows, wsl; wsl falls back to linux, and default covers the
+# rest). The console's Start an agent page shows it for the environment you pick.
 #
 # intercept: true leaves the agent talking to its own service with its own
-# login, and sends all of its HTTPS through the proxy's intercept listener
-# (HTTPS_PROXY plus a local CA trusted only by the launched process tree).
-# Every request it makes, to any host, is recorded in the session.
+# login, and sends all of its HTTPS to its machine's agent-proxy, which tunnels
+# it to the server (HTTPS_PROXY plus the server's CA, trusted only by the
+# launched process tree). Every request it makes, to any host, is recorded in
+# the session.
 
 agents:
   qwen:
@@ -40,7 +54,11 @@ agents:
     executable: opencode
     protocol: openai-chat
     description: Open-source terminal agent with first-class support for local providers.
-    install: npm install -g opencode-ai
+    install:
+      linux: curl -fsSL https://opencode.ai/install | bash
+      macos: curl -fsSL https://opencode.ai/install | bash
+      # The script installs into WSL rather than Windows when WSL is there; npm doesn't.
+      windows: npm install -g opencode-ai
     homepage: https://opencode.ai
     recommended_for: [qwen, gpt-oss, devstral]
     env:
@@ -80,7 +98,10 @@ agents:
     executable: claude
     protocol: anthropic
     description: Anthropic's agent, translated from the Messages API to Ollama by the proxy.
-    install: npm install -g @anthropic-ai/claude-code
+    install:
+      linux: curl -fsSL https://claude.ai/install.sh | bash
+      macos: curl -fsSL https://claude.ai/install.sh | bash
+      windows: irm https://claude.ai/install.ps1 | iex
     homepage: https://docs.anthropic.com/claude-code
     env:
       ANTHROPIC_BASE_URL: "{anthropic_url}"
@@ -99,7 +120,10 @@ agents:
     executable: claude
     protocol: anthropic
     description: Claude Code using its saved claude.ai login through an Anthropic pass-through backend.
-    install: npm install -g @anthropic-ai/claude-code
+    install:
+      linux: curl -fsSL https://claude.ai/install.sh | bash
+      macos: curl -fsSL https://claude.ai/install.sh | bash
+      windows: irm https://claude.ai/install.ps1 | iex
     homepage: https://code.claude.com/docs/en/llm-gateway
     backend_type: anthropic
     env:
@@ -113,7 +137,10 @@ agents:
     protocol: anthropic
     intercept: true
     description: Claude Code signed in to your Claude account. All of its HTTPS traffic - messages, token counts, OAuth refresh, telemetry, MCP and web fetches - is recorded.
-    install: npm install -g @anthropic-ai/claude-code
+    install:
+      linux: curl -fsSL https://claude.ai/install.sh | bash
+      macos: curl -fsSL https://claude.ai/install.sh | bash
+      windows: irm https://claude.ai/install.ps1 | iex
     homepage: https://code.claude.com/docs/en/network-config
     notes: Sign in with claude first. Unset ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN and ANTHROPIC_BASE_URL, and remove any apiKeyHelper, so the account login is used. Pass a model with -- --model sonnet.
 
@@ -171,7 +198,11 @@ agents:
     executable: goose
     protocol: ollama
     description: Block's extensible open-source agent.
-    install: See https://block.github.io/goose/docs/getting-started/installation
+    install:
+      linux: curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | bash
+      macos: curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | bash
+      # In Git Bash (it needs bash, curl and unzip).
+      windows: curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | bash
     homepage: https://block.github.io/goose
     env:
       GOOSE_PROVIDER: ollama

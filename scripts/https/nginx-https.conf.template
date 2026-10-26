@@ -1,0 +1,37 @@
+    # Anything that doesn't ask for {{HOST}} (scanners trying the address) gets no TLS at all.
+    server {
+{{HTTPS_LISTEN_DEFAULT}}
+        ssl_reject_handshake  on;
+    }
+
+    server {
+{{HTTPS_LISTEN}}
+        http2        on;
+        server_name  {{HOST}};
+
+        ssl_certificate      "{{CERT}}";
+        ssl_certificate_key  "{{KEY}}";
+        ssl_protocols        TLSv1.2 TLSv1.3;
+        ssl_session_cache    shared:SSL:10m;
+        ssl_session_timeout  1d;
+        add_header Strict-Transport-Security "max-age=31536000" always;
+
+        # Traces and pulls can be large; agent-server sets its own limits.
+        client_max_body_size  0;
+
+        location / {
+            proxy_pass          {{BACKEND}};
+            proxy_http_version  1.1;
+            proxy_set_header    Host               $http_host;
+            proxy_set_header    X-Forwarded-For    $remote_addr;
+            proxy_set_header    X-Forwarded-Proto  https;
+            proxy_set_header    X-Real-IP          $remote_addr;
+            proxy_set_header    Upgrade            $http_upgrade;
+            proxy_set_header    Connection         $connection_upgrade;
+            # Live text, pulls and terminals stream: no buffering, and room for long waits.
+            proxy_buffering          off;
+            proxy_request_buffering  off;
+            proxy_read_timeout       1h;
+            proxy_send_timeout       1h;
+        }
+    }

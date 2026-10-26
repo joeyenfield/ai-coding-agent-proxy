@@ -5,6 +5,7 @@ import { endpointPath, formatDuration, formatNumber, formatRelative, shortId } f
 import { LiveDetails } from "../components/LiveDetails";
 import { RouteBadge } from "../components/RouteBadge";
 import { liveRate, phaseOf, useLive, useTicker, type LiveRequest, type Phase } from "../live";
+import { PartTag } from "../components/PartTag";
 
 const PHASE_LABELS: Record<Phase, string> = {
   waiting: "Waiting for first token",
@@ -24,6 +25,7 @@ export function LivePage() {
   return (
     <div className="page wide">
       <header className="page-head">
+        <PartTag />
         <h1>
           {live.active.length
             ? `Watching ${live.active.length} ${live.active.length === 1 ? "request" : "requests"}`

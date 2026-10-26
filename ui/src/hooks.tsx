@@ -21,6 +21,22 @@ export function useModels() {
   return useQuery({ queryKey: ["models"], queryFn: api.models, refetchInterval: 15000 });
 }
 
+/** The fleet: machines signed in to this server, which run its LLM providers. */
+export function useMachines() {
+  return useQuery({ queryKey: ["machines"], queryFn: api.machines, refetchInterval: 5000 });
+}
+
+/** One machine of the fleet, from the shared machines poll; undefined until it loads, or when it isn't visible. */
+export function useMachine(id: string | undefined) {
+  const machines = useMachines();
+  return id ? machines.data?.machines.find((machine) => machine.id === id) : undefined;
+}
+
+/** Whether the proxy has accounts, and who is signed in. */
+export function useAuth() {
+  return useQuery({ queryKey: ["auth"], queryFn: api.authStatus, staleTime: 60000 });
+}
+
 export function useAgents() {
   return useQuery({ queryKey: ["agents"], queryFn: api.agents, staleTime: 30000 });
 }
