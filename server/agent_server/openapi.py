@@ -20,7 +20,7 @@ from fastapi.routing import APIRoute
 
 # The tag for each route module, in the order Swagger UI shows them.
 TAGS = [
-    ("Accounts", "agent_server.routes.auth", "Sign-in, launcher tokens, password; the organization's teams and users (`/api/org`)."),
+    ("Accounts", "agent_server.routes.auth", "Sign-in, launcher tokens, password; organizations, their teams, and users (`/api/orgs`, `/api/users`)."),
     ("Agents and sessions", "agent_server.routes.management", "Agents, sessions, requests, traces, live traffic, the models agents can use, configuration and the server itself."),
     ("Machines", "agent_server.routes.machines", "The fleet: machines, launches on them, and their LLM providers: adopting model servers, their models, status, logs and load, Ollama's settings, starting and stopping Ollama and Strata, and model catalogue search. The server asks the machine for all of it."),
     ("Containers", "agent_server.routes.containers", "Strata and Ollama containers that machines run for the server."),

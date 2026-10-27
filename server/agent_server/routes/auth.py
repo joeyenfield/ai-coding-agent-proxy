@@ -1,4 +1,4 @@
-"""Signing in to the proxy: the console's sign-in, and tokens for launchers on other machines."""
+"""Signing in to the proxy: the console's sign-in, tokens for launchers on other machines, and the organizations and users."""
 
 from __future__ import annotations
 
@@ -107,75 +107,87 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             raise HTTPException(status_code=400, detail=str(exc) if isinstance(exc, ValueError) else "Only stored accounts can change their password here.") from exc
         return {"changed": True}
 
-    # The organization: everyone signed in can see it; only admins change it (the middleware checks).
+    # Organizations and users: everyone signed in sees their own organizations and the people in them,
+    # admins see and change everything (the middleware checks ADMIN_ONLY). Changes answer with the whole directory.
 
-    def org_or_400() -> None:
+    def accounts_or_400() -> None:
         if not accounts.enabled:
-            raise HTTPException(status_code=400, detail="This proxy has no accounts, so no organization yet.")
+            raise HTTPException(status_code=400, detail="This proxy has no accounts, so no organizations yet.")
 
-    @app.get("/api/org")
-    async def org() -> dict[str, Any]:
-        org_or_400()
-        return accounts.store.org()
+    def directory(request: Request) -> dict[str, Any]:
+        viewer = auth.request_identity(request)
+        return {"orgs": accounts.store.orgs(viewer), "users": accounts.store.user_list(viewer)}
 
-    @app.put("/api/org")
-    async def rename(request: Request) -> dict[str, Any]:
-        org_or_400()
-        accounts.store.rename_org(str((await request.json()).get("name") or ""))
-        return accounts.store.org()
-
-    @app.post("/api/org/teams", status_code=201)
-    async def add_team(request: Request) -> dict[str, Any]:
-        org_or_400()
-        data = await request.json()
+    def change(request: Request, action: Any, missing: str) -> dict[str, Any]:
+        accounts_or_400()
         try:
-            accounts.store.add_team(str(data.get("id") or ""), data.get("name"))
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return accounts.store.org()
-
-    @app.delete("/api/org/teams/{team}")
-    async def remove_team(team: str) -> dict[str, Any]:
-        org_or_400()
-        try:
-            accounts.store.remove_team(team)
+            action()
         except KeyError as exc:
-            raise HTTPException(status_code=404, detail="No such team") from exc
-        return accounts.store.org()
-
-    @app.post("/api/org/users", status_code=201)
-    async def add_user(request: Request) -> dict[str, Any]:
-        org_or_400()
-        data = await request.json()
-        try:
-            accounts.store.add_user(str(data.get("name") or ""), str(data.get("password") or ""), data.get("role") or "member", list(data.get("teams") or []))
+            raise HTTPException(status_code=404, detail=missing) from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return accounts.store.org()
+        return directory(request)
 
-    @app.put("/api/org/users/{name}")
-    async def update_user(name: str, request: Request) -> dict[str, Any]:
-        org_or_400()
+    @app.get("/api/orgs")
+    async def orgs(request: Request) -> dict[str, Any]:
+        accounts_or_400()
+        return {"orgs": accounts.store.orgs(auth.request_identity(request))}
+
+    @app.post("/api/orgs", status_code=201)
+    async def add_org(request: Request) -> dict[str, Any]:
         data = await request.json()
-        try:
-            accounts.store.update_user(name, role=data.get("role"), teams=data.get("teams"))
+        return change(request, lambda: accounts.store.add_org(str(data.get("id") or ""), data.get("name")), "")
+
+    @app.put("/api/orgs/{org}")
+    async def rename_org(org: str, request: Request) -> dict[str, Any]:
+        data = await request.json()
+        return change(request, lambda: accounts.store.rename_org(org, str(data.get("name") or "")), "No such organization")
+
+    @app.delete("/api/orgs/{org}")
+    async def remove_org(org: str, request: Request) -> dict[str, Any]:
+        return change(request, lambda: accounts.store.remove_org(org), "No such organization")
+
+    @app.post("/api/orgs/{org}/teams", status_code=201)
+    async def add_team(org: str, request: Request) -> dict[str, Any]:
+        data = await request.json()
+        return change(request, lambda: accounts.store.add_team(org, str(data.get("id") or ""), data.get("name")), "No such organization")
+
+    @app.delete("/api/orgs/{org}/teams/{team}")
+    async def remove_team(org: str, team: str, request: Request) -> dict[str, Any]:
+        return change(request, lambda: accounts.store.remove_team(org, team), "No such team")
+
+    @app.get("/api/users")
+    async def users(request: Request) -> dict[str, Any]:
+        accounts_or_400()
+        return {"users": accounts.store.user_list(auth.request_identity(request))}
+
+    @app.post("/api/users", status_code=201)
+    async def add_user(request: Request) -> dict[str, Any]:
+        data = await request.json()
+        return change(request, lambda: accounts.store.add_user(
+            str(data.get("name") or ""), str(data.get("password") or ""), data.get("role") or "member",
+            list(data.get("teams") or []), list(data.get("orgs") or []),
+        ), "")
+
+    @app.put("/api/users/{name}")
+    async def update_user(name: str, request: Request) -> dict[str, Any]:
+        data = await request.json()
+
+        def update() -> None:
+            accounts.store.update_user(name, role=data.get("role"), teams=data.get("teams"), orgs=data.get("orgs"))
             if data.get("password"):
                 accounts.store.set_password(name, str(data["password"]))
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail="No such user") from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return accounts.store.org()
 
-    @app.delete("/api/org/users/{name}")
+        return change(request, update, "No such user")
+
+    @app.delete("/api/users/{name}")
     async def remove_user(name: str, request: Request) -> dict[str, Any]:
-        org_or_400()
         identity = auth.request_identity(request)
         if identity and identity.user == name:
             raise HTTPException(status_code=400, detail="You can't remove your own account.")
-        try:
+
+        def remove() -> None:
             if not accounts.store.remove_user(name):
-                raise HTTPException(status_code=404, detail="No such user")
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return accounts.store.org()
+                raise KeyError(name)
+
+        return change(request, remove, "No such user")

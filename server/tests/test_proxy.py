@@ -109,6 +109,12 @@ def test_agents_and_models_endpoints(tmp_path):
         assert body["session"]["client"] == "qwen"
         assert body["env"]["OPENAI_BASE_URL"].endswith(f"/session/{body['session']['session_id']}/v1")
         assert "$env:OPENAI_MODEL = 'qwen3.6:35b'" in body["shell"]["powershell"]
+        # Only a launcher, which writes files, gets Qwen Code's settings with the real context size (num_ctx).
+        assert "QWEN_CODE_SYSTEM_SETTINGS_PATH" not in body["env"] and body["files"] == {}
+        app.state.runtime.settings.model_defaults = {"options": {"num_ctx": 65536}}
+        launched = client.post("/api/agents/qwen/sessions", json={"model": "qwen3.6:35b", "backend": "test", "files_dir": "/home/me/.cache/s"}).json()
+        assert launched["env"]["QWEN_CODE_SYSTEM_SETTINGS_PATH"] == "/home/me/.cache/s/qwen-settings.json"
+        assert json.loads(launched["files"]["qwen-settings.json"]) == {"model": {"generationConfig": {"contextWindowSize": 65536}}}
         assert client.post("/api/agents/missing/sessions", json={"model": "m"}).status_code == 404
         # A backend no machine runs isn't asked: the server doesn't manage model servers itself.
         models = client.get("/api/models").json()["backends"]["test"]

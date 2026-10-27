@@ -143,11 +143,14 @@ def upstream(seen: list[httpx.Request]):
     return handler
 
 
-# An agent for the launcher to run: it saves its arguments and the proxy's variables, and
-# exits 3. Its executable is this Python, so it's found the same way on every platform.
+# An agent for the launcher to run: it saves its arguments, the proxy's variables and the
+# settings file the launcher wrote for it, and exits 3. Its executable is this Python, so
+# it's found the same way on every platform.
 FAKE_AGENT = (
-    "import json, os, sys; json.dump({'argv': sys.argv[1:], 'cwd': os.getcwd(), 'env': {k: v for k, v in os.environ.items() "
-    "if k.startswith(('OPENAI_', 'AI_PROXY_', 'FAKE_'))}}, open('agent-ran.json', 'w')); sys.exit(3)"
+    "import json, os, sys; settings = os.environ.get('FAKE_SETTINGS'); "
+    "json.dump({'argv': sys.argv[1:], 'cwd': os.getcwd(), 'env': {k: v for k, v in os.environ.items() "
+    "if k.startswith(('OPENAI_', 'AI_PROXY_', 'FAKE_'))}, 'settings': json.load(open(settings)) if settings else None}, "
+    "open('agent-ran.json', 'w')); sys.exit(3)"
 )
 
 
@@ -158,7 +161,8 @@ def agents_file(tmp_path: Path) -> Path:
     path.write_text(yaml.safe_dump({"agents": {
         "fake": {
             "name": "Fake agent", "executable": sys.executable, "protocol": "openai-chat",
-            "env": {"OPENAI_BASE_URL": "{openai_url}", "FAKE_MODEL": "{model}", "FAKE_PROJECT": "{project}"},
+            "env": {"OPENAI_BASE_URL": "{openai_url}", "FAKE_MODEL": "{model}", "FAKE_PROJECT": "{project}", "FAKE_SETTINGS": "{files_dir}/settings.json"},
+            "files": {"settings.json": {"model": "{model}", "context": "{context_window}"}},
             "args": ["-c", FAKE_AGENT, "{model}"],
         },
         "claude-account": {"name": "Claude (account)", "executable": "claude", "protocol": "anthropic", "intercept": True},
@@ -310,6 +314,9 @@ def test_the_launcher_runs_the_servers_agent_with_the_rendered_environment(tmp_p
         assert saved["env"]["OPENAI_BASE_URL"] == f"{m.proxy}/session/{session.session_id}/v1"
         assert saved["env"]["AI_PROXY_SESSION"] == session.session_id
         assert Path(saved["env"]["FAKE_PROJECT"]).resolve() == project.resolve()
+        # The launcher wrote the agent's settings file where the server pointed it, and removed it after.
+        assert saved["settings"]["model"] == "qwen3.6:35b"
+        assert not Path(saved["env"]["FAKE_SETTINGS"]).parent.exists()
         assert session.trace is True and session.backend == "test" and session.project == "my-project"
         assert session.tags["prepared_by"] == "agent" and Path(session.tags["project_path"]).resolve() == project.resolve()
         assert session.ended_at is not None and session.exit_status == 3

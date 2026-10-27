@@ -315,11 +315,7 @@ function StatusCard({
         </div>
       )}
       {status.service === "systemd" && !status.service_allowed && <ServiceSetup machine={machine.name} />}
-      {status.running && !status.managed && status.service !== "systemd" && (
-        <div className="callout">
-          <p>This Ollama was started outside agent-machine (its tray app), so stop or restart it there.</p>
-        </div>
-      )}
+      {status.running && !status.managed && status.service !== "systemd" && <OutsideOllama machine={machine} />}
       {status.running && appliedMatchesSaved === false && (
         <div className="callout">
           <p className="warn">The running server was started with different settings. Restart to apply the saved configuration.</p>
@@ -547,6 +543,38 @@ function ollamaTone(line: string): LogTone {
 const OLLAMA_LOG_VIEWS = [ALL_LINES, quietView("Hide HTTP requests"), PROBLEMS];
 
 /** Ollama there is a systemd service: one command on the machine lets agent-machine restart it with these settings. */
+/** How to quit an Ollama agent-machine didn't start (usually its tray app), so Start here runs one it manages. */
+function OutsideOllama({ machine }: { machine: FleetMachine }) {
+  const copy = useClipboard();
+  const command =
+    machine.os === "windows"
+      ? 'Stop-Process -Name "ollama app", ollama -Force -ErrorAction SilentlyContinue'
+      : machine.os === "darwin"
+        ? "osascript -e 'quit app \"Ollama\"'"
+        : "pkill -x ollama";
+  const shell = machine.os === "windows" ? "PowerShell" : "a terminal";
+  return (
+    <div className="callout">
+      <p>
+        Ollama's own app started this Ollama, so it can't be stopped or restarted from here, and these settings don't apply to it. To
+        hand it over, quit it by running this in {shell} on {machine.name}, then press Start here:
+      </p>
+      <CodeLine text={command} onCopy={() => copy(command, "Command copied")} />
+      <p className="subtle">
+        {machine.os === "windows" ? (
+          <>
+            The app starts again when you next sign in to Windows. To stop that, turn Ollama off in Settings › Apps › Startup.
+          </>
+        ) : machine.os === "darwin" ? (
+          <>The app starts again when you next sign in. To stop that, remove Ollama from System Settings › General › Login Items.</>
+        ) : (
+          <>If something starts it again when you sign in, turn that off too.</>
+        )}
+      </p>
+    </div>
+  );
+}
+
 function ServiceSetup({ machine }: { machine: string }) {
   const copy = useClipboard();
   const command = "sudo ~/.local/bin/agent-machine servers service";

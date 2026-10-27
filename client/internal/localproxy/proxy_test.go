@@ -98,7 +98,7 @@ func TestLauncherCallsAreSignedAndLimitedToTheShortList(t *testing.T) {
 	}
 	// Anything off the list never reaches the server, signed or not.
 	count := len(server.seen)
-	for _, path := range []string{"/api/org/users", "/api/config/../org", "/api/containers", "/api/sessions/s1/traces"} {
+	for _, path := range []string{"/api/users", "/api/config/../orgs", "/api/containers", "/api/sessions/s1/traces"} {
 		if response, _ := do(t, "POST", front.URL+path, nil, "{}"); response.StatusCode != http.StatusNotFound {
 			t.Fatalf("POST %s: %d", path, response.StatusCode)
 		}

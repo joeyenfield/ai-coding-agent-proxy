@@ -1,14 +1,20 @@
 """Coding-agent definitions loaded from config/agents.yaml.
 
 Each agent describes how to point a CLI at a proxy session: environment
-variables, command-line arguments and the API protocol it speaks. Values are
-templates rendered with the session's endpoints, so supporting another agent
-only requires a new YAML entry.
+variables, command-line arguments, settings files and the API protocol it speaks.
+Values are templates rendered with the session's endpoints, so supporting another
+agent only requires a new YAML entry.
+
+A template whose placeholder has no value for a session (no {context_window} when
+the model's context size isn't known, no {files_dir} when the console rather than
+a launcher asks) is left out: the env variable, file, mapping key or list item goes,
+so the agent falls back to its own default rather than getting an empty value.
 """
 
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -18,6 +24,10 @@ import yaml
 
 
 PROTOCOLS = {"openai-chat", "openai-responses", "anthropic", "ollama"}
+FILE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+PLACEHOLDER = re.compile(r"\{([a-z_]+)\}")
+# A template that names a placeholder without a value for this session renders to this, and is left out.
+_MISSING = object()
 
 
 @dataclass
@@ -28,6 +38,8 @@ class AgentDefinition:
     protocol: str
     env: dict[str, Any] = field(default_factory=dict)
     args: list[str] = field(default_factory=list)
+    # Settings files the launcher writes for the session, in {files_dir}: name to template (a mapping is written as JSON).
+    files: dict[str, Any] = field(default_factory=dict)
     install: str | None = None
     # The install command for each environment (ENVIRONMENTS); install is the one for any other.
     installs: dict[str, str] = field(default_factory=dict)
@@ -76,14 +88,21 @@ class AgentDefinition:
         model: str,
         project: str = ".",
         intercept: dict[str, Any] | None = None,
+        files_dir: str | None = None,
+        context_window: int | None = None,
     ) -> dict[str, Any]:
-        """Return the environment and command used to launch this agent for a session.
+        """Return the environment, command and files used to launch this agent for a session.
 
         intercept holds the intercept proxy's url, ca_path and bundle_path; it is
-        required for agents with intercept: true.
+        required for agents with intercept: true. files_dir is the folder the launcher
+        writes the files to, and context_window the model's context size on the
+        session's backend, when known.
         """
-        variables = endpoints(proxy_url, session_id)
-        variables.update({"model": model or "", "project": project, "session_id": session_id, "proxy_url": proxy_url})
+        variables: dict[str, Any] = endpoints(proxy_url, session_id)
+        variables.update({
+            "model": model or "", "project": project, "session_id": session_id, "proxy_url": proxy_url,
+            "files_dir": files_dir, "context_window": context_window,
+        })
         env = {"AI_PROXY_SESSION": session_id}
         if self.intercept:
             if not intercept or not intercept.get("url") or not intercept.get("ca_path"):
@@ -95,8 +114,15 @@ class AgentDefinition:
             })
         for key, value in self.env.items():
             rendered = _render(value, variables)
-            env[key] = rendered if isinstance(rendered, str) else json.dumps(rendered, separators=(",", ":"))
-        return {"env": env, "command": [self.executable, *(_render(arg, variables) for arg in self.args)]}
+            if rendered is not _MISSING:
+                env[key] = rendered if isinstance(rendered, str) else json.dumps(rendered, separators=(",", ":"))
+        files = {}
+        for name, value in self.files.items() if files_dir else ():
+            rendered = _render(value, variables)
+            if rendered is not _MISSING:
+                files[name] = rendered if isinstance(rendered, str) else json.dumps(rendered, indent=2)
+        args = [arg for arg in (_render(arg, variables) for arg in self.args) if arg is not _MISSING]
+        return {"env": env, "command": [self.executable, *map(str, args)], "files": files}
 
 
 def intercept_env(intercept: dict[str, Any], session_id: str) -> dict[str, str]:
@@ -162,6 +188,7 @@ def load_agents(path: Path) -> dict[str, AgentDefinition]:
             protocol=protocol,
             env=dict(value.get("env") or {}),
             args=[str(arg) for arg in value.get("args") or []],
+            files=_files(agent_id, value.get("files")),
             **_install(value.get("install")),
             homepage=value.get("homepage"),
             description=value.get("description"),
@@ -173,13 +200,31 @@ def load_agents(path: Path) -> dict[str, AgentDefinition]:
     return agents
 
 
-def _render(value: Any, variables: dict[str, str]) -> Any:
+def _files(agent_id: Any, value: Any) -> dict[str, Any]:
+    files = dict(value or {})
+    for name in files:
+        # Plain names only: the launcher writes them inside its own folder for the session.
+        if not FILE_NAME.fullmatch(str(name)):
+            raise ValueError(f"Agent '{agent_id}' has a file named '{name}': use letters, numbers, '.', '_' and '-'")
+    return {str(name): content for name, content in files.items()}
+
+
+def _render(value: Any, variables: dict[str, Any]) -> Any:
+    """A template with the session's values: a string exactly one placeholder keeps the value's type (a number stays one)."""
     if isinstance(value, str):
+        whole = PLACEHOLDER.fullmatch(value)
+        if whole and whole.group(1) in variables:
+            replacement = variables[whole.group(1)]
+            return _MISSING if replacement is None else replacement
         for key, replacement in variables.items():
-            value = value.replace("{" + key + "}", replacement)
+            if "{" + key + "}" in value:
+                if replacement is None:
+                    return _MISSING
+                value = value.replace("{" + key + "}", str(replacement))
         return value
     if isinstance(value, dict):
-        return {_render(str(key), variables): _render(item, variables) for key, item in value.items()}
+        rendered = {_render(str(key), variables): _render(item, variables) for key, item in value.items()}
+        return {key: item for key, item in rendered.items() if key is not _MISSING and item is not _MISSING}
     if isinstance(value, list):
-        return [_render(item, variables) for item in value]
+        return [item for item in (_render(item, variables) for item in value) if item is not _MISSING]
     return value

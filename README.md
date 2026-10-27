@@ -98,7 +98,7 @@ docker compose logs agent-server          # the first admin's password, on the f
 
 Or without compose: `docker build -f server/Dockerfile -t agent-server .` from the repository root (the build needs `ui/` as well as `server/`).
 
-- **Signing in.** The server listens beyond loopback in the container, so on its first start it creates the user `admin` with a random password. The log shows it, and it's saved as `first-user-password` in the certs volume. Sign in, change it under **Settings → Organization**, and sign each agent machine in with `agent login http://<this host>:9999`.
+- **Signing in.** The server listens beyond loopback in the container, so on its first start it creates the user `admin` with a random password. The log shows it, and it's saved as `first-user-password` in the certs volume. Sign in, change it under **Server → Organizations**, and sign each agent machine in with `agent login http://<this host>:9999`.
 - **Volumes.** `config` holds `backends.yaml`, `models.yaml` and `agents.yaml`, filled with the image's defaults on the first start and never overwritten after that. `logs` holds sessions, traces and terminals. `certs` holds the HTTPS capture's CA, users and keys. Keep `certs` private.
 - **Reaching your providers.** Inside the container `127.0.0.1` is the container itself. The default `backends.yaml` reaches Ollama on the Docker host as `http://host.docker.internal:11434`, which compose maps on Linux too. Ollama must then listen beyond loopback (`OLLAMA_HOST=0.0.0.0`). Name other machines by their LAN address. To keep the config in this checkout instead, mount `./config:/app/config` (see `compose.yaml`).
 - **Set `proxy.url`** in the config volume's `backends.yaml` (or from **Settings**) to the address agent machines use, so `agent login` hints and pairing links point there.
@@ -361,7 +361,7 @@ Start an agent with `--control` (`agent claude-account . --control`) and the lau
 - answer a permission prompt or send the next instruction.
 
 1. In **Settings**, set the listen host to `0.0.0.0` and restart the server, so your phone can reach it. On the first start that listens on the network, the server creates an `admin` user. It prints the password and saves it in `certs/first-user-password`. From then on everyone signs in.
-2. On your phone, open the console and sign in as `admin`. Change the password on **Settings → Organization**, then delete that file.
+2. On your phone, open the console and sign in as `admin`. Change the password on **Server → Organizations**, then delete that file.
 3. Open **Running agents**. Add it to the home screen to get back quickly. Sign each agent machine in once with `agent login <server>`, including this one (`agent login http://127.0.0.1:9999`).
 
 Rather not sign in on your own network? Run `agent-server user remove admin`; it isn't created again. Pair the phone instead. On this computer, open **Agents → Running agents**, then **Use it from your phone → Show the pairing code**, and scan it with your phone's camera. Can't scan it? **Get a short code** instead, and type it into **Pair this device** on the phone. A short code works once, for 10 minutes, and five wrong tries cancel it.
@@ -396,9 +396,9 @@ Run `agent-server` on one machine, the server, and start agents on your own lapt
 **On the server:**
 
 ```bash
-agent-server user add joey --team core      # the first user is an admin; it asks for a password
-agent-server user add sam --team core
-agent-server org rename "Empty Pockets"
+agent-server org add pockets --name "Empty Pockets"
+agent-server user add joey --org pockets --team core   # the first user is an admin; it asks for a password
+agent-server user add sam --team pockets/core          # joining a team joins its organization
 ```
 
 Once a user exists, everyone signs in: the console shows a sign-in page and the API needs an account. If you skip `user add`, the first start that listens on the network creates an `admin` user with a random password (printed, and saved in `certs/first-user-password`). Set the listen host to `0.0.0.0` (**Settings**, or `proxy.listen_host`) so laptops can reach it. That port is all the server needs: account agents' HTTPS arrives tunnelled over it, and only for agents in an open session.
@@ -411,7 +411,7 @@ agent claude-account . --share team --control   # runs here; recorded, shared an
 agent logout
 ```
 
-After `agent login`, this machine's `agent-proxy` sends everything to that server, unless `AI_PROXY_URL` says otherwise. Signing in or out takes effect straight away, with no restart. The server picks each agent's backend (unless you name one with `--backend`) and tells the launcher how to start it, and with `--control` the launcher shares the agent's terminal with the server. Open the server's console from anywhere to watch the agent or type into it. Each machine's token appears as `agent-proxy on <host>` under **Settings → Organization**.
+After `agent login`, this machine's `agent-proxy` sends everything to that server, unless `AI_PROXY_URL` says otherwise. Signing in or out takes effect straight away, with no restart. The server picks each agent's backend (unless you name one with `--backend`) and tells the launcher how to start it, and with `--control` the launcher shares the agent's terminal with the server. Open the server's console from anywhere to watch the agent or type into it. Each machine's token appears as `agent-proxy on <host>` under **Server → Organizations**.
 
 ## A fleet of machines
 
@@ -474,17 +474,17 @@ Podman takes the same commands with `podman` in place of `docker`. **Machines �
 - **Git over SSH.** Put a key in a folder and mount it at `/ssh`. It's copied rather than used in place, because a mount from Windows or macOS usually has permissions ssh refuses. Without a `config` of your own, a host's key is trusted the first time it's seen, so a clone doesn't stop at a question nobody can answer. Agents in the sandbox can read the key, so use a deploy key or one made for the sandbox, not your own. The copy stays in the `/home/agent` volume.
 - **Account agents.** Their sign-ins (Claude, Copilot, ChatGPT) also live in `/home/agent`: sign in once from the agent's terminal in the console.
 
-**Organization, teams and sharing:**
+**Organizations, teams and sharing:**
 
-- **The organization.** The server is one organization. Admins add users and teams on **Settings → Organization**, or with `agent-server user|team|org`.
-- **Roles.** Users are members or admins. Admins manage the server: settings, adding containers, pulling and deleting models, the Ollama server, users and teams. Members use it: they start agents, start or switch containers, and load models.
+- **Organizations and users.** Users are the people who sign in. A user can belong to several organizations, and to teams inside them (named `<organization>/<team>`). Admins create, search and delete organizations, and add users to them, on **Server → Organizations**, or with `agent-server org|team|user`. Members see their own organizations and the people in them.
+- **Roles.** Users are members or admins, across the whole server. Admins manage the server: settings, adding containers, pulling and deleting models, the Ollama server, organizations and users. Members use it: they start agents, start or switch containers, and load models.
 - **Sessions.** Every session belongs to whoever started it, and is private until they share it:
 
   | Visibility | Who sees it |
   |---|---|
   | `private` (default) | Only you. Admins can't either. |
-  | `team` | The members of one of your teams (`--team core` if you're in several) |
-  | `org` | Everyone in the organization |
+  | `team` | The members of one of your teams (`--team pockets/core` if you're in several) |
+  | `org` | Everyone in one of your organizations (`--share org --team pockets` if you're in several) |
 
   Shared sessions are watch-only unless you let others type (`--let-others-type`, or the checkbox on the session). Then they can type into its terminal and end it.
 - **Changing it later.** Change the sharing on the session's row or its terminal page. People who lose access stop seeing it straight away.
@@ -509,7 +509,7 @@ powershell -ExecutionPolicy Bypass -File scripts\https\setup-https.ps1 -HostName
 
 On Linux, the same configuration works with the distribution's nginx: the templates are `scripts/https/nginx.conf.template` and `nginx-https.conf.template`. Get the certificate with `certbot certonly --webroot -w <acme folder> -d <name>`.
 
-**Storage.** Users, teams and sign-ins live in `certs/users.json`, which holds only hashes of passwords and tokens. Each session's owner and sharing are stored in its tags.
+**Storage.** Users, organizations, teams and sign-ins live in `certs/users.json`, which holds only hashes of passwords and tokens. Each session's owner and sharing are stored in its tags.
 
 ## Supported agents
 
@@ -527,7 +527,7 @@ On Linux, the same configuration works with the distribution's nginx: the templa
 | Goose | `agent goose` | Local models | Native Ollama | see the Goose docs |
 | Claude Code (Anthropic API pass-through) | `agent claude-subscription` | Hosted API | Anthropic Messages, passed through | `npm i -g @anthropic-ai/claude-code` |
 
-Agents are defined in [`config/agents.yaml`](config/agents.yaml) as environment variables and arguments with placeholders such as `{openai_url}`, `{anthropic_url}` and `{model}`; adding an agent needs no code changes. Set `intercept: true` for an agent that should keep its own login and be captured in transit (`--model` then becomes optional), or `backend_type: anthropic` for one that needs a hosted backend. The **Start an agent** page shows each agent's install state, builds its launch command, and can open a session and print the environment for running the agent by hand in bash or PowerShell.
+Agents are defined in [`config/agents.yaml`](config/agents.yaml) as environment variables and arguments with placeholders such as `{openai_url}`, `{anthropic_url}` and `{model}`; adding an agent needs no code changes. An agent can also have `files`, settings files the launcher writes for the session into `{files_dir}` and removes afterwards. `{context_window}` is the model's real context size on the session's backend: `num_ctx` from `models.yaml` for Ollama, or what Strata or Docker Model Runner reports. Qwen Code gets it this way, through `QWEN_CODE_SYSTEM_SETTINGS_PATH`, because it otherwise guesses from the model's name and takes any `qwen3.x` for a 1M context. Set `intercept: true` for an agent that should keep its own login and be captured in transit (`--model` then becomes optional), or `backend_type: anthropic` for one that needs a hosted backend. The **Start an agent** page shows each agent's install state, builds its launch command, and can open a session and print the environment for running the agent by hand in bash or PowerShell.
 
 ## What the requests are
 
@@ -592,7 +592,7 @@ The console is served by the server at `http://127.0.0.1:9999`. It has three num
 | | **Requests** | Model-call history with search and filters, and an inspector. |
 | | **Sessions** | One row per agent run; expand for its requests and settings, or open it on its own page. |
 | | **Server settings** | Listen address, the default provider; remove providers and add hosted APIs. |
-| | **Organization** | With accounts: your account and launcher tokens, the teams, and (for admins) users and their roles and teams. |
+| | **Organizations** | With accounts: your account and launcher tokens; the organizations (search them; admins create and delete them, and manage their members and teams); and the users, with their roles, organizations and teams. |
 | | **Downloads** | The client, agent-machine, their packages and the Android app built for this server, with install commands. Public: it works before signing in, and `/android` is the app. |
 | 3 Machines | **All machines** | Machines signed in to the server, with their model servers and whether they need an update, and the steps to add one. Each machine is also in the rail. |
 | | **A machine: Overview** | The agents running on it, launched from the console or started there by hand, to open and answer. Its model servers (add one as a provider), the Ollama and Strata installed there to start and stop, its agents and launches, and starting an agent on it. |
@@ -770,10 +770,12 @@ Accounts (see [A shared server for your team](#a-shared-server-for-your-team)):
 | `POST /api/auth/login`, `/logout`, `/password` | Sign a browser in (cookie) or out; change your password |
 | `POST /api/auth/token` | A username and password in, a machine token out (`agent login`) |
 | `GET`/`POST /api/auth/tokens`, `DELETE /api/auth/tokens/{id}` | Your launcher tokens |
-| `GET /api/org`, `PUT /api/org` | The organization's name, teams and users; rename it (admins) |
-| `POST /api/org/teams`, `DELETE /api/org/teams/{id}` | Add or remove a team (admins) |
-| `POST /api/org/users`, `PUT`/`DELETE /api/org/users/{name}` | Add a user, change their role, teams or password, remove them (admins) |
-| `PATCH /api/sessions/{id}` with `visibility`, `team`, `access` | Share a session you started: `private`, `team` or `org`, watch-only (`view`) or `control` |
+| `GET /api/orgs` | Organizations, with their members and teams (members see only their own) |
+| `POST /api/orgs`, `PUT`/`DELETE /api/orgs/{id}` | Create, rename or delete an organization (admins) |
+| `POST /api/orgs/{id}/teams`, `DELETE /api/orgs/{id}/teams/{team}` | Add or remove a team in an organization (admins) |
+| `GET /api/users` | Users, with their roles, organizations and teams (members see the people in their organizations) |
+| `POST /api/users`, `PUT`/`DELETE /api/users/{name}` | Add a user, change their role, organizations, teams or password, remove them (admins) |
+| `PATCH /api/sessions/{id}` with `visibility`, `team`, `org`, `access` | Share a session you started: `private`, a `team` (`<org>/<team>`) or an `org`, watch-only (`view`) or `control` |
 
 ## Benchmarks
 

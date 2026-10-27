@@ -238,13 +238,16 @@ export interface Session {
   you?: SessionYou;
 }
 
-/** Who can see a session: only its owner, one of the owner's teams, or the whole organization. */
+/** Who can see a session: only its owner, one of the owner's teams, or one of the owner's organizations. */
 export type Visibility = "private" | "team" | "org";
 
 export interface Sharing {
   owner: string | null;
   visibility: Visibility;
+  /** With visibility team: the team, as <org>/<team>. */
   team: string | null;
+  /** With visibility org (or team): the organization; null on sessions shared with everyone before organizations. */
+  org?: string | null;
   /** view: others watch; control: they can also type into its terminal and end it. */
   access: "view" | "control";
 }
@@ -259,6 +262,8 @@ export interface Identity {
   user: string;
   via: "cookie" | "token";
   role: "admin" | "member";
+  orgs: string[];
+  /** Teams as <org>/<team>. */
   teams: string[];
 }
 
@@ -269,10 +274,34 @@ export interface AuthStatus {
   secure: boolean;
 }
 
-export interface Org {
+export interface Team {
+  id: string;
+  /** <org>/<team>, as users' teams and sessions name it. */
+  key: string;
   name: string;
-  teams: { id: string; name: string; members: string[] }[];
-  users: { name: string; role: "admin" | "member"; teams: string[]; created_at: number | null }[];
+  members: string[];
+}
+
+export interface Org {
+  id: string;
+  name: string;
+  created_at: number | null;
+  members: string[];
+  teams: Team[];
+}
+
+export interface User {
+  name: string;
+  role: "admin" | "member";
+  orgs: string[];
+  teams: string[];
+  created_at: number | null;
+}
+
+/** What changes to organizations and users answer with: everything the signed-in user can see. */
+export interface Directory {
+  orgs: Org[];
+  users: User[];
 }
 
 /**
@@ -1017,16 +1046,20 @@ export const api = {
   tokens: () => request<{ tokens: LauncherToken[] }>("/api/auth/tokens"),
   createToken: (label: string) => request<{ id: string; token: string }>("/api/auth/tokens", { method: "POST", body: JSON.stringify({ label }) }),
   revokeToken: (id: string) => request<{ revoked: string }>(`/api/auth/tokens/${encodeURIComponent(id)}`, { method: "DELETE" }),
-  org: () => request<Org>("/api/org"),
-  renameOrg: (name: string) => request<Org>("/api/org", { method: "PUT", body: JSON.stringify({ name }) }),
-  addTeam: (id: string, name: string) => request<Org>("/api/org/teams", { method: "POST", body: JSON.stringify({ id, name }) }),
-  removeTeam: (id: string) => request<Org>(`/api/org/teams/${encodeURIComponent(id)}`, { method: "DELETE" }),
-  addUser: (body: { name: string; password: string; role: string; teams: string[] }) =>
-    request<Org>("/api/org/users", { method: "POST", body: JSON.stringify(body) }),
-  updateUser: (name: string, body: { role?: string; teams?: string[]; password?: string }) =>
-    request<Org>(`/api/org/users/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify(body) }),
-  removeUser: (name: string) => request<Org>(`/api/org/users/${encodeURIComponent(name)}`, { method: "DELETE" }),
-  shareSession: (sessionId: string, sharing: { visibility: Visibility; team?: string | null; access: Sharing["access"] }) =>
+  orgs: () => request<{ orgs: Org[] }>("/api/orgs"),
+  addOrg: (id: string, name: string) => request<Directory>("/api/orgs", { method: "POST", body: JSON.stringify({ id, name }) }),
+  renameOrg: (id: string, name: string) => request<Directory>(`/api/orgs/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ name }) }),
+  removeOrg: (id: string) => request<Directory>(`/api/orgs/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  addTeam: (org: string, id: string, name: string) =>
+    request<Directory>(`/api/orgs/${encodeURIComponent(org)}/teams`, { method: "POST", body: JSON.stringify({ id, name }) }),
+  removeTeam: (org: string, id: string) => request<Directory>(`/api/orgs/${encodeURIComponent(org)}/teams/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  users: () => request<{ users: User[] }>("/api/users"),
+  addUser: (body: { name: string; password: string; role: string; orgs: string[]; teams: string[] }) =>
+    request<Directory>("/api/users", { method: "POST", body: JSON.stringify(body) }),
+  updateUser: (name: string, body: { role?: string; orgs?: string[]; teams?: string[]; password?: string }) =>
+    request<Directory>(`/api/users/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify(body) }),
+  removeUser: (name: string) => request<Directory>(`/api/users/${encodeURIComponent(name)}`, { method: "DELETE" }),
+  shareSession: (sessionId: string, sharing: { visibility: Visibility; team?: string | null; org?: string | null; access: Sharing["access"] }) =>
     request<Session>(sessionUrl(sessionId), { method: "PATCH", body: JSON.stringify(sharing) }),
   containerLog: async (name: string) => {
     const response = await fetch(`/api/containers/${encodeURIComponent(name)}/log?tail=1000`);

@@ -126,6 +126,20 @@ def test_models_agents_can_use_come_from_each_backends_machine(tmp_path):
         assert "isn't connected" in client.get("/api/models").json()["backends"]["desk"]["error"]
 
 
+def test_agents_are_told_the_context_size_the_machine_reports(tmp_path):
+    app = local_app(tmp_path)
+    with TestClient(app, **LOCAL) as client:
+        with_refusing_client(app)
+        start(app)
+        # Strata runs one model whatever the agent calls it; Qwen Code would take any qwen3.x for 1M.
+        launched = client.post("/api/agents/qwen/sessions", json={"model": "qwen3.8-flash", "backend": "desk-strata", "files_dir": "/tmp/s"}).json()
+        assert json.loads(launched["files"]["qwen-settings.json"])["model"]["generationConfig"] == {"contextWindowSize": 8192}
+        app.state.runtime.fleet.disconnect("desk", app.state.runtime.fleet.sockets["desk"])
+        # Without the machine the size isn't known, and Qwen Code keeps its own guess.
+        launched = client.post("/api/agents/qwen/sessions", json={"model": "qwen3.8-flash", "backend": "desk-strata", "files_dir": "/tmp/s"}).json()
+        assert json.loads(launched["files"]["qwen-settings.json"])["model"]["generationConfig"] == {}
+
+
 def test_provider_status_model_actions_logs_metrics_and_search_go_to_the_machine(tmp_path):
     app = local_app(tmp_path)
     with TestClient(app, **LOCAL) as client:

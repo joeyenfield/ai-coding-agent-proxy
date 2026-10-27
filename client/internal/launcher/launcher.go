@@ -11,6 +11,8 @@
 package launcher
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -51,8 +53,11 @@ type Prepared struct {
 		SessionID string `json:"session_id"`
 		Backend   string `json:"backend"`
 	} `json:"session"`
-	Env       map[string]string `json:"env"`
-	Command   []string          `json:"command"`
+	Env     map[string]string `json:"env"`
+	Command []string          `json:"command"`
+	// Files the agent reads (its settings for the session, such as the model's real context
+	// size), for the launcher to write to the files_dir it named; the env points at them.
+	Files     map[string]string `json:"files"`
 	Container bool              `json:"container"`
 }
 
@@ -154,6 +159,11 @@ func Launch(options Options) (int, error) {
 		tags["launch"] = options.LaunchID
 	}
 	request["tags"] = tags
+	filesDir, err := sessionFilesDir()
+	if err != nil {
+		return 1, err
+	}
+	request["files_dir"] = filesDir
 	var intercept map[string]any
 	if agent.Intercept {
 		if intercept, err = interceptFiles(client); err != nil {
@@ -169,6 +179,13 @@ func Launch(options Options) (int, error) {
 	end := func(exitStatus int) {
 		if err := client.Patch("/api/sessions/"+url.PathEscape(sessionID), map[string]any{"ended": true, "exit_status": exitStatus}, nil); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: could not close the session: %v\n", err)
+		}
+	}
+	if len(prepared.Files) > 0 {
+		defer os.RemoveAll(filesDir)
+		if err := writeFiles(filesDir, prepared.Files); err != nil {
+			end(1)
+			return 1, err
 		}
 	}
 	if prepared.Container {
@@ -353,6 +370,36 @@ func interceptFiles(client *api.Client) (map[string]any, error) {
 		}
 	}
 	return map[string]any{"url": info.URL, "ca_path": caPath, "bundle_path": bundlePath}, nil
+}
+
+// sessionFilesDir is a new folder name for one launch's files, under the user's cache. It's
+// made only when the server sends files.
+func sessionFilesDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	random := make([]byte, 8)
+	if _, err := rand.Read(random); err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".cache", "agent-proxy", "sessions", hex.EncodeToString(random)), nil
+}
+
+// writeFiles writes the server's files into dir, refusing any name that isn't a plain file name.
+func writeFiles(dir string, files map[string]string) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	for name, text := range files {
+		if name == "" || name != filepath.Base(name) || strings.ContainsAny(name, `/\:`) || name == "." || name == ".." {
+			return fmt.Errorf("the server sent a file with an unsafe name: %q", name)
+		}
+		if err := writeFile(filepath.Join(dir, name), text); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func writeFile(path, text string) error {

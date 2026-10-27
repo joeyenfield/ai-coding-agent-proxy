@@ -29,12 +29,15 @@ def org_settings(tmp_path: Path) -> Settings:
         default_backend="test", backends={"test": Backend("test", "http://ollama.test")},
     )
     store = UserStore(settings.users_path)
-    store.add_team("core")
-    store.add_team("ops")
-    store.add_user("dave", PASSWORD)  # the first user is the admin
-    store.add_user("alice", PASSWORD, teams=["core"])
-    store.add_user("bob", PASSWORD, teams=["core"])
-    store.add_user("carol", PASSWORD, teams=["ops"])
+    store.add_org("acme", "Acme")
+    store.add_org("globex")
+    store.add_team("acme", "core")
+    store.add_team("acme", "ops")
+    store.add_user("dave", PASSWORD, orgs=["acme"])  # the first user is the admin
+    store.add_user("alice", PASSWORD, teams=["acme/core"])
+    store.add_user("bob", PASSWORD, teams=["acme/core"])
+    store.add_user("carol", PASSWORD, teams=["acme/ops"])
+    store.add_user("frank", PASSWORD, orgs=["globex"])
     return settings
 
 
@@ -64,7 +67,7 @@ def test_everything_but_sign_in_and_the_console_files_needs_an_account(tmp_path)
             assert anonymous.get(path).status_code == 401, path
         assert anonymous.post("/api/auth/login", json={"username": "alice", "password": "nope"}).status_code == 401
         alice = signed_in(app, "alice")
-        assert alice.get("/api/auth/status").json()["identity"] == {"user": "alice", "via": "cookie", "role": "member", "teams": ["core"]}
+        assert alice.get("/api/auth/status").json()["identity"] == {"user": "alice", "via": "cookie", "role": "member", "orgs": ["acme"], "teams": ["acme/core"]}
         assert alice.get("/api/sessions").status_code == 200
         # A page on another site can't use the cookie to change things.
         assert alice.post("/api/sessions", json={"client": "x", "backend": "test"}, headers={"origin": "http://evil.example"}).status_code == 403
@@ -80,7 +83,7 @@ def test_failed_sign_ins_are_limited(tmp_path):
         assert client.post("/api/auth/login", json={"username": "alice", "password": PASSWORD}).status_code == 429
 
 
-def test_only_admins_change_the_server_and_the_organization(tmp_path):
+def test_only_admins_change_the_server_organizations_and_users(tmp_path):
     app = create_app(org_settings(tmp_path))
     with TestClient(app, base_url=BASE):
         alice, dave = signed_in(app, "alice"), signed_in(app, "dave")
@@ -88,14 +91,59 @@ def test_only_admins_change_the_server_and_the_organization(tmp_path):
         assert alice.put("/api/config", json=config).status_code == 403
         assert dave.put("/api/config", json=config).status_code == 200
         assert alice.post("/api/containers", json={"name": "x", "engine": "ollama"}).status_code == 403
-        assert alice.post("/api/org/teams", json={"id": "qa"}).status_code == 403
-        assert dave.post("/api/org/teams", json={"id": "qa", "name": "Quality"}).status_code == 201
-        org = dave.post("/api/org/users", json={"name": "erin", "password": PASSWORD, "teams": ["qa"]}).json()
-        assert {"name": "erin", "role": "member", "teams": ["qa"]}.items() <= next(user for user in org["users"] if user["name"] == "erin").items()
-        assert dave.put("/api/org/users/dave", json={"role": "member"}).status_code == 400  # the last admin
-        # Everyone can see who's in the organization.
-        assert [team["id"] for team in alice.get("/api/org").json()["teams"]] == ["core", "ops", "qa"]
-        assert dave.delete("/api/org/users/dave").status_code == 400
+        assert alice.post("/api/orgs", json={"id": "initech"}).status_code == 403
+        assert alice.post("/api/orgs/acme/teams", json={"id": "qa"}).status_code == 403
+        assert alice.post("/api/users", json={"name": "erin", "password": PASSWORD}).status_code == 403
+        assert dave.post("/api/orgs", json={"id": "initech", "name": "Initech"}).status_code == 201
+        assert dave.post("/api/orgs", json={"id": "initech"}).status_code == 400
+        assert dave.post("/api/orgs/acme/teams", json={"id": "qa", "name": "Quality"}).status_code == 201
+        assert dave.post("/api/orgs/nowhere/teams", json={"id": "qa"}).status_code == 404
+        directory = dave.post("/api/users", json={"name": "erin", "password": PASSWORD, "orgs": ["initech"], "teams": ["acme/qa"]}).json()
+        erin = next(user for user in directory["users"] if user["name"] == "erin")
+        # Joining a team joins its organization.
+        assert {"name": "erin", "role": "member", "orgs": ["acme", "initech"], "teams": ["acme/qa"]}.items() <= erin.items()
+        assert dave.put("/api/users/erin", json={"teams": ["acme/nope"]}).status_code == 400
+        assert dave.put("/api/users/dave", json={"role": "member"}).status_code == 400  # the last admin
+        assert dave.delete("/api/users/dave").status_code == 400
+        assert dave.put("/api/orgs/initech", json={"name": "Initech Ltd"}).json()["orgs"][2]["name"] == "Initech Ltd"
+
+
+def test_members_see_their_own_organizations_and_the_people_in_them(tmp_path):
+    app = create_app(org_settings(tmp_path))
+    with TestClient(app, base_url=BASE):
+        alice, frank, dave = signed_in(app, "alice"), signed_in(app, "frank"), signed_in(app, "dave")
+        orgs = alice.get("/api/orgs").json()["orgs"]
+        assert [org["id"] for org in orgs] == ["acme"]
+        assert orgs[0]["members"] == ["alice", "bob", "carol", "dave"]
+        assert [(team["key"], team["members"]) for team in orgs[0]["teams"]] == [("acme/core", ["alice", "bob"]), ("acme/ops", ["carol"])]
+        assert [user["name"] for user in alice.get("/api/users").json()["users"]] == ["alice", "bob", "carol", "dave"]
+        assert [user["name"] for user in frank.get("/api/users").json()["users"]] == ["frank"]
+        assert [org["id"] for org in dave.get("/api/orgs").json()["orgs"]] == ["acme", "globex"]
+        assert len(dave.get("/api/users").json()["users"]) == 5
+
+
+def test_leaving_or_deleting_an_organization_leaves_its_teams(tmp_path):
+    store = UserStore(org_settings(tmp_path).users_path)
+    assert store.update_user("alice", orgs=["acme", "globex"])["teams"] == ["acme/core"]
+    assert store.update_user("alice", orgs=["globex"])["teams"] == []
+    store.update_user("bob", orgs=["acme", "globex"])
+    store.remove_org("acme")
+    assert (store.user("bob")["orgs"], store.user("bob")["teams"]) == (["globex"], [])
+    assert (store.user("carol")["orgs"], store.user("carol")["teams"]) == ([], [])
+    with pytest.raises(KeyError):
+        store.remove_team("acme", "core")
+
+
+def test_a_users_file_from_before_organizations_becomes_one_organization(tmp_path):
+    path = tmp_path / "users.json"
+    path.write_text(json.dumps({
+        "org": {"name": "Empty Pockets"}, "teams": {"core": {"name": "Core", "created_at": 1}},
+        "users": {"joey": {"password": "x", "role": "admin", "teams": ["core"]}, "sam": {"password": "x", "role": "member", "teams": []}},
+        "sessions": {}, "tokens": {},
+    }))
+    store = UserStore(path)
+    assert [(org["id"], org["name"], org["members"]) for org in store.orgs()] == [("empty-pockets", "Empty Pockets", ["joey", "sam"])]
+    assert store.user("joey")["teams"] == ["empty-pockets/core"]
 
 
 def test_launcher_tokens_work_and_can_be_revoked(tmp_path):
@@ -164,14 +212,15 @@ def test_sessions_are_private_until_their_owner_shares_them(tmp_path):
         created = alice.post("/api/sessions", json={"client": "claude", "backend": "test", "tags": {"owner": "bob", "project_path": "/w"}}).json()
         session = created["session_id"]
         assert created["tags"]["owner"] == "alice" and created["tags"]["visibility"] == "private" and created["tags"]["project_path"] == "/w"
-        assert created["you"] == {"owner": True, "control": True, "sharing": {"owner": "alice", "visibility": "private", "team": None, "access": "view"}}
+        assert created["you"] == {"owner": True, "control": True, "sharing": {"owner": "alice", "visibility": "private", "team": None, "org": None, "access": "view"}}
         # Private means private, admins included.
+        frank = signed_in(app, "frank")
         for other in (bob, carol, dave):
             assert session not in ids(other)
             assert other.get(f"/api/sessions/{session}").status_code == 404
             assert other.get("/api/requests", params={"session_id": session}).status_code == 404
 
-        assert alice.patch(f"/api/sessions/{session}", json={"visibility": "team"}).json()["tags"]["team"] == "core"
+        assert alice.patch(f"/api/sessions/{session}", json={"visibility": "team"}).json()["tags"]["team"] == "acme/core"
         assert session in ids(bob) and session not in ids(carol)
         # Bob can watch, not change.
         assert bob.patch(f"/api/sessions/{session}", json={"ended": True}).status_code == 403
@@ -179,8 +228,9 @@ def test_sessions_are_private_until_their_owner_shares_them(tmp_path):
         assert bob.delete(f"/api/sessions/{session}").status_code == 403
         assert alice.patch(f"/api/sessions/{session}", json={"visibility": "team", "team": "ops"}).status_code == 400
 
-        alice.patch(f"/api/sessions/{session}", json={"visibility": "org", "access": "control"})
-        assert session in ids(carol) and session in ids(dave)
+        assert alice.patch(f"/api/sessions/{session}", json={"visibility": "org", "team": "globex"}).status_code == 400
+        assert alice.patch(f"/api/sessions/{session}", json={"visibility": "org", "access": "control"}).json()["tags"]["org"] == "acme"
+        assert session in ids(carol) and session in ids(dave) and session not in ids(frank)
         assert carol.get(f"/api/sessions/{session}").json()["you"]["control"] is True
         assert carol.patch(f"/api/sessions/{session}", json={"ended": True}).status_code == 200
 
@@ -228,13 +278,19 @@ def test_shared_terminals_follow_the_session_sharing(tmp_path):
 def test_account_commands_create_the_first_admin(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("AI_PROXY_REMOTE_KEY_FILE", str(tmp_path / "remote-access-key"))
     monkeypatch.setenv("AI_PROXY_NEW_PASSWORD", PASSWORD)
-    assert account_command("user", ["add", "joey", "--team", "core"]) == 0
+    assert account_command("user", ["add", "joey", "--team", "core"]) == 1  # which organization's?
+    assert account_command("user", ["add", "joey", "--org", "pockets", "--team", "core"]) == 0
     assert "Sign-in is on" in capsys.readouterr().out
-    assert account_command("user", ["add", "sam"]) == 0
-    assert account_command("org", ["rename", "Empty Pockets"]) == 0
+    assert account_command("user", ["add", "sam", "--team", "other/ops"]) == 0
+    assert account_command("org", ["rename", "pockets", "Empty Pockets"]) == 0
+    assert account_command("team", ["add", "pockets", "web"]) == 0
     store = UserStore(tmp_path / "users.json")
-    assert store.org()["name"] == "Empty Pockets"
-    assert [(user["name"], user["role"], user["teams"]) for user in store.org()["users"]] == [("joey", "admin", ["core"]), ("sam", "member", [])]
+    assert [(org["id"], org["name"]) for org in store.orgs()] == [("other", "other"), ("pockets", "Empty Pockets")]
+    assert [team["key"] for team in store.org("pockets")["teams"]] == ["pockets/core", "pockets/web"]
+    assert [(user["name"], user["role"], user["orgs"], user["teams"]) for user in store.user_list()] == [
+        ("joey", "admin", ["pockets"], ["pockets/core"]), ("sam", "member", ["other"], ["other/ops"]),
+    ]
+    assert account_command("org", ["remove", "other"]) == 0 and store.user("sam")["orgs"] == []
     assert store.verify("joey", PASSWORD) and not store.verify("joey", "wrong")
     monkeypatch.setenv("AI_PROXY_NEW_PASSWORD", "short")
     assert account_command("user", ["passwd", "joey"]) == 1

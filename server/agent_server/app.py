@@ -157,7 +157,7 @@ def _configure_logging(path: Path) -> None:
 def main() -> None:
     if sys.argv[1:2] and sys.argv[1] in {"user", "team", "org"}:
         raise SystemExit(account_command(sys.argv[1], sys.argv[2:]))
-    parser = argparse.ArgumentParser(description="Run the agent-server: the console, accounts and routing for every agent machine's agent-proxy (users and teams: agent-server user|team|org --help)")
+    parser = argparse.ArgumentParser(description="Run the agent-server: the console, accounts and routing for every agent machine's agent-proxy (users and organizations: agent-server user|org|team --help)")
     parser.add_argument("--host")
     parser.add_argument("--port", type=int)
     parser.add_argument("--reload", action="store_true", help="Restart on code changes (development)")
@@ -257,49 +257,68 @@ class Supervisor:
 
 
 def account_command(kind: str, argv: list[str]) -> int:
-    """agent-server user|team|org ...: the organization's users and teams, from the server's shell."""
+    """agent-server user|team|org ...: users, organizations and their teams, from the server's shell."""
     parser = argparse.ArgumentParser(
         prog=f"agent-server {kind}",
-        description="Users and teams of this server's organization. With at least one user, everyone signs in.",
+        description="Users, organizations and their teams. With at least one user, everyone signs in.",
     )
     commands = parser.add_subparsers(dest="action", required=True)
     if kind == "user":
         add = commands.add_parser("add", help="Add a user (the first one is an admin)")
         add.add_argument("name")
-        add.add_argument("--admin", action="store_true", help="Can manage the server, users and teams")
-        add.add_argument("--team", action="append", default=[], help="A team to join (created if new); repeat for more")
+        add.add_argument("--admin", action="store_true", help="Can manage the server, organizations and users")
+        add.add_argument("--org", action="append", default=[], help="An organization to join (created if new); repeat for more")
+        add.add_argument("--team", action="append", default=[], help="A team to join, as <org>/<team> or just <team> with one --org (created if new); repeat for more")
         passwd = commands.add_parser("passwd", help="Set a user's password (signs them out everywhere)")
         passwd.add_argument("name")
         remove = commands.add_parser("remove", help="Remove a user")
         remove.add_argument("name")
         commands.add_parser("list", help="List users")
     elif kind == "team":
-        add = commands.add_parser("add", help="Add a team")
+        add = commands.add_parser("add", help="Add a team to an organization")
+        add.add_argument("org")
         add.add_argument("id")
         add.add_argument("--name", help="Display name")
         remove = commands.add_parser("remove", help="Remove a team")
+        remove.add_argument("org")
         remove.add_argument("id")
-        commands.add_parser("list", help="List teams and their members")
+        listing = commands.add_parser("list", help="List teams and their members")
+        listing.add_argument("org", nargs="?")
     else:
-        rename = commands.add_parser("rename", help="Name the organization")
+        add = commands.add_parser("add", help="Add an organization")
+        add.add_argument("id")
+        add.add_argument("--name", help="Display name")
+        rename = commands.add_parser("rename", help="Rename an organization")
+        rename.add_argument("id")
         rename.add_argument("name")
+        remove = commands.add_parser("remove", help="Remove an organization (its members keep their accounts)")
+        remove.add_argument("id")
+        commands.add_parser("list", help="List organizations and their members")
     args = parser.parse_args(argv)
     store = UserStore(Settings.load().users_path)
     try:
-        if kind == "org":
-            store.rename_org(args.name)
-            print(f"The organization is now called {store.org()['name']}.")
+        if kind == "org" and args.action == "list":
+            orgs = store.orgs()
+            print("\n".join(f"{org['id']} ({org['name']}): {', '.join(org['members']) or 'no members'}" for org in orgs) if orgs else "No organizations.")
+        elif kind == "org" and args.action == "add":
+            print(f"Added organization {store.add_org(args.id, args.name)}.")
+        elif kind == "org" and args.action == "rename":
+            store.rename_org(args.id, args.name)
+            print(f"{args.id} is now called {store.org(args.id)['name']}.")
+        elif kind == "org":
+            store.remove_org(args.id)
+            print(f"Removed organization {args.id}.")
         elif kind == "team" and args.action == "list":
-            teams = store.org()["teams"]
-            print("\n".join(f"{team['id']}: {', '.join(team['members']) or 'no members'}" for team in teams) if teams else "No teams.")
+            teams = [team for org in store.orgs() if args.org in (None, org["id"]) for team in org["teams"]]
+            print("\n".join(f"{team['key']}: {', '.join(team['members']) or 'no members'}" for team in teams) if teams else "No teams.")
         elif kind == "team" and args.action == "add":
-            print(f"Added team {store.add_team(args.id, args.name)}.")
+            print(f"Added team {store.add_team(args.org, args.id, args.name)}.")
         elif kind == "team":
-            store.remove_team(args.id)
-            print(f"Removed team {args.id}.")
+            store.remove_team(args.org, args.id)
+            print(f"Removed team {args.org}/{args.id}.")
         elif args.action == "list":
-            users = store.org()["users"]
-            print("\n".join(f"{user['name']} ({user['role']}) {' '.join(user['teams'])}".rstrip() for user in users) if users else "No users: sign-in is off.")
+            users = store.user_list()
+            print("\n".join(f"{user['name']} ({user['role']}) {' '.join(user['orgs'] + user['teams'])}".rstrip() for user in users) if users else "No users: sign-in is off.")
         elif args.action == "remove":
             if not store.remove_user(args.name):
                 print(f"No user called {args.name}", file=sys.stderr)
@@ -309,17 +328,26 @@ def account_command(kind: str, argv: list[str]) -> int:
             if args.action == "passwd" and args.name not in store.users():
                 print(f"No user called {args.name}", file=sys.stderr)
                 return 1
+            if args.action == "add":
+                teams = []
+                for team in args.team:
+                    if "/" not in team and len(args.org) != 1:
+                        raise ValueError(f"Name the team as <organization>/{team}, or give one --org")
+                    teams.append(team if "/" in team else f"{args.org[0]}/{team}")
             password = _new_password(args.name)
             if args.action == "passwd":
                 store.set_password(args.name, password)
                 print(f"Changed the password for {args.name}; they're signed out everywhere.")
             else:
-                known = {team["id"] for team in store.org()["teams"]}
-                for team in args.team:
+                for org in {*args.org, *(team.split("/", 1)[0] for team in teams)}:
+                    if store.org(org) is None:
+                        store.add_org(org)
+                known = {team["key"] for org in store.orgs() for team in org["teams"]}
+                for team in teams:
                     if team not in known:
-                        store.add_team(team)
+                        store.add_team(*team.split("/", 1))
                 first = not store.users()
-                user = store.add_user(args.name, password, "admin" if args.admin else None, args.team)
+                user = store.add_user(args.name, password, "admin" if args.admin else None, teams, args.org)
                 print(f"Added {user['name']} ({user['role']})." + (" Sign-in is on: everyone now needs a user to use this proxy." if first else ""))
     except (KeyError, ValueError) as exc:
         print(str(exc).strip("'"), file=sys.stderr)

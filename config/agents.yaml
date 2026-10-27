@@ -13,10 +13,18 @@
 #   {anthropic_url}  http://127.0.0.1:8184/session/<id>/anthropic   Anthropic Messages
 #   {ollama_url}     http://127.0.0.1:8184/session/<id>             native Ollama (/api/...)
 #   {model} {session_id} {proxy_url} {project}
+#   {context_window}  the model's context size on the session's backend (Ollama's num_ctx
+#                    from models.yaml, or what Strata or Docker Model Runner reports); as a
+#                    whole value it renders as a number
+#   {files_dir}      the folder the launcher writes this agent's files to, for this session
 #   {intercept_url} {ca_cert} {ca_bundle}           only for intercept: true
 #                    ca_bundle is the system roots plus the server's CA
 #
 # An env value written as a YAML mapping or list is rendered and passed as JSON.
+# files: maps a file name to its contents (a mapping is written as JSON); the launcher
+# writes them to {files_dir} before starting the agent and removes them after. A value
+# whose placeholder is unknown for the session (no context size, or the console rather
+# than a launcher asking) is left out, so the agent keeps its own default.
 # protocol: openai-chat | openai-responses | anthropic | ollama
 # backend_type: ollama (default) | anthropic - which backends.yaml entries the
 # agent can use; the launcher picks a matching backend when --backend is omitted.
@@ -47,6 +55,13 @@ agents:
       OPENAI_BASE_URL: "{openai_url}"
       OPENAI_API_KEY: local-ollama
       OPENAI_MODEL: "{model}"
+      # Qwen Code takes its context size from the model's name (any qwen3.x is 1M), so tell it the real one.
+      QWEN_CODE_SYSTEM_SETTINGS_PATH: "{files_dir}/qwen-settings.json"
+    files:
+      qwen-settings.json:
+        model:
+          generationConfig:
+            contextWindowSize: "{context_window}"
     args: [--auth-type, openai, --model, "{model}"]
 
   opencode:

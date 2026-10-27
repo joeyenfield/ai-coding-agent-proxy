@@ -53,7 +53,8 @@ Options:
 
 Sharing, on a server with accounts:
       --share WHO         private, team or org: who else can see this session (default: private)
-      --team NAME         Which of your teams, with --share team (needed if you're in several)
+      --team NAME         Which of your teams (org/team) with --share team, or which of your
+                          organizations with --share org (needed if you're in several)
       --let-others-type   With --control: people it's shared with can type into its terminal and end
                           it, not only watch
 

@@ -3,13 +3,15 @@
 With no account, the proxy works as before: a tool on your own computer, where
 this computer is trusted and phones pair with the access key. Once an account
 exists (`agent-server user add <name>`, or AI_PROXY_USERNAME and AI_PROXY_PASSWORD),
-the server is an organization and everyone signs in:
+everyone signs in:
 
-  organization   the server: a name, its teams and its users
-  teams          groups of users; a user can be in several
-  roles          admin (manages the server, users and teams) or member (uses it)
+  users          the people who sign in; a user can be in several organizations
+  organizations  groups of users, each with its own teams
+  teams          groups of an organization's users, named <org>/<team>; a user can
+                 be in several, and only in teams of their organizations
+  roles          admin (manages the server, organizations and users) or member (uses it)
   sessions       owned by whoever started them, shared privately, with a team or
-                 with the organization (see access.py)
+                 with one of the owner's organizations (see access.py)
 
 How requests prove who they are:
 
@@ -18,8 +20,10 @@ How requests prove who they are:
   /session/<id>/...            the open session's id is the credential, so agents
                                keep their own Authorization headers for hosted APIs
 
-Users, teams, browser sign-ins and launcher tokens live in users.json next to the
-access key, with only hashes of passwords and tokens.
+Users, organizations, browser sign-ins and launcher tokens live in users.json next
+to the access key, with only hashes of passwords and tokens. A file from before
+organizations (one organization, the server, with its teams) loads as a single
+organization holding those teams and every user.
 """
 
 from __future__ import annotations
@@ -84,25 +88,51 @@ def _digest(secret: str) -> str:
     return hashlib.sha256(secret.encode()).hexdigest()
 
 
+def team_key(org: str, team: str) -> str:
+    return f"{org}/{team}"
+
+
+def team_org(key: str) -> str:
+    return key.split("/", 1)[0]
+
+
 @dataclass(frozen=True)
 class Identity:
-    """Who a request comes from: a user, their role and their teams."""
+    """Who a request comes from: a user, their role, their organizations and their teams (<org>/<team>)."""
 
     user: str
     via: str  # cookie | token
     role: str = "member"
     teams: tuple[str, ...] = field(default_factory=tuple)
+    orgs: tuple[str, ...] = field(default_factory=tuple)
 
     @property
     def admin(self) -> bool:
         return self.role == "admin"
 
     def public(self) -> dict[str, Any]:
-        return {"user": self.user, "via": self.via, "role": self.role, "teams": list(self.teams)}
+        return {"user": self.user, "via": self.via, "role": self.role, "orgs": list(self.orgs), "teams": list(self.teams)}
+
+
+def _migrated(data: dict[str, Any]) -> dict[str, Any]:
+    """A users.json from before organizations: its one organization (the server) and teams become one organization."""
+    old = data.pop("org", None)
+    teams = data.pop("teams", None)
+    data["orgs"] = {}
+    if not data.get("users") and not teams:
+        return data
+    name = str((old or {}).get("name") or "Organization")
+    org = re.sub(r"[^a-z0-9._-]+", "-", name.lower()).strip("-._")[:40] or "main"
+    org = org if NAME.fullmatch(org) else "main"
+    data["orgs"][org] = {"name": name, "created_at": time.time(), "teams": dict(teams or {})}
+    for record in (data.get("users") or {}).values():
+        record["orgs"] = [org]
+        record["teams"] = [team_key(org, team) for team in record.get("teams", [])]
+    return data
 
 
 class UserStore:
-    """users.json: the organization, its teams and users, browser sign-ins and launcher tokens."""
+    """users.json: users, organizations and their teams, browser sign-ins and launcher tokens."""
 
     def __init__(self, path: Path):
         self.path = path
@@ -124,8 +154,9 @@ class UserStore:
             except (OSError, ValueError):
                 data = {}
             data = data if isinstance(data, dict) else {}
-            data.setdefault("org", {"name": "Organization"})
-            for key in ("users", "teams", "sessions", "tokens"):
+            if "orgs" not in data:
+                data = _migrated(data)
+            for key in ("users", "orgs", "sessions", "tokens"):
                 data.setdefault(key, {})
             self._data, self._loaded_mtime = data, mtime
         return self._data
@@ -140,47 +171,111 @@ class UserStore:
         temporary.replace(self.path)
         self._loaded_mtime = self.path.stat().st_mtime
 
-    # The organization
+    # Organizations and their teams
 
-    def org(self) -> dict[str, Any]:
+    def orgs(self, viewer: Identity | None = None) -> list[dict[str, Any]]:
+        """Every organization, or with a member's identity only theirs (admins see them all)."""
         with self._lock:
             data = self._load()
-            return {
-                "name": data["org"].get("name") or "Organization",
-                "teams": [{"id": key, "name": value.get("name") or key, "members": self._members(key)} for key, value in sorted(data["teams"].items())],
-                "users": [self._user_public(name) for name in sorted(data["users"])],
-            }
+            mine = None if viewer is None or viewer.admin else set(viewer.orgs)
+            return [self._org_public(org) for org in sorted(data["orgs"]) if mine is None or org in mine]
 
-    def rename_org(self, name: str) -> None:
+    def org(self, org: str) -> dict[str, Any] | None:
         with self._lock:
-            self._load()["org"]["name"] = name.strip()[:80] or "Organization"
+            return self._org_public(org) if org in self._load()["orgs"] else None
+
+    def _org_public(self, org: str) -> dict[str, Any]:
+        record = self._load()["orgs"][org]
+        users = self._load()["users"]
+        return {
+            "id": org, "name": record.get("name") or org, "created_at": record.get("created_at"),
+            "members": sorted(name for name, user in users.items() if org in user.get("orgs", [])),
+            "teams": [
+                {
+                    "id": team, "key": team_key(org, team), "name": value.get("name") or team,
+                    "members": sorted(name for name, user in users.items() if team_key(org, team) in user.get("teams", [])),
+                }
+                for team, value in sorted(record.get("teams", {}).items())
+            ],
+        }
+
+    def add_org(self, org: str, name: str | None = None) -> str:
+        org = valid_name(org, "organization")
+        with self._lock:
+            orgs = self._load()["orgs"]
+            if org in orgs:
+                raise ValueError(f"There's already an organization called {org}")
+            orgs[org] = {"name": (name or org).strip()[:80] or org, "created_at": time.time(), "teams": {}}
+            self._save()
+        return org
+
+    def rename_org(self, org: str, name: str) -> None:
+        with self._lock:
+            record = self._load()["orgs"].get(org)
+            if record is None:
+                raise KeyError(org)
+            record["name"] = name.strip()[:80] or org
             self._save()
 
-    def add_team(self, team: str, name: str | None = None) -> str:
+    def remove_org(self, org: str) -> None:
+        """Delete an organization: its teams go, and its members leave it (their accounts stay)."""
+        with self._lock:
+            data = self._load()
+            if data["orgs"].pop(org, None) is None:
+                raise KeyError(org)
+            for record in data["users"].values():
+                record["orgs"] = [item for item in record.get("orgs", []) if item != org]
+                record["teams"] = [item for item in record.get("teams", []) if team_org(item) != org]
+            self._save()
+
+    def add_team(self, org: str, team: str, name: str | None = None) -> str:
+        """A team in an organization; returns its key, <org>/<team>."""
         team = valid_name(team, "team")
         with self._lock:
-            teams = self._load()["teams"]
+            record = self._load()["orgs"].get(org)
+            if record is None:
+                raise KeyError(org)
+            teams = record.setdefault("teams", {})
             if team in teams:
-                raise ValueError(f"There's already a team called {team}")
-            teams[team] = {"name": (name or team).strip()[:80], "created_at": time.time()}
+                raise ValueError(f"{org} already has a team called {team}")
+            teams[team] = {"name": (name or team).strip()[:80] or team, "created_at": time.time()}
             self._save()
-        return team
+        return team_key(org, team)
 
-    def remove_team(self, team: str) -> None:
+    def remove_team(self, org: str, team: str) -> None:
         with self._lock:
             data = self._load()
-            if data["teams"].pop(team, None) is None:
+            if data["orgs"].get(org, {}).get("teams", {}).pop(team, None) is None:
                 raise KeyError(team)
             for record in data["users"].values():
-                record["teams"] = [item for item in record.get("teams", []) if item != team]
+                record["teams"] = [item for item in record.get("teams", []) if item != team_key(org, team)]
             self._save()
 
-    def _members(self, team: str) -> list[str]:
-        return sorted(name for name, record in self._load()["users"].items() if team in record.get("teams", []))
+    def _team_keys(self) -> set[str]:
+        return {team_key(org, team) for org, record in self._load()["orgs"].items() for team in record.get("teams", {})}
+
+    def _membership(self, orgs: list[str] | None, teams: list[str] | None, current: dict[str, Any]) -> tuple[list[str], list[str]]:
+        """A user's organizations and teams, checked: joining a team joins its organization, leaving one leaves its teams."""
+        data = self._load()
+        wanted_orgs = set(current.get("orgs", []) if orgs is None else orgs)
+        wanted_teams = set(current.get("teams", []) if teams is None else teams)
+        unknown = sorted(org for org in wanted_orgs if org not in data["orgs"])
+        if unknown:
+            raise ValueError(f"No organization called {', '.join(unknown)}")
+        unknown = sorted(wanted_teams - self._team_keys())
+        if unknown:
+            raise ValueError(f"No team called {', '.join(unknown)} (teams are named <organization>/<team>)")
+        if teams is not None:
+            wanted_orgs |= {team_org(team) for team in wanted_teams}
+        wanted_teams = {team for team in wanted_teams if team_org(team) in wanted_orgs}
+        return sorted(wanted_orgs), sorted(wanted_teams)
 
     def _user_public(self, name: str) -> dict[str, Any]:
         record = self._load()["users"][name]
-        return {"name": name, "role": record.get("role", "member"), "teams": list(record.get("teams", [])), "created_at": record.get("created_at")}
+        return {
+            "name": name, "role": record.get("role", "member"), "orgs": list(record.get("orgs", [])),
+            "teams": list(record.get("teams", [])), "created_at": record.get("created_at"),
+        }
 
     # Users
 
@@ -192,7 +287,16 @@ class UserStore:
         with self._lock:
             return self._user_public(name) if name in self._load()["users"] else None
 
-    def add_user(self, name: str, password: str, role: str | None = None, teams: list[str] | None = None) -> dict[str, Any]:
+    def user_list(self, viewer: Identity | None = None) -> list[dict[str, Any]]:
+        """Every user, or for a member those who share an organization with them (and themselves)."""
+        with self._lock:
+            users = [self._user_public(name) for name in sorted(self._load()["users"])]
+        if viewer is None or viewer.admin:
+            return users
+        mine = set(viewer.orgs)
+        return [user for user in users if user["name"] == viewer.user or mine & set(user["orgs"])]
+
+    def add_user(self, name: str, password: str, role: str | None = None, teams: list[str] | None = None, orgs: list[str] | None = None) -> dict[str, Any]:
         """A new user. The first user is an admin, so someone can manage the rest."""
         name = valid_name(name, "user")
         with self._lock:
@@ -202,17 +306,15 @@ class UserStore:
             role = role or ("admin" if not data["users"] else "member")
             if role not in ROLES:
                 raise ValueError(f"Role must be one of: {', '.join(ROLES)}")
-            unknown = [team for team in teams or [] if team not in data["teams"]]
-            if unknown:
-                raise ValueError(f"No team called {', '.join(unknown)}")
+            member_of, in_teams = self._membership(orgs or [], teams or [], {})
             data["users"][name] = {
                 "password": hash_password(_checked_password(password)), "role": role,
-                "teams": sorted(set(teams or [])), "created_at": time.time(),
+                "orgs": member_of, "teams": in_teams, "created_at": time.time(),
             }
             self._save()
             return self._user_public(name)
 
-    def update_user(self, name: str, *, role: str | None = None, teams: list[str] | None = None) -> dict[str, Any]:
+    def update_user(self, name: str, *, role: str | None = None, teams: list[str] | None = None, orgs: list[str] | None = None) -> dict[str, Any]:
         with self._lock:
             data = self._load()
             record = data["users"].get(name)
@@ -223,12 +325,10 @@ class UserStore:
                     raise ValueError(f"Role must be one of: {', '.join(ROLES)}")
                 if record.get("role") == "admin" and role != "admin" and self._admins() == [name]:
                     raise ValueError("That's the last admin; make someone else an admin first")
+            member_of, in_teams = self._membership(orgs, teams, record)
+            if role is not None:
                 record["role"] = role
-            if teams is not None:
-                unknown = [team for team in teams if team not in data["teams"]]
-                if unknown:
-                    raise ValueError(f"No team called {', '.join(unknown)}")
-                record["teams"] = sorted(set(teams))
+            record["orgs"], record["teams"] = member_of, in_teams
             self._save()
             return self._user_public(name)
 
@@ -364,7 +464,7 @@ class Auth:
         environment = self.environment_user
         record = self.store.user(user)
         if record:
-            return Identity(user, via, record["role"], tuple(record["teams"]))
+            return Identity(user, via, record["role"], tuple(record["teams"]), tuple(record["orgs"]))
         if environment and user == environment[0]:
             # The account from the environment manages the server.
             return Identity(user, via, "admin", ())
@@ -420,7 +520,8 @@ ADMIN_ONLY = [
     (re.compile(r"POST"), re.compile(r"/api/remote/rotate")),
     (re.compile(r"POST"), re.compile(r"/api/server/restart")),
     (re.compile(r"POST"), re.compile(r"/api/machines/[^/]+/providers/adopt")),
-    (re.compile(r"POST|PUT|DELETE"), re.compile(r"/api/org(/.*)?")),
+    (re.compile(r"POST|PUT|DELETE"), re.compile(r"/api/orgs(/.*)?")),
+    (re.compile(r"POST|PUT|DELETE"), re.compile(r"/api/users(/.*)?")),
 ]
 
 

@@ -316,7 +316,7 @@ func (m *Manager) stopOllama() error {
 	pid := managedPID()
 	if pid == 0 {
 		if m.ollamaVersion() != "" {
-			return errors.New("Ollama runs here, but agent-machine didn't start it; stop it where it was started (its tray app)")
+			return errors.New("Ollama's own app started the Ollama here, so agent-machine can't stop it; quit that app on this computer, then start Ollama from the console")
 		}
 		return nil
 	}

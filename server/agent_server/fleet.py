@@ -437,7 +437,7 @@ class Fleet:
         message = {
             "type": "launch", "launch": launch_id, "agent": agent, "project": project,
             "model": str(request.get("model") or ""), "backend": str(request.get("backend") or ""), "trace": bool(request.get("trace")),
-            "visibility": str(request.get("visibility") or "private"), "team": str(request.get("team") or ""),
+            "visibility": str(request.get("visibility") or "private"), "team": str(request.get("team") or request.get("org") or ""),
             "access": "control" if request.get("access") == "control" else "view",
         }
         record = {"launch": launch_id, "at": time.time(), "by": identity.user if identity else None, "agent": agent, "project": project, "session_id": None, "error": None}

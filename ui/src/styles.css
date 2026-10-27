@@ -823,6 +823,18 @@ details.collapsible > summary::-webkit-details-marker { display: none; }
 .team-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
 .team-card { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); }
 .team-card button { align-self: flex-start; }
+.org-card.selected { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); background: var(--accent-soft); }
+.org-card .org-open { font-size: 15px; }
+.org-detail h4 { font-size: 14px; font-weight: 650; }
+.member-list { list-style: none; display: flex; flex-direction: column; }
+.member-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.member-list li:last-child { border-bottom: 0; }
+.member-list .pill { margin-left: 8px; }
+.membership { display: flex; flex-direction: column; gap: 10px; }
+.membership-org { display: flex; flex-direction: column; gap: 6px; }
+.membership-teams { padding-left: 26px; gap: 6px 14px; }
+.users-table select { min-width: 104px; }
+.membership-edit { display: flex; flex-direction: column; gap: 12px; align-items: flex-start; padding: 6px 0; }
 fieldset.field { border: 0; padding: 0; margin: 0; }
 .inline-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; max-width: 720px; }
 .inline-form input { flex: 1 1 200px; width: auto; }

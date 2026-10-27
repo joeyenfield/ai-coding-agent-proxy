@@ -104,7 +104,7 @@ func TestAnOllamaItDidntStartIsLeftAlone(t *testing.T) {
 		waitABit()
 	}
 	answer := manager.Handle(Request{ID: "r1", Op: "stop", Kind: "ollama"})
-	if answer["ok"] != false || !strings.Contains(answer["error"].(string), "didn't start it") {
+	if answer["ok"] != false || !strings.Contains(answer["error"].(string), "can't stop it") {
 		t.Fatalf("%v", answer)
 	}
 	if state := answer["servers"].(map[string]any)["ollama"].(map[string]any); state["running"] != true || state["managed"] != false {

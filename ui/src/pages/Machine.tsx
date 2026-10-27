@@ -106,7 +106,7 @@ const refOf = (machine: FleetMachine, provider: MachineProvider): ProviderRef =>
 function unmanageable(machine: FleetMachine): string | null {
   if (!machine.connected) return `${machine.name} isn't connected. Start agent-machine there (agent-machine start) to manage it.`;
   if (!machine.servers.enabled) {
-    return `${machine.name} doesn't let the server change its model servers, so pulling, deleting, loading and unloading are refused. Run agent-machine servers on there to allow it.`;
+    return `Changing models from here is turned off on ${machine.name}, so you can look but not pull, delete, load or unload. To turn it on, run "agent-machine servers on" in a terminal on ${machine.name}. That also lets this console start and stop its model servers. It takes effect within a minute, with no restart.`;
   }
   return null;
 }

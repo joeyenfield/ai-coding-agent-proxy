@@ -196,7 +196,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         identity = auth.request_identity(request)
         session = controllable(session_id, request)
         data = await request.json()
-        if identity is not None and any(key in data for key in ("visibility", "team", "access")):
+        if identity is not None and any(key in data for key in ("visibility", "team", "org", "access")):
             if not access.is_owner(identity, session):
                 raise HTTPException(status_code=403, detail="Only the person who started a session can change who it's shared with.")
             try:
@@ -205,7 +205,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             # People who can't see it any more stop watching its terminal now.
             runtime.terminals.drop_viewers(session.session_id, lambda viewer: access.can_view(viewer, session))
-        if data.get("ended", "visibility" not in data and "access" not in data and "team" not in data):
+        if data.get("ended", not any(key in data for key in ("visibility", "access", "team", "org"))):
             runtime.sessions.end(session, data.get("exit_status"))
         if "trace" in data:
             runtime.sessions.set_trace(session, bool(data["trace"]))
@@ -322,7 +322,8 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         The console uses it for running an agent by hand, and the client's `agent` launcher
         for every launch: the server owns the agent definitions, so it renders them. The
         launcher names its own agent-proxy (proxy_url), its copy of the CA (intercept), the
-        project folder and sharing; the console leaves them out and gets the defaults.
+        project folder, sharing, and the folder it writes the agent's files to (files_dir);
+        the console leaves them out and gets the defaults.
         """
         agent = runtime.agents().get(agent_id)
         if not agent:
@@ -355,7 +356,10 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             })
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        launch = agent.render(proxy_url, session.session_id, model, project_path or ".", intercept=intercept)
+        files_dir = str(data.get("files_dir") or "").strip() or None
+        # Agents guess the context size from the model's name (Qwen Code takes any qwen3.x for 1M); tell them the real one.
+        context_window = None if agent.intercept or not model else await _context_window(runtime, backend, model)
+        launch = agent.render(proxy_url, session.session_id, model, project_path or ".", intercept=intercept, files_dir=files_dir, context_window=context_window)
         container = settings.backends.get(backend)
         return {
             "session": described(session, request),
@@ -467,6 +471,28 @@ async def _backend_models(runtime: Runtime, name: str) -> dict[str, Any]:
         for item in state.get("models") or [] if isinstance(item, dict)
     ]
     return {**base, "online": True, "version": None, "models": models}
+
+
+async def _context_window(runtime: Runtime, backend_name: str, model: str) -> int | None:
+    """The model's context size on this backend: Ollama's num_ctx from the model profile, or what the machine reports."""
+    try:
+        backend = runtime.settings.backend(backend_name)
+    except ValueError:
+        return None
+    if backend.type == "ollama":
+        size = runtime.settings.profile(model).options.get("num_ctx")
+        return int(size) if isinstance(size, (int, float)) and size > 0 else None
+    if backend.type not in PROVIDER_TYPES:
+        return None
+    try:
+        listed = (await _backend_models(runtime, backend_name)).get("models") or []
+    except Exception:  # a launch never waits on this: without it the agent keeps its own guess
+        LOGGER.warning("Couldn't read the context size of %s on %s", model, backend_name, exc_info=True)
+        return None
+    # A Strata server runs one model whatever the agent calls it, so its only model counts too.
+    found = [item for item in listed if item.get("name") == model] or (listed if len(listed) == 1 else [])
+    size = found[0].get("context_length") if found else None
+    return int(size) if isinstance(size, (int, float)) and size > 0 else None
 
 
 def _ollama_model(item: dict[str, Any]) -> dict[str, Any]:

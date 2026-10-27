@@ -3,10 +3,12 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Identity, type SessionYou, type Sharing, type Visibility } from "../api";
 import { useAuth, useToast } from "../hooks";
 
-/** "Only you", "Team core", "Everyone in the organization", plus whether they can type. */
+/** "Only you", "Team acme/core", "Everyone in acme", plus whether they can type. */
 export function sharingText(you: SessionYou, short = false): string {
-  const { visibility, team, owner, access } = you.sharing;
-  const who = visibility === "private" ? (you.owner ? "Only you" : `Only ${owner}`) : visibility === "team" ? `Team ${team}` : short ? "Organization" : "Everyone in the organization";
+  const { visibility, team, org, owner, access } = you.sharing;
+  // Sessions shared with "org" before there were several organizations have none: everyone signed in sees them.
+  const everyone = org ? (short ? org : `Everyone in ${org}`) : short ? "Everyone" : "Everyone signed in";
+  const who = visibility === "private" ? (you.owner ? "Only you" : `Only ${owner}`) : visibility === "team" ? `Team ${team}` : everyone;
   if (visibility === "private") return who;
   return `${who}, ${access === "control" ? "can type" : "watch only"}`;
 }
@@ -29,9 +31,9 @@ export function SharingControl({ sessionId, you }: { sessionId: string; you?: Se
   const client = useQueryClient();
   const notify = useToast();
   // Shown at once, then confirmed by the next refresh (or put back if the change fails).
-  const [pending, setPending] = useState<Pick<Sharing, "visibility" | "team" | "access"> | null>(null);
+  const [pending, setPending] = useState<Pick<Sharing, "visibility" | "team" | "org" | "access"> | null>(null);
   const share = useMutation({
-    mutationFn: (sharing: Pick<Sharing, "visibility" | "team" | "access">) => api.shareSession(sessionId, sharing),
+    mutationFn: (sharing: Pick<Sharing, "visibility" | "team" | "org" | "access">) => api.shareSession(sessionId, sharing),
     onMutate: (sharing) => setPending(sharing),
     onSuccess: async () => {
       await Promise.all([
@@ -56,23 +58,19 @@ export function SharingControl({ sessionId, you }: { sessionId: string; you?: Se
       </p>
     );
   }
-  const current = you.sharing.visibility === "team" ? `team:${you.sharing.team}` : you.sharing.visibility;
+  const { visibility: shared, team: sharedTeam, org: sharedOrg } = you.sharing;
+  const current = shared === "team" ? `team:${sharedTeam}` : shared === "org" && sharedOrg ? `org:${sharedOrg}` : shared;
   const change = (value: string, access = you.sharing.access) => {
-    const [visibility, team] = value.split(":") as [Visibility, string | undefined];
-    share.mutate({ visibility, team: team ?? null, access });
+    const [visibility, target] = value.split(":") as [Visibility, string | undefined];
+    share.mutate({ visibility, team: visibility === "team" ? target ?? null : null, org: visibility === "org" ? target ?? null : null, access });
   };
   return (
     <div className="sharing-control">
       <label className="field">
         Who can see it
         <select value={current} disabled={share.isPending} onChange={(event) => change(event.target.value)}>
-          <option value="private">Only me</option>
-          {identity.teams.map((team) => (
-            <option key={team} value={`team:${team}`}>
-              Team {team}
-            </option>
-          ))}
-          <option value="org">Everyone in the organization</option>
+          <ShareOptions identity={identity} />
+          {current === "org" && <option value="org">Everyone signed in (shared before organizations)</option>}
         </select>
       </label>
       <label className="check">
@@ -84,7 +82,7 @@ export function SharingControl({ sessionId, you }: { sessionId: string; you?: Se
         />
         They can type into its terminal and end it
       </label>
-      {identity.teams.length === 0 && <small className="subtle">You aren't in a team yet; an admin adds you on Organization.</small>}
+      {identity.orgs.length === 0 && <small className="subtle">You aren't in an organization yet; an admin adds you on Organizations.</small>}
     </div>
   );
 }
@@ -92,8 +90,29 @@ export function SharingControl({ sessionId, you }: { sessionId: string; you?: Se
 /** The launcher flags for sharing a new session, for launch commands. */
 export function shareArgs(identity: Identity | null | undefined, value: string, control: boolean): string[] {
   if (!identity || value === "private") return [];
-  const [visibility, team] = value.split(":");
-  return ["--share", visibility, ...(team && identity.teams.length > 1 ? ["--team", team] : []), ...(control ? ["--let-others-type"] : [])];
+  const [visibility, target] = value.split(":");
+  // The launcher names the team, or the organization with --share org, in --team; with only one there's no need.
+  const choices = visibility === "team" ? identity.teams : identity.orgs;
+  return ["--share", visibility, ...(target && choices.length > 1 ? ["--team", target] : []), ...(control ? ["--let-others-type"] : [])];
+}
+
+/** The choices of who sees a session: only its owner, one of their teams, or one of their organizations. */
+function ShareOptions({ identity }: { identity: Identity }) {
+  return (
+    <>
+      <option value="private">Only me</option>
+      {identity.teams.map((team) => (
+        <option key={team} value={`team:${team}`}>
+          Team {team}
+        </option>
+      ))}
+      {identity.orgs.map((org) => (
+        <option key={org} value={`org:${org}`}>
+          Everyone in {org}
+        </option>
+      ))}
+    </>
+  );
 }
 
 /** Choose who sees a session you're about to start; hidden without accounts. */
@@ -105,13 +124,7 @@ export function ShareChoice({ value, control, onChange }: { value: string; contr
       <label className="field">
         Who can see this session
         <select value={value} onChange={(event) => onChange(event.target.value, control)}>
-          <option value="private">Only me</option>
-          {identity.teams.map((team) => (
-            <option key={team} value={`team:${team}`}>
-              Team {team}
-            </option>
-          ))}
-          <option value="org">Everyone in the organization</option>
+          <ShareOptions identity={identity} />
         </select>
       </label>
       <label className="check">

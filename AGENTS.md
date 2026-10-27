@@ -49,8 +49,8 @@ server/agent_server/        Python package (FastAPI)
   terminals.py              Server side of --control: TerminalHub, per-session history, terminal.log/terminal.json, viewer fan-out, attention (waiting for its user, a question read off the screen)
   remote.py                 Who may use terminals: this computer (loopback + loopback Host) or the access key; LAN addresses
   containers.py             Containers machines run for the server: spec checks against the machine's engines, keys, GPU conflicts, phases; asks machines over the fleet
-  auth.py                   Accounts: UserStore (org, teams, users, sign-ins, launcher tokens in users.json), Identity, AuthMiddleware, ADMIN_ONLY
-  access.py                 Session sharing: who can view/control a session (owner, private/team/org, view/control)
+  auth.py                   Accounts: UserStore (users, organizations and their teams, sign-ins, launcher tokens in users.json), Identity, AuthMiddleware, ADMIN_ONLY
+  access.py                 Session sharing: who can view/control a session (owner, private/team/org, view/control; teams are <org>/<team>)
   fleet.py                  The fleet: machines' connections, who sees and launches on them, launch records (machines.json in logs/), container requests (Fleet.ask)
   sessions.py telemetry.py  Session store and per-request telemetry written under logs/
   live.py                   Streams in-flight request text to the UI (/api/live, server-sent events)
@@ -72,7 +72,7 @@ server/agent_server/        Python package (FastAPI)
   routes/terminals.py       /api/remote (pairing), /api/terminals, WebSockets .../{id}/host (launcher) and .../{id}/view (console)
   routes/proxy.py           WS /api/proxy/tunnel: one account-agent connection from an agent-proxy, into InterceptProxy.serve_tunnel
   routes/containers.py      /api/containers: create on a machine, edit, delete, start/stop/restart (switch), logs; trusted devices, the machine's owner for changes
-  routes/auth.py            /api/auth/* (sign-in, tokens, password) and /api/org/* (teams, users)
+  routes/auth.py            /api/auth/* (sign-in, tokens, password), /api/orgs/* (organizations, their teams) and /api/users/*
 server/tests/               pytest; one file per area (test_proxy, test_units, test_intercept, test_providers, test_strata, test_model_runner, test_terminals, test_containers, test_auth)
   test_client.py            Builds ../client and runs it against a real agent-server: the contract between the two (skipped without Go)
   fake_docker.py            A stand-in docker CLI (state in a JSON file), run by the real client in test_client.py and its Go tests
@@ -106,7 +106,7 @@ ui/src/                     THE CONSOLE: React 19 + TypeScript + Vite + TanStack
                             Shared queries, theme, toasts, clipboard; live SSE; traffic classification; formatting
   pages/                    One file per page; Machine.tsx (a machine and its model servers), Downloads.tsx (/get, public),
                             Terminals.tsx (list, pairing), Terminal.tsx (xterm.js viewer, lazy-loaded), Pair.tsx (/pair#key),
-                            Login.tsx (shown instead of the console until signed in), Organization.tsx (account, tokens, teams, users)
+                            Login.tsx (shown instead of the console until signed in), Organization.tsx (account, tokens, organizations, users)
   components/               Shared pieces (Tabs, CodeLine, ConfirmDialog, ModelSearch/usePull, AddBackendForm, ProviderState, PartTag, LogPanel, ...)
   styles.css                The only stylesheet: CSS variables, light and dark themes, no CSS framework
 config/                     backends.yaml, models.yaml, agents.yaml
@@ -144,7 +144,7 @@ docker compose up -d                     # the server in Docker (server/Dockerfi
 agent proxy                              # this machine's agent-proxy in the foreground (the launcher otherwise starts it in the background)
 ./scripts/dev.sh  |  .\scripts\dev.ps1   # API with reload + Vite on :5173 (proxies /api and /health to :9999)
 agent --list                             # the server's agents, whether they're installed here, and agent-proxy's server and sign-in
-agent-server user add joey --team core   # first user = admin; from then on everyone signs in (also: user|team|org)
+agent-server user add joey --org pockets  # first user = admin; from then on everyone signs in (also: org|team|user)
 agent login http://server:9999           # signs this machine's agent-proxy in to a server, once (agent logout)
 agent qwen . --model qwen3.6:35b --trace  # launch an agent through agent-proxy (--backend picks one, --control shares its terminal)
 ```
@@ -169,7 +169,7 @@ The one pytest warning (Starlette's httpx deprecation in `TestClient`) is expect
 
 - `config/backends.yaml`: the server's address (`proxy.url` is also the `agent-proxy`'s server before `agent login`), `public_url`, `default_backend`, the backends (`type`, `url`, `machine`, `container`) and HTTPS capture (`intercept`; `listen_port` only to accept agents directly). **Saving from the console's Settings page (`PUT /api/config`) rewrites this file with `yaml.safe_dump`, so its comments are lost.** Make comment edits by hand, and expect them to go if someone saves from the UI.
 - `config/models.yaml`: Ollama-only tuning, applied in layers: `defaults`, then the first matching `profiles` entry (shell pattern on the Ollama model name), then the exact alias under `models`. Values a client sends explicitly win. `Settings.profile()` implements it.
-- `config/agents.yaml`: every agent. Supporting a new agent is usually just a new entry (see the comment block at the top of the file for placeholders, `protocol`, `backend_type`, `intercept`).
+- `config/agents.yaml`: every agent. Supporting a new agent is usually just a new entry (see the comment block at the top of the file for placeholders, `protocol`, `backend_type`, `intercept`, `files`). `files` are rendered by the server and written by the launcher into the `files_dir` it sends (`~/.cache/agent-proxy/sessions/<random>/`, removed when the agent exits); a template whose placeholder has no value for the session is left out (`agents._render`).
 - Ollama's `OLLAMA_*` settings are the machine's: agent-machine keeps them in `ollama.json` in its folder and applies them when it starts Ollama. The server has no Ollama config.
 - The repo root is found via `AI_PROXY_HOME`, or else the first directory up from the package or the cwd that has `config/backends.yaml`. Environment overrides: `AI_PROXY_HOST`, `AI_PROXY_PORT`, `AI_PROXY_URL`, `AI_PROXY_BACKENDS`, `AI_PROXY_MODELS`, `AI_PROXY_AGENTS`, `AI_PROXY_LOG_DIR`, `AI_PROXY_UI_DIR`, `AI_PROXY_DIST_DIR`, `AI_PROXY_VERSION`, `AI_PROXY_DEFAULT_BACKEND`, `AI_PROXY_INTERCEPT=0`, `AI_PROXY_INTERCEPT_HOST`, `AI_PROXY_INTERCEPT_PORT`, `AI_PROXY_CA_DIR`, `AI_PROXY_LIVE=0` (stop streaming request text to the UI), `AI_PROXY_UI_BUILD=0`. On agent machines: `AI_PROXY_LOCAL_PORT`, `AI_PROXY_LOCAL_INTERCEPT_PORT`, `AI_PROXY_CONTROL=1`, `AI_PROXY_CREDENTIALS`, `AI_PROXY_TOKEN`.
 - Secrets never go in `config/`. Strata's key is read by the machine from Strata's own profile and sent in its hello (`api_key` on the provider; the server keeps it in `Machine.keys`, never in machines.json or the console), or comes from `STRATA_API_KEY` on the server. `certs/` holds the intercept CA's private key.
@@ -249,7 +249,7 @@ The one pytest warning (Starlette's httpx deprecation in `TestClient`) is expect
 
 - All HTTP calls and their response types live in `ui/src/api.ts`, as `api.<name>` methods or exported helpers. Keep the types in step with the Python response shapes.
 - Data comes from TanStack Query. Query keys are short arrays (`["docker"]`, `["docker", name]`, `["models"]`, `["agents"]`). After a mutation, invalidate the affected keys. Common queries are in `hooks.tsx` (`useStatus`, `useModels`, `useAgents`, ...).
-- The console has three parts, defined once in `navigation.ts`: Agents (Start an agent, Running agents), Server (Live, Traffic, Requests, Sessions, Server settings, Organization, Downloads), Machines (All machines, then each machine, listed by App.tsx from `/api/machines`).
+- The console has three parts, defined once in `navigation.ts`: Agents (Start an agent, Running agents), Server (Live, Traffic, Requests, Sessions, Server settings, Organizations, Downloads), Machines (All machines, then each machine, listed by App.tsx from `/api/machines`).
   - **Everything about a model server is on its machine's page**, `pages/Machine.tsx` at `/machines/:id/:section`: Overview, one section per model server (`ollama-11434`, from `machineProviders()` in `api.ts`: what the machine reports plus its backends), `ollama` (the installed Ollama's settings), `containers`, `load`. The views are per model server and take a `ProviderRef`: `OllamaProvider` (Models.tsx), `StrataProvider` (Strata.tsx), `DockerProvider` (Docker.tsx), `MachineOllama` (OllamaServer.tsx), `MachineContainers` (Containers.tsx), `MachineLoad` (Hosts.tsx). Don't add global pages for providers; the old addresses (`/models`, `/strata`, ...) redirect to `/machines`.
   - A model server that isn't a backend yet is managed the same way, with **Add as a provider** (admins) at its top. Say so in UI text: local providers come from machines, hosted APIs are the exception (Server settings adds those).
   - **Downloads** (`/get`) is public: App.tsx renders it without the console when signed out, and the sign-in page and the rail link to it. The SPA must not use paths under `/downloads/` or `/android`: the server serves files there.
