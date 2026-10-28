@@ -7,6 +7,7 @@ import os
 import time
 import uuid
 from collections import deque
+from http.cookiejar import CookieJar, DefaultCookiePolicy
 from functools import cached_property
 from typing import Any
 
@@ -31,6 +32,13 @@ from .terminals import TerminalHub
 
 
 LOGGER = logging.getLogger("agent-proxy")
+
+
+def upstream_client(**options: Any) -> httpx.AsyncClient:
+    """The HTTP client every forwarded request uses (Runtime.client). It keeps no cookies: it carries
+    every user's traffic, so a cookie one agent's service set (a sign-in, say) must never go out with
+    another's request. Each request takes only the cookies its own agent sent."""
+    return httpx.AsyncClient(cookies=CookieJar(policy=DefaultCookiePolicy(allowed_domains=[])), **options)
 
 
 class Runtime:

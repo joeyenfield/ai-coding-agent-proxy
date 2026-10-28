@@ -23,7 +23,7 @@ from .config import Settings
 from .downloads import Downloads
 from .intercept import InterceptProxy
 from .routes import auth, compat, containers, machines, management, mcp, proxy, terminals
-from .runtime import LOGGER, Runtime
+from .runtime import LOGGER, Runtime, upstream_client
 from .ui_build import ensure_built
 
 
@@ -47,7 +47,7 @@ def create_app(settings: Settings | None = None, restart: Any = None, address_pi
     async def lifespan(_: FastAPI):
         settings.log_dir.joinpath("proxy").mkdir(parents=True, exist_ok=True)
         _configure_logging(settings.log_dir / "proxy" / "proxy.log")
-        runtime.client = httpx.AsyncClient(timeout=httpx.Timeout(600, connect=10))
+        runtime.client = upstream_client(timeout=httpx.Timeout(600, connect=10))
         LOGGER.info("proxy started instance=%s", runtime.proxy_instance_id)
         if settings.intercept.enabled:
             runtime.intercept = InterceptProxy(runtime)
