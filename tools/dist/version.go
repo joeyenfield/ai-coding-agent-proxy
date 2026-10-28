@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -40,6 +41,26 @@ func BuildVersion(root string) string {
 		version += ".dirty"
 	}
 	return version
+}
+
+// PackageRelease is the package release for a build of version: the commits since its
+// tag plus one, so each untagged build (X.Y.Z+<commit>) is newer to apt and dnf than the
+// tagged X.Y.Z and the builds before it. A tagged build, a version git can't place, or a
+// VERSION whose tag doesn't exist yet is release 1.
+func PackageRelease(root, version string) int {
+	number, release := PackageVersion(version)
+	if !strings.Contains(version, "+") {
+		return release
+	}
+	count, ok := git(root, "rev-list", "--count", "v"+number+"..HEAD")
+	if !ok {
+		return 1
+	}
+	commits, err := strconv.Atoi(count)
+	if err != nil {
+		return 1
+	}
+	return commits + 1
 }
 
 // CleanExcludes are left out when deciding a checkout is dirty: config/ is the running

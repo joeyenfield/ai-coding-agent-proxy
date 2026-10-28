@@ -52,3 +52,45 @@ func TestTheServersOwnConfigDoesntMakeABuildDirty(t *testing.T) {
 		t.Fatalf("with code changed: %s", got)
 	}
 }
+
+// Untagged builds are X.Y.Z+<commit>, which says nothing about order, so packages count
+// the commits since the tag: each build must be newer to apt and dnf than the one before.
+func TestUntaggedBuildsGetARisingPackageRelease(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git isn't installed")
+	}
+	t.Setenv("AI_PROXY_VERSION", "")
+	root := t.TempDir()
+	run := func(args ...string) {
+		cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...)
+		cmd.Dir = root
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, output)
+		}
+	}
+	commit := func(text string) {
+		if err := os.WriteFile(filepath.Join(root, "app.go"), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		run("add", ".")
+		run("commit", "-q", "-m", text)
+	}
+	if err := os.WriteFile(filepath.Join(root, "VERSION"), []byte("1.4.2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("init", "-q")
+	commit("package app\n")
+	run("tag", "v1.4.2")
+	if got := PackageRelease(root, BuildVersion(root)); got != 1 {
+		t.Fatalf("tagged: release %d", got)
+	}
+	commit("package app // 1\n")
+	commit("package app // 2\n")
+	if got := PackageRelease(root, BuildVersion(root)); got != 3 {
+		t.Fatalf("two commits after the tag: release %d", got)
+	}
+	// VERSION moved on before its tag exists: the new numbers already sort higher.
+	if got := PackageRelease(root, "1.5.0+abc1234"); got != 1 {
+		t.Fatalf("no tag yet: release %d", got)
+	}
+}

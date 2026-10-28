@@ -143,6 +143,7 @@ func run(root, out, version string, targets []string, components []Component, na
 	// Every file the folder holds, for SHA256SUMS: the server offers exactly these.
 	var handed []string
 	skipped := map[string]bool{}
+	packageRelease := PackageRelease(root, version)
 	for _, target := range targets {
 		goos, goarch, ok := strings.Cut(target, "/")
 		if !ok {
@@ -178,7 +179,7 @@ func run(root, out, version string, targets []string, components []Component, na
 			}
 			handed = append(handed, folder+"/"+archive)
 			if native {
-				built, err := packages(dir, artifacts, folder, version, goos, goarch, component, names, skipped)
+				built, err := packages(dir, artifacts, folder, version, packageRelease, goos, goarch, component, names, skipped)
 				if err != nil {
 					return fmt.Errorf("packages of %s for %s: %w", component.Name, target, err)
 				}

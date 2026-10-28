@@ -53,7 +53,7 @@ WantedBy=default.target
 type Package struct {
 	Name, Summary, Description string
 	Version                    string // numeric, 1.2.3
-	Release                    int    // commits since that tag, plus one
+	Release                    int    // commits since the X.Y.Z tag, plus one (PackageRelease)
 	Describe                   string // the build's own version, for the description
 	GoArch                     string
 	Files                      []PackageFile
@@ -69,8 +69,10 @@ type PackageFile struct {
 
 var describeVersion = regexp.MustCompile(`^v?(\d+)\.(\d+)\.(\d+)(?:-(\d+)-g[0-9a-f]+)?`)
 
-// PackageVersion turns git describe's version into what package managers accept: the
-// tag's numbers, and the commits since it as the release. Without a tag it's 0.0.0.
+// PackageVersion turns a build's version into what package managers accept: the X.Y.Z
+// numbers, and a release from git describe's commit count when the version is in that
+// older form (v1.2.0-3-gabc), else 1. Builds named X.Y.Z+<commit> take their release
+// from the checkout instead (PackageRelease). Without numbers it's 0.0.0.
 func PackageVersion(version string) (string, int) {
 	match := describeVersion.FindStringSubmatch(version)
 	if match == nil {
@@ -95,12 +97,12 @@ var LinuxFormats = []struct{ Format, Extension string }{
 
 // packages builds every native package for one component and target into dir, from the
 // binaries in artifacts, and returns their names. Formats whose tool is missing are
-// skipped, said once each.
-func packages(dir, artifacts, folder, version, goos, goarch string, component Component, names []string, skipped map[string]bool) ([]string, error) {
+// skipped, said once each. release is the Linux packages' release (PackageRelease).
+func packages(dir, artifacts, folder, version string, release int, goos, goarch string, component Component, names []string, skipped map[string]bool) ([]string, error) {
 	base := fmt.Sprintf("%s-%s-%s", component.Name, version, folder)
 	switch goos {
 	case "linux":
-		pkg, err := linuxPackage(artifacts, version, goarch, component, names)
+		pkg, err := linuxPackage(artifacts, version, release, goarch, component, names)
 		if err != nil {
 			return nil, err
 		}
@@ -141,8 +143,8 @@ func packages(dir, artifacts, folder, version, goos, goarch string, component Co
 	return nil, nil
 }
 
-func linuxPackage(artifacts, version, goarch string, component Component, names []string) (*Package, error) {
-	number, release := PackageVersion(version)
+func linuxPackage(artifacts, version string, release int, goarch string, component Component, names []string) (*Package, error) {
+	number, _ := PackageVersion(version)
 	pkg := &Package{
 		Name: component.Package, Summary: component.Summary, Version: number, Release: release, Describe: version,
 		GoArch: goarch, Built: time.Now().Truncate(time.Second),
