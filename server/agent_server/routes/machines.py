@@ -27,7 +27,9 @@ from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconn
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
 from .. import auth, remote
-from ..fleet import PROVIDER_TYPES, FleetError, can_launch, can_see, can_update, normal_url, parse_provider, provider_request, within_roots
+from ..fleet import (
+    FEATURES, PROVIDER_TYPES, FleetError, allowed, can_manage, can_see, checked_access, normal_url, parse_provider, provider_request, within_roots,
+)
 from ..fleet import provider_id as fleet_provider_id
 from ..runtime import Runtime
 from .terminals import CLOSE_UNAUTHORIZED
@@ -119,7 +121,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         identity = auth.request_identity(request)
         listed = [machine for machine in fleet.machines.values() if can_see(identity, machine)]
         listed.sort(key=lambda machine: (not fleet.connected(machine.id), machine.name.lower()))
-        return {"machines": [described(machine, request) for machine in listed]}
+        return {"machines": [described(machine, request) for machine in listed], "removed": fleet.removed_for(identity), "features": FEATURES}
 
     @app.get("/api/machines/{machine_id}")
     async def machine(machine_id: str, request: Request) -> dict[str, Any]:
@@ -142,7 +144,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         if agent.needs_model and not str(data.get("model") or "").strip():
             raise HTTPException(status_code=400, detail=f"{agent.name} needs a model")
         try:
-            return await fleet.launch(target, auth.request_identity(request), data)
+            return started(await fleet.launch(target, auth.request_identity(request), data), request)
         except FleetError as exc:
             raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
 
@@ -157,9 +159,36 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         if not isinstance(data, dict):
             raise HTTPException(status_code=400, detail="Send a JSON object")
         try:
-            return await fleet.shell(target, auth.request_identity(request), data)
+            return started(await fleet.shell(target, auth.request_identity(request), data), request)
         except FleetError as exc:
             raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+
+    def started(record: dict[str, Any], request: Request) -> dict[str, Any]:
+        """A launch or shell runs under the machine's own sign-in, its owner's: when someone it lets in started
+        it, their name goes on the session too, so they can watch and use what they started (access.py)."""
+        identity = auth.request_identity(request)
+        session = runtime.sessions.get(str(record.get("session_id") or ""))
+        if identity is not None and session is not None and session.tags.get("owner") != identity.user:
+            runtime.sessions.update_tags(session, {"launched_by": identity.user})
+        return record
+
+    @app.put("/api/machines/{machine_id}/access")
+    async def set_access(machine_id: str, request: Request) -> dict[str, Any]:
+        """Which organizations and teams may use each of the machine's features (its owner, or an admin)."""
+        require_trusted(request)
+        if not remote.same_origin(request):
+            raise HTTPException(status_code=403, detail="Change who can use machines from the console's own page.")
+        target = visible(machine_id, request)
+        identity = auth.request_identity(request)
+        if not can_manage(identity, target):
+            raise HTTPException(status_code=403, detail="Only the machine's owner or an admin can change who can use it.")
+        data = await request.json()
+        try:
+            target.access = checked_access(identity, (data or {}).get("access") if isinstance(data, dict) else None, runtime.auth.store if runtime.auth.enabled else None)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        fleet._save()
+        return described(target, request)
 
     @app.post("/api/machines/{machine_id}/update")
     async def update(machine_id: str, request: Request) -> dict[str, Any]:
@@ -168,8 +197,8 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         if not remote.same_origin(request):
             raise HTTPException(status_code=403, detail="Update machines from the console's own page.")
         target = visible(machine_id, request)
-        if not can_update(auth.request_identity(request), target):
-            raise HTTPException(status_code=403, detail="Only the machine's owner or an admin can update it.")
+        if not allowed(auth.request_identity(request), target, "update"):
+            raise HTTPException(status_code=403, detail="Only the machine's owner, an admin, or the teams it lets can update it.")
         data = await request.json()
         if not isinstance(data, dict):
             raise HTTPException(status_code=400, detail="Send a JSON object")
@@ -181,9 +210,10 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         """The folders inside one of the machine's launch folders, as the machine lists them; its roots without a path."""
         require_trusted(request)
         target = visible(machine_id, request)
-        # Who can start programs there may look at its folders, and only inside the launch folders.
-        if not can_launch(auth.request_identity(request), target):
-            raise HTTPException(status_code=403, detail="Only the machine's owner can browse its folders.")
+        # Who can start agents or terminals there may look at its folders, and only inside the launch folders.
+        identity = auth.request_identity(request)
+        if not (allowed(identity, target, "launch") or allowed(identity, target, "terminal")):
+            raise HTTPException(status_code=403, detail="Only who can start agents on this machine can browse its folders.")
         if path and not within_roots(path, target.roots):
             raise HTTPException(status_code=400, detail="That folder isn't inside one of the machine's launch folders.")
         if not path:
@@ -274,6 +304,8 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         if not remote.same_origin(request):
             raise HTTPException(status_code=403, detail="Change models from the console's own page.")
         target = visible(machine_id, request)
+        if not allowed(auth.request_identity(request), target, "models"):
+            raise HTTPException(status_code=403, detail="Only the machine's owner, an admin, or the teams it lets can change its models.")
         kind, port, backend = provider(target, provider_id)
         if action not in MODEL_ACTIONS or (kind == "strata" and action not in {"load", "unload"}):
             raise HTTPException(status_code=404, detail="Pull, delete, load or unload a model (Strata: load or unload)")
@@ -339,8 +371,8 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         if not remote.same_origin(request):
             raise HTTPException(status_code=403, detail="Change model servers from the console's own page.")
         target = visible(machine_id, request)
-        if not can_launch(auth.request_identity(request), target):
-            raise HTTPException(status_code=403, detail="Only the machine's owner can change its Ollama settings.")
+        if not allowed(auth.request_identity(request), target, "servers"):
+            raise HTTPException(status_code=403, detail="Only the machine's owner, or the teams it lets, can change its Ollama settings.")
         data = await request.json()
         if not isinstance(data, dict):
             raise HTTPException(status_code=400, detail="Send the settings as a JSON object")
@@ -356,8 +388,8 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         target = visible(machine_id, request)
         if kind not in {"ollama", "strata"} or action not in {"start", "stop", "restart"} or (kind == "strata" and action == "restart"):
             raise HTTPException(status_code=404, detail="Start, stop or restart ollama, or start or stop a strata profile")
-        if not can_launch(auth.request_identity(request), target):
-            raise HTTPException(status_code=403, detail="Only the machine's owner can start or stop its model servers.")
+        if not allowed(auth.request_identity(request), target, "servers"):
+            raise HTTPException(status_code=403, detail="Only the machine's owner, or the teams it lets, can start or stop its model servers.")
         fields: dict[str, Any] = {"kind": kind}
         if kind == "strata":
             data = await request.json() if request.headers.get("content-length") not in (None, "0") else {}
@@ -378,17 +410,31 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         return {"servers": target.servers}
 
     @app.delete("/api/machines/{machine_id}")
-    async def forget(machine_id: str, request: Request) -> dict[str, Any]:
+    async def remove(machine_id: str, request: Request) -> dict[str, Any]:
+        """Take the machine out of the fleet, connected or not; it's refused if it connects again until allowed back."""
         require_trusted(request)
+        if not remote.same_origin(request):
+            raise HTTPException(status_code=403, detail="Remove machines from the console's own page.")
         target = visible(machine_id, request)
-        identity = auth.request_identity(request)
-        if identity is not None and not (identity.admin or target.owner == identity.user):
+        if not can_manage(auth.request_identity(request), target):
             raise HTTPException(status_code=403, detail="Only its owner or an admin can remove a machine")
         try:
-            fleet.forget(machine_id)
+            await fleet.remove(machine_id, auth.request_identity(request))
         except FleetError as exc:
             raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
-        return {"forgotten": machine_id}
+        return {"removed": machine_id}
+
+    @app.post("/api/machines/{machine_id}/restore")
+    async def restore(machine_id: str, request: Request) -> dict[str, Any]:
+        """Let a removed machine join again: its owner or an admin."""
+        require_trusted(request)
+        if not remote.same_origin(request):
+            raise HTTPException(status_code=403, detail="Allow machines back from the console's own page.")
+        identity = auth.request_identity(request)
+        if machine_id not in {item["id"] for item in fleet.removed_for(identity)}:
+            raise HTTPException(status_code=404, detail="No removed machine of yours with that id")
+        fleet.restore(machine_id)
+        return {"restored": machine_id}
 
 
 def _ndjson(value: dict[str, Any]) -> bytes:

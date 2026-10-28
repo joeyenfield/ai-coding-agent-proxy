@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 from agent_server.app import create_app
 from agent_server.config import Backend
 from agent_server.fleet import FleetError, within_roots
-from test_auth import BASE, HOST, org_settings, signed_in, ws_headers
+from test_auth import BASE, HOST, ids, org_settings, signed_in, ws_headers
 
 
 ROOT = "C:\\work"
@@ -55,7 +55,7 @@ def test_machines_are_seen_by_their_owner_and_admins_only(tmp_path):
     with alice, bob, dave, machine(alice):
         [listed] = alice.get("/api/machines").json()["machines"]
         assert listed["connected"] and listed["owner"] == "alice" and listed["agents"] == ["qwen", "claude-account"]
-        assert listed["you"] == {"owner": True, "launch": True, "update": True}
+        assert listed["you"] == {"owner": True, "manage": True, "view": True, "launch": True, "terminal": True, "models": True, "servers": True, "update": True}
         # The machine's address as the server sees it, for its model servers.
         assert listed["providers"][0]["url"].endswith(":11434") and listed["providers"][0]["backend"] is None
         assert bob.get("/api/machines").json()["machines"] == []
@@ -371,7 +371,7 @@ def test_the_owner_or_an_admin_updates_a_machine_that_takes_updates(tmp_path):
     with alice, bob, dave, machine(alice, hello(updates=True)) as socket:
         assert alice.get("/api/machines/m1").json()["updates"] is True
         # An admin may (it's only ever the server's own build); another user can't even see it.
-        assert dave.get("/api/machines/m1").json()["you"] == {"owner": False, "launch": False, "update": True}
+        assert dave.get("/api/machines/m1").json()["you"] == {"owner": False, "manage": True, "view": True, "launch": False, "terminal": False, "models": True, "servers": False, "update": True}
         assert bob.post("/api/machines/m1/update", json={}).status_code == 404
         assert alice.post("/api/machines/m1/update", json={}, headers={"origin": "http://evil.example"}).status_code == 403
         # The round trip from the owner's client: each test client runs the app on its own loop, and the socket is alice's.
@@ -384,3 +384,84 @@ def test_the_owner_or_an_admin_updates_a_machine_that_takes_updates(tmp_path):
         thread.join(timeout=10)
         assert answer["response"].status_code == 200, answer["response"].text
         assert answer["response"].json() == {"updating": True, "from": "1.0", "to": "1.1", "message": None}
+
+
+def test_the_owner_lets_teams_use_each_feature_of_a_machine(tmp_path):
+    app = create_app(org_settings(tmp_path))
+    alice, bob, carol, frank = (signed_in(app, name) for name in ("alice", "bob", "carol", "frank"))
+    with alice, bob, carol, frank, machine(alice, hello(commands=True)) as socket:
+        # Nobody else sees it until it's shared.
+        assert bob.get("/api/machines").json()["machines"] == []
+        # Carol's team may start agents; everyone in acme may see it.
+        saved = alice.put("/api/machines/m1/access", json={"access": {"launch": {"teams": ["acme/ops"]}, "view": {"orgs": ["acme"]}}})
+        assert saved.status_code == 400 and "aren't in the team acme/ops" in saved.json()["detail"]
+        saved = alice.put("/api/machines/m1/access", json={"access": {"launch": {"teams": ["acme/core"]}, "view": {"orgs": ["acme"]}, "terminal": {}}})
+        assert saved.status_code == 200, saved.text
+        assert saved.json()["access"] == {"launch": {"orgs": [], "teams": ["acme/core"]}, "view": {"orgs": ["acme"], "teams": []}}
+        assert alice.put("/api/machines/m1/access", json={"access": {"launch": {"teams": ["acme/nope"]}}}).status_code == 400
+        assert alice.put("/api/machines/m1/access", json={"access": {"rm-rf": {"orgs": ["acme"]}}}).status_code == 400
+        # Bob (acme/core) may start agents; Carol (acme/ops, so acme) may only look; Frank (globex) sees nothing.
+        assert bob.get("/api/machines/m1").json()["you"]["launch"] is True
+        seen = carol.get("/api/machines/m1").json()
+        assert seen["you"]["launch"] is False and seen["you"]["view"] is True and seen["access"] == {}
+        assert frank.get("/api/machines/m1").status_code == 404
+        assert carol.post("/api/machines/m1/launch", json={"agent": "qwen", "project": ROOT, "model": "m"}).status_code == 403
+        assert bob.post("/api/machines/m1/shell", json={"project": ROOT}).status_code == 403
+        # Only the owner (or an admin) changes who can use it.
+        assert bob.put("/api/machines/m1/access", json={"access": {}}).status_code == 403
+        # Bob's launch runs under the machine's sign-in (alice's), so the session it opens is hers; he gets it too.
+        # (His request goes through alice's test client with his cookie: each client runs the app on its own
+        # loop, and the machine's socket is on hers.)
+        session = app.state.runtime.sessions.create({"client": "qwen", "backend": "test", "tags": {"owner": "alice"}})
+        assert session.session_id not in ids(bob)
+        as_bob = {"cookie": f"ai_proxy_session={bob.cookies.get('ai_proxy_session')}"}
+        alice.cookies.clear()
+        answer: dict = {}
+        thread = threading.Thread(target=lambda: answer.update(response=alice.post("/api/machines/m1/launch", json={"agent": "qwen", "project": ROOT, "model": "m"}, headers=as_bob)))
+        thread.start()
+        request = json.loads(socket.receive_text())
+        socket.send_text(json.dumps({"type": "launched", "launch": request["launch"], "session_id": session.session_id}))
+        thread.join(timeout=10)
+        assert answer["response"].status_code == 201, answer["response"].text
+        assert answer["response"].json()["by"] == "bob" and session.tags["launched_by"] == "bob"
+        assert session.session_id in ids(bob)
+        assert bob.patch(f"/api/sessions/{session.session_id}", json={"ended": True}).status_code == 200
+        # A client can't claim a session that way itself.
+        from agent_server import access
+        assert "launched_by" not in access.client_tags({"launched_by": "bob", "x": 1})
+
+
+def test_an_admin_grants_any_team_but_starts_nothing_without_a_grant(tmp_path):
+    app = create_app(org_settings(tmp_path))
+    alice, dave, frank = signed_in(app, "alice"), signed_in(app, "dave"), signed_in(app, "frank")
+    with alice, dave, frank, machine(alice):
+        assert dave.get("/api/machines/m1").json()["you"]["launch"] is False
+        saved = dave.put("/api/machines/m1/access", json={"access": {"models": {"orgs": ["globex"]}}})
+        assert saved.status_code == 200, saved.text
+        assert frank.get("/api/machines/m1").json()["you"]["models"] is True
+        assert frank.post("/api/machines/m1/servers/ollama/start").status_code == 403
+
+
+def test_a_removed_machine_is_disconnected_and_refused_until_allowed_back(tmp_path):
+    app = create_app(org_settings(tmp_path))
+    alice, bob = signed_in(app, "alice"), signed_in(app, "bob")
+    with alice, bob:
+        with machine(alice) as socket:
+            assert bob.delete("/api/machines/m1").status_code == 404
+            assert alice.delete("/api/machines/m1", headers={"origin": "http://evil.example"}).status_code == 403
+            assert alice.delete("/api/machines/m1").status_code == 200
+            # Its connection is closed, connected or not.
+            with pytest.raises(Exception) as closed:
+                socket.receive_text()
+            assert getattr(closed.value, "code", None) == 4403
+        listed = alice.get("/api/machines").json()
+        assert listed["machines"] == [] and [item["id"] for item in listed["removed"]] == ["m1"]
+        assert bob.get("/api/machines").json()["removed"] == []
+        # It can't come back by itself.
+        with pytest.raises(Exception), alice.websocket_connect("/api/machines/connect", headers=ws_headers(alice)) as again:
+            again.send_text(json.dumps(hello()))
+            again.receive_text()
+        assert bob.post("/api/machines/m1/restore").status_code == 404
+        assert alice.post("/api/machines/m1/restore").status_code == 200
+        with machine(alice):
+            assert alice.get("/api/machines").json()["machines"][0]["id"] == "m1"

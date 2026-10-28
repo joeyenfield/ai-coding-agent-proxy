@@ -77,6 +77,9 @@ class Machine:
     commands: bool = False
     # Whether the server may update its programs to the server's own build (agent-machine updates on).
     updates: bool = False
+    # Who else may use each feature (FEATURES): {"launch": {"orgs": [...], "teams": ["org/team", ...]}}.
+    # Its owner may use them all; the machine's own switches (launches on, ...) still apply on top.
+    access: dict[str, dict[str, list[str]]] = field(default_factory=dict)
     # Whether the agent command launches run is installed there; None from a machine that doesn't say.
     launcher: bool | None = None
     # The protocol level its agent-machine speaks (version.py); 0 from one too old to say.
@@ -102,20 +105,87 @@ class FleetError(Exception):
         self.detail = detail
 
 
-def can_see(identity: Identity | None, machine: Machine) -> bool:
-    """Its owner and admins see a machine; without accounts, everyone does."""
-    return identity is None or identity.admin or machine.owner == identity.user
+# What a machine's owner can let organizations and teams do there, in the order the console lists them.
+FEATURES: dict[str, str] = {
+    "view": "See it: its model servers, their models and logs, its load and the agents running there",
+    "launch": "Start agents there, and browse its launch folders",
+    "terminal": "Open terminals there: a shell as the user agent-machine runs as",
+    "models": "Pull, delete, load and unload models on its model servers",
+    "servers": "Start, stop and configure the Ollama and Strata installed there",
+    "update": "Update agent-machine and agent there to this server's build",
+}
+# What admins may do on any machine without a grant, as before machines had grants. Starting
+# programs there (agents, terminals) stays the owner's: private means private.
+ADMIN_FEATURES = frozenset({"view", "models", "update"})
 
 
-def can_launch(identity: Identity | None, machine: Machine) -> bool:
-    """Only the owner starts programs on a machine: admins included, private means private."""
+def owns(identity: Identity | None, machine: Machine) -> bool:
+    """Its owner; without accounts, everyone."""
     return identity is None or machine.owner == identity.user
 
 
+def granted(identity: Identity, machine: Machine, feature: str) -> bool:
+    grant = machine.access.get(feature) or {}
+    return bool(set(grant.get("orgs") or []) & set(identity.orgs) or set(grant.get("teams") or []) & set(identity.teams))
+
+
+def allowed(identity: Identity | None, machine: Machine, feature: str) -> bool:
+    """Whether identity may use one of the machine's features: its owner always, admins the ADMIN_FEATURES,
+    and the organizations and teams the owner granted it. Any grant includes seeing the machine."""
+    if owns(identity, machine):
+        return True
+    assert identity is not None
+    if identity.admin and feature in ADMIN_FEATURES:
+        return True
+    if feature == "view":
+        return any(granted(identity, machine, name) for name in FEATURES)
+    return granted(identity, machine, feature)
+
+
+def can_manage(identity: Identity | None, machine: Machine) -> bool:
+    """Who sets a machine's grants: its owner, or an admin (who may grant any organization or team)."""
+    return owns(identity, machine) or bool(identity and identity.admin)
+
+
+def can_see(identity: Identity | None, machine: Machine) -> bool:
+    return allowed(identity, machine, "view")
+
+
+def can_launch(identity: Identity | None, machine: Machine) -> bool:
+    return allowed(identity, machine, "launch")
+
+
 def can_update(identity: Identity | None, machine: Machine) -> bool:
-    """The owner and admins may update a machine's programs: only ever to the server's own build, and only once
-    the machine allows it (agent-machine updates on)."""
-    return identity is None or identity.admin or machine.owner == identity.user
+    return allowed(identity, machine, "update")
+
+
+def checked_access(identity: Identity | None, requested: Any, store: Any) -> dict[str, dict[str, list[str]]]:
+    """A machine's grants as asked for, checked: known features, organizations and teams that exist, and
+    (unless an admin asks) only ones the asker is in, as with sharing a session. Raises ValueError."""
+    if not isinstance(requested, dict):
+        raise ValueError("Send the grants as {feature: {orgs: [...], teams: [...]}}")
+    access: dict[str, dict[str, list[str]]] = {}
+    for feature, grant in requested.items():
+        if feature not in FEATURES:
+            raise ValueError(f"No feature {feature}: one of {', '.join(FEATURES)}")
+        grant = grant if isinstance(grant, dict) else {}
+        orgs = sorted({str(item) for item in grant.get("orgs") or []})
+        teams = sorted({str(item) for item in grant.get("teams") or []})
+        for org in orgs:
+            if store is not None and store.org(org) is None:
+                raise ValueError(f"No organization {org}")
+            if identity is not None and not identity.admin and org not in identity.orgs:
+                raise ValueError(f"You aren't in the organization {org}")
+        for team in teams:
+            org, _, name = team.partition("/")
+            known = store.org(org) if store is not None else None
+            if store is not None and (known is None or not any(item["id"] == name for item in known["teams"])):
+                raise ValueError(f"No team {team} (name it as <organization>/<team>)")
+            if identity is not None and not identity.admin and team not in identity.teams:
+                raise ValueError(f"You aren't in the team {team}")
+        if orgs or teams:
+            access[feature] = {"orgs": orgs, "teams": teams}
+    return access
 
 
 def within_roots(project: str, roots: list[str]) -> bool:
@@ -148,6 +218,8 @@ class Fleet:
         self._asked: dict[str, str] = {}
         # Progress of streamed requests (pulls), by request id.
         self._progress: dict[str, asyncio.Queue[dict[str, Any]]] = {}
+        # Machines removed from the server, by id: refused when they connect until allowed back.
+        self.removed: dict[str, dict[str, Any]] = {}
         self._load()
 
     # Storage
@@ -163,11 +235,15 @@ class Fleet:
             except TypeError:
                 continue
             self.machines[machine.id] = machine
+        removed = data.get("removed") if isinstance(data, dict) else None
+        if isinstance(removed, dict):
+            self.removed = {str(key): value for key, value in removed.items() if isinstance(value, dict)}
 
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.path.with_suffix(".tmp")
-        temporary.write_text(json.dumps({"machines": [machine.stored() for machine in self.machines.values()]}, indent=2), encoding="utf-8")
+        stored = {"machines": [machine.stored() for machine in self.machines.values()], "removed": self.removed}
+        temporary.write_text(json.dumps(stored, indent=2), encoding="utf-8")
         temporary.replace(self.path)
 
     # Connections
@@ -176,6 +252,8 @@ class Fleet:
         machine_id = str(hello.get("id") or "").strip()
         if not machine_id or len(machine_id) > 64 or not machine_id.replace("-", "").isalnum():
             raise FleetError(4400, "A machine id is letters, numbers and '-'")
+        if machine_id in self.removed:
+            raise FleetError(4403, "This machine was removed from the server; its owner or an admin can allow it back on the Machines page")
         existing = self.machines.get(machine_id)
         owner = identity.user if identity else None
         if existing and existing.owner and owner and existing.owner != owner:
@@ -390,11 +468,30 @@ class Fleet:
         for socket in list(self.sockets.values()):
             await _close_quietly(socket, 1012, "Server restarting")
 
-    def forget(self, machine_id: str) -> None:
-        if self.connected(machine_id):
-            raise FleetError(409, "That machine is connected; stop agent-machine there (agent-machine stop) first")
-        self.machines.pop(machine_id, None)
+    async def remove(self, machine_id: str, identity: Identity | None) -> None:
+        """Takes a machine out of the fleet, connected or not, and refuses it when it connects again until
+        it's allowed back (restore): what it ran for the server stops reaching agents."""
+        machine = self.machines.pop(machine_id, None)
+        if machine is None:
+            raise FleetError(404, "No such machine")
+        self.removed[machine_id] = {"name": machine.name, "owner": machine.owner, "at": time.time(), "by": identity.user if identity else None}
+        socket = self.sockets.pop(machine_id, None)
         self._save()
+        if socket is not None:
+            await _close_quietly(socket, 4403, "This machine was removed from the server")
+
+    def restore(self, machine_id: str) -> None:
+        """Lets a removed machine join again; it comes back as new, with its owner the one it signs in as."""
+        if self.removed.pop(machine_id, None) is None:
+            raise FleetError(404, "That machine wasn't removed")
+        self._save()
+
+    def removed_for(self, identity: Identity | None) -> list[dict[str, Any]]:
+        """The removed machines someone may allow back: their owner's, and every one for admins."""
+        return [
+            {"id": machine_id, **record} for machine_id, record in sorted(self.removed.items(), key=lambda item: -float(item[1].get("at") or 0))
+            if identity is None or identity.admin or record.get("owner") == identity.user
+        ]
 
     # What the console sees
 
@@ -415,7 +512,10 @@ class Fleet:
             # The backends it supplies: model servers added from it and containers it runs.
             "backends": sorted(name for name, backend in backends.items() if backend.machine == machine.id),
             "history": machine.history[-10:],
-            "you": {"owner": identity is None or machine.owner == identity.user, "launch": can_launch(identity, machine), "update": can_update(identity, machine)},
+            # What the console may offer this user here: each feature, and managing the machine itself.
+            "you": {"owner": owns(identity, machine), "manage": can_manage(identity, machine), **{feature: allowed(identity, machine, feature) for feature in FEATURES}},
+            # Who else may use what: only for those who set it.
+            "access": machine.access if can_manage(identity, machine) else {},
             # A machine on another build than the server's updates itself from the server's downloads.
             "update": {"available": bool(machine.version) and machine.version != version.current(), "server_version": version.current(), "command": "agent-machine update"},
         }
@@ -442,7 +542,7 @@ class Fleet:
 
     async def launch(self, machine: Machine, identity: Identity | None, request: dict[str, Any]) -> dict[str, Any]:
         if not can_launch(identity, machine):
-            raise FleetError(403, "Only the machine's owner can start agents on it.")
+            raise FleetError(403, "Only the machine's owner, or the teams it lets, can start agents on it.")
         socket = self.sockets.get(machine.id)
         if socket is None:
             raise FleetError(409, f"{machine.name} isn't connected: agent-machine isn't running there, or isn't signed in here (agent-machine login, then agent-machine start).")
@@ -466,8 +566,8 @@ class Fleet:
     async def shell(self, machine: Machine, identity: Identity | None, request: dict[str, Any]) -> dict[str, Any]:
         """A shell on the machine, in a terminal only its owner sees: a remote terminal, so it's off until
         the machine allows it (agent-machine commands on), and the machine checks that again."""
-        if not can_launch(identity, machine):
-            raise FleetError(403, "Only the machine's owner can open a terminal on it.")
+        if not allowed(identity, machine, "terminal"):
+            raise FleetError(403, "Only the machine's owner, or the teams it lets, can open a terminal on it.")
         socket = self.sockets.get(machine.id)
         if socket is None:
             raise FleetError(409, f"{machine.name} isn't connected: agent-machine isn't running there, or isn't signed in here (agent-machine login, then agent-machine start).")

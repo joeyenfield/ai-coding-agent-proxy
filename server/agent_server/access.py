@@ -30,6 +30,9 @@ from .sessions import Session
 VISIBILITY = ("private", "team", "org")
 ACCESS = ("view", "control")
 SHARING_TAGS = ("owner", "visibility", "team", "org", "access")
+# Set by the server (routes/machines.py) on a launch or terminal someone a machine lets in started there:
+# the session is the machine's, its owner's, so this is how they get what they started. Clients can't set it.
+SERVER_TAGS = (*SHARING_TAGS, "launched_by")
 
 
 def sharing(session: Session) -> dict[str, Any]:
@@ -54,7 +57,7 @@ def can_view(identity: Identity | None, session: Session) -> bool:
     shared = sharing(session)
     if shared["owner"] is None:
         return identity.admin
-    if shared["owner"] == identity.user:
+    if shared["owner"] == identity.user or session.tags.get("launched_by") == identity.user:
         return True
     if shared["visibility"] == "org":
         return shared["org"] is None or shared["org"] in identity.orgs
@@ -68,6 +71,8 @@ def can_control(identity: Identity | None, session: Session) -> bool:
     shared = sharing(session)
     if shared["owner"] is None:
         return identity.admin
+    if session.tags.get("launched_by") == identity.user:
+        return True
     return shared["owner"] == identity.user or (can_view(identity, session) and shared["access"] == "control")
 
 
@@ -112,7 +117,7 @@ def sharing_tags(identity: Identity, requested: dict[str, Any], current: dict[st
 
 def client_tags(tags: Any) -> dict[str, Any]:
     """Tags a client sent, without the sharing ones only the proxy sets."""
-    return {key: value for key, value in (tags or {}).items() if key not in SHARING_TAGS} if isinstance(tags, dict) else {}
+    return {key: value for key, value in (tags or {}).items() if key not in SERVER_TAGS} if isinstance(tags, dict) else {}
 
 
 def viewer(identity: Identity | None, session: Session) -> dict[str, Any]:

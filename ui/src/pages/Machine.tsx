@@ -1,8 +1,9 @@
-import { lazy, Suspense, useEffect, useMemo, useState, type FormEvent } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { Link, NavLink, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, machineProviders, preferredModel, providerModels, type Agent, type FleetMachine, type MachineProvider, type ProviderRef } from "../api";
 import { CodeLine } from "../components/CodeLine";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { FolderPicker } from "../components/FolderPicker";
 import { Icon } from "../components/Icon";
 import { ShareChoice } from "../components/Sharing";
@@ -16,6 +17,7 @@ import { DockerGuide, DockerProvider } from "./Docker";
 import { MachineOllama } from "./OllamaServer";
 import { MachineLoad } from "./Hosts";
 import { terminalState } from "./Terminals";
+import { MachineAccess } from "./MachineAccess";
 
 // Containers are rarely open; load them when visited.
 const MachineContainers = lazy(() => import("./Containers").then((module) => ({ default: module.MachineContainers })));
@@ -64,8 +66,11 @@ export function MachinePage() {
       <MachineHeader machine={machine} />
       <nav className="machine-nav" aria-label={`${machine.name} sections`}>
         <NavLink to={machinePath(machine.id)} end>
-          Overview
+          Summary
         </NavLink>
+        <NavLink to={machinePath(machine.id, "agents")}>Agents</NavLink>
+        <NavLink to={machinePath(machine.id, "terminal")}>Terminal</NavLink>
+        <NavLink to={machinePath(machine.id, "model-servers")}>Model servers</NavLink>
         {providers.map((item) => (
           <NavLink key={item.id} to={machinePath(machine.id, item.id)}>
             <StateDot tone={machine.connected && item.detected ? "good" : "idle"} />
@@ -76,9 +81,14 @@ export function MachinePage() {
         {ollamaInstalled && <NavLink to={machinePath(machine.id, "ollama")}>Ollama server</NavLink>}
         {runsContainers && <NavLink to={machinePath(machine.id, "containers")}>Containers</NavLink>}
         <NavLink to={machinePath(machine.id, "load")}>Load</NavLink>
+        {machine.you.manage && <NavLink to={machinePath(machine.id, "access")}>Access</NavLink>}
       </nav>
 
-      {section === "" && <MachineOverview machine={machine} providers={providers} />}
+      {section === "" && <MachineSummary machine={machine} providers={providers} />}
+      {section === "agents" && <MachineAgents machine={machine} />}
+      {section === "terminal" && <MachineTerminal machine={machine} />}
+      {section === "model-servers" && <MachineModelServers machine={machine} providers={providers} />}
+      {section === "access" && <MachineAccess machine={machine} />}
       {section === "load" && (
         <MachineLoad
           machine={machine.id}
@@ -92,9 +102,9 @@ export function MachinePage() {
         </Suspense>
       )}
       {provider && <ProviderView key={provider.id} machine={machine} provider={provider} />}
-      {section && !provider && !["load", "ollama", "containers"].includes(section) && (
+      {section && !provider && !SECTIONS.includes(section) && (
         <p className="empty">
-          {machine.name} doesn't report a model server {section}. It may have stopped; see the <Link to={machinePath(machine.id)}>overview</Link>.
+          {machine.name} doesn't report a model server {section}. It may have stopped; see its <Link to={machinePath(machine.id, "model-servers")}>model servers</Link>.
         </p>
       )}
     </div>
@@ -102,6 +112,9 @@ export function MachinePage() {
 }
 
 const refOf = (machine: FleetMachine, provider: MachineProvider): ProviderRef => ({ machine: machine.id, provider: provider.id });
+
+// The tabs that aren't one of the machine's model servers.
+const SECTIONS = ["agents", "terminal", "model-servers", "load", "ollama", "containers", "access"];
 
 /** Why the machine won't change its model servers now, or null when it will. */
 function unmanageable(machine: FleetMachine): string | null {
@@ -168,26 +181,19 @@ function AdoptButton({ machine, provider }: { machine: FleetMachine; provider: M
   );
 }
 
+/** Whether you can start an agent on the machine now: connected, launches on there, a folder, an agent, and you're let in. */
+function launchReady(machine: FleetMachine, installed: Agent[]): boolean {
+  return machine.connected && machine.launches && Boolean(machine.you.launch) && machine.roots.length > 0 && installed.length > 0 && machine.launcher !== false;
+}
+
+/** Whether you can open a terminal on the machine now. */
+function shellReady(machine: FleetMachine): boolean {
+  return machine.connected && Boolean(machine.commands) && Boolean(machine.you.terminal) && machine.roots.length > 0 && machine.launcher !== false;
+}
+
 function MachineHeader({ machine }: { machine: FleetMachine }) {
-  const client = useQueryClient();
-  const navigate = useNavigate();
-  const notify = useToast();
-  const identity = useAuth().data?.identity;
   const agents = useAgents();
-  const admin = !identity || identity.role === "admin";
-  const [launching, setLaunching] = useState(false);
-  const [shell, setShell] = useState(false);
   const installed = (agents.data ?? []).filter((agent) => machine.agents.includes(agent.id));
-  const canLaunch = machine.connected && machine.launches && machine.you.launch && machine.roots.length > 0 && installed.length > 0 && machine.launcher !== false;
-  const canShell = machine.connected && Boolean(machine.commands) && machine.you.launch && machine.roots.length > 0 && machine.launcher !== false;
-  const forget = useMutation({
-    mutationFn: () => api.forgetMachine(machine.id),
-    onSuccess: () => {
-      client.invalidateQueries({ queryKey: ["machines"] });
-      navigate("/machines");
-    },
-    onError: (error: Error) => notify(error.message),
-  });
   return (
     <>
       <header className="page-head machine-head">
@@ -217,29 +223,22 @@ function MachineHeader({ machine }: { machine: FleetMachine }) {
             </p>
           </div>
           <div className="row wrap machine-card-actions">
-            {canLaunch && (
-              <button type="button" className="primary" onClick={() => setLaunching((open) => !open)} aria-expanded={launching}>
+            {launchReady(machine, installed) && (
+              <Link className="button primary" to={machinePath(machine.id, "agents")}>
                 <Icon name="play" size={14} />
                 Start an agent
-              </button>
+              </Link>
             )}
-            {canShell && (
-              <button type="button" onClick={() => setShell((open) => !open)} aria-expanded={shell}>
+            {shellReady(machine) && (
+              <Link className="button" to={machinePath(machine.id, "terminal")}>
                 <Icon name="terminal" size={14} />
                 Open a terminal
-              </button>
-            )}
-            {!machine.connected && (machine.you.owner || admin) && (
-              <button type="button" className="icon-button danger" title="Forget this machine" aria-label={`Forget ${machine.name}`} disabled={forget.isPending} onClick={() => forget.mutate()}>
-                <Icon name="trash" />
-              </button>
+              </Link>
             )}
           </div>
         </div>
       </header>
       {machine.update?.available && <UpdateNote machine={machine} update={machine.update} />}
-      {launching && canLaunch && <LaunchForm machine={machine} agents={installed} onDone={() => setLaunching(false)} />}
-      {shell && canShell && <ShellForm machine={machine} onDone={() => setShell(false)} />}
     </>
   );
 }
@@ -299,11 +298,218 @@ function UpdateNote({ machine, update }: { machine: FleetMachine; update: NonNul
   );
 }
 
-function MachineOverview({ machine, providers }: { machine: FleetMachine; providers: MachineProvider[] }) {
+/** One of the machine's features on its summary: whether the machine has it on, and whether you can use it. */
+function Feature({ name, on, detail, you, tab, machine }: {
+  name: string;
+  on: boolean;
+  detail: ReactNode;
+  you?: boolean;
+  tab?: string;
+  machine: FleetMachine;
+}) {
+  return (
+    <li>
+      <StateDot tone={on ? "good" : "idle"} />
+      <span className="feature-name">
+        {tab ? <Link to={machinePath(machine.id, tab)}>{name}</Link> : <strong>{name}</strong>}
+      </span>
+      <span className="feature-detail">{detail}</span>
+      <span className="feature-you subtle">{you === undefined ? "" : you ? "You can use it" : "Not for you"}</span>
+    </li>
+  );
+}
+
+/** The first tab: what the machine is, what it supports, and when it was last in touch. */
+function MachineSummary({ machine, providers }: { machine: FleetMachine; providers: MachineProvider[] }) {
+  const agents = useAgents();
+  const sessions = useSessions();
+  const installed = (agents.data ?? []).filter((agent) => machine.agents.includes(agent.id));
+  const running = (sessions.data ?? []).filter((session) => !session.ended_at && (session.tags?.machine === machine.id || session.machine === machine.id)).length;
+  const seen = new Date(machine.last_seen * 1000);
+  const first = machine.first_seen ? new Date(machine.first_seen * 1000) : null;
+  const off = (command: string) => (
+    <span className="subtle">
+      Off. Run <code>{command}</code> there.
+    </span>
+  );
+  return (
+    <div className="machine-overview">
+      <dl className="stat-cards machine-stats">
+        <div>
+          <dt>Status</dt>
+          <dd>{machine.connected ? "Online" : "Offline"}</dd>
+        </div>
+        <div>
+          <dt>Last contact</dt>
+          <dd title={seen.toLocaleString()}>{machine.connected ? "Now" : formatRelative(seen.toISOString())}</dd>
+        </div>
+        <div>
+          <dt>agent-machine</dt>
+          <dd className="download-version" title={machine.update?.available ? `This server is ${machine.update.server_version}` : undefined}>
+            {machine.version || "Unknown"}
+            {machine.update?.available && <small> update available</small>}
+          </dd>
+        </div>
+        <div>
+          <dt>Running agents</dt>
+          <dd>{running}</dd>
+        </div>
+      </dl>
+
+      <section className="section" aria-labelledby="machine-features">
+        <div className="section-head">
+          <h2 id="machine-features">What it supports</h2>
+          <p className="subtle">What {machine.name} lets this server do, and whether you can. Each switch is on the machine itself.</p>
+        </div>
+        <ul className="feature-list">
+          <Feature
+            machine={machine}
+            name="Agents"
+            tab="agents"
+            on={machine.launches}
+            you={machine.you.launch}
+            detail={
+              machine.launches
+                ? `${installed.length} of the server's agents installed, in ${machine.roots.length} launch ${machine.roots.length === 1 ? "folder" : "folders"}`
+                : off("agent-machine launches on")
+            }
+          />
+          <Feature machine={machine} name="Terminals" tab="terminal" on={Boolean(machine.commands)} you={machine.you.terminal} detail={machine.commands ? "A shell there, for whoever it lets in" : off("agent-machine commands on")} />
+          <Feature
+            machine={machine}
+            name="Model servers"
+            tab="model-servers"
+            on={providers.length > 0}
+            you={machine.you.models}
+            detail={
+              <>
+                {providers.length ? providers.map((provider) => provider.backend ?? providerName(provider)).join(", ") : "None found"}
+                {providers.length > 0 && !machine.servers.enabled && <span className="subtle"> · models can't be changed from here (agent-machine servers on)</span>}
+              </>
+            }
+          />
+          <Feature
+            machine={machine}
+            name="Running Ollama and Strata"
+            tab={machine.servers.ollama?.found ? "ollama" : undefined}
+            on={Boolean(machine.servers.enabled)}
+            you={machine.you.servers}
+            detail={machine.servers.enabled ? "Start, stop and configure the ones installed there" : off("agent-machine servers on")}
+          />
+          <Feature
+            machine={machine}
+            name="Containers"
+            tab={machine.containers.enabled ? "containers" : undefined}
+            on={Boolean(machine.containers.enabled)}
+            you={machine.you.owner}
+            detail={machine.containers.enabled ? `${machine.containers.cli ?? "docker"}${machine.containers.online ? "" : ", not answering"} · its owner and admins run them` : off("agent-machine containers on")}
+          />
+          <Feature machine={machine} name="Updates from here" on={Boolean(machine.updates)} you={machine.you.update} detail={machine.updates ? "Update now, when it's on another build than this server" : off("agent-machine updates on")} />
+          <Feature machine={machine} name="Tunnel" on={Boolean(machine.tunnel)} detail={machine.tunnel ? "Agents reach its model servers through its own connection: no port forward needed" : "Agents reach its model servers at its address"} />
+        </ul>
+      </section>
+
+      <section className="section" aria-labelledby="machine-details">
+        <div className="section-head">
+          <h2 id="machine-details">Details</h2>
+        </div>
+        <dl className="machine-facts">
+          <div>
+            <dt>Owner</dt>
+            <dd>{machine.owner ?? <span className="subtle">None (no accounts)</span>}</dd>
+          </div>
+          <div>
+            <dt>System</dt>
+            <dd>
+              {OS_LABELS[machine.os] ?? machine.os} {machine.arch}
+            </dd>
+          </div>
+          <div>
+            <dt>Computer name</dt>
+            <dd>{machine.hostname || <span className="subtle">Not said</span>}</dd>
+          </div>
+          <div>
+            <dt>Address</dt>
+            <dd className="mono">{machine.address || "Unknown"}</dd>
+          </div>
+          <div>
+            <dt>First seen</dt>
+            <dd>{first ? `${formatRelative(first.toISOString())} (${first.toLocaleDateString()})` : "Unknown"}</dd>
+          </div>
+          <div>
+            <dt>Last contact</dt>
+            <dd>{seen.toLocaleString()}</dd>
+          </div>
+          <div>
+            <dt>Protocol</dt>
+            <dd>{machine.protocol ?? <span className="subtle">Not said</span>}</dd>
+          </div>
+          <div>
+            <dt>Machine id</dt>
+            <dd className="mono">{machine.id}</dd>
+          </div>
+        </dl>
+      </section>
+
+      {machine.you.manage && <RemoveMachine machine={machine} />}
+    </div>
+  );
+}
+
+/** Taking the machine out of the fleet: it's disconnected, and refused until allowed back from Machines. */
+function RemoveMachine({ machine }: { machine: FleetMachine }) {
+  const client = useQueryClient();
+  const navigate = useNavigate();
+  const notify = useToast();
+  const [asking, setAsking] = useState(false);
+  const remove = useMutation({
+    mutationFn: () => api.removeMachine(machine.id),
+    onSuccess: () => {
+      notify(`Removed ${machine.name} from this server.`);
+      client.invalidateQueries({ queryKey: ["machines"] });
+      navigate("/machines");
+    },
+  });
+  return (
+    <section className="section danger-zone" aria-labelledby="machine-remove">
+      <div className="section-head">
+        <h2 id="machine-remove">Remove from this server</h2>
+      </div>
+      <p className="subtle">
+        Disconnects {machine.name} and keeps it out: it can't join again until you allow it back on Machines.
+        {machine.backends.length > 0 && ` Its providers (${machine.backends.join(", ")}) stop reaching agents meanwhile.`}
+      </p>
+      <div className="row">
+        <button type="button" className="danger" onClick={() => setAsking(true)}>
+          <Icon name="trash" size={14} />
+          Remove {machine.name}
+        </button>
+      </div>
+      <ConfirmDialog
+        open={asking}
+        title={`Remove ${machine.name}?`}
+        confirmLabel="Remove"
+        busy={remove.isPending}
+        error={remove.error?.message ?? null}
+        onConfirm={() => remove.mutate()}
+        onCancel={() => setAsking(false)}
+      >
+        <p>
+          {machine.connected ? "It's connected now: its connection closes, and agents running there lose this server. " : ""}
+          It stays out until you allow it back on Machines.
+        </p>
+      </ConfirmDialog>
+    </section>
+  );
+}
+
+/** Agents: those running there, starting one, and the launches so far. */
+function MachineAgents({ machine }: { machine: FleetMachine }) {
   const agents = useAgents();
   const installed = (agents.data ?? []).filter((agent) => machine.agents.includes(agent.id));
   const missing = [
     !machine.connected && "it isn't connected",
+    !machine.launches && "launches are off there (agent-machine launches on)",
     machine.launcher === false && "the agent command isn't installed there (install the client, then agent login)",
     machine.roots.length === 0 && "it has no launch folders (agent-machine roots add <dir>)",
     installed.length === 0 && "none of the server's agents is installed there",
@@ -311,6 +517,110 @@ function MachineOverview({ machine, providers }: { machine: FleetMachine; provid
   return (
     <div className="machine-overview">
       <MachineSessions machine={machine} />
+      <section className="section" aria-labelledby="machine-launch">
+        <div className="section-head">
+          <h2 id="machine-launch">Start an agent</h2>
+        </div>
+        {!machine.you.launch ? (
+          <p className="empty">Only {machine.owner ?? "its owner"}, or the teams it lets (Access), can start agents on {machine.name}.</p>
+        ) : launchReady(machine, installed) ? (
+          <LaunchForm machine={machine} agents={installed} />
+        ) : (
+          <p className="empty">You can't start one now: {missing.join("; ")}.</p>
+        )}
+      </section>
+      <section className="section" aria-labelledby="machine-agents">
+        <div className="section-head">
+          <h2 id="machine-agents">Installed there</h2>
+        </div>
+        <dl className="machine-facts">
+          <div>
+            <dt>Agents</dt>
+            <dd className="chips">
+              {installed.length ? installed.map((agent) => <span key={agent.id} className="pill">{agent.name}</span>) : <span className="subtle">None of the server's agents</span>}
+            </dd>
+          </div>
+          <div>
+            <dt>Launch folders</dt>
+            <dd className="chips">
+              {machine.roots.length ? (
+                machine.roots.map((root) => (
+                  <span key={root} className="pill mono">
+                    {root}
+                  </span>
+                ))
+              ) : (
+                <span className="subtle">
+                  None yet: <code>agent-machine roots add &lt;dir&gt;</code>
+                </span>
+              )}
+            </dd>
+          </div>
+        </dl>
+      </section>
+      <LaunchHistory machine={machine} />
+    </div>
+  );
+}
+
+/** What was started on the machine from here, agents and terminals, newest first. */
+function LaunchHistory({ machine }: { machine: FleetMachine }) {
+  const agents = useAgents();
+  if (machine.history.length === 0) return null;
+  return (
+    <section className="section" aria-labelledby="machine-history">
+      <div className="section-head">
+        <h2 id="machine-history">Started from here</h2>
+      </div>
+      <ul className="launch-history">
+        {[...machine.history].reverse().map((launch) => (
+          <li key={launch.launch}>
+            <span className={launch.error ? "bad" : "good"}>{launch.error ? "Failed" : "Started"}</span>
+            <strong>{launch.agent === "shell" ? "Terminal" : agents.data?.find((agent) => agent.id === launch.agent)?.name ?? launch.agent}</strong>
+            <span className="mono subtle">{launch.project}</span>
+            <span className="subtle">
+              {launch.by && `by ${launch.by}, `}
+              {formatRelative(new Date(launch.at * 1000).toISOString())}
+            </span>
+            {launch.session_id ? <Link to={`/terminals/${launch.session_id}`}>Terminal</Link> : <span className="bad">{launch.error}</span>}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** A terminal on the machine: a shell in one of its launch folders, when it takes commands. */
+function MachineTerminal({ machine }: { machine: FleetMachine }) {
+  const missing = [
+    !machine.connected && "it isn't connected",
+    !machine.commands && "terminals are off there (agent-machine commands on)",
+    machine.launcher === false && "the agent command isn't installed there (install the client, then agent login)",
+    machine.roots.length === 0 && "it has no launch folders to start in (agent-machine roots add <dir>)",
+  ].filter((reason): reason is string => Boolean(reason));
+  return (
+    <div className="machine-overview">
+      <section className="section" aria-labelledby="machine-terminal">
+        <div className="section-head">
+          <h2 id="machine-terminal">Open a terminal</h2>
+        </div>
+        {!machine.you.terminal ? (
+          <p className="empty">Only {machine.owner ?? "its owner"}, or the teams it lets (Access), can open terminals on {machine.name}.</p>
+        ) : shellReady(machine) ? (
+          <ShellForm machine={machine} />
+        ) : (
+          <p className="empty">You can't open one now: {missing.join("; ")}.</p>
+        )}
+      </section>
+      <LaunchHistory machine={machine} />
+    </div>
+  );
+}
+
+/** The model servers the machine runs, and the Ollama and Strata installed there. */
+function MachineModelServers({ machine, providers }: { machine: FleetMachine; providers: MachineProvider[] }) {
+  return (
+    <div className="machine-overview">
       <section className="section" aria-labelledby="machine-servers">
         <div className="section-head">
           <h2 id="machine-servers">Model servers</h2>
@@ -355,81 +665,6 @@ function MachineOverview({ machine, providers }: { machine: FleetMachine; provid
           <details className="manual">
             <summary>Docker Model Runner on this machine</summary>
             <DockerGuide />
-          </details>
-        )}
-      </section>
-
-      <section className="section" aria-labelledby="machine-agents">
-        <div className="section-head">
-          <h2 id="machine-agents">Agents</h2>
-        </div>
-        <dl className="machine-facts">
-          <div>
-            <dt>Installed</dt>
-            <dd className="chips">
-              {installed.length ? installed.map((agent) => <span key={agent.id} className="pill">{agent.name}</span>) : <span className="subtle">None of the server's agents</span>}
-            </dd>
-          </div>
-          <div>
-            <dt>Launches</dt>
-            <dd>
-              {machine.launches ? (
-                machine.roots.length ? (
-                  <span className="chips">
-                    {machine.roots.map((root) => (
-                      <span key={root} className="pill mono">
-                        {root}
-                      </span>
-                    ))}
-                  </span>
-                ) : (
-                  <span className="subtle">
-                    On, but no folders yet: <code>agent-machine roots add &lt;dir&gt;</code>
-                  </span>
-                )
-              ) : (
-                <span className="subtle">
-                  Off. Run <code>agent-machine launches on</code> there to start agents from here.
-                </span>
-              )}
-              {machine.launches && !machine.you.launch && <span className="subtle"> Only {machine.owner ?? "its owner"} can start agents on it.</span>}
-              {machine.launches && machine.you.launch && missing.length > 0 && <span className="warn launch-missing">To start agents here: {missing.join("; ")}.</span>}
-            </dd>
-          </div>
-          <div>
-            <dt>Terminals</dt>
-            <dd>
-              {machine.commands ? (
-                machine.you.launch ? (
-                  <span>On: open one with <strong>Open a terminal</strong> above. It's a shell there that only you see.</span>
-                ) : (
-                  <span className="subtle">On, for {machine.owner ?? "its owner"} only.</span>
-                )
-              ) : (
-                <span className="subtle">
-                  Off. Run <code>agent-machine commands on</code> there to open a terminal on it from here.
-                </span>
-              )}
-            </dd>
-          </div>
-        </dl>
-        {machine.history.length > 0 && (
-          <details className="manual">
-            <summary>Recent launches</summary>
-            <ul className="launch-history">
-              {[...machine.history].reverse().map((launch) => (
-                <li key={launch.launch}>
-                  <span className={launch.error ? "bad" : "good"}>{launch.error ? "Failed" : "Started"}</span>
-                  <strong>{agents.data?.find((agent) => agent.id === launch.agent)?.name ?? launch.agent}</strong>
-                  <span className="mono subtle">{launch.project}</span>
-                  <span className="subtle">
-                    {launch.by && `by ${launch.by}, `}
-                    {formatRelative(new Date(launch.at * 1000).toISOString())}
-                  </span>
-                  {launch.session_id ? <Link to={`/terminals/${launch.session_id}`}>Terminal</Link> : <span className="bad">{launch.error}</span>}
-                </li>
-              ))}
-            </ul>
           </details>
         )}
       </section>
@@ -540,7 +775,7 @@ function InstalledServers({ machine }: { machine: FleetMachine }) {
       </p>
     ) : null;
   }
-  const allowed = machine.connected && machine.you.launch;
+  const allowed = machine.connected && Boolean(machine.you.servers);
   const busy = (kind: string, profile?: string) => act.isPending && act.variables?.kind === kind && act.variables?.profile === profile;
   const button = (request: ServerAction, label: string, primary = false) => (
     <button type="button" className={`small ${primary ? "primary" : ""}`} disabled={!allowed || act.isPending} onClick={() => act.mutate(request)}>
@@ -625,7 +860,7 @@ function InstalledServers({ machine }: { machine: FleetMachine }) {
 }
 
 /** A shell on the machine, in a terminal only you see: agent-machine commands on there. */
-function ShellForm({ machine, onDone }: { machine: FleetMachine; onDone: () => void }) {
+function ShellForm({ machine, onDone }: { machine: FleetMachine; onDone?: () => void }) {
   const navigate = useNavigate();
   const notify = useToast();
   const client = useQueryClient();
@@ -634,7 +869,7 @@ function ShellForm({ machine, onDone }: { machine: FleetMachine; onDone: () => v
     mutationFn: () => api.openShell(machine.id, project),
     onSuccess: (result) => {
       client.invalidateQueries({ queryKey: ["machines"] });
-      onDone();
+      onDone?.();
       if (result.session_id) navigate(`/terminals/${result.session_id}`);
     },
     onError: (error: Error) => notify(error.message),
@@ -657,15 +892,17 @@ function ShellForm({ machine, onDone }: { machine: FleetMachine; onDone: () => v
         <button type="submit" className="primary" disabled={open.isPending || !project}>
           {open.isPending ? "Opening…" : `Open a terminal on ${machine.name}`}
         </button>
-        <button type="button" onClick={onDone}>
-          Cancel
-        </button>
+        {onDone && (
+          <button type="button" onClick={onDone}>
+            Cancel
+          </button>
+        )}
       </div>
     </form>
   );
 }
 
-function LaunchForm({ machine, agents, onDone }: { machine: FleetMachine; agents: Agent[]; onDone: () => void }) {
+function LaunchForm({ machine, agents, onDone }: { machine: FleetMachine; agents: Agent[]; onDone?: () => void }) {
   const navigate = useNavigate();
   const notify = useToast();
   const client = useQueryClient();
@@ -708,7 +945,7 @@ function LaunchForm({ machine, agents, onDone }: { machine: FleetMachine; agents
     onSuccess: (result) => {
       notify(`Started ${agent?.name ?? agentId} on ${machine.name}.`);
       client.invalidateQueries({ queryKey: ["machines"] });
-      onDone();
+      onDone?.();
       if (result.session_id) navigate(`/terminals/${result.session_id}`);
     },
     onError: (error: Error) => notify(error.message),
@@ -817,9 +1054,11 @@ function LaunchForm({ machine, agents, onDone }: { machine: FleetMachine; agents
         <button type="submit" className="primary" disabled={launch.isPending || !agentId || !project}>
           {launch.isPending ? "Starting…" : `Start on ${machine.name}`}
         </button>
-        <button type="button" onClick={onDone}>
-          Cancel
-        </button>
+        {onDone && (
+          <button type="button" onClick={onDone}>
+            Cancel
+          </button>
+        )}
         <span className="subtle">It runs there in a shared terminal; you'll be taken to it.</span>
       </div>
     </form>

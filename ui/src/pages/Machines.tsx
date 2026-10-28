@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { machineProviders, type FleetMachine } from "../api";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { api, machineProviders, type FleetMachine, type RemovedMachine } from "../api";
 import { CodeLine } from "../components/CodeLine";
 import { Icon } from "../components/Icon";
 import { PartTag } from "../components/PartTag";
 import { StateDot } from "../components/ProviderState";
-import { useAgents, useAuth, useClipboard, useMachines, useStatus } from "../hooks";
+import { useAgents, useAuth, useClipboard, useMachines, useStatus, useToast } from "../hooks";
 import { formatRelative } from "../format";
 import { OS_LABELS, machinePath, providerName } from "./Machine";
 import { OneLineInstall, serverAddress } from "./Downloads";
@@ -71,6 +72,8 @@ export function MachinesPage() {
         ))}
       </div>
 
+      {(machines.data?.removed ?? []).length > 0 && <RemovedMachines removed={machines.data?.removed ?? []} />}
+
       {list.length > 0 && (
         <details className="manual" id="add" open={hash === "#add" ? true : undefined}>
           <summary>Add another machine</summary>
@@ -78,6 +81,48 @@ export function MachinesPage() {
         </details>
       )}
     </div>
+  );
+}
+
+/** Machines taken out of the fleet: refused when they connect, until allowed back here. */
+function RemovedMachines({ removed }: { removed: RemovedMachine[] }) {
+  const client = useQueryClient();
+  const notify = useToast();
+  const restore = useMutation({
+    mutationFn: (id: string) => api.restoreMachine(id),
+    onSuccess: (_, id) => {
+      notify(`${removed.find((item) => item.id === id)?.name ?? id} can join again; it reconnects within a minute.`);
+      client.invalidateQueries({ queryKey: ["machines"] });
+    },
+    onError: (error: Error) => notify(error.message),
+  });
+  return (
+    <section className="section" aria-labelledby="removed-machines">
+      <div className="section-head">
+        <h2 id="removed-machines">Removed</h2>
+        <p className="subtle">Removed from this server, so they're refused when they connect. Allow one back and it joins again by itself.</p>
+      </div>
+      <ul className="provider-backends">
+        {removed.map((item) => (
+          <li key={item.id}>
+            <StateDot tone="idle" />
+            <span className="provider-backend-name">
+              <strong>{item.name}</strong>
+              <span className="subtle mono">{item.id}</span>
+            </span>
+            <span className="subtle">
+              {item.owner && `${item.owner}'s · `}removed {formatRelative(new Date(item.at * 1000).toISOString())}
+              {item.by && ` by ${item.by}`}
+            </span>
+            <span className="state-text">
+              <button type="button" className="small" disabled={restore.isPending} onClick={() => restore.mutate(item.id)}>
+                Allow back
+              </button>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

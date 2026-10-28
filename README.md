@@ -423,7 +423,7 @@ agent-machine start                      # join the fleet in the background (sto
 agent-machine                            # how the fleet sees this machine
 ```
 
-Every machine where `agent-machine` runs shows up on **Machines** and in the rail, and has its own page: an **Overview** (its model servers, the Ollama and Strata installed there, its agents and launches), a tab for each model server (models, status, logs), **Ollama server**, **Containers** and **Load**. Machines are where every local LLM provider comes from, so this is where they're managed. A machine that only supplies models needs nothing but `agent-machine`. From there you can:
+Every machine where `agent-machine` runs shows up on **Machines** and in the rail, and has its own page, a tab per function: **Summary** (what it supports and whether you can use each, last contact, version, address; and removing it), **Agents** (running there, starting one, what was started), **Terminal**, **Model servers** and a tab for each one (models, status, logs), **Ollama server**, **Containers**, **Load** and **Access** (who else may use what). Machines are where every local LLM provider comes from, so this is where they're managed. A machine that only supplies models needs nothing but `agent-machine`. From there you can:
 
 - **Start an agent on a machine.** Pick the agent, a folder and a model; it starts there in a shared terminal, and the console takes you to it. To pick the folder, open the folders inside the machine's launch folders one by one, or name a new one to make there.
 - **Update a machine from here.** With `agent-machine updates on` there, a machine on another build than the server's has **Update now** on its page, for its owner or an admin. The machine installs the server's own build (agent-machine, and agent if you tick it), checked against its SHA-256, and restarts on it.
@@ -441,7 +441,9 @@ agent-machine commands on          # optional: let you open a terminal here from
 agent-machine updates on           # optional: let the console update agent-machine and agent here to the server's build
 ```
 
-- **Only the machine's owner** (whoever signed it in) can start agents on it, not admins.
+- **Only the machine's owner** (whoever signed it in) can start agents on it, not admins, unless the owner lets others in on **Access**.
+- **Access** lets the owner (or an admin) pick which organizations and teams may use each feature: see it, start agents, open terminals, change models, run its model servers, update it. Anyone given a feature can see the machine. Agents and terminals they start run under the machine's own sign-in, and they can watch and use what they start. Containers stay with the owner and admins, and the machine's own switches (`launches on`, ...) still apply.
+- **Removing a machine** (its Summary tab, owner or admin) disconnects it and refuses it if it tries to join again, until it's allowed back under **Removed** on Machines.
 - **The folder is checked twice:** by the server, then by the machine itself, which resolves links and `..` first. The folder picker works the same way: the machine lists only folders (no file names), only inside its launch folders, and leaves out hidden ones and links that lead outside.
 - **Terminals are a shell on the machine** as the user agent-machine runs as, so they're off until `agent-machine commands on`, and only the owner can open one. They start in a launch folder, but a shell can go anywhere that user can. Their sessions stay private: they can't be shared with a team.
 - **Every launch is recorded** with who asked, the agent, the folder and its session. The session is tagged with its machine, and all its traffic is recorded like any other.

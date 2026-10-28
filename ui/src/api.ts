@@ -418,6 +418,8 @@ export interface FleetMachine {
   arch: string;
   version: string;
   address: string;
+  /** The computer's own name, from its hello. */
+  hostname?: string;
   /** The server's agents installed on it. */
   agents: string[];
   /** Model servers running on it; backend names the backend that already uses one. */
@@ -439,8 +441,10 @@ export interface FleetMachine {
   first_seen: number;
   last_seen: number;
   history: FleetLaunch[];
-  /** What you may do there: update is its owner's or an admin's. */
-  you: { owner: boolean; launch: boolean; update?: boolean };
+  /** What you may do there: each feature (MachineFeature), and manage (set who can use it, remove it). */
+  you: { owner: boolean; manage?: boolean } & Partial<Record<MachineFeature, boolean>> & { launch: boolean };
+  /** Who else may use each feature: only for those who can change it. */
+  access?: MachineAccess;
   /** Whether it lets the server update its programs to the server's build (agent-machine updates on). */
   updates?: boolean;
   /** Whether it carries agents' requests to its model servers itself, so they need no port forward (tunnels.py). */
@@ -490,6 +494,21 @@ export interface DownloadIndex {
   files: DownloadFile[];
   /** How to build them, when there are none. */
   hint?: string | null;
+}
+
+/** What a machine's owner can let organizations and teams do there (fleet.FEATURES). */
+export type MachineFeature = "view" | "launch" | "terminal" | "models" | "servers" | "update";
+
+/** Who may use each feature besides its owner: organizations and teams (<org>/<team>). */
+export type MachineAccess = Partial<Record<MachineFeature, { orgs: string[]; teams: string[] }>>;
+
+/** A machine taken out of the fleet: refused when it connects, until allowed back. */
+export interface RemovedMachine {
+  id: string;
+  name: string;
+  owner: string | null;
+  at: number;
+  by: string | null;
 }
 
 /** /api/machines/{id}/folders: the folders inside one of the machine's launch folders (its roots without a path). */
@@ -1029,7 +1048,10 @@ export const api = {
   unpair: () => request<{ paired: boolean }>("/api/remote/unpair", { method: "POST", body: "{}" }),
   replaceRemoteKey: () => request<{ key: string }>("/api/remote/rotate", { method: "POST", body: "{}" }),
   terminals: () => request<{ terminals: TerminalSummary[] }>("/api/terminals"),
-  machines: () => request<{ machines: FleetMachine[] }>("/api/machines"),
+  machines: () => request<{ machines: FleetMachine[]; removed?: RemovedMachine[]; features?: Record<MachineFeature, string> }>("/api/machines"),
+  setMachineAccess: (machineId: string, access: MachineAccess) =>
+    request<FleetMachine>(`/api/machines/${encodeURIComponent(machineId)}/access`, { method: "PUT", body: JSON.stringify({ access }) }),
+  restoreMachine: (machineId: string) => request<{ restored: string }>(`/api/machines/${encodeURIComponent(machineId)}/restore`, { method: "POST", body: "{}" }),
   launchOnMachine: (machineId: string, body: LaunchRequest) =>
     request<FleetLaunch>(`/api/machines/${encodeURIComponent(machineId)}/launch`, { method: "POST", body: JSON.stringify(body) }),
   machineFolders: (machineId: string, path?: string) =>
@@ -1048,7 +1070,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify(profile ? { profile } : {}),
     }),
-  forgetMachine: (machineId: string) => request<{ forgotten: string }>(`/api/machines/${encodeURIComponent(machineId)}`, { method: "DELETE" }),
+  removeMachine: (machineId: string) => request<{ removed: string }>(`/api/machines/${encodeURIComponent(machineId)}`, { method: "DELETE" }),
   containers: (fresh = false) => request<ContainersOverview>(`/api/containers${fresh ? "?fresh=1" : ""}`),
   createContainer: (body: { name: string; machine: string } & Partial<ContainerSpec>) =>
     request<{ name: string; url: string; machine: string; spec: ContainerSpec }>("/api/containers", { method: "POST", body: JSON.stringify(body) }),
