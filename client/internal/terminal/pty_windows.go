@@ -73,6 +73,11 @@ func startChild(command []string, dir string, env []string, cols, rows int) (chi
 	}
 	startup := &windows.StartupInfoEx{ProcThreadAttributeList: attributes.List()}
 	startup.Cb = uint32(unsafe.Sizeof(*startup))
+	// No standard handles of ours: without this the child inherits the launcher's, and when those
+	// are redirected (agent-machine starts `agent --headless` with a pipe and no input) a shell
+	// reads end-of-input from them instead of the pseudo console, and exits at once.
+	startup.Flags |= windows.STARTF_USESTDHANDLES
+	startup.StdInput, startup.StdOutput, startup.StdErr = 0, 0, 0
 	application, line := windowsCommand(command)
 	applicationPtr, err := windows.UTF16PtrFromString(application)
 	if err != nil {

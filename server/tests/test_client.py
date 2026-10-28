@@ -602,6 +602,8 @@ def test_a_fleet_machine_lists_its_folders_and_opens_a_shell_when_commands_are_o
         with connect(m.server.replace("http", "ws") + f"/api/terminals/{session_id}/view", proxy=None) as viewer:
             viewer.recv(timeout=10)
             time.sleep(2)  # let the shell draw its prompt
+            # Still open: a shell that read agent-machine's own stdin (nothing) would have exited by itself.
+            assert m.runtime.sessions.get(session_id).ended_at is None, "the shell exited before anyone typed into it"
             viewer.send(json.dumps({"type": "input", "text": "exit", "enter": True}))
             deadline = time.monotonic() + 30
             while time.monotonic() < deadline and m.runtime.sessions.get(session_id).ended_at is None:
