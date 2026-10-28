@@ -10,6 +10,7 @@ Design references for coding agents working on this repository: one file per com
 | [machine.md](machine.md) | `machine/` (`agent-machine`, Go) | Fleet membership, model servers, containers, tunnels, MCP bridge |
 | [python.md](python.md) | `python/` (`agent_py`) | The Python versions of the client and machine |
 | [console.md](console.md) | `ui/` (React) | Console pages, data layer, the Machine page |
+| [auth.md](auth.md) | Accounts and access, across components | Sign-in, tokens, the access key, `AuthMiddleware`, roles, sharing, machine grants, any new route |
 | [android.md](android.md) | `android/` (Kotlin) | The app shell around the console |
 | [build-and-deploy.md](build-and-deploy.md) | `tools/`, `scripts/`, Docker, `sandbox/` | Versions, builds, downloads, installers, images |
 

@@ -16,6 +16,7 @@ Notes for coding agents (and people) changing this repository. `README.md` is th
 | `ui/` | `.context/console.md` |
 | `android/` | `.context/android.md` |
 | `tools/`, `scripts/`, Docker, `sandbox/` | `.context/build-and-deploy.md` |
+| Sign-in, tokens, the access key, roles, sharing, machine grants, or any new route | `.context/auth.md` |
 
 When a change alters a component's shape (a module, message type, boundary, file on disk or invariant), update its `.context/` file in the same change. Where `.context/` and this file disagree with the code, the code wins: fix the document.
 

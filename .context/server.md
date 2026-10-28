@@ -99,6 +99,8 @@ sequenceDiagram
 
 ## Security model
 
+The summary; `auth.md` has the whole of it (credentials, the middleware's order, roles, what must never change).
+
 - **Local mode** (no users): `RemoteAccess.trusted` = loopback client **and** a loopback Host, or the access key (`x-ai-proxy-token` header or `ai_proxy_remote` cookie). Only terminals, remote, containers, machines and restart check it; management and compat don't.
 - **Accounts mode** (`users.json` has users, or `AI_PROXY_USERNAME`/`AI_PROXY_PASSWORD`): `AuthMiddleware` covers `/api/`, `/v1/`, `/anthropic/`, `/session/` and `/docs`. An open session id is a capability for agent paths. Otherwise it needs a cookie (`ai_proxy_session`) or a launcher token (`aip_…`). Unsafe methods with a foreign Origin are refused, and `ADMIN_ONLY` routes need an admin.
 - **Sessions** (`access.py`): owner or `launched_by`; private/team/org visibility; view or control. A session you can't see is a 404. Clients can't set `SERVER_TAGS`. Shell sessions are forced private. Narrowing sharing drops terminal viewers.
