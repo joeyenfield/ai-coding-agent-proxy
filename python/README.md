@@ -54,7 +54,6 @@ status and models; Strata's status; and the machine's CPU, memory and NVIDIA GPU
 - Starting and stopping Ollama and Strata, and Ollama's settings (`servers` here only lets the
   server change models). The hello says so in the same way.
 - Strata's load, unload and logs, and searching the model catalogues.
-- `update`: upgrade with pip instead.
 
 The two programs live in one package and share `common.py` (the protocol, headers, sign-in
 files, HTTP clients) and `login.py`. Each still keeps its own credentials, in the same place as
@@ -63,6 +62,26 @@ its Go version: `agent-proxy/credentials.json` (or `AI_PROXY_CREDENTIALS`) for a
 
 A launch from the console runs `AI_PROXY_AGENT` if it's set, otherwise the Python agent with
 the same Python as agent-machine.
+
+## Updating and versions
+
+`agent-machine update` and `agent update` install the build the server offers: its wheel from
+`/downloads/`, checked against the server's SHA-256, installed with pip into the Python that runs
+them. agent-machine then restarts itself if it runs in the background (`agent-machine start`), or
+leaves it to its service; agent stops the running agent-proxy, so the next `agent` starts the new
+one. That's what the console's **Update available** note asks for.
+
+The version the programs report, and the console compares with the server's:
+
+- From the server's wheel: that build's version (tools/dist stamps `agent_py/_version.py`).
+- Run from a checkout (`python -m agent_py.machine` inside `python/`, or with it on PYTHONPATH):
+  the checkout's version, worked out from git as the server does, so a checkout at the server's
+  commit matches it.
+- Installed from a checkout with `pip install ./python`: `pyproject.toml`'s X.Y.Z only, which
+  matches no build. Run `agent-machine update` to get the server's build instead.
+
+Python runs a package from the folder it's started in before the installed one, so an
+agent-machine started inside `python/` runs the checkout, whatever pip installed.
 
 ## Building it
 

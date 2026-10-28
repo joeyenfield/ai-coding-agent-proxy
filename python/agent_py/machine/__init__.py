@@ -11,9 +11,11 @@ import signal
 import subprocess
 import sys
 import time
+from pathlib import Path
 from typing import List, Optional
 
 from .. import common, login
+from .. import update as updates
 from . import presence, providers, settings
 
 USAGE = """agent-machine puts this computer in an agent-server's fleet, so the server can use the
@@ -33,6 +35,7 @@ Usage: agent-machine                           this machine as the fleet sees it
        agent-machine roots remove <dir>
        agent-machine name <name>|-             the name the console shows (default: the hostname)
        agent-machine address <host>|-          how the server reaches this machine's model servers
+       agent-machine update [--force]          install the build the server offers (its Python wheel, with pip), and restart it
        agent-machine version
 
 Launches run the agent command (AI_PROXY_AGENT, else the Python agent), signed in to the same
@@ -68,8 +71,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     if command == "stop":
         return stop()
     if command == "update":
-        print("agent-machine update: this is the Python agent-machine; update it with pip (pip install --upgrade ai-proxy-agent-py).", file=sys.stderr)
-        return 2
+        return update_command(args[1:])
     return configure(args)
 
 
@@ -187,7 +189,52 @@ def run(args: List[str]) -> int:
     return 0
 
 
-def start(args: List[str]) -> int:
+def update_command(args: List[str]) -> int:
+    """`agent-machine update [--force] [--server URL]`: the server's Python build installed here with pip,
+    then the running agent-machine restarted on it."""
+    parser = argparse.ArgumentParser(prog="agent-machine update", description="Install the build the agent-server offers (its Python wheel, checked against the server's SHA-256), and restart the running agent-machine.")
+    parser.add_argument("--force", action="store_true", help="Install it even when the server's version is this one")
+    parser.add_argument("--server", default="", help="The agent-server to update from (default: the one from agent-machine login)")
+    options = parser.parse_args(args)
+    other = settings.running()
+    server = options.server or (other.server if other and other.server else settings.upstream().server())
+    try:
+        index = updates.fetch(server, settings.PROGRAM)
+        if index.get("version") == common.VERSION and not options.force:
+            print(f"agent-machine {common.VERSION} is the version the agent-server at {server} offers; nothing to do (--force installs it anyway).")
+            return 0
+        installed = updates.install(server, index, settings.PROGRAM)
+    except updates.UpdateError as error:
+        print(f"agent-machine update: {error}", file=sys.stderr)
+        return 1
+    print(f"Updated agent-machine for {sys.executable}: {common.VERSION} -> {installed}.")
+    print(updates.notes(index), end="")
+    if updates.checkout():
+        print(f"This copy ran from the checkout at {updates.checkout()}; agent-machine now runs the installed one.")
+    return restart_after_update()
+
+
+def restart_after_update() -> int:
+    """Puts the running agent-machine on the new build, however it was started."""
+    other = settings.running()
+    if other is None:
+        return 0
+    if other.started == "terminal":
+        print(f"agent-machine runs in a terminal (process {other.pid}): stop it there and run it again for the new version.")
+        return 0
+    if other.started == "service":
+        code = stop()
+        if code == 0:
+            print("Its service starts it again with the new version within a few seconds (systemd, launchd); if yours doesn't, restart the service.")
+        return code
+    code = stop()
+    if code != 0:
+        return code
+    # From the home folder, so a checkout in the folder it ran from can't stand in for the installed package.
+    return start(["--server", other.server] if other.server else [], cwd=str(Path.home()))
+
+
+def start(args: List[str], cwd: Optional[str] = None) -> int:
     """Runs `agent-machine run` detached from this terminal, and waits until it has connected or failed to."""
     other = settings.running()
     if other:
@@ -198,7 +245,7 @@ def start(args: List[str]) -> int:
     else:
         flags = {"start_new_session": True}
     try:
-        process = subprocess.Popen([sys.executable, "-m", "agent_py.machine", "run", *args], env={**os.environ, STARTED_ENV: "background"},
+        process = subprocess.Popen([sys.executable, "-m", "agent_py.machine", "run", *args], env={**os.environ, STARTED_ENV: "background"}, cwd=cwd,
                                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True, **flags)
     except OSError as error:
         print(f"agent-machine: couldn't start: {error}", file=sys.stderr)

@@ -12,7 +12,9 @@ from __future__ import annotations
 import json
 import os
 import platform as _platform
+import re
 import shutil
+import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -43,18 +45,47 @@ def _version() -> str:
         return built
     except ImportError:
         pass
-    # The repository's VERSION, when run from a checkout; "dev" otherwise, as an unstamped Go build says.
+    # Run from a checkout: the checkout's version, worked out as the server and tools/dist do.
     for parent in Path(__file__).resolve().parents:
-        candidate = parent / "VERSION"
-        if candidate.is_file() and (parent / "server").is_dir():
-            text = candidate.read_text(encoding="utf-8").strip()
-            return f"{text}+python" if text else "dev"
+        if (parent / "VERSION").is_file() and (parent / "server").is_dir():
+            return checkout_version(parent)
+    # Installed from a checkout with pip: pyproject.toml's X.Y.Z only, which matches no build.
     try:
         from importlib.metadata import version
 
         return version("ai-proxy-agent-py")
     except Exception:
         return "dev"
+
+
+def checkout_version(root: Path) -> str:
+    """X.Y.Z on its tag with a clean tree, else X.Y.Z+<commit>[.dirty] (changes outside config/ only),
+    X.Y.Z+unknown without git: the same as server/agent_server/version.py and tools/dist/version.go."""
+    try:
+        base = (root / "VERSION").read_text(encoding="utf-8").strip()
+    except OSError:
+        base = ""
+    if not re.fullmatch(r"\d+\.\d+\.\d+", base):
+        base = "0.0.0"
+
+    def git(*args: str) -> Optional[str]:
+        if not (root / ".git").exists():
+            return None
+        try:
+            done = subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, timeout=10,
+                                  creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return done.stdout.strip() if done.returncode == 0 and done.stdout.strip() else None
+
+    describe = git("describe", "--tags", "--always", "--abbrev=7")
+    if describe is None:
+        return f"{base}+unknown"
+    dirty = git("status", "--porcelain", "--untracked-files=no", "--", ".", ":(exclude)config") is not None
+    if describe == f"v{base}" and not dirty:
+        return base
+    commit = git("rev-parse", "--short=7", "HEAD") or "unknown"
+    return f"{base}+{commit}" + (".dirty" if dirty else "")
 
 
 VERSION = _version()
