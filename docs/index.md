@@ -8,19 +8,36 @@ Run terminal coding agents (Claude Code, GitHub Copilot CLI, OpenAI Codex, Qwen 
 
 ### Three parts: agents, the server, machines
 
-```text
-   AGENT MACHINES                          THE SERVER                          MACHINES (the fleet)
- ┌──────────────────────┐             ┌──────────────────────────┐        ┌──────────────────────────┐
- │ agent claude .       │   HTTP /    │ agent-server             │ fleet  │ agent-machine            │
- │   └ Claude Code ──┐  │  WebSocket  │  • sessions & recording  │ socket │  • Ollama, Strata,       │
- │ agent-proxy :8184 ◀┘ ├────────────▶│  • routing to providers  │◀──────▶│    Docker Model Runner   │
- │   (loopback only)    │             │  • HTTPS capture (CA)    │ tunnels│  • containers            │
- └──────────────────────┘             │  • console (web app)     │        │  • MCP servers (bridge)  │
-                                      │  • accounts & sharing    │        │  • launches & terminals  │
-   browser / Android app ────────────▶│                          │        └──────────────────────────┘
-                                      └────────────┬─────────────┘
-                                                   └──▶ hosted APIs (api.anthropic.com) and
-                                                        the agents' own services (claude.ai, GitHub, ChatGPT)
+```mermaid
+flowchart TB
+  subgraph AGENTS["1 · Agent computers"]
+    direction LR
+    agent["Coding agent<br/>Claude Code, Codex,<br/>Qwen Code, OpenCode, …"]
+    proxy["agent-proxy<br/>on 127.0.0.1"]
+    agent -- "every request" --> proxy
+  end
+  subgraph SERVER["2 · The server"]
+    direction LR
+    route["agent-server<br/>routes, translates, captures"]
+    record[("Every request recorded,<br/>per session")]
+    console["Console and API<br/>accounts and sharing"]
+    route --> record
+  end
+  subgraph MACHINES["3 · Machines, the fleet"]
+    direction LR
+    am["agent-machine"]
+    models["Model servers<br/>Ollama, Strata, Docker"]
+    mcp["MCP servers"]
+    shell["Agents and terminals<br/>started from the console"]
+    am --- models & mcp & shell
+  end
+  proxy == "agent traffic" ==> route
+  route == "through the connection<br/>each machine opens" ==> am
+  route --> outside["Hosted APIs and the<br/>agents' own services"]
+  people(["Browser or<br/>Android app"]) --> console
+  style AGENTS fill:#6366f112,stroke:#6366f1
+  style SERVER fill:#0d948812,stroke:#0d9488
+  style MACHINES fill:#d9770612,stroke:#d97706
 ```
 
 - **The server** (`agent-server`) is the hub. Every request an agent makes goes through it, and it records them: in a **session** per agent run, under `logs/sessions/<id>/`. It owns all configuration: the agents it knows, the providers it routes to, its users. It serves the **console**, the web app you manage everything from.

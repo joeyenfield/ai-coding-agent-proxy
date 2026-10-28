@@ -111,6 +111,19 @@ Containers stay the owner's (and admins'). See [Machines](machines.md) for the d
 
 ## The terminal access key and pairing
 
+```mermaid
+sequenceDiagram
+  participant C as Console on the server's computer
+  participant S as agent-server
+  participant F as Phone
+  C->>S: POST /api/remote/code (this computer only)
+  S-->>C: a pairing code: single use, 10 minutes
+  F->>S: POST /api/remote/pair with the code (or the access key)
+  S-->>F: the ai_proxy_remote cookie, which stands for the access key
+  F->>S: WS /api/terminals/<id>/view, with the cookie
+  S-->>F: the terminal
+```
+
 Typing into an agent's terminal is as good as a shell on that computer. So in local mode, only trusted clients can use terminals, machines and containers:
 
 - **This computer**: a loopback client whose `Host` header also names loopback. A web page that rebinds its own DNS name to `127.0.0.1` sends its own name in `Host`, so it isn't trusted.

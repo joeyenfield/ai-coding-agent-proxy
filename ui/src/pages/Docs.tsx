@@ -52,6 +52,11 @@ const markdown = new Marked({
     html({ text }: Tokens.HTML | Tokens.Tag) {
       return escapeHtml(text);
     },
+    // A Mermaid diagram keeps its source in the page until mermaid.js draws it (renderDiagrams).
+    code({ text, lang }: Tokens.Code) {
+      if (lang?.trim() !== "mermaid") return false;
+      return `<div class="mermaid-diagram"><pre class="mermaid-source"><code>${escapeHtml(text)}</code></pre></div>\n`;
+    },
     heading({ tokens, depth, text }: Tokens.Heading) {
       return `<h${depth} id="${escapeHtml(slug(text))}">${this.parser.parseInline(tokens)}</h${depth}>\n`;
     },
@@ -69,6 +74,40 @@ const markdown = new Marked({
   },
 });
 
+let mermaidLoader: Promise<typeof import("mermaid").default> | null = null;
+let diagramCount = 0;
+
+/** Draws the page's Mermaid diagrams (sequence diagrams and others), in the console's light or dark theme.
+ * mermaid.js is large, so it's only loaded on a page that has a diagram. */
+async function renderDiagrams(root: HTMLElement): Promise<void> {
+  const blocks = [...root.querySelectorAll<HTMLElement>(".mermaid-diagram")];
+  if (!blocks.length) return;
+  mermaidLoader ??= import("mermaid").then((module) => module.default);
+  const mermaid = await mermaidLoader;
+  const dark = document.documentElement.dataset.theme === "dark";
+  mermaid.initialize({
+    startOnLoad: false,
+    securityLevel: "strict",
+    theme: dark ? "dark" : "default",
+    fontFamily: "Inter Variable, Inter, sans-serif",
+    flowchart: { curve: "basis", wrappingWidth: 260, padding: 14 },
+    sequence: { mirrorActors: false, wrap: true, width: 170 },
+  });
+  for (const block of blocks) {
+    const source = block.dataset.source ?? block.querySelector(".mermaid-source")?.textContent ?? "";
+    block.dataset.source = source;
+    try {
+      const { svg } = await mermaid.render(`mermaid-${++diagramCount}`, source);
+      block.innerHTML = svg;
+      block.classList.remove("mermaid-failed");
+    } catch (error) {
+      // Show the source as it is, and why it couldn't be drawn.
+      block.classList.add("mermaid-failed");
+      block.innerHTML = `<pre class="mermaid-source"><code>${escapeHtml(source)}</code></pre><p class="bad">${escapeHtml(String((error as Error)?.message ?? error))}</p>`;
+    }
+  }
+}
+
 /**
  * The documentation (docs/ in the repository), served by this server: what every part of the system
  * does and how to use it. Public, like Downloads, so it can be read before signing in.
@@ -81,6 +120,16 @@ export function DocsPage() {
   const body = useRef<HTMLDivElement>(null);
   const text = useQuery({ queryKey: ["help", page], queryFn: () => api.helpPage(page), enabled: known, retry: false, staleTime: 60_000 });
   const html = useMemo(() => (text.data ? (markdown.parse(text.data) as string) : ""), [text.data]);
+
+  // Draw the diagrams once the page is in, and again when the theme changes.
+  useEffect(() => {
+    const root = body.current;
+    if (!html || !root) return;
+    void renderDiagrams(root);
+    const observer = new MutationObserver(() => void renderDiagrams(root));
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => observer.disconnect();
+  }, [html]);
 
   // Go to the heading the address names once the page is in, or to the top of a new page.
   useEffect(() => {

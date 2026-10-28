@@ -308,6 +308,6 @@ Terminals are a remote shell, so without accounts only this computer and paired 
 
 ## Documentation
 
-`/help` shows this documentation in the console: the pages of `docs/` on the server, with their pictures, and **API reference (OpenAPI)** for the server's `/docs`. Links between pages stay in the console, and each heading has its own address (`/help/mcp#how-it-works`). Like Downloads it's public, so it can be read before signing in; the sign-in page links to it.
+`/help` shows this documentation in the console: the pages of `docs/` on the server, with their pictures, and **API reference (OpenAPI)** for the server's `/docs`. Links between pages stay in the console, and each heading has its own address (`/help/mcp#how-it-works`). Diagrams are drawn from the pages' Mermaid blocks, in the console's light or dark theme. Like Downloads it's public, so it can be read before signing in; the sign-in page links to it.
 
 The server reads the pages from the `docs` folder of its checkout (the Docker image has them in `/app/docs`), or `AI_PROXY_DOCS_DIR`. A server installed without them says so on the page.

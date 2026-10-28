@@ -112,15 +112,28 @@ Each server is named by its own name in the agent's settings, or `<machine>-<nam
 
 ## How it works
 
-```text
-agent ──▶ agent-proxy :8184 ──▶ server /session/<id>/mcp/<machine>/<name>
-                                   │ checks the session, the grant, records the call
-                                   ▼
-                    machine's tunnel (WS /api/machines/tunnel/<id>)
-                                   ▼
-                 agent-machine's bridge on 127.0.0.1:<port>, /mcp/<name>
-                    ├─ stdio: a process of the command for each MCP session
-                    └─ URL: proxied, with its headers
+```mermaid
+sequenceDiagram
+  participant A as Agent
+  participant P as agent-proxy :8184
+  participant S as agent-server
+  participant M as agent-machine bridge
+  participant X as MCP server process
+  A->>P: POST /session/<id>/mcp/<machine>/github: initialize
+  P->>S: same path
+  S->>S: was the session given it? may its user still use the machine's MCP servers?
+  S->>M: through the machine's tunnel, with the bridge's key
+  M->>X: starts the command for this MCP session
+  M->>X: initialize (stdin, one JSON message per line)
+  X-->>M: result (stdout)
+  M-->>A: event stream with the result, and Mcp-Session-Id
+  Note over S: every POST is recorded: initialize, tools/call <tool>, …
+  A->>M: tools/call, with Mcp-Session-Id (through agent-proxy and the server)
+  M->>X: tools/call
+  X-->>M: progress notification, then the result
+  M-->>A: both, on that request's event stream
+  A->>M: DELETE, the same way (or six idle hours)
+  M->>X: closes stdin, stops the process
 ```
 
 - **They run on their machine**, as the user agent-machine runs as.

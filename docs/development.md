@@ -91,6 +91,10 @@ node scripts/screenshots/capture.mjs http://127.0.0.1:8199 docs/screenshots [nam
 
 Check layout changes in dark mode and at a phone-sized width (about 412 px): the Android app shows the same pages.
 
+### Diagrams in the docs
+
+Draw diagrams in `docs/` as [Mermaid](https://mermaid.js.org) in a ` ```mermaid ` block: `sequenceDiagram` for a flow between parts (a session, a launch, the MCP relay), `flowchart` for how parts connect. The console's **Docs** page (`/help`) draws them with mermaid.js, loaded only on pages that have one, in its light or dark theme, and shows the source with the error if one can't be drawn. GitHub draws the same blocks, so the files read the same in the repository. Write `<id>` as it is in a sequence diagram, and as `#lt;id#gt;` in a flowchart label (where `<...>` would be read as HTML). Check a new diagram on the Docs page in both themes.
+
 ### Playwright MCP for coding agents
 
 The repository's `.mcp.json` gives coding agents working on it (Claude Code, and others that read the file) the [Playwright MCP server](https://github.com/microsoft/playwright-mcp): a browser they can drive to open the demo or a real console, click through pages, read them and take screenshots. It runs `npx -y @playwright/mcp@latest --browser msedge`, so it uses the installed Microsoft Edge rather than a downloaded browser; change `--browser` to `chrome` or `chromium` elsewhere. Claude Code asks you to approve a project's MCP servers the first time it starts in the folder (`claude mcp list` shows it as pending until then).

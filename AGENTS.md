@@ -289,7 +289,7 @@ The one pytest warning (Starlette's httpx deprecation in `TestClient`) is expect
   - `LogPanel`.
   - `RouteBadge`.
 - Styling goes in `styles.css`, using the existing CSS variables, so both themes keep working. Check dark mode and a narrow viewport (about 420 px) for layout changes.
-- **Every user-facing function is documented in `docs/`.** A new command, option, console page or control, endpoint, setting or environment variable goes into its page (`docs/index.md` maps features to pages; `docs/api.md` lists every route). Keep `README.md` short: it only introduces and links.
+- **Every user-facing function is documented in `docs/`.** A new command, option, console page or control, endpoint, setting or environment variable goes into its page (`docs/index.md` maps features to pages; `docs/api.md` lists every route). Keep `README.md` short: it only introduces and links. Draw diagrams as Mermaid blocks (`sequenceDiagram` for flows, `flowchart` for structure), not ASCII art: the Docs page (`/help`) and GitHub both render them.
 - UI, README and docs text: plain, short sentences, sentence case, and say what something does for the user. Name providers with `providerLabel()`/`PROVIDERS` in `routes.ts`.
 
 ## Checklists

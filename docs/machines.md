@@ -217,6 +217,25 @@ With `servers on`, Strata profiles serving on other loopback ports are added too
 
 ## Launches
 
+```mermaid
+sequenceDiagram
+  actor U as You, in the console
+  participant S as agent-server
+  participant M as agent-machine
+  participant G as agent, headless
+  participant A as Coding agent
+  U->>S: POST /api/machines/<id>/launch (agent, folder, model, MCP servers)
+  S->>S: may you launch there? launches on? folder inside a launch folder?
+  S->>M: launch request, over the fleet socket
+  M->>M: launches on? folder inside a root, links resolved?
+  M->>G: agent <agent> <folder> --headless --launch-id <id>
+  G->>S: opens the session, through this computer's agent-proxy
+  G-->>M: {"session_id": …}, its only line of output
+  M-->>S: launched, with the session id
+  S-->>U: the session: Running agents opens it
+  G->>A: runs it in a pseudo-terminal shared with the server
+```
+
 A launch starts an agent on the machine, from **Start an agent** or the machine's **Agents** tab. It runs in a shared terminal, and the console takes you to it.
 
 The server checks that:
@@ -262,6 +281,21 @@ When you start an agent or a terminal on a machine, you pick the folder by openi
 - **Up** stops at a root.
 
 ## Remote updates
+
+```mermaid
+sequenceDiagram
+  actor U as Owner or admin
+  participant S as agent-server
+  participant M as agent-machine
+  U->>S: POST /api/machines/<id>/update
+  S->>M: update request, over the fleet socket
+  M->>M: updates on?
+  M-->>S: update_result: from and to versions
+  M->>M: starts agent-machine update, detached
+  M->>S: downloads the server's build and its SHA256SUMS
+  M->>M: checks the SHA-256, replaces its program, restarts
+  M->>S: reconnects, on the server's build
+```
 
 With `agent-machine updates on`, a machine on another build than the server's has **Update now** on its page. It needs the `update` feature: the owner, admins, or a granted organization or team.
 

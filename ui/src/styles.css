@@ -1109,6 +1109,11 @@ code { background: var(--ground); border: 1px solid var(--line); padding: 0 5px;
 .markdown blockquote { margin: 0 0 12px; padding: 4px 14px; border-left: 3px solid var(--line-strong); color: var(--steel); }
 .markdown hr { border: 0; border-top: 1px solid var(--line); margin: 24px 0; }
 .doc-offsite { font-weight: 600; }
+/* Mermaid diagrams in the docs: drawn as SVG, the source shown until they are (or if they can't be). */
+.mermaid-diagram { margin: 4px 0 18px; padding: 14px; overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-small); background: var(--paper); text-align: center; }
+.mermaid-diagram svg { max-width: 100%; height: auto; }
+.mermaid-diagram .mermaid-source { margin: 0; text-align: left; }
+.mermaid-diagram.mermaid-failed { text-align: left; }
 @media (max-width: 900px) {
   .docs-layout { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .docs-nav { position: static; flex-direction: row; flex-wrap: wrap; gap: 4px; }

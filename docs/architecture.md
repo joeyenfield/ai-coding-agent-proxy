@@ -36,28 +36,49 @@ The parts talk only over HTTP and WebSockets and never import each other's code.
 
 ## How it fits together
 
-```text
- AGENT COMPUTER (loopback only)                  SERVER: agent-server (:9999)                PROVIDERS
- ------------------------------                  ----------------------------                ---------
-
- account agent --HTTPS_PROXY--> agent-proxy ==WS /api/proxy/tunnel==> decrypt, record --> api.anthropic.com,
- (claude-account, ...)          :8183                                  (server's CA)      github, chatgpt.com
-
- local / hosted agent --URL--> agent-proxy ===/session/<id>/...======> route, translate,
- (qwen, claude, ...)            :8184                                  record ---------+-> api.anthropic.com
-                                                                                       |   (hosted)
- agent (launcher) -----------> agent-proxy ===/api/... (signed)======> agents, sessions|
-                                                                                       |
- agent --control  -----------> agent-proxy ===WS /api/terminals/<id>/host==> terminals.py <== console, phone
-                                                                                       |
-                                                                       tunnels.py      |
-                                                                       loopback port <-+
-                                                                            |
- MACHINE: agent-machine ====WS /api/machines/connect=======================> fleet.py
-   (hello, updates in; tunnel, provider, container, launch requests out)    |
-   agent-machine ====WS /api/machines/tunnel/<id> (raw bytes) <-------------+
-        |
-        +--> 127.0.0.1:<port>  Ollama, Strata, Docker Model Runner, containers
+```mermaid
+flowchart TB
+  subgraph PC["Agent computer, loopback only"]
+    direction LR
+    acct["Account agent<br/>claude-account, codex-account"]
+    local["Local or hosted agent<br/>qwen, opencode, claude"]
+    launcher["agent launcher"]
+    proxy["agent-proxy<br/>:8184 API and agents<br/>:8183 HTTPS proxy"]
+    acct -- "HTTPS_PROXY" --> proxy
+    local -- "/session/#lt;id#gt;/..." --> proxy
+    launcher -- "/api/..., terminal" --> proxy
+  end
+  subgraph SRV["agent-server :9999"]
+    direction LR
+    intercept["intercept.py<br/>decrypts with its CA"]
+    compat["routes/compat.py<br/>routes and translates"]
+    mgmt["Management API"]
+    terms["terminals.py"]
+    logs[("logs/sessions/#lt;id#gt;/")]
+    fleet["fleet.py"]
+    tunnels["tunnels.py"]
+    intercept --> logs
+    compat --> logs
+    compat --> tunnels
+  end
+  subgraph MC["Machine, behind NAT or anywhere"]
+    direction LR
+    am["agent-machine"]
+    ports["127.0.0.1:#lt;port#gt;<br/>model servers, containers,<br/>MCP bridge"]
+    am --> ports
+  end
+  proxy == "WS /api/proxy/tunnel" ==> intercept
+  proxy == "/session/#lt;id#gt;/..." ==> compat
+  proxy == "/api/..., signed" ==> mgmt
+  proxy == "WS .../host" ==> terms
+  viewers(["Console or phone"]) -- "WS .../view" --> terms
+  intercept --> vendors["The agents' own services<br/>api.anthropic.com, github.com,<br/>chatgpt.com"]
+  compat --> hosted["Hosted Anthropic API"]
+  fleet == "WS /api/machines/connect<br/>(opened by the machine)" ==> am
+  tunnels == "WS /api/machines/tunnel/#lt;id#gt;<br/>(dialled back by the machine)" ==> am
+  style PC fill:#6366f112,stroke:#6366f1
+  style SRV fill:#0d948812,stroke:#0d9488
+  style MC fill:#d9770612,stroke:#d97706
 ```
 
 Agents talk only to their own computer's `agent-proxy`. Machines open connections out to the server and never need a port open. The server needs only its own port: account agents' HTTPS, terminals, the fleet and the tunnels all arrive as WebSockets on it.
@@ -95,6 +116,37 @@ A local backend (`ollama`, `strata`, `docker`) always belongs to a machine: `Bac
 
 ## A session, step by step
 
+```mermaid
+sequenceDiagram
+  autonumber
+  actor You
+  participant L as agent (launcher)
+  participant P as agent-proxy :8184
+  participant S as agent-server
+  participant A as Coding agent
+  participant B as Backend
+  You->>L: agent qwen . --model qwen3.6:35b
+  L->>P: GET /health
+  opt nothing answers
+    L->>P: starts agent proxy, detached
+  end
+  L->>P: GET /api/agents
+  P->>S: forwarded, signed with the computer's token
+  L->>P: POST /api/agents/qwen/sessions
+  P->>S: forwarded, signed
+  S-->>L: session id, rendered environment, command and files
+  L->>A: starts it with OPENAI_BASE_URL=…/session/<id>/v1
+  loop every request
+    A->>P: POST /session/<id>/v1/chat/completions
+    P->>S: same path, no token: the session id is the credential
+    S->>B: translated for Ollama, else passed through
+    B-->>S: streamed reply
+    S-->>A: streamed reply, recorded in logs/sessions/<id>/
+  end
+  A-->>L: exits
+  L->>S: PATCH /api/sessions/<id> (ended, exit status)
+```
+
 A session is one agent run. Everything it does is filed under its id.
 
 1. **The proxy starts.** `agent` checks `127.0.0.1:8184/health`. If nothing answers, it starts `agent proxy` detached. If the proxy's server is on this computer and down, it starts `agent-server` from `PATH` too.
@@ -116,6 +168,27 @@ Bare `/v1`, `/anthropic` and `/api` also work, with the session in the `X-AI-Pro
 
 ## HTTPS interception
 
+```mermaid
+sequenceDiagram
+  participant A as Account agent
+  participant P as agent-proxy :8183
+  participant S as agent-server (intercept)
+  participant V as Vendor, e.g. api.anthropic.com
+  A->>P: CONNECT api.anthropic.com:443 (session id as the proxy user)
+  P->>S: WS /api/proxy/tunnel, signed with the computer's token
+  alt tunnel refused
+    S--xP: closed
+    P-->>A: 407 Proxy Authentication Required
+  else tunnel open
+    P-->>A: 200 Connection established
+    A->>S: TLS, with a certificate from the server's CA (trusted by this agent only)
+    A->>S: POST /v1/messages
+    S->>V: the same request, over normally verified TLS
+    V-->>S: streamed reply
+    S-->>A: streamed reply, recorded in the session (credentials redacted)
+  end
+```
+
 Account agents talk to their vendors directly, with their own sign-in, so no base URL can point them at the server. Instead they get an HTTPS proxy and a CA to trust:
 
 - **The CA.** On first start the server creates a certificate authority in `certs/` (`ca.pem`, `ca-key.pem`, and `bundle.pem`, the system roots plus the CA). The launcher hands it only to the agent's own process tree, through variables such as `NODE_EXTRA_CA_CERTS`, `CODEX_CA_CERTIFICATE` and `SSL_CERT_FILE`. Nothing goes into the system's trust store, so nothing else on the computer is affected.
@@ -127,6 +200,22 @@ Account agents talk to their vendors directly, with their own sign-in, so no bas
 Why a tunnel over the server's own port: the agent's computer opens no ports, the server opens none beyond its own, and the intercept listener never faces the network. The server only binds a separate listener if `intercept.listen_port` is set.
 
 ## Tunnels to machines' model servers
+
+```mermaid
+sequenceDiagram
+  participant C as routes/compat.py
+  participant T as Loopback listener (tunnels.py)
+  participant M as agent-machine
+  participant O as Ollama on 127.0.0.1:11434
+  Note over M,C: The machine keeps WS /api/machines/connect open, opened from its side
+  C->>T: the backend's request (runtime.tunnels.base_url)
+  T->>M: over the fleet socket: open tunnel <id> to port 11434
+  M->>T: dials back: WS /api/machines/tunnel/<id>
+  M->>O: connects to 127.0.0.1:11434 (only ports it reported)
+  C->>O: request bytes, through the tunnel
+  O-->>C: streamed reply, through the tunnel
+  Note over C,O: Plain TCP inside: streaming and keep-alive work unchanged
+```
 
 The server often can't reach a machine's model server directly: the machine may be behind NAT, in WSL, or on another network, with only its fleet connection out to the server. So when a machine can tunnel (its hello says `"tunnel": 1`) and isn't on the server's own computer, its traffic goes through the machine:
 
@@ -141,6 +230,24 @@ It's plain TCP inside, so HTTP, streaming and keep-alive work unchanged, and the
 A machine can share MCP servers with agents (`agent-machine mcp add`). `agent-machine` serves each of them as Streamable HTTP on a loopback bridge of its own, behind a key it makes for each run. An agent started with `--mcp` reaches one at `/session/<id>/mcp/<machine>/<name>` on its own `agent-proxy`; the server relays it through the machine's tunnel and records each call in the session. The commands, environments and URLs stay on the machine. See [MCP](mcp.md).
 
 ## Terminal sharing
+
+```mermaid
+sequenceDiagram
+  participant A as Agent (in a pseudo-terminal)
+  participant L as Launcher (control on)
+  participant P as agent-proxy
+  participant S as agent-server (terminals.py)
+  participant V as Console or phone
+  L->>P: WS /api/terminals/<id>/host
+  P->>S: relayed
+  A-->>L: output, also shown in your own terminal
+  L-->>S: output: history kept, appended to terminal.log
+  V->>S: WS /api/terminals/<id>/view
+  S-->>V: the history, then live output
+  V->>S: input: "fix the tests", Enter
+  S->>L: input
+  L->>A: typed: the text, then Enter as a separate write
+```
 
 With `--control`, the launcher shares the agent's terminal with the server, so you can watch and type into it from the console's **Running agents** page, from a phone too. It's off unless you ask for it (`AI_PROXY_CONTROL=1` makes it a computer's default).
 

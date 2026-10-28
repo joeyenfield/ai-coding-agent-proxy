@@ -156,6 +156,20 @@ When someone starts an agent on a machine from the console, `agent-machine` runs
 
 ## Signing in: agent login and agent logout
 
+```mermaid
+sequenceDiagram
+  actor U as You
+  participant L as agent login
+  participant S as agent-server
+  participant P as agent-proxy
+  U->>L: agent login http://server:9999 --user alice
+  L->>S: POST /api/auth/token (username, password)
+  S-->>L: a launcher token for this computer
+  L->>L: saves it in credentials.json
+  Note over P: reads credentials.json on every request: login and logout apply at once
+  P->>S: the launcher's calls, with X-AI-Proxy-Token
+```
+
 ```bash
 agent login http://server:9999            # once per computer
 agent login http://server:9999 --user joey
