@@ -412,7 +412,7 @@ class Presence:
         before = updates.current()
         answer.update(ok=True, to=index.get("version"))
         answer["from"] = before
-        if index.get("version") == before and not request.get("agent"):
+        if index.get("version") == before and not request.get("agent") and not updates.checkout():
             answer.update(updating=False, message="agent-machine is already the server's build")
             return answer
         args = ["update", "--server", server] + (["--with-agent"] if request.get("agent") else [])

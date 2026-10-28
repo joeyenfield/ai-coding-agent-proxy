@@ -69,12 +69,56 @@ def install(server: str, index: Dict[str, Any], program: str) -> str:
             raise UpdateError(f"couldn't download {name}: {error}")
         if digest.hexdigest() != str(item.get("sha256") or ""):
             raise UpdateError(f"{name} doesn't match the SHA-256 the server lists; nothing was installed")
-        done = subprocess.run([sys.executable, "-m", "pip", "install", "--upgrade", "--disable-pip-version-check", "--no-input", str(path)],
-                              capture_output=True, text=True)
-        if done.returncode != 0:
-            detail = (done.stderr or done.stdout).strip().splitlines()[-5:]
-            raise UpdateError(f"pip couldn't install {name}:\n" + "\n".join(detail))
-    return str(index.get("version") or "")
+        want = str(index.get("version") or "")
+        said = "nothing"
+        # The second try reinstalls over what's there: metadata saying this version is installed while its
+        # files are gone (No module named agent_py) is "already satisfied" to pip otherwise.
+        for extra in ((), ("--force-reinstall", "--no-deps")):
+            done = pip("install", "--upgrade", "--disable-pip-version-check", "--no-input", *extra, str(path))
+            if done.returncode != 0:
+                detail = (done.stderr or done.stdout).strip().splitlines()[-5:]
+                raise UpdateError(f"pip couldn't install {name}:\n" + "\n".join(detail))
+            # Other versions' metadata left beside it (an install from a checkout leaves some, and pip won't
+            # uninstall those) makes pip report the wrong version, and remove this one's files on a later update.
+            prune(want)
+            # Only a copy that imports, and says it's the server's build, may replace the running one.
+            check = subprocess.run([sys.executable, "-c", "import agent_py.common as c; print(c.VERSION)"], capture_output=True, text=True, **clean())
+            got = check.stdout.strip().splitlines()[-1:] if check.returncode == 0 else []
+            if got and (not want or got[0] == want):
+                return want
+            said = got[0] if got else ((check.stderr or check.stdout).strip().splitlines()[-1:] or ["nothing"])[0]
+    raise UpdateError(f"pip installed {name}, but {sys.executable} then says {said}, not {want}; the running copy was left alone. "
+                      f"Reinstall it with: {sys.executable} -m pip install --force-reinstall {server.rstrip('/')}{item.get('url')}")
+
+
+def clean() -> Dict[str, Any]:
+    """Where pip and the check run: the home folder, without PYTHONPATH, so a checkout (its agent_py, or the
+    egg-info `pip install .` leaves in it) can't stand in for what's installed."""
+    import os
+
+    return {"cwd": str(Path.home()), "env": {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}}
+
+
+def pip(*args: str) -> "subprocess.CompletedProcess[str]":
+    return subprocess.run([sys.executable, "-m", "pip", *args], capture_output=True, text=True, **clean())
+
+
+PRUNE = """
+import importlib.metadata as m, shutil, sys, sysconfig
+from pathlib import Path
+want, roots = sys.argv[1], {Path(sysconfig.get_paths()[key]).resolve() for key in ("purelib", "platlib")}
+for d in m.distributions():
+    path = Path(str(getattr(d, "_path", "") or ""))
+    if (d.metadata["Name"] or "").lower() == "ai-proxy-agent-py" and d.version != want and path.name.endswith(".dist-info") and path.resolve().parent in roots:
+        shutil.rmtree(path)
+        print(path.name)
+"""
+
+
+def prune(want: str) -> None:
+    """Removes the package's metadata folders of other versions from this Python's own site-packages (only
+    the .dist-info folders: the files are the installed version's)."""
+    subprocess.run([sys.executable, "-c", PRUNE, want], capture_output=True, text=True, **clean())
 
 
 def notes(index: Dict[str, Any]) -> str:

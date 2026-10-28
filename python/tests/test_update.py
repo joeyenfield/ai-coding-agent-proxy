@@ -27,13 +27,16 @@ from test_client import machine
 NAME = "ai_proxy_agent_py-9.9.9-py3-none-any.whl"
 
 
-def stand_in_wheel() -> bytes:
-    info = "ai_proxy_agent_py-9.9.9.dist-info"
+def stand_in_wheel(version_: str = "9.9.9", package: bool = True) -> bytes:
+    """A wheel with the package's name; with package, an agent_py that says it's version_ (all the update checks)."""
+    info = f"ai_proxy_agent_py-{version_}.dist-info"
     files = {
-        "agent_py_update_marker/__init__.py": "VERSION = '9.9.9'\n",
-        f"{info}/METADATA": "Metadata-Version: 2.1\nName: ai-proxy-agent-py\nVersion: 9.9.9\n",
+        f"{info}/METADATA": f"Metadata-Version: 2.1\nName: ai-proxy-agent-py\nVersion: {version_}\n",
         f"{info}/WHEEL": "Wheel-Version: 1.0\nGenerator: test\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
     }
+    if package:
+        files["agent_py/__init__.py"] = ""
+        files["agent_py/common.py"] = f"VERSION = {version_!r}\n"
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
         record = []
@@ -91,6 +94,33 @@ def test_the_programs_update_from_the_servers_python_build(tmp_path, agent_binar
         refused = subprocess.run([str(venv), "-m", "agent_py.machine", "update", "--server", m.server, "--force"], env=env, capture_output=True, text=True, timeout=300)
         assert refused.returncode == 1 and "SHA-256" in refused.stderr, refused.stdout + refused.stderr
         assert installed(venv) == ""
+
+
+def test_an_update_cleans_up_a_second_copy_and_refuses_one_that_wont_import(tmp_path, agent_binary, served_build, venv):
+    """Installing from a checkout can leave two copies' metadata; pip can then remove the files the new one needs."""
+    site = Path(subprocess.run([str(venv), "-c", "import sysconfig; print(sysconfig.get_paths()['purelib'])"], capture_output=True, text=True).stdout.strip())
+    old = tmp_path / NAME.replace("9.9.9", "1.0.0")
+    old.write_bytes(stand_in_wheel("1.0.0"))
+    subprocess.run([str(venv), "-m", "pip", "install", "--force-reinstall", str(old)], check=True, capture_output=True, timeout=300)
+    # A second, stale copy of the metadata beside it, as pip left on the Pi.
+    stale = site / "ai_proxy_agent_py-0.9.0+old.dist-info"
+    stale.mkdir()
+    (stale / "METADATA").write_text("Metadata-Version: 2.1\nName: ai-proxy-agent-py\nVersion: 0.9.0+old\n")
+    (stale / "RECORD").write_text("agent_py/__init__.py,,\nagent_py/common.py,,\n")
+    with machine(tmp_path, agent_binary) as m:
+        env = {key: value for key, value in m.env.items() if key != "AI_PROXY_VERSION"}
+        env["AI_PROXY_MACHINE_HOME"] = str(tmp_path / "machine-home")
+        done = subprocess.run([str(venv), "-m", "agent_py.machine", "update", "--server", m.server, "--force"], env=env, capture_output=True, text=True, timeout=300)
+        assert done.returncode == 0, done.stdout + done.stderr
+        assert sorted(item.name for item in site.glob("ai_proxy_agent_py-*.dist-info")) == ["ai_proxy_agent_py-9.9.9.dist-info"]
+        assert (site / "agent_py" / "common.py").read_text().strip() == "VERSION = '9.9.9'"
+        # A build that installs but doesn't import as the server's version replaces nothing that's running.
+        broken = stand_in_wheel("9.9.9", package=False)
+        (tmp_path / "dist" / "9.9.9" / "python" / NAME).write_bytes(broken)
+        served_build.write_text(f"{hashlib.sha256(broken).hexdigest()}  python/{NAME}\n")
+        subprocess.run([str(venv), "-m", "pip", "uninstall", "-y", "ai-proxy-agent-py"], capture_output=True, timeout=120)
+        refused = subprocess.run([str(venv), "-m", "agent_py.machine", "update", "--server", m.server, "--force"], env=env, capture_output=True, text=True, timeout=300)
+        assert refused.returncode == 1 and "left alone" in refused.stderr, refused.stdout + refused.stderr
 
 
 def test_the_console_updates_a_python_machine_that_takes_updates(tmp_path, agent_binary, served_build, venv):

@@ -46,7 +46,7 @@ def update_command(args: List[str]) -> int:
     try:
         index = updates.fetch(server, settings.PROGRAM)
         before = updates.current()
-        if index.get("version") == before and not options.force:
+        if index.get("version") == before and not options.force and not updates.checkout():
             print(f"agent {before} is the version the agent-server at {server} offers; nothing to do (--force installs it anyway).")
             return 0
         installed = updates.install(server, index, settings.PROGRAM)
