@@ -99,6 +99,7 @@ machine/                    AGENT-MACHINE (Go module ai-coding-agent-proxy/machi
 tools/                      build tooling (Go module ai-coding-agent-proxy/tools): dist/ builds and packs both Go components for every platform (targets and components live here)
   dist/install/             install.sh (Linux, macOS, FreeBSD) and install.ps1 (Windows), embedded into every archive: copy onto PATH, --service, --uninstall
   dist/packages.go rpm.go   -packages: .deb, .apk, Arch and .rpm written in Go; .msi through wix, macOS .pkg through pkgbuild, each skipped without its tool
+  dist/python.go            the Python client and machine (python/) as one wheel, written in Go from pyproject.toml, into dist/<version>/python/ (-python=false skips it)
 ui/src/                     THE CONSOLE: React 19 + TypeScript + Vite + TanStack Query + react-router
   api.ts                    Every fetch call and every response type
   navigation.ts             The console's three parts (Agents, Server, Machines) and their pages (drives the side rail)
@@ -133,7 +134,7 @@ cd server && pip install -e ".[dev]"     # once; installs agent-server, agent-be
 cd ui && npm install                     # once
 ./scripts/build-client.sh  |  .\scripts\build-client.ps1   # the client into client/bin (--all / -All: the same as build-dist)
 ./scripts/build-machine.sh |  .\scripts\build-machine.ps1  # agent-machine into machine/bin
-./scripts/build-dist.sh    |  .\scripts\build-dist.ps1     # both, every platform, into dist/<version>/<os>-<arch>/: archives (binaries in artifact/)
+./scripts/build-dist.sh    |  .\scripts\build-dist.ps1     # both, every platform, into dist/<version>/<os>-<arch>/: archives (binaries in artifact/); the Python wheel in dist/<version>/python/
 
 cd server && python -m pytest -q         # ~145 tests, ~1 min, no network beyond 127.0.0.1; test_client.py builds the Go client
 cd client && go test ./...               # the client's unit tests; go vet ./... and GOOS=linux go vet ./... for both pty paths

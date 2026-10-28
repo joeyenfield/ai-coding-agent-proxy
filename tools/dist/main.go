@@ -1,7 +1,7 @@
 // Command dist builds the Go components for every standard platform and packages them,
 // for scripts/build-dist.sh and .ps1 (run from tools/):
 //
-//	go run ./dist                                        every target, both components, the Android app
+//	go run ./dist                                        every target, both components, the Android app, the Python wheel
 //	go run ./dist linux/arm64 windows/amd64              only these targets
 //	go run ./dist -only agent-machine -android=false     one component, no app
 //
@@ -18,6 +18,7 @@
 //	dist/<version>/<os>-<arch>/<component>-<version>-<os>-<arch>.msi  with -packages (.deb, .rpm, ...)
 //	dist/<version>/<os>-<arch>/artifact/             the binaries and the installer script
 //	dist/<version>/android/agent-proxy-<version>.apk the Android app (see android.go)
+//	dist/<version>/python/ai_proxy_agent_py-<version>-py3-none-any.whl  the Python agent and agent-machine (see python.go)
 //
 // Each component gets its own archive, so a machine that only supplies models gets
 // agent-machine alone, and each archive has the installer for its OS (install.sh, or
@@ -83,6 +84,7 @@ func main() {
 	only := flag.String("only", "", "build just these components, comma-separated (agent, agent-machine)")
 	native := flag.Bool("packages", false, "also build native packages: .deb, .rpm, .apk and Arch for Linux, .msi (with wix), macOS .pkg (on a Mac)")
 	app := flag.Bool("android", true, "also build the Android app, when a JDK and the Android SDK are here")
+	wheel := flag.Bool("python", true, "also build the Python agent and agent-machine (python/) as a wheel")
 	printVersion := flag.Bool("print-version", false, "print the checkout's version and stop (scripts/build-client and build-machine stamp it)")
 	flag.Parse()
 	if *version == "" {
@@ -98,7 +100,7 @@ func main() {
 	}
 	components, err := chosen(*only)
 	if err == nil {
-		err = run(*root, *out, *version, targets, components, *native, *app)
+		err = run(*root, *out, *version, targets, components, *native, *app, *wheel)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "dist:", err)
@@ -125,7 +127,7 @@ func chosen(only string) ([]Component, error) {
 	return picked, nil
 }
 
-func run(root, out, version string, targets []string, components []Component, native, app bool) error {
+func run(root, out, version string, targets []string, components []Component, native, app, wheel bool) error {
 	root, err := filepath.Abs(root)
 	if err != nil {
 		return err
@@ -195,6 +197,16 @@ func run(root, out, version string, targets []string, components []Component, na
 		if apk != "" {
 			handed = append(handed, apk)
 			fmt.Println(filepath.ToSlash(filepath.Join(out, version, apk)))
+		}
+	}
+	if wheel {
+		built, err := python(root, release, version)
+		if err != nil {
+			return fmt.Errorf("the Python wheel: %w", err)
+		}
+		if built != "" {
+			handed = append(handed, built)
+			fmt.Println(filepath.ToSlash(filepath.Join(out, version, built)))
 		}
 	}
 	if err := writeSums(release, handed); err != nil {

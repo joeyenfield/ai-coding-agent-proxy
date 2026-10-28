@@ -36,6 +36,13 @@ LOOPBACK = {"localhost", "127.0.0.1", "::1"}
 def _version() -> str:
     if os.environ.get("AI_PROXY_VERSION"):
         return os.environ["AI_PROXY_VERSION"]
+    # A wheel from tools/dist carries its build's version (python.go writes _version.py; a checkout has none).
+    try:
+        from ._version import VERSION as built
+
+        return built
+    except ImportError:
+        pass
     # The repository's VERSION, when run from a checkout; "dev" otherwise, as an unstamped Go build says.
     for parent in Path(__file__).resolve().parents:
         candidate = parent / "VERSION"

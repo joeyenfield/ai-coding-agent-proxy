@@ -455,17 +455,17 @@ export interface Health {
   min_protocol?: number;
 }
 
-export type DownloadKind = "archive" | "deb" | "rpm" | "apk" | "arch" | "msi" | "pkg" | "binary" | "installer" | "android";
+export type DownloadKind = "archive" | "deb" | "rpm" | "apk" | "arch" | "msi" | "pkg" | "binary" | "installer" | "android" | "wheel";
 
 /** One file the server offers, from its build folder's SHA256SUMS. */
 export interface DownloadFile {
   /** <os>-<arch>/<file>, relative to the build folder. */
   path: string;
-  /** linux-amd64, windows-arm64, ... or android. */
+  /** linux-amd64, windows-arm64, ... android, or python (the one wheel for every platform). */
   platform: string;
   os: string;
   arch: string;
-  component: "agent" | "agent-machine" | "android";
+  component: "agent" | "agent-machine" | "android" | "python";
   kind: DownloadKind;
   name: string;
   size: number;

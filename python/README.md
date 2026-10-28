@@ -7,7 +7,9 @@ Use them where there's no Go build for the platform, or to read and change the p
 without a Go toolchain.
 
 ```bash
-pip install ./python                     # or: pip install -e "./python[dev]"
+pip install https://server:9999/downloads/<version>/python/ai_proxy_agent_py-<version>-py3-none-any.whl
+                                         # the server's own build: its Downloads page has the exact line
+pip install ./python                     # or from a checkout: pip install -e "./python[dev]"
 agent-py login http://server:9999        # sign this machine in, once (same file as the Go agent)
 agent-py qwen . --model qwen3.6:35b      # launch an agent through this machine's agent-proxy
 agent-machine-py login http://server:9999
@@ -56,6 +58,17 @@ its Go version: `agent-proxy/credentials.json` (or `AI_PROXY_CREDENTIALS`) for a
 
 A launch from the console runs `AI_PROXY_AGENT` if it's set, otherwise the Python agent with
 the same Python as agent-machine.
+
+## Building it
+
+`scripts/build-dist.sh` (`.\scripts\build-dist.ps1`) builds the wheel with everything else,
+into `dist/<version>/python/`, listed in that version's SHA256SUMS, so the server offers it on
+its Downloads page. `tools/dist/python.go` writes it in Go from `pyproject.toml` and
+`agent_py/`, so no Python build tools are needed and the wheel is the same from any build
+machine. It adds `agent_py/_version.py` with the build's version, so the installed programs
+report the same version as the server's build (a checkout says `X.Y.Z+python`).
+`PYTHON=0` (`-NoPython`) leaves it out. A `-version` that isn't a Python version (X.Y.Z, or
+X.Y.Z+local) skips it with a note.
 
 ## Tests
 

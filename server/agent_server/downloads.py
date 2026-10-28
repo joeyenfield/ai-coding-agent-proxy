@@ -1,4 +1,5 @@
-"""The builds the server hands out: agent, agent-machine and the Android app, for every platform.
+"""The builds the server hands out: agent, agent-machine and the Android app, for every platform,
+and the Python agent and agent-machine as one wheel.
 
 tools/dist puts a version's builds in dist/<version>/ (see tools/dist/main.go), with a
 SHA256SUMS over every file it made. The server offers the folder of its own version
@@ -90,6 +91,9 @@ def describe(path: str) -> dict[str, Any]:
     platform = parts[0]
     if platform == "android":
         return {"platform": "android", "os": "android", "arch": None, "component": "android", "kind": "android", "name": name}
+    if platform == "python":
+        # One wheel for every computer with Python: the Python agent and agent-machine (tools/dist/python.go).
+        return {"platform": "python", "os": "python", "arch": None, "component": "python", "kind": "wheel" if name.endswith(".whl") else "file", "name": name}
     os_name, _, arch = platform.partition("-")
     if len(parts) == 3 and parts[1] == "artifact":
         program = name.removesuffix(".exe")

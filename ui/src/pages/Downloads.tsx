@@ -20,6 +20,7 @@ const KIND_LABELS: Record<DownloadKind, string> = {
   binary: "Program",
   installer: "Install script",
   android: "Android app (.apk)",
+  wheel: "Python wheel (.whl)",
 };
 const COMPONENTS = [
   { id: "agent", label: "Client", summary: "agent and agent-proxy, for computers that start coding agents. Sign it in with agent login." },
@@ -36,10 +37,11 @@ export function DownloadsPage({ standalone = false }: { standalone?: boolean }) 
   const copy = useClipboard();
   const server = serverAddress(status.data?.proxy_url);
   const files = index.data?.files ?? [];
-  const platforms = useMemo(() => orderPlatforms(files.filter((file) => file.platform !== "android").map((file) => file.platform)), [files]);
+  const platforms = useMemo(() => orderPlatforms(files.filter((file) => file.platform !== "android" && file.platform !== "python").map((file) => file.platform)), [files]);
   const [picked, setPicked] = useState<string | null>(null);
   const platform = picked && platforms.includes(picked) ? picked : platforms[0];
   const android = files.filter((file) => file.component === "android");
+  const python = files.filter((file) => file.component === "python");
   const own = files.filter((file) => file.platform === platform);
   // The browser's own platform comes first, so its two archives are the quick links.
   const mine = files.filter((file) => file.platform === platforms[0] && file.kind === "archive");
@@ -194,6 +196,20 @@ export function DownloadsPage({ standalone = false }: { standalone?: boolean }) 
         </section>
       )}
 
+      {python.length > 0 && (
+        <section className="panel" aria-labelledby="downloads-python">
+          <div className="panel-head">
+            <h2 id="downloads-python">Python client and agent-machine</h2>
+            <p className="subtle">
+              The same programs written in Python, for any computer with Python 3.9 or later, including ones with no build above.
+              They install as <code>agent-py</code> and <code>agent-machine-py</code>, beside the programs above. They don't run
+              containers or start model servers.
+            </p>
+          </div>
+          <FileTable files={python} server={server} onCopy={copy} />
+        </section>
+      )}
+
       {files.length > 0 && (
         <p className="subtle">
           Every file is listed with its SHA-256; <code>sha256sum</code> (or <code>Get-FileHash</code> in PowerShell) shows a
@@ -315,6 +331,8 @@ function packageCommand(file: DownloadFile, server: string): string | null {
       return `${fetch}sudo installer -pkg ${file.name} -target /`;
     case "msi":
       return `msiexec /i ${file.name}`;
+    case "wheel":
+      return `pip install ${server}${file.url}`;
     default:
       return null;
   }

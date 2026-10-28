@@ -109,6 +109,7 @@ def test_the_server_hands_out_only_its_builds_listed_files(tmp_path):
         "linux-amd64/artifact/install.sh": b"#!/bin/sh",
         "windows-amd64/agent-0.4.0+abc1234-windows-amd64.msi": b"msi",
         "android/agent-proxy-0.4.0+abc1234.apk": b"apk",
+        "python/ai_proxy_agent_py-0.4.0+abc1234-py3-none-any.whl": b"wheel",
         "linux-amd64/secret.txt": b"not listed",
     }
     build(tmp_path / "dist", VERSION, files, listed=set(files) - {"linux-amd64/secret.txt"})
@@ -122,6 +123,8 @@ def test_the_server_hands_out_only_its_builds_listed_files(tmp_path):
         assert (machine["kind"], machine["component"], machine["platform"], machine["size"]) == ("binary", "agent-machine", "linux-amd64", 6)
         assert machine["sha256"] == hashlib.sha256(b"binary").hexdigest()
         assert by_path["android/agent-proxy-0.4.0+abc1234.apk"]["kind"] == "android"
+        wheel = by_path["python/ai_proxy_agent_py-0.4.0+abc1234-py3-none-any.whl"]
+        assert (wheel["kind"], wheel["component"], wheel["platform"]) == ("wheel", "python", "python")
         # /android is the app of the served build, to type on a phone.
         short = client.get("/android", follow_redirects=False)
         assert short.status_code == 302 and short.headers["location"] == by_path["android/agent-proxy-0.4.0+abc1234.apk"]["url"]
