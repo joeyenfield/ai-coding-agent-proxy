@@ -36,6 +36,7 @@ Usage: agent-machine                           this machine as the fleet sees it
        agent-machine name <name>|-             the name the console shows (default: the hostname)
        agent-machine address <host>|-          how the server reaches this machine's model servers
        agent-machine update [--force]          install the build the server offers (its Python wheel, with pip), and restart it
+       agent-machine updates on|off            let the console update it here to the server's build (off by default)
        agent-machine version
 
 Launches run the agent command (AI_PROXY_AGENT, else the Python agent), signed in to the same
@@ -84,12 +85,14 @@ def configure(args: List[str]) -> int:
     """Changes one of machine.json's settings, then shows the machine."""
     machine = settings.Machine.load()
     command = args[0]
-    if command in ("launches", "servers", "commands"):
+    if command in ("launches", "servers", "commands", "updates"):
         if len(args) != 2 or args[1] not in ("on", "off"):
             return fail(f"{command} takes on or off")
         setattr(machine, command, args[1] == "on")
         if command == "launches" and machine.launches and not machine.roots:
             print("Launches are on, but there's no folder to start agents in yet: agent-machine roots add <dir>")
+        if command == "updates" and machine.updates:
+            print("Updates are on: the machine's owner or an admin can update this here to the server's build from the console.")
         if command == "commands" and machine.commands:
             print("Commands are on: signed in as this machine's owner, you can open a terminal here from the console, as this user.")
             if not machine.roots:
@@ -195,20 +198,25 @@ def update_command(args: List[str]) -> int:
     parser = argparse.ArgumentParser(prog="agent-machine update", description="Install the build the agent-server offers (its Python wheel, checked against the server's SHA-256), and restart the running agent-machine.")
     parser.add_argument("--force", action="store_true", help="Install it even when the server's version is this one")
     parser.add_argument("--server", default="", help="The agent-server to update from (default: the one from agent-machine login)")
+    parser.add_argument("--with-agent", action="store_true", help="Also stop the agent-proxy, so the next agent runs the new build (agent is the same package)")
     options = parser.parse_args(args)
     other = settings.running()
     server = options.server or (other.server if other and other.server else settings.upstream().server())
     try:
         index = updates.fetch(server, settings.PROGRAM)
-        if index.get("version") == common.VERSION and not options.force:
-            print(f"agent-machine {common.VERSION} is the version the agent-server at {server} offers; nothing to do (--force installs it anyway).")
+        before = updates.current()
+        if index.get("version") == before and not options.force:
+            print(f"agent-machine {before} is the version the agent-server at {server} offers; nothing to do (--force installs it anyway).")
             return 0
         installed = updates.install(server, index, settings.PROGRAM)
     except updates.UpdateError as error:
         print(f"agent-machine update: {error}", file=sys.stderr)
         return 1
-    print(f"Updated agent-machine for {sys.executable}: {common.VERSION} -> {installed}.")
+    print(f"Updated agent-machine for {sys.executable}: {before or common.VERSION} -> {installed}.")
     print(updates.notes(index), end="")
+    if options.with_agent:
+        # The agent command is this same package: only its running agent-proxy is still the old code.
+        subprocess.run([sys.executable, "-m", "agent_py.client", "proxy", "stop"], cwd=str(Path.home()))
     if updates.checkout():
         print(f"This copy ran from the checkout at {updates.checkout()}; agent-machine now runs the installed one.")
     return restart_after_update()
@@ -320,6 +328,7 @@ def show(machine: settings.Machine) -> None:
     print("Containers: not in the Python agent-machine")
     print("Servers   : on: the server can change the models here (pull, delete, load, unload)" if machine.servers else "Servers   : off (agent-machine servers on)")
     print("Launches  :", "on" if machine.launches else "off (agent-machine launches on)")
+    print("Updates   : on: the console can update this here to the server's build" if machine.updates else "Updates   : off (agent-machine updates on)")
     print("Commands  : on: you can open a terminal here from the console" if machine.commands else "Commands  : off (agent-machine commands on)")
     if machine.launches and not machine.roots:
         print("Folders   : none (agent-machine roots add <dir>)")

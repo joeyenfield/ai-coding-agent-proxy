@@ -20,11 +20,11 @@ sys.path[:0] = [str(PYTHON), str(SERVER_TESTS)]
 os.environ["PYTHONPATH"] = os.pathsep.join([str(PYTHON), *filter(None, [os.environ.get("PYTHONPATH")])])
 
 
-def script(folder: Path, name: str, entry: str) -> Path:
+def script(folder: Path, name: str, entry: str, python: str = sys.executable) -> Path:
     from pip._vendor.distlib.scripts import ScriptMaker
 
     maker = ScriptMaker(None, str(folder))
-    maker.executable = sys.executable
+    maker.executable = python
     maker.variants = {""}
     [made] = maker.make(f"{name} = {entry}")
     return Path(made)

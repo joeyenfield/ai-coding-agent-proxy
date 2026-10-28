@@ -44,6 +44,7 @@ Usage: agent-machine                           this machine as the fleet sees it
        agent-machine name <name>|-             the name the console shows (default: the hostname)
        agent-machine address <host>|-          how the server reaches this machine's model servers
        agent-machine update [--force]          replace agent-machine with the build the server offers, and restart it
+       agent-machine updates on|off            let the console update agent-machine and agent here to the server's build (off by default)
        agent-machine version
 
 Ollama, Strata and Docker Model Runner running here are found by themselves, and the console
@@ -98,6 +99,14 @@ func fail(message string) int {
 func configure(args []string) int {
 	machine := settings.LoadMachine()
 	switch args[0] {
+	case "updates":
+		if len(args) != 2 || (args[1] != "on" && args[1] != "off") {
+			return fail("updates takes on or off")
+		}
+		machine.Updates = args[1] == "on"
+		if machine.Updates {
+			fmt.Println("Updates are on: the machine's owner or an admin can update agent-machine and agent here to the server's build from the console.")
+		}
 	case "commands":
 		if len(args) != 2 || (args[1] != "on" && args[1] != "off") {
 			return fail("commands takes on or off")
@@ -413,6 +422,11 @@ func show(machine *settings.Machine) {
 		}
 	}
 	fmt.Println("Launches  :", launches)
+	if machine.Updates {
+		fmt.Println("Updates   : on: the console can update agent-machine and agent here to the server's build")
+	} else {
+		fmt.Println("Updates   : off (agent-machine updates on)")
+	}
 	if machine.Commands {
 		fmt.Println("Commands  : on: you can open a terminal here from the console")
 	} else {

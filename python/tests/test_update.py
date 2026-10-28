@@ -14,9 +14,11 @@ import json
 import os
 import subprocess
 import sys
+import time
 import zipfile
 from pathlib import Path
 
+import httpx
 import pytest
 
 from agent_server import version
@@ -89,6 +91,36 @@ def test_the_programs_update_from_the_servers_python_build(tmp_path, agent_binar
         refused = subprocess.run([str(venv), "-m", "agent_py.machine", "update", "--server", m.server, "--force"], env=env, capture_output=True, text=True, timeout=300)
         assert refused.returncode == 1 and "SHA-256" in refused.stderr, refused.stdout + refused.stderr
         assert installed(venv) == ""
+
+
+def test_the_console_updates_a_python_machine_that_takes_updates(tmp_path, agent_binary, served_build, venv):
+    from conftest import script
+    from test_client import fleet_machine
+
+    # agent-machine on the virtualenv's Python, so the update's pip install lands there.
+    launcher = tmp_path / "launcher"
+    launcher.mkdir()
+    binary = script(launcher, "agent-machine", "agent_py.machine:main", python=str(venv))
+    home = tmp_path / "machine-home"
+    with machine(tmp_path, agent_binary) as m:
+        m.env.pop("AI_PROXY_VERSION", None)
+        with fleet_machine(m, binary, tmp_path, ["updates", "on"], env={"AI_PROXY_MACHINE_STARTED": "background"}) as fleet:
+            base = f"{m.server}/api/machines/{fleet.box['id']}"
+            assert fleet.box["updates"] is True
+            first = json.loads((home / "status.json").read_text())["pid"]
+            started = httpx.post(f"{base}/update", json={"agent": True}, timeout=60)
+            assert started.status_code == 200, started.text
+            assert started.json()["updating"] is True and started.json()["to"] == "9.9.9"
+            deadline = time.monotonic() + 120
+            status: dict = {}
+            while time.monotonic() < deadline:
+                status = json.loads((home / "status.json").read_text())
+                if installed(venv) == "9.9.9" and status.get("pid") not in (0, first) and status.get("state", "").startswith("connected"):
+                    break
+                time.sleep(0.5)
+            assert installed(venv) == "9.9.9", (home / "agent-machine.log").read_text()[-2000:]
+            assert status.get("pid") not in (0, first) and status["state"].startswith("connected"), status
+        subprocess.run([str(venv), "-m", "agent_py.machine", "stop"], env={**m.env, "AI_PROXY_MACHINE_HOME": str(home)}, capture_output=True, timeout=30)
 
 
 def test_a_checkout_says_the_same_version_as_the_server_built_from_it():

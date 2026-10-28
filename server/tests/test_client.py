@@ -611,3 +611,53 @@ def test_a_fleet_machine_lists_its_folders_and_opens_a_shell_when_commands_are_o
         assert m.runtime.sessions.get(session_id).ended_at is not None
         [record] = httpx.get(base).json()["history"]
         assert record["agent"] == "shell" and record["session_id"] == session_id
+
+
+def test_the_console_updates_a_fleet_machine_that_takes_updates(tmp_path, agent_binary, machine_binary, monkeypatch):
+    import hashlib
+
+    monkeypatch.setenv("AI_PROXY_VERSION", "9.9.9")
+    version.current.cache_clear()
+    try:
+        goarch = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64"}[__import__("platform").machine().lower()]
+        platform = f"{ {'win32': 'windows'}.get(sys.platform, sys.platform)}-{goarch}"
+        name = "agent-machine.exe" if os.name == "nt" else "agent-machine"
+        new = machine_binary.read_bytes() + b"\0new build"
+        folder = tmp_path / "dist" / "9.9.9" / platform / "artifact"
+        folder.mkdir(parents=True)
+        (folder / name).write_bytes(new)
+        (tmp_path / "dist" / "9.9.9" / "SHA256SUMS").write_text(f"{hashlib.sha256(new).hexdigest()}  {platform}/artifact/{name}\n")
+        installed = tmp_path / "bin" / name
+        installed.parent.mkdir()
+        installed.write_bytes(machine_binary.read_bytes())
+        home = tmp_path / "machine-home"
+        with machine(tmp_path, agent_binary) as m:
+            # The programs report their own version (a test build says dev), not the one the server was given.
+            m.env.pop("AI_PROXY_VERSION", None)
+            # As `agent-machine start` runs it, so the update restarts it itself.
+            with fleet_machine(m, installed, tmp_path, env={"AI_PROXY_MACHINE_STARTED": "background"}) as fleet:
+                base = f"{m.server}/api/machines/{fleet.box['id']}"
+                refused = httpx.post(f"{base}/update", json={}, timeout=30)
+                assert refused.status_code == 409 and "updates on" in refused.json()["detail"]
+                fleet.command("updates", "on")
+                deadline = time.monotonic() + 90
+                while time.monotonic() < deadline and not httpx.get(base).json()["updates"]:
+                    time.sleep(0.5)  # the machine says so in its next update, within a minute
+                first = json.loads((home / "status.json").read_text())["pid"]
+                started = httpx.post(f"{base}/update", json={}, timeout=60)
+                assert started.status_code == 200, started.text
+                assert started.json()["updating"] is True and started.json()["to"] == "9.9.9"
+                # The machine swaps in the server's build, stops itself and starts again on it.
+                deadline = time.monotonic() + 60
+                status: dict = {}
+                while time.monotonic() < deadline:
+                    status = json.loads((home / "status.json").read_text())
+                    if installed.read_bytes() == new and status.get("pid") not in (0, first) and status.get("state", "").startswith("connected"):
+                        break
+                    time.sleep(0.5)
+                assert installed.read_bytes() == new, "the binary wasn't replaced"
+                assert status.get("pid") not in (0, first) and status["state"].startswith("connected"), status
+                assert any(item["connected"] for item in httpx.get(f"{m.server}/api/machines").json()["machines"])
+            subprocess.run([str(installed), "stop"], env={**m.env, "AI_PROXY_MACHINE_HOME": str(home)}, capture_output=True, timeout=30)
+    finally:
+        version.current.cache_clear()

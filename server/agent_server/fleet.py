@@ -75,6 +75,8 @@ class Machine:
     launches: bool = False
     # Whether its owner may open a shell there from the console (agent-machine commands on): a remote terminal.
     commands: bool = False
+    # Whether the server may update its programs to the server's own build (agent-machine updates on).
+    updates: bool = False
     # Whether the agent command launches run is installed there; None from a machine that doesn't say.
     launcher: bool | None = None
     # The protocol level its agent-machine speaks (version.py); 0 from one too old to say.
@@ -108,6 +110,12 @@ def can_see(identity: Identity | None, machine: Machine) -> bool:
 def can_launch(identity: Identity | None, machine: Machine) -> bool:
     """Only the owner starts programs on a machine: admins included, private means private."""
     return identity is None or machine.owner == identity.user
+
+
+def can_update(identity: Identity | None, machine: Machine) -> bool:
+    """The owner and admins may update a machine's programs: only ever to the server's own build, and only once
+    the machine allows it (agent-machine updates on)."""
+    return identity is None or identity.admin or machine.owner == identity.user
 
 
 def within_roots(project: str, roots: list[str]) -> bool:
@@ -207,7 +215,7 @@ class Fleet:
             future = self._waiting.pop(str(data.get("launch") or ""), None)
             if future and not future.done():
                 future.set_result(data)
-        elif kind in {"container_result", "server_result", "provider_result", "folders_result"}:
+        elif kind in {"container_result", "server_result", "provider_result", "folders_result", "update_result"}:
             if kind == "server_result" and isinstance(data.get("servers"), dict):
                 # Every answer carries the servers' state, refused ones too.
                 machine.servers = _servers(data["servers"])
@@ -250,6 +258,8 @@ class Fleet:
             machine.launches = bool(data.get("launches"))
         if "commands" in data:
             machine.commands = bool(data.get("commands"))
+        if "updates" in data:
+            machine.updates = bool(data.get("updates"))
         if isinstance(data.get("protocol"), int):
             machine.protocol = data["protocol"]
         if "tunnel" in data:
@@ -291,6 +301,8 @@ class Fleet:
             raise FleetError(409, f"{machine.name} doesn't run containers. Run `agent-machine containers on` there to allow it.")
         if channel == "server" and not machine.servers.get("enabled"):
             raise FleetError(409, f"{machine.name} doesn't let the server manage its model servers. Run `agent-machine servers on` there to allow it.")
+        if channel == "update" and not machine.updates:
+            raise FleetError(409, f"{machine.name} doesn't take updates from here. Run `agent-machine updates on` there to allow it.")
         if channel == "folders" and not (machine.launches or machine.commands):
             raise FleetError(409, f"{machine.name} doesn't take launches. Run `agent-machine launches on` there to allow it.")
         request_id = secrets.token_hex(6)
@@ -403,7 +415,7 @@ class Fleet:
             # The backends it supplies: model servers added from it and containers it runs.
             "backends": sorted(name for name, backend in backends.items() if backend.machine == machine.id),
             "history": machine.history[-10:],
-            "you": {"owner": identity is None or machine.owner == identity.user, "launch": can_launch(identity, machine)},
+            "you": {"owner": identity is None or machine.owner == identity.user, "launch": can_launch(identity, machine), "update": can_update(identity, machine)},
             # A machine on another build than the server's updates itself from the server's downloads.
             "update": {"available": bool(machine.version) and machine.version != version.current(), "server_version": version.current(), "command": "agent-machine update"},
         }

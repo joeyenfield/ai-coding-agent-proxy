@@ -5,7 +5,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 
+	"ai-coding-agent-proxy/machine/internal/presence"
+	"ai-coding-agent-proxy/machine/internal/process"
 	"ai-coding-agent-proxy/machine/internal/settings"
 	"ai-coding-agent-proxy/machine/internal/update"
 )
@@ -25,6 +28,7 @@ func updateCommand(args []string) int {
 	}
 	force := flags.Bool("force", false, "Replace it even when the server's version is this one")
 	server := flags.String("server", "", "The agent-server to update from (default: the one from agent-machine login)")
+	withAgent := flags.Bool("with-agent", false, "Update the agent command first (agent update), as a remote update from the console asks")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -37,6 +41,9 @@ func updateCommand(args []string) int {
 		if status := running(); status != nil && status.Server != "" {
 			from = status.Server
 		}
+	}
+	if *withAgent {
+		updateAgent(from)
 	}
 	index, err := update.Fetch(from)
 	if err != nil {
@@ -65,6 +72,22 @@ func updateCommand(args []string) int {
 		fmt.Printf("Note: the server runs %s; this is its closest build (%s).\n", index.ServerVersion, index.Version)
 	}
 	return restartAfterUpdate(steps[0].Target)
+}
+
+// updateAgent runs `agent update` from the same server, first: launches and terminals run the agent
+// command, so it should be the server's build too. Its own failure doesn't stop agent-machine's update.
+func updateAgent(server string) {
+	program, err := presence.AgentCommand()
+	if err != nil {
+		fmt.Println("Not updating agent:", err)
+		return
+	}
+	cmd := exec.Command(program, "update", "--server", server)
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	process.Quiet(cmd)
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "agent update: %v\n", err)
+	}
 }
 
 // restartAfterUpdate puts the running agent-machine on the new binary, however it was started.

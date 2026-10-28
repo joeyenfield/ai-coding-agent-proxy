@@ -45,14 +45,15 @@ def update_command(args: List[str]) -> int:
     server = settings.upstream(options.server).server()
     try:
         index = updates.fetch(server, settings.PROGRAM)
-        if index.get("version") == common.VERSION and not options.force:
-            print(f"agent {common.VERSION} is the version the agent-server at {server} offers; nothing to do (--force installs it anyway).")
+        before = updates.current()
+        if index.get("version") == before and not options.force:
+            print(f"agent {before} is the version the agent-server at {server} offers; nothing to do (--force installs it anyway).")
             return 0
         installed = updates.install(server, index, settings.PROGRAM)
     except updates.UpdateError as error:
         print(f"agent update: {error}", file=sys.stderr)
         return 1
-    print(f"Updated agent for {sys.executable}: {common.VERSION} -> {installed}.")
+    print(f"Updated agent for {sys.executable}: {before or common.VERSION} -> {installed}.")
     print(updates.notes(index), end="")
     try:
         if localproxy.stop(settings.proxy_url()):

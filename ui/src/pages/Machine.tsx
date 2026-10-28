@@ -247,16 +247,54 @@ function MachineHeader({ machine }: { machine: FleetMachine }) {
 /** The machine's agent-machine is another version than the server's: how to bring it level. */
 function UpdateNote({ machine, update }: { machine: FleetMachine; update: NonNullable<FleetMachine["update"]> }) {
   const copy = useClipboard();
+  const notify = useToast();
+  const client = useQueryClient();
+  const [agent, setAgent] = useState(false);
+  const remote = machine.connected && Boolean(machine.updates) && Boolean(machine.you.update);
+  const start = useMutation({
+    mutationFn: () => api.updateMachine(machine.id, agent),
+    onSuccess: (result) => {
+      notify(result.updating ? `Updating ${machine.name} to ${result.to}; it reconnects on the new version within a minute.` : (result.message ?? `${machine.name} is up to date.`));
+      client.invalidateQueries({ queryKey: ["machines"] });
+    },
+    onError: (error: Error) => notify(error.message),
+  });
   return (
     <div className="callout machine-update">
       <p>
-        {machine.name} runs agent-machine {machine.version || "of an unknown version"}; this server is {update.server_version}. Update it
-        there, from this server's build (it restarts itself if it runs in the background):
+        {machine.name} runs agent-machine {machine.version || "of an unknown version"}; this server is {update.server_version}.
+        {remote ? " Update it from here to this server's build:" : " Update it there, from this server's build (it restarts itself if it runs in the background):"}
       </p>
-      <CodeLine text={update.command} onCopy={() => copy(update.command, "Command copied")} />
-      <p className="subtle">
-        Or download it from <Link to="/get">Downloads</Link>.
-      </p>
+      {remote ? (
+        <>
+          <label className="check">
+            <input type="checkbox" checked={agent} onChange={(event) => setAgent(event.target.checked)} />
+            Update agent there too (it stops agent-proxy, so agents running there lose their connection until the next one starts)
+          </label>
+          <div className="row wrap">
+            <button type="button" className="primary" disabled={start.isPending} onClick={() => start.mutate()}>
+              <Icon name="download" size={14} />
+              {start.isPending ? "Asking…" : "Update now"}
+            </button>
+            <span className="subtle">
+              It installs this server's build there, checked against its SHA-256, and restarts. One run in a terminal there has to be
+              restarted by hand.
+            </span>
+          </div>
+        </>
+      ) : (
+        <>
+          <CodeLine text={update.command} onCopy={() => copy(update.command, "Command copied")} />
+          <p className="subtle">
+            Or download it from <Link to="/get">Downloads</Link>.
+            {machine.you.update && machine.connected && (
+              <>
+                {" "}Run <code>agent-machine updates on</code> there to update it from here next time.
+              </>
+            )}
+          </p>
+        </>
+      )}
     </div>
   );
 }

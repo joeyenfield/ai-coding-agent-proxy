@@ -18,6 +18,7 @@ import socket
 import subprocess
 import sys
 import threading
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import httpx
@@ -384,12 +385,54 @@ class Presence:
                             "error": "This machine runs the Python agent-machine, which doesn't start model servers", "servers": {"enabled": False}})
             elif kind in ("launch", "shell"):
                 await self.launched(message, server, send)
+            elif kind == "update":
+                await send(await asyncio.to_thread(self.remote_update, server, message))
             elif kind == "folders":
                 await send(await asyncio.to_thread(folders, message, settings.Machine.load()))
         except asyncio.CancelledError:
             raise
         except Exception as error:
             log.warning("fleet: %s request failed: %s", kind, error)
+
+    def remote_update(self, server: str, request: Dict[str, Any]) -> Dict[str, Any]:
+        """An update the server asked for, as the update_result to send back: only while the machine allows it
+        (agent-machine updates on), only the server's own build. The work is `agent-machine update` run
+        detached, so it can stop this process and start on the new code; its output goes to the log."""
+        from .. import update as updates
+
+        answer: Dict[str, Any] = {"type": "update_result", "request": request.get("request")}
+        if not settings.Machine.load().updates:
+            answer.update(ok=False, error="this machine doesn't take updates from the server (agent-machine updates on)")
+            return answer
+        try:
+            index = updates.fetch(server, settings.PROGRAM)
+        except updates.UpdateError as error:
+            answer.update(ok=False, error=str(error))
+            return answer
+        before = updates.current()
+        answer.update(ok=True, to=index.get("version"))
+        answer["from"] = before
+        if index.get("version") == before and not request.get("agent"):
+            answer.update(updating=False, message="agent-machine is already the server's build")
+            return answer
+        args = ["update", "--server", server] + (["--with-agent"] if request.get("agent") else [])
+        try:
+            self.spawn_update(args)
+        except OSError as error:
+            answer.update(ok=False, error=f"couldn't start the update: {error}")
+            return answer
+        log.info("fleet: updating to %s, as the server asked (agent too: %s)", index.get("version"), bool(request.get("agent")))
+        answer["updating"] = True
+        return answer
+
+    @staticmethod
+    def spawn_update(args: List[str]) -> None:
+        """`agent-machine <args>` with this Python, detached so it outlives this process, from the home folder
+        (so a checkout there can't stand in for the installed package), writing to the log."""
+        settings.home().mkdir(parents=True, exist_ok=True)
+        with open(settings.log_path(), "ab") as output:
+            subprocess.Popen([sys.executable, "-m", "agent_py.machine", *args], cwd=str(Path.home()), stdin=subprocess.DEVNULL,
+                             stdout=output, stderr=output, close_fds=True, **detach_flags())
 
     async def launched(self, request: Dict[str, Any], server: str, send) -> None:
         run = self.shell if request.get("type") == "shell" else self.launch
@@ -461,7 +504,7 @@ class Presence:
             "type": kind, "id": machine.id, "name": machine.display_name(), "hostname": socket.gethostname(),
             "os": common.goos(), "arch": common.goarch(), "version": common.VERSION, "protocol": common.PROTOCOL,
             "address": machine.address, "agents": self.installed_agents(server), "providers": found,
-            "launches": machine.launches, "roots": machine.roots, "commands": machine.commands,
+            "launches": machine.launches, "roots": machine.roots, "commands": machine.commands, "updates": machine.updates,
             # It carries agents' requests to its model servers itself, so the server needn't reach them.
             "tunnel": 1, "launcher": True,
             "containers": {"enabled": False, "cli": "docker", "found": False, "online": False, "version": "",

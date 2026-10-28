@@ -89,3 +89,16 @@ def checkout() -> str:
         if (parent / "VERSION").is_file() and (parent / "server").is_dir():
             return str(parent)
     return ""
+
+
+def current() -> str:
+    """The version an update replaces: the installed package's when this copy runs from a checkout (the
+    checkout's own version says what its source is, not what pip installed), else this copy's."""
+    if checkout():
+        try:
+            from importlib.metadata import version
+
+            return version("ai-proxy-agent-py")
+        except Exception:
+            return ""
+    return common.VERSION

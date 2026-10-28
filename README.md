@@ -426,6 +426,7 @@ agent-machine                            # how the fleet sees this machine
 Every machine where `agent-machine` runs shows up on **Machines** and in the rail, and has its own page: an **Overview** (its model servers, the Ollama and Strata installed there, its agents and launches), a tab for each model server (models, status, logs), **Ollama server**, **Containers** and **Load**. Machines are where every local LLM provider comes from, so this is where they're managed. A machine that only supplies models needs nothing but `agent-machine`. From there you can:
 
 - **Start an agent on a machine.** Pick the agent, a folder and a model; it starts there in a shared terminal, and the console takes you to it. To pick the folder, open the folders inside the machine's launch folders one by one, or name a new one to make there.
+- **Update a machine from here.** With `agent-machine updates on` there, a machine on another build than the server's has **Update now** on its page, for its owner or an admin. The machine installs the server's own build (agent-machine, and agent if you tick it), checked against its SHA-256, and restarts on it.
 - **Open a terminal on a machine.** With `agent-machine commands on` there, **Open a terminal** on its page starts a shell in one of its launch folders, in a terminal only you see: a remote terminal you can use from a phone. Start a fleet of Claude Code sessions across your machines, and drive them all from the console or your phone.
 - **Add a machine's model servers as providers.** Ollama, Docker Model Runner or Strata found on a machine becomes a provider with **Add as a provider** (admins), so agents anywhere can use models anywhere in the cluster. This is the only way to add one: the server refuses new local backends by URL. Backends set up by URL before machines did this keep working, and are linked to their machine as soon as it reports the same model server.
 - **Manage a machine's model servers.** Everything the console does with a model server goes to its machine: listing, pulling, loading and deleting models, logs, the machine's load, searching model catalogues, Ollama's settings. With `agent-machine servers on` there, its overview also has **Start** and **Stop** for the Ollama installed on it and for each of its saved Strata profiles. Only the machine's owner can start, stop or configure them. agent-machine only stops an Ollama it started itself. Without `servers on`, the machine still reports its model servers but changes nothing.
@@ -437,6 +438,7 @@ Starting agents runs programs on the machine, so it's off until the machine allo
 agent-machine launches on          # let the server start agents here
 agent-machine roots add ~/code     # where they may start (and any folder inside)
 agent-machine commands on          # optional: let you open a terminal here from the console
+agent-machine updates on           # optional: let the console update agent-machine and agent here to the server's build
 ```
 
 - **Only the machine's owner** (whoever signed it in) can start agents on it, not admins.

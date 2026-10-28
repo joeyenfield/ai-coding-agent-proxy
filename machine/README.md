@@ -26,6 +26,7 @@ agent-machine                                  # how the fleet sees this machine
 | `agent-machine servers on\|off` | Let the console manage the model servers here: start and stop the Ollama and Strata installed here, change Ollama's settings, and pull, delete, load and unload models (off by default) |
 | `sudo agent-machine servers service [off]` | Linux: let agent-machine start, stop and restart an Ollama that's the systemd service `ollama.service`, with the console's settings (a sudoers rule for only those three commands, and a drop-in that reads `/etc/agent-machine/ollama.env`) |
 | `agent-machine launches on\|off`, `agent-machine roots add\|remove <dir>` | Let the server start agents here, in those folders only (off by default) |
+| `agent-machine updates on\|off` | Let the console update agent-machine (and agent, if asked) here to the server's build, with **Update now** on the machine's page (off by default) |
 | `agent-machine commands on\|off` | Let the owner open a terminal here from the console: a shell in one of the roots, as this user, that only they see (off by default) |
 | `agent-machine name <name>\|-`, `agent-machine address <host>\|-` | The name the console shows, and how the server reaches this machine's model servers |
 | `agent-machine update [--force]` | Replace agent-machine with the build the server offers for this computer, and restart it |
@@ -41,6 +42,10 @@ agent-machine                                  # how the fleet sees this machine
   Strata 18500), the server's agents installed here, whether it runs containers (its
   CLI, whether the engine answers, the engines it offers) and its launch settings. The
   console adds a model server as a provider from this ("Add as a provider").
+- **Updates** (`{"type": "update", "agent": ...}`, with `updates on`, answered by `update_result`):
+  runs `agent-machine update --server <its server>` detached (with `--with-agent`, `agent update`
+  first), so it can stop this process and start the new binary; its output goes to the log. It only
+  installs the server's own build, checked against its SHA-256, like `agent-machine update`.
 - **Folders** (`{"type": "folders", "path": ...}`, answered by `folders_result`): the folders
   inside one of the roots, for the console's folder picker. Only while launches or commands are on,
   only inside the roots (checked here after resolving links), only folder names, and no hidden

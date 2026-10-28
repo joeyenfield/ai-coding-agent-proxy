@@ -69,7 +69,8 @@ the same Python as agent-machine.
 `/downloads/`, checked against the server's SHA-256, installed with pip into the Python that runs
 them. agent-machine then restarts itself if it runs in the background (`agent-machine start`), or
 leaves it to its service; agent stops the running agent-proxy, so the next `agent` starts the new
-one. That's what the console's **Update available** note asks for.
+one. That's what the console's **Update available** note asks for. With `agent-machine updates on`,
+the console's **Update now** does it from there (`agent-machine update --with-agent`, detached).
 
 The version the programs report, and the console compares with the server's:
 

@@ -32,6 +32,9 @@ type Machine struct {
 	// Commands lets the owner open a shell here from the console, in one of the roots: a
 	// remote terminal, so it's off until the owner turns it on.
 	Commands bool `json:"commands"`
+	// Updates lets the server update agent-machine (and agent) here to its own build, from the
+	// console. It replaces the programs here, so it's off until the owner turns it on.
+	Updates bool `json:"updates"`
 }
 
 func MachinePath() string {

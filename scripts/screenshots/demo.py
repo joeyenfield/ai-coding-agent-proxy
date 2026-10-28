@@ -584,7 +584,7 @@ FLEET = [
      "containers": {"enabled": False, "cli": "docker", "found": True, "online": False, "version": "", "error": "", "engines": []},
      "servers": {"enabled": True, "ollama": {"found": True, "running": True, "managed": True, "version": "0.12.3", "bind": "0.0.0.0"},
                  "strata": {"found": False, "profiles": []}},
-     "launches": True, "roots": ["/home/joey/code", "/srv/repos"], "commands": True},
+     "launches": True, "roots": ["/home/joey/code", "/srv/repos"], "commands": True, "updates": True},
 ]
 
 # build-box's folders inside its launch folders, for the folder picker (agent-machine lists them there).
@@ -838,6 +838,10 @@ def join_fleet() -> None:
                 continue
             if request.get("type") == "container":
                 send({"type": "container_result", "request": request["request"], **containers.handle(request)})
+                continue
+            if request.get("type") == "update":
+                # As agent-machine answers before it updates itself in the background.
+                send({"type": "update_result", "request": request["request"], "ok": True, "updating": True, "from": hello["version"], "to": SERVER_VERSION})
                 continue
             if request.get("type") == "folders":
                 send({"type": "folders_result", "request": request["request"], **fake_folders(request, hello.get("roots") or [])})

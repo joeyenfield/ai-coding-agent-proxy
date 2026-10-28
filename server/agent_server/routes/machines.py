@@ -27,7 +27,7 @@ from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconn
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
 from .. import auth, remote
-from ..fleet import PROVIDER_TYPES, FleetError, can_launch, can_see, normal_url, parse_provider, provider_request, within_roots
+from ..fleet import PROVIDER_TYPES, FleetError, can_launch, can_see, can_update, normal_url, parse_provider, provider_request, within_roots
 from ..fleet import provider_id as fleet_provider_id
 from ..runtime import Runtime
 from .terminals import CLOSE_UNAUTHORIZED
@@ -160,6 +160,21 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             return await fleet.shell(target, auth.request_identity(request), data)
         except FleetError as exc:
             raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+
+    @app.post("/api/machines/{machine_id}/update")
+    async def update(machine_id: str, request: Request) -> dict[str, Any]:
+        """Have the machine update agent-machine (and with agent: true, its agent) to this server's build, and restart."""
+        require_trusted(request)
+        if not remote.same_origin(request):
+            raise HTTPException(status_code=403, detail="Update machines from the console's own page.")
+        target = visible(machine_id, request)
+        if not can_update(auth.request_identity(request), target):
+            raise HTTPException(status_code=403, detail="Only the machine's owner or an admin can update it.")
+        data = await request.json()
+        if not isinstance(data, dict):
+            raise HTTPException(status_code=400, detail="Send a JSON object")
+        answer = await ask(target, "update", timeout=60, channel="update", agent=bool(data.get("agent")))
+        return {"updating": bool(answer.get("updating")), "from": answer.get("from"), "to": answer.get("to"), "message": answer.get("message")}
 
     @app.get("/api/machines/{machine_id}/folders")
     async def folders(machine_id: str, request: Request, path: str = "") -> dict[str, Any]:

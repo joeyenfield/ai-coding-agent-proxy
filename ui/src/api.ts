@@ -439,7 +439,10 @@ export interface FleetMachine {
   first_seen: number;
   last_seen: number;
   history: FleetLaunch[];
-  you: { owner: boolean; launch: boolean };
+  /** What you may do there: update is its owner's or an admin's. */
+  you: { owner: boolean; launch: boolean; update?: boolean };
+  /** Whether it lets the server update its programs to the server's build (agent-machine updates on). */
+  updates?: boolean;
   /** Whether it carries agents' requests to its model servers itself, so they need no port forward (tunnels.py). */
   tunnel?: boolean;
   /** The API protocol level its agent-machine speaks (older machines don't say). */
@@ -1031,6 +1034,11 @@ export const api = {
     request<FleetLaunch>(`/api/machines/${encodeURIComponent(machineId)}/launch`, { method: "POST", body: JSON.stringify(body) }),
   machineFolders: (machineId: string, path?: string) =>
     request<MachineFolders>(`/api/machines/${encodeURIComponent(machineId)}/folders${path ? `?path=${encodeURIComponent(path)}` : ""}`),
+  updateMachine: (machineId: string, agent: boolean) =>
+    request<{ updating: boolean; from: string | null; to: string | null; message: string | null }>(`/api/machines/${encodeURIComponent(machineId)}/update`, {
+      method: "POST",
+      body: JSON.stringify({ agent }),
+    }),
   openShell: (machineId: string, project: string) =>
     request<FleetLaunch>(`/api/machines/${encodeURIComponent(machineId)}/shell`, { method: "POST", body: JSON.stringify({ project }) }),
   adoptProvider: (machineId: string, type: string) =>

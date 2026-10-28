@@ -61,6 +61,8 @@ type Presence struct {
 	// Shell opens a shell for the owner (agent-machine commands on); tests replace it. By default
 	// it runs `agent --shell` headless.
 	Shell func(request Launch) (string, error)
+	// SpawnUpdate starts `agent-machine <args>` detached for a remote update; tests replace it.
+	SpawnUpdate func(args []string) error
 	// OnStatus hears every change of the connection's state (agent-machine writes status.json).
 	OnStatus func(status string)
 	// OnServerVersion hears the server's version each time the machine connects.
@@ -282,6 +284,13 @@ func (p *Presence) session(ctx context.Context) error {
 			}
 			continue
 		}
+		if kind.Type == "update" {
+			var request UpdateRequest
+			if json.Unmarshal(data, &request) == nil {
+				go func() { _ = send(p.RemoteUpdate(server, request)) }()
+			}
+			continue
+		}
 		if kind.Type == "folders" {
 			var request FoldersRequest
 			if json.Unmarshal(data, &request) == nil {
@@ -366,7 +375,7 @@ func (p *Presence) describe(server, kind string) map[string]any {
 	return map[string]any{
 		"type": kind, "id": machine.ID, "name": machine.DisplayName(), "hostname": hostname, "os": runtime.GOOS, "arch": runtime.GOARCH,
 		"version": settings.Version, "protocol": settings.Protocol, "address": machine.Address, "agents": p.installedAgents(server),
-		"providers": found, "launches": machine.Launches, "roots": machine.Roots, "commands": machine.Commands,
+		"providers": found, "launches": machine.Launches, "roots": machine.Roots, "commands": machine.Commands, "updates": machine.Updates,
 		// It carries agents' requests to its model servers itself, so the server needn't reach them (tunnel.go).
 		"tunnel": 1,
 		// Launches run the agent command: say whether it's here, so the console can say what's missing.

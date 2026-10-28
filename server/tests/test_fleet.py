@@ -55,7 +55,7 @@ def test_machines_are_seen_by_their_owner_and_admins_only(tmp_path):
     with alice, bob, dave, machine(alice):
         [listed] = alice.get("/api/machines").json()["machines"]
         assert listed["connected"] and listed["owner"] == "alice" and listed["agents"] == ["qwen", "claude-account"]
-        assert listed["you"] == {"owner": True, "launch": True}
+        assert listed["you"] == {"owner": True, "launch": True, "update": True}
         # The machine's address as the server sees it, for its model servers.
         assert listed["providers"][0]["url"].endswith(":11434") and listed["providers"][0]["backend"] is None
         assert bob.get("/api/machines").json()["machines"] == []
@@ -358,3 +358,29 @@ def test_a_shells_session_stays_private(tmp_path):
         assert (session.tags["visibility"], session.tags["access"]) == ("private", "view")
         widened = alice.patch(f"/api/sessions/{session.session_id}", json={"visibility": "org"})
         assert widened.status_code == 400 and "private" in widened.json()["detail"]
+
+
+def test_the_owner_or_an_admin_updates_a_machine_that_takes_updates(tmp_path):
+    app = create_app(org_settings(tmp_path))
+    alice, bob, dave = signed_in(app, "alice"), signed_in(app, "bob"), signed_in(app, "dave")
+    with alice, bob, dave, machine(alice):
+        # Off until the machine allows it, whoever asks: an admin gets as far as that (not a 403).
+        for client in (alice, dave):
+            refused = client.post("/api/machines/m1/update", json={})
+            assert refused.status_code == 409 and "updates on" in refused.json()["detail"]
+    with alice, bob, dave, machine(alice, hello(updates=True)) as socket:
+        assert alice.get("/api/machines/m1").json()["updates"] is True
+        # An admin may (it's only ever the server's own build); another user can't even see it.
+        assert dave.get("/api/machines/m1").json()["you"] == {"owner": False, "launch": False, "update": True}
+        assert bob.post("/api/machines/m1/update", json={}).status_code == 404
+        assert alice.post("/api/machines/m1/update", json={}, headers={"origin": "http://evil.example"}).status_code == 403
+        # The round trip from the owner's client: each test client runs the app on its own loop, and the socket is alice's.
+        answer: dict = {}
+        thread = threading.Thread(target=lambda: answer.update(response=alice.post("/api/machines/m1/update", json={"agent": True})))
+        thread.start()
+        request = json.loads(socket.receive_text())
+        assert (request["type"], request["op"], request["agent"]) == ("update", "update", True)
+        socket.send_text(json.dumps({"type": "update_result", "request": request["request"], "ok": True, "updating": True, "from": "1.0", "to": "1.1"}))
+        thread.join(timeout=10)
+        assert answer["response"].status_code == 200, answer["response"].text
+        assert answer["response"].json() == {"updating": True, "from": "1.0", "to": "1.1", "message": None}
