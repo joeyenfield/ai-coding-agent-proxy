@@ -52,6 +52,34 @@ def test_the_build_version_comes_from_the_version_file(tmp_path):
     assert version.base_version(tmp_path) == "0.0.0"
 
 
+def test_the_servers_own_config_doesnt_make_a_build_dirty(tmp_path):
+    """The console saves config/backends.yaml on the server's computer; that's settings, not code."""
+    import shutil
+    import subprocess
+
+    if not shutil.which("git"):
+        pytest.skip("git isn't installed")
+
+    def git(*args: str) -> None:
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args], cwd=tmp_path, check=True, capture_output=True)
+
+    (tmp_path / "VERSION").write_text("1.4.2\n", encoding="utf-8")
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "backends.yaml").write_text("backends: {}\n", encoding="utf-8")
+    (tmp_path / "app.py").write_text("x = 1\n", encoding="utf-8")
+    git("init", "-q")
+    git("add", ".")
+    git("commit", "-q", "-m", "first")
+    git("tag", "v1.4.2")
+    assert version.build_version(tmp_path, environ={}) == "1.4.2"
+    (tmp_path / "config" / "backends.yaml").write_text("backends: {saved: {}}\n", encoding="utf-8")
+    (tmp_path / "notes.txt").write_text("untracked\n", encoding="utf-8")
+    assert version.build_version(tmp_path, environ={}) == "1.4.2"
+    (tmp_path / "app.py").write_text("x = 2\n", encoding="utf-8")
+    built = version.build_version(tmp_path, environ={})
+    assert built.startswith("1.4.2+") and built.endswith(".dirty"), built
+
+
 def test_health_says_the_version_and_protocol(tmp_path):
     with TestClient(app_with(tmp_path), **LOCAL) as client:
         health = client.get("/health").json()

@@ -5,7 +5,8 @@ by hand. Every component's build version comes from it the same way (tools/dist
 computes it for the Go programs and the Android app, this module for the server):
 
   - X.Y.Z when HEAD is tagged exactly vX.Y.Z and the tree is clean;
-  - X.Y.Z+<short commit> otherwise, with .dirty when there are uncommitted changes;
+  - X.Y.Z+<short commit> otherwise, with .dirty when tracked files have uncommitted changes
+    (outside config/: the console saves the running server's settings there);
   - X.Y.Z+unknown without git;
   - AI_PROXY_VERSION, when set, wins (Docker images, CI).
 
@@ -51,13 +52,24 @@ def build_version(root: Path = ROOT, environ: dict[str, str] | None = None) -> s
     if environ.get("AI_PROXY_VERSION"):
         return environ["AI_PROXY_VERSION"].strip()
     base = base_version(root)
-    describe = _git(root, "describe", "--tags", "--always", "--dirty", "--abbrev=7")
+    describe = _git(root, "describe", "--tags", "--always", "--abbrev=7")
     if describe is None:
         return f"{base}+unknown"
-    if describe == f"v{base}":
+    dirty = is_dirty(root)
+    if describe == f"v{base}" and not dirty:
         return base
     commit = _git(root, "rev-parse", "--short=7", "HEAD") or "unknown"
-    return f"{base}+{commit}" + (".dirty" if describe.endswith("-dirty") else "")
+    return f"{base}+{commit}" + (".dirty" if dirty else "")
+
+
+# Changes here don't make a build dirty: config/ is the running server's own settings (the console
+# saves backends.yaml), not its code. tools/dist/version.go excludes the same.
+CLEAN_EXCLUDES = (":(exclude)config",)
+
+
+def is_dirty(root: Path = ROOT) -> bool:
+    """Whether tracked files outside config/ have uncommitted changes (untracked ones don't count)."""
+    return _git(root, "status", "--porcelain", "--untracked-files=no", "--", ".", *CLEAN_EXCLUDES) is not None
 
 
 @lru_cache(maxsize=1)

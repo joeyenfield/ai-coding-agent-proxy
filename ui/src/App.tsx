@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { Link, NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type Identity } from "./api";
-import { useAuth, useStatus, useTheme, type ThemeChoice } from "./hooks";
+import { useAuth, useStatus, useTheme, useVersion, type ThemeChoice } from "./hooks";
 import { LoginPage } from "./pages/Login";
 import { OrganizationPage } from "./pages/Organization";
 import { OverviewPage } from "./pages/Overview";
@@ -167,6 +167,7 @@ function Shell({ identity }: { identity: Identity | null }) {
               {status.data && <span className="mono subtle connection-address">{status.data.listen_address}</span>}
             </span>
           </p>
+          <ServerVersion />
           {identity && (
             <div className="signed-in">
               <span className="avatar" aria-hidden="true">
@@ -241,6 +242,17 @@ function Shell({ identity }: { identity: Identity | null }) {
 }
 
 /** A rail link, with a count beside Live (requests streaming) and Running agents (connected terminals, or those waiting for you). */
+/** The server's build, so you can tell which one you're looking at and whether machines match it. */
+function ServerVersion() {
+  const health = useVersion();
+  if (!health.data?.version) return null;
+  return (
+    <p className="rail-version subtle" title={`Protocol ${health.data.protocol ?? "?"}`}>
+      Version <span className="mono">{health.data.version}</span>
+    </p>
+  );
+}
+
 function RailLink({ item, counts, waiting = 0 }: { item: NavLinkItem; counts: Record<string, number>; waiting?: number }) {
   const count = counts[item.to] ?? 0;
   return (

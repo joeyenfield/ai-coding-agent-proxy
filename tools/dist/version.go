@@ -12,8 +12,8 @@ var baseVersion = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 
 // BuildVersion is the version every component of this checkout is stamped with, from
 // VERSION at the root: X.Y.Z when HEAD is tagged exactly vX.Y.Z and clean, else
-// X.Y.Z+<short commit>, with .dirty for uncommitted changes, or X.Y.Z+unknown without
-// git. AI_PROXY_VERSION wins. The server works it out the same way
+// X.Y.Z+<short commit>, with .dirty for uncommitted changes outside config/ (Dirty), or
+// X.Y.Z+unknown without git. AI_PROXY_VERSION wins. The server works it out the same way
 // (server/agent_server/version.py), so it finds its own build in dist/; keep them in step.
 func BuildVersion(root string) string {
 	if value := strings.TrimSpace(os.Getenv("AI_PROXY_VERSION")); value != "" {
@@ -23,11 +23,12 @@ func BuildVersion(root string) string {
 	if data, err := os.ReadFile(filepath.Join(root, "VERSION")); err == nil && baseVersion.MatchString(strings.TrimSpace(string(data))) {
 		base = strings.TrimSpace(string(data))
 	}
-	describe, ok := git(root, "describe", "--tags", "--always", "--dirty", "--abbrev=7")
+	describe, ok := git(root, "describe", "--tags", "--always", "--abbrev=7")
 	if !ok {
 		return base + "+unknown"
 	}
-	if describe == "v"+base {
+	dirty := Dirty(root)
+	if describe == "v"+base && !dirty {
 		return base
 	}
 	commit, ok := git(root, "rev-parse", "--short=7", "HEAD")
@@ -35,10 +36,22 @@ func BuildVersion(root string) string {
 		commit = "unknown"
 	}
 	version := base + "+" + commit
-	if strings.HasSuffix(describe, "-dirty") {
+	if dirty {
 		version += ".dirty"
 	}
 	return version
+}
+
+// CleanExcludes are left out when deciding a checkout is dirty: config/ is the running
+// server's own settings (the console saves backends.yaml), not its code. The server's
+// version.py excludes the same.
+var CleanExcludes = []string{":(exclude)config"}
+
+// Dirty tells whether tracked files outside CleanExcludes have uncommitted changes;
+// untracked files don't count.
+func Dirty(root string) bool {
+	_, changed := git(root, append([]string{"status", "--porcelain", "--untracked-files=no", "--", "."}, CleanExcludes...)...)
+	return changed
 }
 
 func git(root string, args ...string) (string, bool) {

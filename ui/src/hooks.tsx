@@ -37,6 +37,11 @@ export function useAuth() {
   return useQuery({ queryKey: ["auth"], queryFn: api.authStatus, staleTime: 60000 });
 }
 
+/** The server's build (/health, public): polled now and then, so a restart onto a new build shows. */
+export function useVersion() {
+  return useQuery({ queryKey: ["health"], queryFn: api.health, staleTime: 30000, refetchInterval: 60000 });
+}
+
 export function useAgents() {
   return useQuery({ queryKey: ["agents"], queryFn: api.agents, staleTime: 30000 });
 }

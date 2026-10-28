@@ -1,12 +1,14 @@
 import { useState, type FormEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
+import { useVersion } from "../hooks";
 
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 /** The whole console, until you sign in, when the proxy has accounts. */
 export function LoginPage({ secure }: { secure: boolean }) {
   const client = useQueryClient();
+  const health = useVersion();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -57,6 +59,11 @@ export function LoginPage({ secure }: { secure: boolean }) {
         <p className="subtle login-downloads">
           Need the client, agent-machine or the Android app? <a href="/get">Downloads</a> don't need an account.
         </p>
+        {health.data?.version && (
+          <p className="subtle login-version">
+            Version <span className="mono">{health.data.version}</span>
+          </p>
+        )}
         {exposed && (
           <p className="warn">
             This connection isn't encrypted, so your password crosses the network in the clear. Use HTTPS, or a VPN such
