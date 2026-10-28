@@ -36,6 +36,15 @@
 # environment (linux, macos, windows, wsl; wsl falls back to linux, and default covers the
 # rest). The console's Start an agent page shows it for the environment you pick.
 #
+# mcp: how the agent takes the MCP servers machines share (agent-machine mcp add) that its
+# launch chose (agent ... --mcp, or Start an agent); without it, it can't have any.
+#   entry      one server as the agent's config wants it: {mcp_name}, {mcp_url}
+#              {mcp_url} is http://127.0.0.1:8184/session/<id>/mcp/<machine>/<name>: Streamable HTTP
+#   {mcp_servers}  anywhere in env, files or args: every chosen server's name mapped to its entry,
+#              or nothing without any, so the key holding it is left out
+#   env, files, args  added only when the launch has MCP servers; args_each once for each server
+#              They go where the agent's args have "{mcp_args}", or else before its own args.
+#
 # intercept: true leaves the agent talking to its own service with its own
 # login, and sends all of its HTTPS to its machine's agent-proxy, which tunnels
 # it to the server (HTTPS_PROXY plus the server's CA, trusted only by the
@@ -62,6 +71,9 @@ agents:
         model:
           generationConfig:
             contextWindowSize: "{context_window}"
+        mcpServers: "{mcp_servers}"
+    mcp:
+      entry: {httpUrl: "{mcp_url}"}
     args: [--auth-type, openai, --model, "{model}"]
 
   opencode:
@@ -91,6 +103,9 @@ agents:
               "{model}":
                 name: "{model}"
                 tool_call: true
+        mcp: "{mcp_servers}"
+    mcp:
+      entry: {type: remote, url: "{mcp_url}", enabled: true}
     args: [--model, "agent-proxy/{model}"]
 
   copilot:
@@ -106,6 +121,11 @@ agents:
       COPILOT_PROVIDER_API_KEY: local-ollama
       COPILOT_MODEL: "{model}"
       COPILOT_OFFLINE: "true"
+    mcp:
+      entry: {type: http, url: "{mcp_url}", tools: ["*"]}
+      files:
+        copilot-mcp.json: {mcpServers: "{mcp_servers}"}
+      args: [--additional-mcp-config, "@{files_dir}/copilot-mcp.json"]
     notes: COPILOT_OFFLINE stops the CLI from contacting GitHub. Remove it to keep GitHub sign-in features.
 
   claude:
@@ -128,6 +148,11 @@ agents:
       ANTHROPIC_DEFAULT_OPUS_MODEL: "{model}"
       CLAUDE_CODE_SUBAGENT_MODEL: "{model}"
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+    mcp:
+      entry: {type: http, url: "{mcp_url}"}
+      files:
+        claude-mcp.json: {mcpServers: "{mcp_servers}"}
+      args: [--mcp-config, "{files_dir}/claude-mcp.json"]
     args: [--model, "{model}"]
 
   claude-subscription:
@@ -143,6 +168,11 @@ agents:
     backend_type: anthropic
     env:
       ANTHROPIC_BASE_URL: "{anthropic_url}"
+    mcp:
+      entry: {type: http, url: "{mcp_url}"}
+      files:
+        claude-mcp.json: {mcpServers: "{mcp_servers}"}
+      args: [--mcp-config, "{files_dir}/claude-mcp.json"]
     args: [--model, "{model}"]
     notes: Sign in with claude first; unset ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN and remove any apiKeyHelper to keep subscription authentication.
 
@@ -157,6 +187,11 @@ agents:
       macos: curl -fsSL https://claude.ai/install.sh | bash
       windows: irm https://claude.ai/install.ps1 | iex
     homepage: https://code.claude.com/docs/en/network-config
+    mcp:
+      entry: {type: http, url: "{mcp_url}"}
+      files:
+        claude-mcp.json: {mcpServers: "{mcp_servers}"}
+      args: [--mcp-config, "{files_dir}/claude-mcp.json"]
     notes: Sign in with claude first. Unset ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN and ANTHROPIC_BASE_URL, and remove any apiKeyHelper, so the account login is used. Pass a model with -- --model sonnet.
 
   copilot-account:
@@ -167,6 +202,11 @@ agents:
     description: Copilot CLI signed in to your GitHub Copilot subscription. All of its HTTPS traffic to GitHub and Copilot is recorded.
     install: npm install -g @github/copilot
     homepage: https://docs.github.com/copilot/how-tos/copilot-cli
+    mcp:
+      entry: {type: http, url: "{mcp_url}", tools: ["*"]}
+      files:
+        copilot-mcp.json: {mcpServers: "{mcp_servers}"}
+      args: [--additional-mcp-config, "@{files_dir}/copilot-mcp.json"]
     notes: Sign in with copilot (/login) first. Unset COPILOT_PROVIDER_* and COPILOT_OFFLINE so the GitHub subscription is used. Pass a model with -- --model <name>.
 
   codex-account:
@@ -183,6 +223,8 @@ agents:
     # The interactive TUI otherwise hands conversations to a shared background
     # app-server daemon, which runs without the proxy settings above.
     args: [--no-daemon]
+    mcp:
+      args_each: [-c, 'mcp_servers.{mcp_name}.url="{mcp_url}"']
     notes: Sign in with codex login (ChatGPT) first, and unset OPENAI_API_KEY and OPENAI_BASE_URL so the ChatGPT login is used. Pass a model with -- -m <model>.
 
   codex:
@@ -194,6 +236,8 @@ agents:
     homepage: https://github.com/openai/codex
     env:
       CODEX_OSS_BASE_URL: "{openai_url}"
+    mcp:
+      args_each: [-c, 'mcp_servers.{mcp_name}.url="{mcp_url}"']
     args: [--oss, -m, "{model}"]
     notes: The Responses API is passed through unchanged, so set OLLAMA_CONTEXT_LENGTH on the Ollama server for a larger context.
 
@@ -223,4 +267,7 @@ agents:
       GOOSE_PROVIDER: ollama
       OLLAMA_HOST: "{ollama_url}"
       GOOSE_MODEL: "{model}"
-    args: [session]
+    mcp:
+      args_each: [--with-streamable-http-extension, "{mcp_url}"]
+    # The extensions are options of goose session.
+    args: [session, "{mcp_args}"]

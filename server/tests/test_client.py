@@ -164,6 +164,7 @@ def agents_file(tmp_path: Path) -> Path:
             "env": {"OPENAI_BASE_URL": "{openai_url}", "FAKE_MODEL": "{model}", "FAKE_PROJECT": "{project}", "FAKE_SETTINGS": "{files_dir}/settings.json"},
             "files": {"settings.json": {"model": "{model}", "context": "{context_window}"}},
             "args": ["-c", FAKE_AGENT, "{model}"],
+            "mcp": {"env": {"FAKE_MCP": "{mcp_servers}"}},
         },
         "claude-account": {"name": "Claude (account)", "executable": "claude", "protocol": "anthropic", "intercept": True},
     }}))
@@ -563,6 +564,39 @@ def test_a_machine_the_server_cant_reach_serves_agents_through_its_tunnel(tmp_pa
         assert any(method == "GET" and path == "/api/tags" for method, path, _ in seen)
         # Keep-alive: the next request reuses the tunnel, and it still works.
         assert httpx.get(f"{m.server}/session/{session}/v1/models", timeout=30).status_code == 200
+
+
+def test_an_agent_uses_a_stdio_mcp_server_a_machine_shares_through_its_tunnel(tmp_path, agent_binary, machine_binary):
+    """agent-machine runs the MCP server (fake_mcp.py) for the session, behind its bridge; the agent reaches it
+    through its own agent-proxy, the server and the machine's tunnel (the machine's address answers nothing)."""
+    server = ["mcp", "add", "fake", "--env", "FAKE_MCP_GREETING=hi", "--", sys.executable, str(Path(__file__).with_name("fake_mcp.py"))]
+    with machine(tmp_path, agent_binary) as m, fleet_machine(m, machine_binary, tmp_path, server, ["address", "203.0.113.9"]) as fleet:
+        assert "fake (stdio)" in fleet.status
+        m.runtime.client = httpx.AsyncClient(trust_env=False, timeout=30)
+        shared = httpx.get(f"{m.proxy}/api/agents", timeout=30)
+        assert shared.status_code == 200
+        machine_id = fleet.box["id"]
+        assert fleet.box["mcp"]["servers"][0]["name"] == "fake" and "key" not in fleet.box["mcp"]
+        prepared = httpx.post(f"{m.proxy}/api/agents/fake/sessions", json={"model": "m", "proxy_url": m.proxy, "launcher": True, "mcp": [f"{machine_id}/fake"]}, timeout=30)
+        assert prepared.status_code == 201, prepared.text
+        [given] = prepared.json()["mcp"]
+        assert json.loads(prepared.json()["env"]["FAKE_MCP"]) == {"fake": {"url": given["url"]}}
+        assert given["url"].startswith(m.proxy + "/session/")
+        accept = {"accept": "application/json, text/event-stream"}
+
+        def messages(response: httpx.Response) -> list[dict]:
+            return [json.loads(line[5:]) for line in response.text.splitlines() if line.startswith("data:")]
+
+        opened = httpx.post(given["url"], json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}, headers=accept, timeout=30)
+        assert opened.status_code == 200, opened.text
+        assert messages(opened)[0]["result"]["serverInfo"]["name"] == "fake-mcp"
+        session = {**accept, "mcp-session-id": opened.headers["mcp-session-id"]}
+        assert httpx.post(given["url"], json={"jsonrpc": "2.0", "method": "notifications/initialized"}, headers=session, timeout=30).status_code == 202
+        called = httpx.post(given["url"], json={"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "echo", "arguments": {"x": 1}}}, headers=session, timeout=30)
+        assert messages(called)[0]["result"]["content"][0]["text"] == 'hi {"x": 1}'
+        assert httpx.delete(given["url"], headers=session, timeout=30).status_code == 200
+        recorded = [json.loads(line) for line in httpx.get(f"{m.server}/api/sessions/{prepared.json()['session']['session_id']}/telemetry").text.splitlines()]
+        assert [record["endpoint"] for record in recorded] == ["initialize", "notifications/initialized", "tools/call echo"]
 
 
 def test_a_fleet_machine_lists_its_folders_and_opens_a_shell_when_commands_are_on(tmp_path, agent_binary, machine_binary):

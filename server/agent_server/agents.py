@@ -9,6 +9,13 @@ A template whose placeholder has no value for a session (no {context_window} whe
 the model's context size isn't known, no {files_dir} when the console rather than
 a launcher asks) is left out: the env variable, file, mapping key or list item goes,
 so the agent falls back to its own default rather than getting an empty value.
+
+Shared MCP servers (mcp.py) a launch chose reach the agent through its mcp block: entry is one
+server as the agent's config wants it ({mcp_name}, {mcp_url}), and {mcp_servers} renders as a
+mapping of every chosen server's name to its entry, or as nothing without any (so a settings key
+that holds it goes too). The block's env, files and args apply only when there are some, and
+args_each is rendered once for each server. Those args go where the agent's args have
+"{mcp_args}", or else before them (Claude Code's --mcp-config takes every value up to the next option).
 """
 
 from __future__ import annotations
@@ -26,6 +33,8 @@ import yaml
 PROTOCOLS = {"openai-chat", "openai-responses", "anthropic", "ollama"}
 FILE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 PLACEHOLDER = re.compile(r"\{([a-z_]+)\}")
+# Where in an agent's args its shared MCP servers' args go.
+MCP_ARGS = "{mcp_args}"
 # A template that names a placeholder without a value for this session renders to this, and is left out.
 _MISSING = object()
 
@@ -54,6 +63,8 @@ class AgentDefinition:
     # translated and tuned by the proxy, or Strata and Docker Model Runner, passed
     # through) or anthropic (hosted pass-through). Unused for intercept agents.
     backend_type: str = "ollama"
+    # How it takes shared MCP servers: entry, and env, files, args and args_each for when it has some.
+    mcp: dict[str, Any] = field(default_factory=dict)
 
     @property
     def route(self) -> str:
@@ -79,6 +90,8 @@ class AgentDefinition:
             "notes": self.notes, "installed": self.installed_path() is not None,
             "intercept": self.intercept, "needs_model": self.needs_model,
             "backend_type": None if self.intercept else self.backend_type, "route": self.route,
+            # Whether a launch can give it shared MCP servers.
+            "mcp": bool(self.mcp),
         }
 
     def render(
@@ -90,20 +103,28 @@ class AgentDefinition:
         intercept: dict[str, Any] | None = None,
         files_dir: str | None = None,
         context_window: int | None = None,
+        mcp_servers: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
         """Return the environment, command and files used to launch this agent for a session.
 
         intercept holds the intercept proxy's url, ca_path and bundle_path; it is
         required for agents with intercept: true. files_dir is the folder the launcher
         writes the files to, and context_window the model's context size on the
-        session's backend, when known.
+        session's backend, when known. mcp_servers are the shared MCP servers chosen for
+        it, each a name and the URL the agent reaches it at.
         """
         variables: dict[str, Any] = endpoints(proxy_url, session_id)
         variables.update({
             "model": model or "", "project": project, "session_id": session_id, "proxy_url": proxy_url,
             "files_dir": files_dir, "context_window": context_window,
         })
+        servers = mcp_servers if self.mcp else None
+        each = [{**variables, "mcp_name": item["name"], "mcp_url": item["url"]} for item in servers or ()]
+        variables["mcp_servers"] = {
+            values["mcp_name"]: _render(self.mcp.get("entry") or {"url": "{mcp_url}"}, values) for values in each
+        } or None
         env = {"AI_PROXY_SESSION": session_id}
+        extra = self.mcp if servers else {}
         if self.intercept:
             if not intercept or not intercept.get("url") or not intercept.get("ca_path"):
                 raise ValueError(f"{self.name} needs the proxy's HTTPS intercept listener, which isn't running.")
@@ -112,16 +133,22 @@ class AgentDefinition:
                 "intercept_url": env["HTTPS_PROXY"], "ca_cert": intercept["ca_path"],
                 "ca_bundle": str(intercept.get("bundle_path") or intercept["ca_path"]),
             })
-        for key, value in self.env.items():
+        for key, value in {**self.env, **(extra.get("env") or {})}.items():
             rendered = _render(value, variables)
             if rendered is not _MISSING:
                 env[key] = rendered if isinstance(rendered, str) else json.dumps(rendered, separators=(",", ":"))
         files = {}
-        for name, value in self.files.items() if files_dir else ():
+        for name, value in {**self.files, **(extra.get("files") or {})}.items() if files_dir else ():
             rendered = _render(value, variables)
             if rendered is not _MISSING:
                 files[name] = rendered if isinstance(rendered, str) else json.dumps(rendered, indent=2)
-        args = [arg for arg in (_render(arg, variables) for arg in self.args) if arg is not _MISSING]
+        mcp_args = [_render(str(arg), variables) for arg in extra.get("args") or []]
+        for values in each if extra else ():
+            mcp_args += [_render(str(arg), values) for arg in extra.get("args_each") or []]
+        ordered: list[Any] = [] if MCP_ARGS in self.args else list(mcp_args)
+        for arg in self.args:
+            ordered += mcp_args if arg == MCP_ARGS else [_render(arg, variables)]
+        args = [arg for arg in ordered if arg is not _MISSING]
         return {"env": env, "command": [self.executable, *map(str, args)], "files": files}
 
 
@@ -196,6 +223,7 @@ def load_agents(path: Path) -> dict[str, AgentDefinition]:
             notes=value.get("notes"),
             intercept=bool(value.get("intercept", False)),
             backend_type=str(value.get("backend_type", "ollama")),
+            mcp=_mcp(agent_id, value.get("mcp")),
         )
     return agents
 
@@ -207,6 +235,14 @@ def _files(agent_id: Any, value: Any) -> dict[str, Any]:
         if not FILE_NAME.fullmatch(str(name)):
             raise ValueError(f"Agent '{agent_id}' has a file named '{name}': use letters, numbers, '.', '_' and '-'")
     return {str(name): content for name, content in files.items()}
+
+
+def _mcp(agent_id: Any, value: Any) -> dict[str, Any]:
+    if not value:
+        return {}
+    if not isinstance(value, dict) or set(value) - {"entry", "env", "files", "args", "args_each"}:
+        raise ValueError(f"Agent '{agent_id}' has an mcp block with other keys than entry, env, files, args and args_each")
+    return {**value, "files": _files(agent_id, value.get("files"))}
 
 
 def _render(value: Any, variables: dict[str, Any]) -> Any:

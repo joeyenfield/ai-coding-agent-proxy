@@ -31,7 +31,8 @@ from . import settings, terminal
 USAGE = """Usage: agent <agent> [project] [options] [-- agent arguments]
        agent --list
        agent --shell [folder]             share a shell in a private terminal, to use it from the console
-       agent login [url] [--user name]    sign this machine in to an agent-server
+       agent login [url] [--user name] [--key access-key]
+                                          sign this machine in to an agent-server
        agent logout [url]
        agent proxy [--server url]         run this machine's agent-proxy in the foreground
        agent proxy stop                   stop the agent-proxy running here (agent starts it again)
@@ -44,6 +45,8 @@ Options:
   -m, --model NAME        Model name or alias from the server's models.yaml (optional for account agents)
       --backend NAME      One of the server's backends (default: the one the server picks for the agent)
       --trace             Capture full request and response payloads
+      --mcp NAMES         MCP servers machines share, for the agent: machine/name, a machine for
+                          all of its servers, or all; comma-separated or repeated
       --list              List the server's agents and whether they're installed here
       --control           Share the agent's terminal with the server, to watch and type into it from
                           the console or a phone (or set AI_PROXY_CONTROL=1)
@@ -60,7 +63,7 @@ Sharing, on a server with accounts:
 Unknown options, and everything after --, are passed to the agent.
 """
 
-VALUED = {"--model", "-m", "--backend", "--share", "--team", "--proxy", "--launch-id"}
+VALUED = {"--model", "-m", "--backend", "--share", "--team", "--proxy", "--launch-id", "--mcp"}
 
 
 class UsageError(Exception):
@@ -76,6 +79,8 @@ class Options:
     agent: str = ""
     project: str = "."
     model: str = ""
+    # Shared MCP servers for the agent: "<machine>/<name>", a machine for all of its servers, or "all".
+    mcp: List[str] = field(default_factory=list)
     backend: str = ""
     trace: bool = False
     list: bool = False
@@ -141,6 +146,8 @@ def parse_args(args: List[str]) -> Options:
                 options.proxy = value
             elif name == "--launch-id":
                 options.launch_id = value
+            elif name == "--mcp":
+                options.mcp += [item.strip() for item in value.split(",") if item.strip()]
             continue
         flags = {"--trace": "trace", "--list": "list", "--control": "control", "--switch": "switch",
                  "--let-others-type": "let_others_type", "--headless": "headless", "--shell": "shell", "-h": "help", "--help": "help"}
@@ -432,6 +439,8 @@ def launch(options: Options) -> int:
         "model": options.model or None, "backend": options.backend or None, "trace": options.trace,
         "project": project.name, "project_path": str(project), "proxy_url": local, "launcher": True, **options.sharing(),
     }
+    if options.mcp:
+        request["mcp"] = options.mcp
     # Where it runs, and for a launch from the console the fleet machine and the launch that started it.
     hostname = socket.gethostname()
     tags: Dict[str, Any] = {"machine_name": hostname, "hostname": hostname}
@@ -480,6 +489,8 @@ def launch(options: Options) -> int:
         share, control = share_for(local, server, session_id, str(agent.get("executable") or ""), options.control)
         print(f"Session : {session_id}\nAgent   : {agent.get('name')}\nModel   : {options.model or 'agent default'}\n"
               f"Backend : {route}\nServer  : {server}/live\nControl : {control}", flush=True)
+        if prepared.get("mcp"):
+            print("MCP     :", ", ".join(str(item.get("id")) for item in prepared["mcp"]), flush=True)
         if share:
             try:
                 exit_status = terminal.run(command, str(project), env, share)

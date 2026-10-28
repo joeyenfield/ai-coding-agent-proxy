@@ -30,7 +30,7 @@ pywinpty on Windows. psutil is optional (`[metrics]`) for CPU and memory figures
 
 **agent** (`agent_py/client`): `agent <agent> [project] [options] [-- args]`, `--list`,
 `login`/`logout`, `proxy` and `proxy stop`, `version`, with the Go launcher's options
-(`--model`, `--backend`, `--trace`, `--control`, `--switch`, `--share`, `--team`,
+(`--model`, `--backend`, `--trace`, `--mcp`, `--control`, `--switch`, `--share`, `--team`,
 `--let-others-type`, and `--headless` for launches from the console). The agent-proxy is the
 same: loopback only, Host and Origin checked on every route, only the launcher's short list
 of calls signed with the machine's token, agents' traffic streamed without it, terminals
@@ -39,11 +39,12 @@ relayed, and account agents' HTTPS tunnelled to the server's intercept over a We
 pywinpty on Windows.
 
 **agent-machine** (`agent_py/machine`): `login`/`logout`, `run`/`start`/`stop`, the status
-display, `launches`, `roots`, `commands`, `name`, `address` and `servers`. In the fleet it sends
+display, `launches`, `roots`, `commands`, `name`, `address`, `servers` and `mcp`. In the fleet it sends
 the same hello and updates, runs launches (checking launches are on and the folder is in a root,
 after resolving links), lists the folders inside its roots for the console's folder picker, opens
 terminals with `commands on` (`agent --shell`, which the Python agent has too), carries tunnels to
-its model servers, and answers the server's questions
+its model servers, shares MCP servers through the same bridge as the Go one (`agent_py/machine/mcp.py`,
+the same `mcp.json`), and answers the server's questions
 about them: Ollama's status, pull (streamed), delete, load, unload; Docker Model Runner's
 status and models; Strata's status; and the machine's CPU, memory and NVIDIA GPUs.
 

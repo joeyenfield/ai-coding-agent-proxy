@@ -19,6 +19,7 @@ import (
 
 	"ai-coding-agent-proxy/machine/internal/containers"
 	"ai-coding-agent-proxy/machine/internal/login"
+	"ai-coding-agent-proxy/machine/internal/mcp"
 	"ai-coding-agent-proxy/machine/internal/presence"
 	"ai-coding-agent-proxy/machine/internal/process"
 	"ai-coding-agent-proxy/machine/internal/servers"
@@ -41,6 +42,10 @@ Usage: agent-machine                           this machine as the fleet sees it
        agent-machine commands on|off           let you open a terminal here from the console, in a launch folder (off by default)
        agent-machine roots add <dir>           a folder agents may be started in (and any folder inside it)
        agent-machine roots remove <dir>
+       agent-machine mcp                       the MCP servers this machine shares with the server's agents
+       agent-machine mcp add <name> [--env NAME=VALUE]... [--dir <dir>] [--description <text>] -- <command> [args...]
+       agent-machine mcp add <name> --url <url> [--header "Name: value"]... [--description <text>]
+       agent-machine mcp remove <name>
        agent-machine name <name>|-             the name the console shows (default: the hostname)
        agent-machine address <host>|-          how the server reaches this machine's model servers
        agent-machine update [--force]          replace agent-machine with the build the server offers, and restart it
@@ -55,6 +60,8 @@ Containers run Strata or Ollama images only, with their own settings; docker run
 Launches run the agent command (agent) from PATH, signed in to the same server with agent login.
 Only you, signed in as this machine's owner, can start agents, containers or terminals here.
 A terminal from the console (commands on) is a shell as this user: only you see it.
+MCP servers run here, as this user, for the agents you choose and the teams you let use them
+(the machine's Access tab). Their commands, environments and URLs stay here.
 Settings changes reach the server within a minute.
 `
 
@@ -86,6 +93,8 @@ func Main(args []string) int {
 	case "status":
 		show(settings.LoadMachine())
 		return 0
+	case "mcp":
+		return mcpCommand(args[1:])
 	}
 	return configure(args)
 }
@@ -434,6 +443,15 @@ func show(machine *settings.Machine) {
 	}
 	if machine.Launches && len(machine.Roots) == 0 {
 		fmt.Println("Folders   : none (agent-machine roots add <dir>)")
+	}
+	if servers, err := mcp.Load(); err == nil && len(servers) > 0 {
+		for index, server := range servers {
+			label := "MCP       :"
+			if index > 0 {
+				label = "           "
+			}
+			fmt.Println(label, describeMCP(server))
+		}
 	}
 	for index, root := range machine.Roots {
 		label := "Folders   :"

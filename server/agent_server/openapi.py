@@ -23,9 +23,12 @@ TAGS = [
     ("Accounts", "agent_server.routes.auth", "Sign-in, launcher tokens, password; organizations, their teams, and users (`/api/orgs`, `/api/users`)."),
     ("Agents and sessions", "agent_server.routes.management", "Agents, sessions, requests, traces, live traffic, the models agents can use, configuration and the server itself."),
     ("Machines", "agent_server.routes.machines", "The fleet: machines, launches on them, and their LLM providers: adopting model servers, their models, status, logs and load, Ollama's settings, starting and stopping Ollama and Strata, and model catalogue search. The server asks the machine for all of it."),
+    ("MCP", "agent_server.routes.mcp",
+     "MCP servers machines share (`agent-machine mcp add`), and agents' MCP traffic to them under "
+     "`/session/{session_id}/mcp/{machine}/{name}` (Streamable HTTP; the session id is the credential)."),
     ("Containers", "agent_server.routes.containers", "Strata and Ollama containers that machines run for the server."),
     ("Terminals", "agent_server.routes.terminals", "Shared agent terminals and pairing a phone. Trusted clients only."),
-    ("Downloads", "agent_server.app", "The builds of agent, agent-machine and the Android app this server hands out (public, like /health)."),
+    ("Downloads", "agent_server.app", "The builds of agent, agent-machine and the Android app this server hands out, and the documentation the console shows (`/help-files/...`); public, like /health."),
     ("Agent APIs", "agent_server.routes.compat",
      "What agents call: OpenAI (`/v1`), Anthropic (`/anthropic`) and native Ollama (`/api/...`), unscoped or under "
      "`/session/{session_id}/`. The open session's id is the credential, so these need no token."),

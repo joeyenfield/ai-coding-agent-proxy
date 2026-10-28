@@ -26,7 +26,7 @@ import websockets
 from websockets.asyncio.client import connect
 
 from .. import common
-from . import providers, settings
+from . import mcp, providers, settings
 
 UPDATE_EVERY = 60
 PING_EVERY = 25
@@ -67,6 +67,8 @@ def arguments(request: Dict[str, Any], project: str) -> List[str]:
         args += ["--team", str(request["team"])]
     if request.get("access") == "control":
         args.append("--let-others-type")
+    if request.get("mcp"):
+        args += ["--mcp", ",".join(str(item) for item in request["mcp"])]
     return args
 
 
@@ -263,6 +265,8 @@ class Presence:
         self.shell: Callable[[Dict[str, Any], str], str] = shell_headless
         # The ports tunnels may reach: the model servers in the last hello or update. Nothing else here is ever reached.
         self.tunnel_ports: set = set()
+        # Shares the MCP servers in mcp.json (agent-machine mcp add) through the tunnel.
+        self.mcp = mcp.Bridge()
         self.status = ""
 
     def set_status(self, status: str) -> None:
@@ -499,7 +503,9 @@ class Presence:
         """The machine's hello or update: what it is, has and allows."""
         machine = settings.Machine.load()
         found = self.detect()
-        self.tunnel_ports = {provider["port"] for provider in found}
+        # The MCP servers it shares, by name; the server reaches them on the bridge's port, through the tunnel.
+        shared = self.mcp.describe()
+        self.tunnel_ports = {provider["port"] for provider in found} | ({shared["port"]} if shared else set())
         return {
             "type": kind, "id": machine.id, "name": machine.display_name(), "hostname": socket.gethostname(),
             "os": common.goos(), "arch": common.goarch(), "version": common.VERSION, "protocol": common.PROTOCOL,
@@ -509,7 +515,7 @@ class Presence:
             "tunnel": 1, "launcher": True,
             "containers": {"enabled": False, "cli": "docker", "found": False, "online": False, "version": "",
                            "error": "the Python agent-machine doesn't run containers", "engines": []},
-            "servers": {"enabled": False},
+            "servers": {"enabled": False}, "mcp": shared,
         }
 
     def installed_agents(self, server: str) -> List[str]:

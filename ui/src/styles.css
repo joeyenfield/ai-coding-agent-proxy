@@ -836,6 +836,14 @@ details.collapsible > summary::-webkit-details-marker { display: none; }
 .users-table select { min-width: 104px; }
 .membership-edit { display: flex; flex-direction: column; gap: 12px; align-items: flex-start; padding: 6px 0; }
 fieldset.field { border: 0; padding: 0; margin: 0; }
+/* Shared MCP servers to give an agent (Start an agent, a machine's Agents tab). */
+.mcp-choice { border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px 12px; margin: 12px 0; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.mcp-choice legend { padding: 0 6px; font-weight: 600; font-size: 14px; }
+.mcp-choice p { margin: 0 0 4px; }
+.mcp-choice .check { align-items: flex-start; }
+.mcp-choice .check input { margin-top: 3px; }
+ul.plain { list-style: none; padding: 0; margin: 6px 0; display: flex; flex-direction: column; gap: 4px; }
+.mono.wrap { overflow-wrap: anywhere; }
 .inline-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; max-width: 720px; }
 .inline-form input { flex: 1 1 200px; width: auto; }
 
@@ -1068,6 +1076,46 @@ code { background: var(--ground); border: 1px solid var(--line); padding: 0 5px;
 .rail nav a.nav-machine .nav-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rail-download { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: var(--radius-small); background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; text-decoration: none; line-height: 1.3; }
 .rail-download:hover { box-shadow: inset 0 0 0 1px var(--accent); }
+.rail-docs { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: var(--radius-small); color: var(--steel); font-weight: 600; text-decoration: none; }
+.rail-docs:hover { color: var(--ink); background: var(--ground); }
+
+/* The documentation (docs/*.md) under /help: its pages on the left, the page as Markdown. */
+.docs-layout { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 32px; align-items: start; }
+.docs-nav { position: sticky; top: 16px; display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
+.docs-nav-title { margin: 0 0 6px; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--steel); }
+.docs-nav a { padding: 6px 10px; border-radius: var(--radius-small); color: var(--steel); text-decoration: none; font-weight: 520; }
+.docs-nav a:hover { color: var(--ink); background: var(--raised); }
+.docs-nav a.active { color: var(--accent-ink); background: var(--accent-soft); }
+.docs-nav .docs-nav-api { margin-top: 10px; font-size: 13px; }
+.docs-body { min-width: 0; max-width: 920px; }
+.markdown { font-size: 15px; line-height: 1.65; overflow-wrap: break-word; }
+.markdown h1 { font-size: 30px; margin: 0 0 14px; line-height: 1.2; }
+.markdown h2 { font-size: 22px; margin: 34px 0 10px; padding-top: 14px; border-top: 1px solid var(--line); }
+.markdown h3 { font-size: 17px; margin: 24px 0 8px; }
+.markdown h4 { font-size: 15px; margin: 18px 0 6px; }
+.markdown h1, .markdown h2, .markdown h3, .markdown h4 { scroll-margin-top: 16px; }
+.markdown p, .markdown ul, .markdown ol { margin: 0 0 12px; }
+.markdown ul, .markdown ol { padding-left: 24px; }
+.markdown ul { list-style: disc; }
+.markdown ol { list-style: decimal; }
+.markdown li { margin: 3px 0; }
+.markdown code { font-family: var(--mono); font-size: 0.88em; padding: 1px 5px; border-radius: 5px; background: var(--ground); border: 1px solid var(--line); }
+.markdown pre { margin: 0 0 14px; padding: 12px 14px; overflow-x: auto; border-radius: var(--radius-small); background: var(--ground); border: 1px solid var(--line); line-height: 1.5; }
+.markdown pre code { padding: 0; border: 0; background: none; font-size: 13px; }
+.markdown table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 0 0 16px; font-size: 14px; }
+.markdown th, .markdown td { padding: 7px 10px; border: 1px solid var(--line); text-align: left; vertical-align: top; }
+.markdown th { background: var(--ground); font-weight: 650; }
+.markdown img { display: block; max-width: 100%; height: auto; margin: 8px 0 18px; border: 1px solid var(--line); border-radius: var(--radius-small); box-shadow: var(--shadow-sm); }
+.markdown blockquote { margin: 0 0 12px; padding: 4px 14px; border-left: 3px solid var(--line-strong); color: var(--steel); }
+.markdown hr { border: 0; border-top: 1px solid var(--line); margin: 24px 0; }
+.doc-offsite { font-weight: 600; }
+@media (max-width: 900px) {
+  .docs-layout { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .docs-nav { position: static; flex-direction: row; flex-wrap: wrap; gap: 4px; }
+  .docs-nav-title { width: 100%; }
+  .docs-nav a { padding: 4px 9px; border: 1px solid var(--line); }
+  .markdown h1 { font-size: 25px; }
+}
 
 /* Downloads: the quick links first (the Android app first on a phone), then everything. */
 .quick-downloads h2 { font-size: 17px; }

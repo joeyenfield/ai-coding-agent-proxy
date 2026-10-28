@@ -15,6 +15,7 @@ from test_client import (  # noqa: F401  (the tests are collected from here, wit
     test_a_fleet_machine_lists_its_folders_and_opens_a_shell_when_commands_are_on,
     test_a_fleet_machine_runs_an_agent_the_console_starts,
     test_account_agents_https_is_tunnelled_to_the_servers_intercept,
+    test_an_agent_uses_a_stdio_mcp_server_a_machine_shares_through_its_tunnel,
     test_model_requests_stream_through_to_the_server,
     test_the_agent_proxy_alone_doesnt_join_the_fleet,
     test_the_launcher_reaches_the_server_only_through_the_proxys_short_list,

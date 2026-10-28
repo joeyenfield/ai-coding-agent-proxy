@@ -31,6 +31,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"ai-coding-agent-proxy/machine/internal/containers"
+	"ai-coding-agent-proxy/machine/internal/mcp"
 	"ai-coding-agent-proxy/machine/internal/process"
 	"ai-coding-agent-proxy/machine/internal/providers"
 	"ai-coding-agent-proxy/machine/internal/servers"
@@ -75,6 +76,8 @@ type Presence struct {
 	Servers *servers.Manager
 	// Providers answers the server's questions about the model servers here, and changes their models when allowed.
 	Providers *providers.Manager
+	// MCP shares the MCP servers listed in mcp.json (agent-machine mcp add) through the tunnel.
+	MCP *mcp.Bridge
 
 	mu     sync.Mutex
 	status string
@@ -143,6 +146,10 @@ func (p *Presence) Run(ctx context.Context) {
 	}
 	if p.Providers == nil {
 		p.Providers = &providers.Manager{}
+	}
+	if p.MCP == nil {
+		p.MCP = &mcp.Bridge{Logger: p.Logger}
+		defer p.MCP.Close()
 	}
 	for attempt := 0; ctx.Err() == nil; attempt++ {
 		started := time.Now()
@@ -369,6 +376,14 @@ func (p *Presence) describe(server, kind string) map[string]any {
 	for _, provider := range found {
 		ports = append(ports, provider.Port)
 	}
+	// The MCP servers it shares, by name; the server reaches them on the bridge's port, through the tunnel.
+	var shared map[string]any
+	if p.MCP != nil {
+		shared = p.MCP.Describe()
+	}
+	if shared != nil {
+		ports = append(ports, shared["port"].(int))
+	}
 	p.tunnels.set(ports)
 	// Agents started here by hand tag their sessions with it, which puts them under this machine.
 	hostname, _ := os.Hostname()
@@ -380,7 +395,7 @@ func (p *Presence) describe(server, kind string) map[string]any {
 		"tunnel": 1,
 		// Launches run the agent command: say whether it's here, so the console can say what's missing.
 		"launcher":   launcherFound(),
-		"containers": p.Containers.Describe(), "servers": serving,
+		"containers": p.Containers.Describe(), "servers": serving, "mcp": shared,
 	}
 }
 
@@ -426,6 +441,8 @@ type Launch struct {
 	Visibility string `json:"visibility"`
 	Team       string `json:"team"`
 	Access     string `json:"access"`
+	// MCP names the shared MCP servers the agent gets ("<machine>/<name>"), which the server checked.
+	MCP []string `json:"mcp"`
 }
 
 // Check is the machine's own say over a launch, whatever the server allowed: launches on,
@@ -515,6 +532,9 @@ func Arguments(request Launch, project string) []string {
 	}
 	if request.Access == "control" {
 		args = append(args, "--let-others-type")
+	}
+	if len(request.MCP) > 0 {
+		args = append(args, "--mcp", strings.Join(request.MCP, ","))
 	}
 	return args
 }

@@ -33,6 +33,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import json
+import re
 import secrets
 import time
 from dataclasses import asdict, dataclass, field
@@ -51,6 +52,9 @@ LAUNCH_TIMEOUT = 60.0
 # The client a shell's session names (`agent --shell`): it stays private, as it's a remote terminal.
 SHELL_CLIENT = "shell"
 PROVIDER_TYPES = ("ollama", "docker", "strata")
+# A shared MCP server's name (agent-machine mcp add), and how it runs there.
+MCP_NAME = re.compile(r"[a-z0-9][a-z0-9_-]{0,39}")
+MCP_TRANSPORTS = ("stdio", "http")
 ENGINE_FIELDS = ("id", "label", "backend_type", "image", "images", "port", "data_path", "volume", "health_path", "stop_timeout", "options", "summary")
 
 
@@ -87,15 +91,19 @@ class Machine:
     # Whether it carries agents' requests to its model servers itself (tunnels.py).
     tunnel: bool = False
     roots: list[str] = field(default_factory=list)
+    # The MCP servers it shares (mcp.py): its bridge's loopback port and the servers by name.
+    mcp: dict[str, Any] = field(default_factory=dict)
     first_seen: float = 0.0
     last_seen: float = 0.0
     history: list[dict[str, Any]] = field(default_factory=list)
     # The API keys of the Strata servers it runs, by port, for forwarding agents' traffic.
     # Held in memory only: never saved to machines.json or shown in the console.
     keys: dict[int, str] = field(default_factory=dict, repr=False)
+    # The key its MCP bridge takes, new each time agent-machine starts; in memory only, like keys.
+    mcp_key: str | None = field(default=None, repr=False)
 
     def stored(self) -> dict[str, Any]:
-        return {key: value for key, value in asdict(self).items() if key != "keys"}
+        return {key: value for key, value in asdict(self).items() if key not in {"keys", "mcp_key"}}
 
 
 class FleetError(Exception):
@@ -113,6 +121,7 @@ FEATURES: dict[str, str] = {
     "models": "Pull, delete, load and unload models on its model servers",
     "servers": "Start, stop and configure the Ollama and Strata installed there",
     "update": "Update agent-machine and agent there to this server's build",
+    "mcp": "Use the MCP servers it shares in the agents they start (they run there, as its user)",
 }
 # What admins may do on any machine without a grant, as before machines had grants. Starting
 # programs there (agents, terminals) stays the owner's: private means private.
@@ -282,6 +291,7 @@ class Fleet:
             if machine:
                 machine.last_seen = time.time()
                 machine.keys = {}
+                machine.mcp_key = None
                 self._save()
 
     def message(self, machine: Machine, data: dict[str, Any], client_host: str) -> None:
@@ -344,6 +354,8 @@ class Fleet:
             machine.tunnel = bool(data.get("tunnel"))
         if "launcher" in data:
             machine.launcher = bool(data.get("launcher"))
+        if "mcp" in data:
+            machine.mcp, machine.mcp_key = _mcp(data.get("mcp"))
         if isinstance(data.get("roots"), list):
             machine.roots = [str(item)[:400] for item in data["roots"]][:20]
         machine.last_seen = time.time()
@@ -560,6 +572,8 @@ class Fleet:
             "model": str(request.get("model") or ""), "backend": str(request.get("backend") or ""), "trace": bool(request.get("trace")),
             "visibility": str(request.get("visibility") or "private"), "team": str(request.get("team") or request.get("org") or ""),
             "access": "control" if request.get("access") == "control" else "view",
+            # Shared MCP servers for the agent, as checked by the route (mcp.choose).
+            "mcp": [str(item) for item in request.get("mcp") or []],
         }
         return await self._start(machine, socket, identity, message, agent, project)
 
@@ -612,6 +626,25 @@ def _provider(item: dict[str, Any]) -> dict[str, Any]:
         port = {"ollama": 11434, "docker": 12434, "strata": 18500}[item["type"]]
     models = item.get("models")
     return {"type": item["type"], "port": port, "version": str(item.get("version") or "")[:40], "models": models if isinstance(models, int) else None}
+
+
+def _mcp(item: Any) -> tuple[dict[str, Any], str | None]:
+    """A machine's hello "mcp" as kept: its bridge's port and the servers by name, and the bridge's key apart."""
+    if not isinstance(item, dict):
+        return {}, None
+    port = item.get("port")
+    if not isinstance(port, int) or not 0 < port < 65536:
+        return {}, None
+    servers = []
+    for server in item.get("servers") or []:
+        if isinstance(server, dict) and isinstance(server.get("name"), str) and MCP_NAME.fullmatch(server["name"]):
+            servers.append({
+                "name": server["name"], "description": str(server.get("description") or "")[:200],
+                "transport": server.get("transport") if server.get("transport") in MCP_TRANSPORTS else "stdio",
+                "found": bool(server.get("found", True)),
+            })
+    key = item.get("key")
+    return {"port": port, "servers": servers[:50]}, (str(key)[:200] if isinstance(key, str) and key else None)
 
 
 def _servers(item: dict[str, Any]) -> dict[str, Any]:

@@ -155,6 +155,8 @@ class Settings:
     ui_dir: Path = field(default_factory=lambda: ROOT / "ui" / "dist")
     # The builds the server hands out (tools/dist's dist/<version>/), see downloads.py.
     dist_dir: Path = field(default_factory=lambda: ROOT / "dist")
+    # The documentation (docs/: Markdown pages and their screenshots), which the console shows under /help.
+    docs_dir: Path = field(default_factory=lambda: ROOT / "docs")
     # Access key for watching and typing into agents' terminals from other devices.
     # Settings built in code (tests) keep it under log_dir; see remote_key_path.
     remote_key_file: Path | None = None
@@ -206,6 +208,7 @@ class Settings:
             agents_file=Path(os.getenv("AI_PROXY_AGENTS", str(ROOT / "config" / "agents.yaml"))).resolve(),
             ui_dir=Path(os.getenv("AI_PROXY_UI_DIR", str(ROOT / "ui" / "dist"))).resolve(),
             dist_dir=Path(os.getenv("AI_PROXY_DIST_DIR", str(ROOT / "dist"))).resolve(),
+            docs_dir=Path(os.getenv("AI_PROXY_DOCS_DIR", str(ROOT / "docs"))).resolve(),
             remote_key_file=Path(os.getenv("AI_PROXY_REMOTE_KEY_FILE", str(ROOT / "certs" / "remote-access-key"))).resolve(),
         )
         settings.default_backend = os.getenv(

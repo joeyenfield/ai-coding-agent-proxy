@@ -55,7 +55,7 @@ def test_machines_are_seen_by_their_owner_and_admins_only(tmp_path):
     with alice, bob, dave, machine(alice):
         [listed] = alice.get("/api/machines").json()["machines"]
         assert listed["connected"] and listed["owner"] == "alice" and listed["agents"] == ["qwen", "claude-account"]
-        assert listed["you"] == {"owner": True, "manage": True, "view": True, "launch": True, "terminal": True, "models": True, "servers": True, "update": True}
+        assert listed["you"] == {"owner": True, "manage": True, "view": True, "launch": True, "terminal": True, "models": True, "servers": True, "update": True, "mcp": True}
         # The machine's address as the server sees it, for its model servers.
         assert listed["providers"][0]["url"].endswith(":11434") and listed["providers"][0]["backend"] is None
         assert bob.get("/api/machines").json()["machines"] == []
@@ -371,7 +371,7 @@ def test_the_owner_or_an_admin_updates_a_machine_that_takes_updates(tmp_path):
     with alice, bob, dave, machine(alice, hello(updates=True)) as socket:
         assert alice.get("/api/machines/m1").json()["updates"] is True
         # An admin may (it's only ever the server's own build); another user can't even see it.
-        assert dave.get("/api/machines/m1").json()["you"] == {"owner": False, "manage": True, "view": True, "launch": False, "terminal": False, "models": True, "servers": False, "update": True}
+        assert dave.get("/api/machines/m1").json()["you"] == {"owner": False, "manage": True, "view": True, "launch": False, "terminal": False, "models": True, "servers": False, "update": True, "mcp": False}
         assert bob.post("/api/machines/m1/update", json={}).status_code == 404
         assert alice.post("/api/machines/m1/update", json={}, headers={"origin": "http://evil.example"}).status_code == 403
         # The round trip from the owner's client: each test client runs the app on its own loop, and the socket is alice's.

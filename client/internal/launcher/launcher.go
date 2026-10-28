@@ -59,6 +59,10 @@ type Prepared struct {
 	// size), for the launcher to write to the files_dir it named; the env points at them.
 	Files     map[string]string `json:"files"`
 	Container bool              `json:"container"`
+	// The shared MCP servers the agent got.
+	MCP []struct {
+		ID string `json:"id"`
+	} `json:"mcp"`
 }
 
 // Main runs `agent` with its arguments and returns the exit status.
@@ -145,6 +149,9 @@ func Launch(options Options) (int, error) {
 		"model": nullable(options.Model), "backend": nullable(options.Backend), "trace": options.Trace,
 		"project": filepath.Base(project), "project_path": project, "proxy_url": local, "launcher": true,
 	}
+	if len(options.MCP) > 0 {
+		request["mcp"] = options.MCP
+	}
 	for key, value := range options.Sharing() {
 		request[key] = value
 	}
@@ -224,6 +231,13 @@ func Launch(options Options) (int, error) {
 	}
 	fmt.Printf("Session : %s\nAgent   : %s\nModel   : %s\nBackend : %s\nServer  : %s/live\nControl : %s\n",
 		sessionID, agent.Name, model, route, server, controlLine)
+	if len(prepared.MCP) > 0 {
+		names := make([]string, 0, len(prepared.MCP))
+		for _, item := range prepared.MCP {
+			names = append(names, item.ID)
+		}
+		fmt.Println("MCP     :", strings.Join(names, ", "))
+	}
 	exitStatus := run(command, project, env, share)
 	if share != nil && share.Problem() != "" {
 		fmt.Fprintf(os.Stderr, "Control : %s\n", share.Problem())

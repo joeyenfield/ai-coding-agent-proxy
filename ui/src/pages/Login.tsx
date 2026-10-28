@@ -57,7 +57,7 @@ export function LoginPage({ secure }: { secure: boolean }) {
           </p>
         )}
         <p className="subtle login-downloads">
-          Need the client, agent-machine or the Android app? <a href="/get">Downloads</a> don't need an account.
+          Need the client, agent-machine or the Android app? <a href="/get">Downloads</a> and the <a href="/help">documentation</a> don't need an account.
         </p>
         {health.data?.version && (
           <p className="subtle login-version">

@@ -42,6 +42,11 @@ agent-machine                                  # how the fleet sees this machine
   Strata 18500), the server's agents installed here, whether it runs containers (its
   CLI, whether the engine answers, the engines it offers) and its launch settings. The
   console adds a model server as a provider from this ("Add as a provider").
+- **MCP servers** (`agent-machine mcp add`, in `mcp.json` here): the hello names them, with
+  the loopback port and per-run key of the bridge (`internal/mcp`) that serves them as Streamable
+  HTTP. The server reaches it through a tunnel like a model server's. A stdio server gets a process
+  for each MCP session; a URL server is proxied with the headers set here. Their commands,
+  environments and headers never leave this machine.
 - **Updates** (`{"type": "update", "agent": ...}`, with `updates on`, answered by `update_result`):
   runs `agent-machine update --server <its server>` detached (with `--with-agent`, `agent update`
   first), so it can stop this process and start the new binary; its output goes to the log. It only

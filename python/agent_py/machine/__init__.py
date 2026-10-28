@@ -16,7 +16,7 @@ from typing import List, Optional
 
 from .. import common, login
 from .. import update as updates
-from . import presence, providers, settings
+from . import mcp, presence, providers, settings
 
 USAGE = """agent-machine puts this computer in an agent-server's fleet, so the server can use the
 model servers it runs (Ollama, Strata, Docker Model Runner) and start agents on it.
@@ -33,6 +33,10 @@ Usage: agent-machine                           this machine as the fleet sees it
        agent-machine commands on|off           let you open a terminal here from the console, in a launch folder (off by default)
        agent-machine roots add <dir>           a folder agents may be started in (and any folder inside it)
        agent-machine roots remove <dir>
+       agent-machine mcp                       the MCP servers this machine shares with the server's agents
+       agent-machine mcp add <name> [--env NAME=VALUE]... [--dir <dir>] [--description <text>] -- <command> [args...]
+       agent-machine mcp add <name> --url <url> [--header "Name: value"]... [--description <text>]
+       agent-machine mcp remove <name>
        agent-machine name <name>|-             the name the console shows (default: the hostname)
        agent-machine address <host>|-          how the server reaches this machine's model servers
        agent-machine update [--force]          install the build the server offers (its Python wheel, with pip), and restart it
@@ -42,6 +46,8 @@ Usage: agent-machine                           this machine as the fleet sees it
 Launches run the agent command (AI_PROXY_AGENT, else the Python agent), signed in to the same
 server with agent login. Only you, signed in as this machine's owner, can start agents or
 terminals here; a terminal from the console (commands on) is a shell as this user that only you see.
+MCP servers run here, as this user, for the agents you choose and the teams you let use them
+(the machine's Access tab). Their commands, environments and URLs stay here.
 Settings changes reach the server within a minute.
 """
 
@@ -71,6 +77,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         return start(args[1:])
     if command == "stop":
         return stop()
+    if command == "mcp":
+        return mcp_command(args[1:])
     if command == "update":
         return update_command(args[1:])
     return configure(args)
@@ -79,6 +87,86 @@ def main(argv: Optional[List[str]] = None) -> int:
 def fail(message: str) -> int:
     print(f"agent-machine: {message}\n\n{USAGE}", file=sys.stderr, end="")
     return 2
+
+
+def mcp_command(args: List[str]) -> int:
+    """Lists, adds and removes the MCP servers this machine shares (mcp.json)."""
+    if not args:
+        return list_mcp()
+    if args[0] == "add":
+        try:
+            server = parse_mcp(args[1:])
+            mcp.add(server)
+        except ValueError as problem:
+            return fail(str(problem))
+        print(f"Sharing {server.name}. Agents launched with --mcp {server.name} (or chosen on Start an agent) can use it, within a minute.")
+        if not server.found():
+            print(f"Note: {server.command[0]} isn't on this machine's PATH yet.")
+        return list_mcp()
+    if args[0] == "remove":
+        if len(args) != 2:
+            return fail("mcp remove takes a name")
+        if not mcp.remove(args[1]):
+            return fail(f"this machine shares no MCP server called {args[1]}")
+        return list_mcp()
+    return fail("mcp takes add or remove")
+
+
+def parse_mcp(args: List[str]) -> mcp.Server:
+    if not args or args[0].startswith("-"):
+        raise ValueError("mcp add takes a name first")
+    server = mcp.Server(name=args[0])
+    index = 1
+    while index < len(args):
+        arg = args[index]
+        if arg == "--":
+            server.command = args[index + 1:]
+            break
+        # --name value or --name=value (--env=NAME=VALUE included).
+        name, has_value, value = arg.partition("=")
+        if not has_value:
+            if index + 1 >= len(args):
+                raise ValueError(f"{arg} needs a value")
+            index += 1
+            value = args[index]
+        if name == "--url":
+            server.url = value
+        elif name == "--dir":
+            folder = os.path.abspath(value)
+            if not os.path.isdir(folder):
+                raise ValueError(f"{folder} isn't a folder")
+            server.dir = folder
+        elif name == "--description":
+            server.description = value
+        elif name == "--env":
+            key, has_setting, setting = value.partition("=")
+            if not has_setting or not key:
+                raise ValueError("--env takes NAME=VALUE")
+            server.env[key] = setting
+        elif name == "--header":
+            key, has_setting, setting = value.partition(":")
+            if not has_setting or not key.strip():
+                raise ValueError('--header takes "Name: value"')
+            server.headers[key.strip()] = setting.strip()
+        else:
+            raise ValueError(f"unknown option {arg} (the command goes after --)")
+        index += 1
+    server.check()
+    return server
+
+
+def describe_mcp(server: mcp.Server) -> str:
+    how = server.url or " ".join(server.command) + ("" if server.found() else " (not installed)")
+    return f"{server.name} ({server.transport}): {how}"
+
+
+def list_mcp() -> int:
+    servers = mcp.load()
+    if not servers:
+        print("MCP       : none shared (agent-machine mcp add <name> -- <command>)")
+    for index, server in enumerate(servers):
+        print("MCP       :" if index == 0 else "           ", describe_mcp(server))
+    return 0
 
 
 def configure(args: List[str]) -> int:
@@ -330,6 +418,8 @@ def show(machine: settings.Machine) -> None:
     print("Launches  :", "on" if machine.launches else "off (agent-machine launches on)")
     print("Updates   : on: the console can update this here to the server's build" if machine.updates else "Updates   : off (agent-machine updates on)")
     print("Commands  : on: you can open a terminal here from the console" if machine.commands else "Commands  : off (agent-machine commands on)")
+    for index, server in enumerate(mcp.load()):
+        print("MCP       :" if index == 0 else "           ", describe_mcp(server))
     if machine.launches and not machine.roots:
         print("Folders   : none (agent-machine roots add <dir>)")
     for index, root in enumerate(machine.roots):

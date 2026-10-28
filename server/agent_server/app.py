@@ -22,7 +22,7 @@ from .auth import AuthMiddleware, UserStore
 from .config import Settings
 from .downloads import Downloads
 from .intercept import InterceptProxy
-from .routes import auth, compat, containers, machines, management, proxy, terminals
+from .routes import auth, compat, containers, machines, management, mcp, proxy, terminals
 from .runtime import LOGGER, Runtime
 from .ui_build import ensure_built
 
@@ -82,8 +82,10 @@ def create_app(settings: Settings | None = None, restart: Any = None, address_pi
     proxy.register(app, runtime)
     containers.register(app, runtime)
     machines.register(app, runtime)
+    mcp.register(app, runtime)
     compat.register(app, runtime)
     _register_downloads(app, Downloads(settings.dist_dir))
+    _register_help(app, settings.docs_dir)
     _register_ui(app, settings.ui_dir)
     return app
 
@@ -124,6 +126,23 @@ def _register_downloads(app: FastAPI, downloads: Downloads) -> None:
         return FileResponse(target, filename=target.name, media_type="application/octet-stream")
 
 
+# The documentation's files the console's Docs page reads: its Markdown pages, and the images they show.
+HELP_FILES = {".md": "text/markdown; charset=utf-8", ".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml"}
+
+
+def _register_help(app: FastAPI, docs_dir: Path) -> None:
+    """docs/ for the console's Docs page (/help): public, like the downloads, as it holds nothing about this server."""
+
+    @app.get("/help-files/{path:path}")
+    async def help_file(path: str) -> FileResponse:
+        root = docs_dir.resolve()
+        candidate = (root / path).resolve()
+        # Only the documentation's own pages and pictures, and nothing outside docs/ (no "..", no links out).
+        if candidate.suffix.lower() not in HELP_FILES or not candidate.is_relative_to(root) or not candidate.is_file():
+            raise HTTPException(status_code=404, detail="Not one of the documentation's pages. See /help.")
+        return FileResponse(candidate, media_type=HELP_FILES[candidate.suffix.lower()])
+
+
 def _register_ui(app: FastAPI, ui_dir: Path) -> None:
     index = ui_dir / "index.html"
     if (ui_dir / "assets").is_dir():
@@ -140,7 +159,7 @@ def _register_ui(app: FastAPI, ui_dir: Path) -> None:
         candidate = (ui_dir / path).resolve()
         if candidate.is_file() and candidate.is_relative_to(ui_dir.resolve()):
             return FileResponse(candidate)
-        if path.startswith(("api/", "v1/", "session/", "anthropic/", "downloads/")) or not index.exists():
+        if path.startswith(("api/", "v1/", "session/", "anthropic/", "downloads/", "help-files/")) or not index.exists():
             raise HTTPException(status_code=404, detail="Not found")
         return FileResponse(index)
 
@@ -200,7 +219,7 @@ def ensure_first_user(settings: Settings) -> Path | None:
     print(
         f"agent-server: {settings.host} accepts other machines, so sign-in is now on.\n"
         f"  Created the user '{FIRST_USER}', an admin, with the password {password} (saved in {saved}).\n"
-        "  Sign in to the console, change the password on Settings > Organization, then delete that file.\n"
+        "  Sign in to the console, change the password on Server › Organizations, then delete that file.\n"
         f"  Sign each agent machine in once with: agent login {settings.public_url or settings.proxy_url}\n"
         f"  Machines that supply models join with: agent-machine login {settings.public_url or settings.proxy_url}, then agent-machine start",
         file=sys.stderr, flush=True,

@@ -14,7 +14,6 @@ client/bin
 machine/bin
 dist
 android
-docs
 benchmarks/results
 server/tests
 scripts

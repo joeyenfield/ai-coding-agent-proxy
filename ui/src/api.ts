@@ -137,8 +137,8 @@ export interface ActiveRequest {
   host?: string | null;
 }
 
-/** api: a proxy endpoint. intercept/upgrade/tunnel: captured by the HTTPS intercept proxy. */
-export type TrafficKind = "api" | "intercept" | "upgrade" | "tunnel";
+/** api: a proxy endpoint. intercept/upgrade/tunnel: captured by the HTTPS intercept proxy. mcp: a call to an MCP server a machine shares. */
+export type TrafficKind = "api" | "intercept" | "upgrade" | "tunnel" | "mcp";
 
 export interface HttpExchange {
   method: string;
@@ -390,6 +390,23 @@ export interface Agent {
   backends?: string[];
   /** The backend a launch picks when none is named ("direct" for account agents); null when none serves it. */
   default_backend?: string | null;
+  /** Whether a launch can give it MCP servers machines share. */
+  mcp?: boolean;
+}
+
+/** An MCP server a machine shares (agent-machine mcp add) that you may give the agents you start. */
+export interface SharedMcp {
+  /** "<machine id>/<name>", as a launch names it. */
+  id: string;
+  machine: string;
+  machine_name: string;
+  name: string;
+  description: string;
+  /** stdio: a command the machine runs for each session; http: a URL it proxies. */
+  transport: "stdio" | "http";
+  /** Whether its command is installed on the machine. */
+  found: boolean;
+  connected: boolean;
 }
 
 /** The model servers installed on a machine that the server can start and stop (agent-machine servers on). */
@@ -437,6 +454,8 @@ export interface FleetMachine {
   roots: string[];
   /** Whether its owner may open a terminal on it from here (agent-machine commands on). */
   commands?: boolean;
+  /** The MCP servers it shares (agent-machine mcp add), by name; their commands stay on the machine. */
+  mcp?: { port?: number; servers?: Omit<SharedMcp, "id" | "machine" | "machine_name" | "connected">[] };
   connected: boolean;
   first_seen: number;
   last_seen: number;
@@ -497,7 +516,7 @@ export interface DownloadIndex {
 }
 
 /** What a machine's owner can let organizations and teams do there (fleet.FEATURES). */
-export type MachineFeature = "view" | "launch" | "terminal" | "models" | "servers" | "update";
+export type MachineFeature = "view" | "launch" | "terminal" | "models" | "servers" | "update" | "mcp";
 
 /** Who may use each feature besides its owner: organizations and teams (<org>/<team>). */
 export type MachineAccess = Partial<Record<MachineFeature, { orgs: string[]; teams: string[] }>>;
@@ -541,6 +560,8 @@ export interface LaunchRequest {
   visibility?: string;
   team?: string;
   access?: "view" | "control";
+  /** Shared MCP servers for the agent (SharedMcp ids). */
+  mcp?: string[];
 }
 
 export const PROTOCOL_LABELS: Record<Agent["protocol"], string> = {
@@ -557,6 +578,8 @@ export interface PreparedSession {
   /** The backend is a container the server runs; the launcher starts it first. */
   container: boolean;
   shell: { bash: string; powershell: string };
+  /** The shared MCP servers it was given, and the URL the agent reaches each at (Streamable HTTP). */
+  mcp?: { id: string; name: string; url: string }[];
 }
 
 export interface Profile {
@@ -982,11 +1005,19 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+/** One page of the documentation (docs/<name>.md on the server), as Markdown. Public. */
+async function helpPage(name: string): Promise<string> {
+  const response = await fetch(`/help-files/${encodeURIComponent(name)}.md`);
+  if (!response.ok) throw new ApiError(`not found (${response.status})`, response.status);
+  return response.text();
+}
+
 const sessionUrl = (id: string) => `/api/sessions/${encodeURIComponent(id)}`;
 
 export const api = {
   status: () => request<Status>("/api/status"),
   health: () => request<Health>("/health"),
+  helpPage,
   // Served outside /api (public, for machines that aren't signed in yet); the console's page is /get.
   downloads: () => request<DownloadIndex>("/downloads/index.json"),
   sessions: () => request<Session[]>("/api/sessions"),
@@ -1014,8 +1045,9 @@ export const api = {
   deleteAllSessions: () => request<{ deleted: number; cleared: number; skipped: string[] }>("/api/sessions", { method: "DELETE" }),
   telemetryUrl: (sessionId: string) => `${sessionUrl(sessionId)}/telemetry`,
   agents: () => request<Agent[]>("/api/agents"),
+  sharedMcp: () => request<SharedMcp[]>("/api/mcp"),
   intercept: () => request<InterceptInfo>("/api/intercept"),
-  prepareAgent: (agentId: string, body: { model: string; backend: string; trace: boolean; project?: string }) =>
+  prepareAgent: (agentId: string, body: { model: string; backend: string; trace: boolean; project?: string; mcp?: string[] }) =>
     request<PreparedSession>(`/api/agents/${encodeURIComponent(agentId)}/sessions`, {
       method: "POST",
       body: JSON.stringify(body),

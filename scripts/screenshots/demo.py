@@ -584,7 +584,13 @@ FLEET = [
      "containers": {"enabled": False, "cli": "docker", "found": True, "online": False, "version": "", "error": "", "engines": []},
      "servers": {"enabled": True, "ollama": {"found": True, "running": True, "managed": True, "version": "0.12.3", "bind": "0.0.0.0"},
                  "strata": {"found": False, "profiles": []}},
-     "launches": True, "roots": ["/home/joey/code", "/srv/repos"], "commands": True, "updates": True},
+     "launches": True, "roots": ["/home/joey/code", "/srv/repos"], "commands": True, "updates": True,
+     # MCP servers it shares (agent-machine mcp add); nothing listens on the bridge's port in the demo.
+     "mcp": {"port": 18198, "key": "demo", "servers": [
+         {"name": "github", "transport": "stdio", "description": "GitHub issues and pull requests", "found": True},
+         {"name": "postgres", "transport": "stdio", "description": "The staging database, read-only", "found": True},
+         {"name": "docs", "transport": "http", "description": "Internal docs search", "found": True},
+     ]}},
 ]
 
 # build-box's folders inside its launch folders, for the folder picker (agent-machine lists them there).

@@ -18,6 +18,8 @@ import { MachineOllama } from "./OllamaServer";
 import { MachineLoad } from "./Hosts";
 import { terminalState } from "./Terminals";
 import { MachineAccess } from "./MachineAccess";
+import { MachineMcp } from "./MachineMcp";
+import { McpChoice } from "../components/McpChoice";
 
 // Containers are rarely open; load them when visited.
 const MachineContainers = lazy(() => import("./Containers").then((module) => ({ default: module.MachineContainers })));
@@ -81,6 +83,7 @@ export function MachinePage() {
         {ollamaInstalled && <NavLink to={machinePath(machine.id, "ollama")}>Ollama server</NavLink>}
         {runsContainers && <NavLink to={machinePath(machine.id, "containers")}>Containers</NavLink>}
         <NavLink to={machinePath(machine.id, "load")}>Load</NavLink>
+        {(machine.you.owner || (machine.mcp?.servers?.length ?? 0) > 0) && <NavLink to={machinePath(machine.id, "mcp")}>MCP servers</NavLink>}
         {machine.you.manage && <NavLink to={machinePath(machine.id, "access")}>Access</NavLink>}
       </nav>
 
@@ -89,6 +92,7 @@ export function MachinePage() {
       {section === "terminal" && <MachineTerminal machine={machine} />}
       {section === "model-servers" && <MachineModelServers machine={machine} providers={providers} />}
       {section === "access" && <MachineAccess machine={machine} />}
+      {section === "mcp" && <MachineMcp machine={machine} />}
       {section === "load" && (
         <MachineLoad
           machine={machine.id}
@@ -114,7 +118,7 @@ export function MachinePage() {
 const refOf = (machine: FleetMachine, provider: MachineProvider): ProviderRef => ({ machine: machine.id, provider: provider.id });
 
 // The tabs that aren't one of the machine's model servers.
-const SECTIONS = ["agents", "terminal", "model-servers", "load", "ollama", "containers", "access"];
+const SECTIONS = ["agents", "terminal", "model-servers", "load", "ollama", "containers", "mcp", "access"];
 
 /** Why the machine won't change its model servers now, or null when it will. */
 function unmanageable(machine: FleetMachine): string | null {
@@ -912,6 +916,7 @@ function LaunchForm({ machine, agents, onDone }: { machine: FleetMachine; agents
   const [backend, setBackend] = useState("");
   const [trace, setTrace] = useState(false);
   const [share, setShare] = useState({ value: "private", control: false });
+  const [mcp, setMcp] = useState<string[]>([]);
   const agent = agents.find((item) => item.id === agentId);
   const status = useStatus();
   const models = useModels();
@@ -939,7 +944,7 @@ function LaunchForm({ machine, agents, onDone }: { machine: FleetMachine; agents
       const [visibility, team] = share.value.split(":");
       return api.launchOnMachine(machine.id, {
         agent: agentId, project, model: model.trim() || undefined, backend: backend || undefined, trace,
-        visibility, team, access: share.control ? "control" : "view",
+        visibility, team, access: share.control ? "control" : "view", mcp: agent?.mcp ? mcp : undefined,
       });
     },
     onSuccess: (result) => {
@@ -1045,6 +1050,7 @@ function LaunchForm({ machine, agents, onDone }: { machine: FleetMachine; agents
           )}
         </label>
       </div>
+      {agent && <McpChoice agent={agent} chosen={mcp} onChange={setMcp} />}
       <ShareChoice value={share.value} control={share.control} onChange={(value, control) => setShare({ value, control })} />
       <label className="check">
         <input type="checkbox" checked={trace} onChange={(event) => setTrace(event.target.checked)} />

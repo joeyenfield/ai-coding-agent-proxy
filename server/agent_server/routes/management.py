@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
-from .. import access, auth, remote, strata, version
+from .. import access, auth, mcp, remote, strata, version
 from ..config import DIRECT_BACKEND, LOCAL_PROXY_URL, ModelProfile, serves
 from ..fleet import PROVIDER_TYPES, SHELL_CLIENT, FleetError, parse_provider, provider_id, provider_request
 from ..runtime import Runtime
@@ -347,6 +347,12 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             # The launcher's own HTTPS proxy and CA copy; the server's paths mean nothing on its machine.
             intercept = {**intercept, **{key: str(local[key]) for key in ("url", "ca_path", "bundle_path") if local.get(key)}}
         try:
+            chosen = mcp.choose(runtime.fleet, auth.request_identity(request), data.get("mcp"))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if chosen and not agent.mcp:
+            raise HTTPException(status_code=400, detail=f"{agent.name} can't take MCP servers")
+        try:
             backend = DIRECT_BACKEND if agent.intercept else settings.backend_for(agent.backend_type, data.get("backend") or None, agent.protocol).name
             tags = {**access.client_tags(data.get("tags")), "prepared_by": "agent" if data.get("launcher") else "ui"}
             if project_path:
@@ -354,20 +360,27 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             session = runtime.sessions.create({
                 "client": agent.id, "project": data.get("project"), "model": model or None,
                 "backend": backend,
-                "trace": bool(data.get("trace")), "tags": _new_tags(data, tags, request),
+                "trace": bool(data.get("trace")),
+                # The shared MCP servers it may reach: only these, whatever the agent asks for later.
+                "tags": {**_new_tags(data, tags, request), **({"mcp": [item["id"] for item in chosen]} if chosen else {})},
             })
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         files_dir = str(data.get("files_dir") or "").strip() or None
         # Agents guess the context size from the model's name (Qwen Code takes any qwen3.x for 1M); tell them the real one.
         context_window = None if agent.intercept or not model else await _context_window(runtime, backend, model)
-        launch = agent.render(proxy_url, session.session_id, model, project_path or ".", intercept=intercept, files_dir=files_dir, context_window=context_window)
+        servers = [{**item, "name": mcp.entry_name(item, chosen), "url": mcp.url(proxy_url, session.session_id, item)} for item in chosen]
+        launch = agent.render(
+            proxy_url, session.session_id, model, project_path or ".", intercept=intercept, files_dir=files_dir,
+            context_window=context_window, mcp_servers=servers,
+        )
         container = settings.backends.get(backend)
         return {
             "session": described(session, request),
             **launch,
             # The launcher starts a managed container backend before running the agent.
             "container": bool(container and container.container),
+            "mcp": [{"id": item["id"], "name": item["name"], "url": item["url"]} for item in servers],
             "shell": {"bash": _bash(launch), "powershell": _powershell(launch)},
         }
 

@@ -20,6 +20,7 @@ import { MachinesPage } from "./pages/Machines";
 import { MachinePage, machinePath } from "./pages/Machine";
 import { StateDot } from "./components/ProviderState";
 import { DownloadsPage } from "./pages/Downloads";
+import { DocsPage } from "./pages/Docs";
 import { Icon } from "./components/Icon";
 import { RestartButton } from "./components/Restart";
 import { AttentionAlerts, waitingAgents } from "./components/Attention";
@@ -37,6 +38,8 @@ export function App() {
   if (auth.data?.required && !auth.data.identity) {
     // The downloads are public, like the files themselves: a phone can get the app before signing in.
     if (window.location.pathname === "/get") return <PublicDownloads />;
+    // So is the documentation: it says how to install and sign in.
+    if (window.location.pathname === "/help" || window.location.pathname.startsWith("/help/")) return <PublicDocs />;
     return <LoginPage secure={auth.data.secure} />;
   }
   return <Shell identity={auth.data?.identity ?? null} />;
@@ -156,6 +159,10 @@ function Shell({ identity }: { identity: Identity | null }) {
             <Icon name="download" size={16} />
             <span>Get the apps: agent, agent-machine, Android</span>
           </Link>
+          <Link to="/help" className="rail-docs">
+            <Icon name="book" size={16} />
+            <span>Documentation</span>
+          </Link>
           <p className={`connection ${status.isError ? "offline" : ""}`}>
             <span className="dot" aria-hidden="true" />
             <span>
@@ -234,6 +241,9 @@ function Shell({ identity }: { identity: Identity | null }) {
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/organization" element={<OrganizationPage />} />
           <Route path="/get" element={<DownloadsPage />} />
+          {/* Not /docs: that's the server's OpenAPI pages. */}
+          <Route path="/help" element={<DocsPage />} />
+          <Route path="/help/:page" element={<DocsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
@@ -267,6 +277,32 @@ function RailLink({ item, counts, waiting = 0 }: { item: NavLinkItem; counts: Re
         count > 0 && <span className="nav-count">{count}</span>
       )}
     </NavLink>
+  );
+}
+
+/** The documentation before signing in, with the console's router for its links between pages. */
+function PublicDocs() {
+  return (
+    <div className="public-page">
+      <header className="public-head">
+        <a href="/" className="wordmark">
+          <svg viewBox="0 0 32 32" aria-hidden="true">
+            <rect width="32" height="32" rx="9" />
+            <path d="M8 11h6l4 10h6" />
+          </svg>
+          <span>AI Proxy</span>
+        </a>
+        <a className="button" href="/">
+          Sign in
+        </a>
+      </header>
+      <main className="content">
+        <Routes>
+          <Route path="/help" element={<DocsPage />} />
+          <Route path="/help/:page" element={<DocsPage />} />
+        </Routes>
+      </main>
+    </div>
   );
 }
 

@@ -26,7 +26,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
-from .. import auth, remote
+from .. import auth, mcp, remote
 from ..fleet import (
     FEATURES, PROVIDER_TYPES, FleetError, allowed, can_manage, can_see, checked_access, normal_url, parse_provider, provider_request, within_roots,
 )
@@ -143,6 +143,14 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             raise HTTPException(status_code=400, detail="Choose one of the server's agents")
         if agent.needs_model and not str(data.get("model") or "").strip():
             raise HTTPException(status_code=400, detail=f"{agent.name} needs a model")
+        try:
+            # The MCP servers it gets are checked for who asked; the machine's launcher asks again for itself.
+            chosen = mcp.choose(fleet, auth.request_identity(request), data.get("mcp"))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if chosen and not agent.mcp:
+            raise HTTPException(status_code=400, detail=f"{agent.name} can't take MCP servers")
+        data = {**data, "mcp": [item["id"] for item in chosen]}
         try:
             return started(await fleet.launch(target, auth.request_identity(request), data), request)
         except FleetError as exc:

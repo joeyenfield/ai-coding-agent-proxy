@@ -31,6 +31,8 @@ COPY server/agent_server /src/server/agent_server
 RUN pip install /src/server && rm -rf /src
 COPY --from=console /ui/dist /app/ui/dist
 COPY VERSION /app/VERSION
+# The documentation the console shows under /help.
+COPY docs /app/docs
 # Defaults for an empty config volume: the container's backends, and the repository's
 # models and agents (agents.yaml is what every launcher's `agent` gets from the server).
 COPY server/docker/backends.yaml /app/defaults/config/backends.yaml

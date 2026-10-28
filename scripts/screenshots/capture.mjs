@@ -1,4 +1,5 @@
-// Capture README screenshots: npm i playwright-core && npx playwright-core install chromium-headless-shell
+// Capture the screenshots in docs/ (README and docs/console.md): npm i playwright-core && npx playwright-core install chromium-headless-shell
+// (or set CHROMIUM_PATH to an installed Chromium or Edge)
 // python scripts/screenshots/demo.py                     (demo proxy with sample traffic on :8199)
 // node scripts/screenshots/capture.mjs http://127.0.0.1:8199 docs/screenshots [name,name...]
 import { chromium } from "playwright-core";
@@ -6,7 +7,7 @@ import { chromium } from "playwright-core";
 const base = process.argv[2] ?? "http://127.0.0.1:8199";
 const out = process.argv[3];
 const only = process.argv[4];
-const browser = await chromium.launch();
+const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 
 async function shot(name, path, { theme = "light", width = 1440, height = 900, prepare, fullPage = false, scrollTop = false } = {}) {
   if (only && !only.split(",").includes(name)) return;
@@ -15,9 +16,11 @@ async function shot(name, path, { theme = "light", width = 1440, height = 900, p
   const page = await context.newPage();
   page.on("console", (message) => message.type() === "error" && console.log(`[${name}] console:`, message.text()));
   page.on("pageerror", (error) => console.log(`[${name}] error:`, error.message));
-  await page.goto(base + path, { waitUntil: "networkidle" });
+  // Live streams for ever, so it never goes idle: carry on after the wait.
+  await page.goto(base + path, { waitUntil: "networkidle", timeout: 10000 }).catch(() => {});
   await page.waitForTimeout(1200);
-  if (prepare) await prepare(page);
+  // A step that no longer matches the console is reported, and the page is still captured: check the image.
+  if (prepare) await prepare(page).catch((error) => console.log(`[${name}] prepare failed:`, error.message.split("\n")[0]));
   // Selecting a row can scroll the list; keep the page header in view (the inspector is sticky).
   if (scrollTop) await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({ path: `${out}/${name}.png`, fullPage });
@@ -32,8 +35,12 @@ async function waitForStream(page) {
   });
 }
 
+// The agent's busiest session: the demo also has quiet ones (a terminal waiting at a prompt).
 const sessionId = (page, client) =>
-  page.evaluate(async (name) => (await (await fetch("/api/sessions")).json()).find((item) => item.client === name).session_id, client);
+  page.evaluate(
+    async (name) => (await (await fetch("/api/sessions")).json()).filter((item) => item.client === name).sort((a, b) => b.request_count - a.request_count)[0].session_id,
+    client,
+  );
 
 await shot("overview", "/", { fullPage: true });
 await shot("overview-dark", "/", { theme: "dark", fullPage: true });
@@ -46,8 +53,10 @@ await shot("agents", "/agents", {
 await shot("agents-ollama", "/agents", {
   prepare: async (page) => {
     await page.getByRole("button", { name: /^OpenCode/ }).click();
-    await page.getByLabel("Ollama machine").selectOption("desktop");
+    await page.getByLabel("Local provider").selectOption("desktop");
     await page.waitForTimeout(600);
+    // build-box shares MCP servers: give the agent one.
+    await page.locator(".mcp-choice input").first().check();
     await page.locator(".split-side").scrollIntoViewIfNeeded();
   },
 });
@@ -61,7 +70,7 @@ await shot("traffic", "/traffic", {
   scrollTop: true,
   prepare: async (page) => {
     // One account agent's session shows the whole mix: sign-in, settings, MCP, model calls, telemetry.
-    await page.goto(`${base}/traffic?session=${await sessionId(page, "claude-account")}`, { waitUntil: "networkidle" });
+    await page.goto(`${base}/traffic?session=${await sessionId(page, "claude-account")}`, { waitUntil: "networkidle", timeout: 10000 }).catch(() => {});
     await page.locator("table.selectable tbody tr", { hasText: "/v1/messages" }).filter({ hasText: "claude-account" }).first().click();
     await page.waitForTimeout(800);
   },
@@ -69,7 +78,7 @@ await shot("traffic", "/traffic", {
 await shot("traffic-headers", "/traffic", {
   scrollTop: true,
   prepare: async (page) => {
-    await page.goto(`${base}/traffic?session=${await sessionId(page, "claude-account")}`, { waitUntil: "networkidle" });
+    await page.goto(`${base}/traffic?session=${await sessionId(page, "claude-account")}`, { waitUntil: "networkidle", timeout: 10000 }).catch(() => {});
     await page.locator("table.selectable tbody tr", { hasText: "/v1/messages" }).filter({ hasText: "claude-account" }).first().click();
     await page.waitForTimeout(600);
     await page.getByRole("tab", { name: "Headers" }).click();
@@ -92,7 +101,7 @@ await shot("sessions", "/sessions", {
 await shot("session", "/sessions", {
   height: 1000,
   prepare: async (page) => {
-    await page.goto(`${base}/sessions/${await sessionId(page, "qwen")}`, { waitUntil: "networkidle" });
+    await page.goto(`${base}/sessions/${await sessionId(page, "qwen")}`, { waitUntil: "networkidle", timeout: 10000 }).catch(() => {});
     await page.waitForSelector(".xrow.is-live", { timeout: 60000 });
     await page.locator(".xrow.is-live .xrow-toggle").first().click();
     await waitForStream(page);
@@ -120,4 +129,33 @@ await shot("hosts", "/machines/ai-laptop/load", {
   prepare: async (page) => page.waitForTimeout(30000),
 });
 await shot("downloads", "/get", { fullPage: true });
+
+// The rest of the console, for docs/console.md.
+const openTerminal = async (page) => {
+  const id = await page.evaluate(async () => (await (await fetch("/api/terminals")).json()).terminals.find((item) => !item.ended_at)?.session_id);
+  await page.goto(`${base}/terminals/${id}`, { waitUntil: "networkidle", timeout: 10000 }).catch(() => {});
+  await page.waitForTimeout(2500);
+};
+await shot("overview-phone", "/", { width: 412, height: 860, fullPage: true });
+await shot("terminals", "/terminals", { fullPage: true });
+await shot("terminal", "/terminals", { prepare: openTerminal });
+await shot("terminal-phone", "/terminals", { theme: "dark", width: 412, height: 860, prepare: openTerminal });
+await shot("request", "/requests", {
+  fullPage: true,
+  prepare: async (page) => {
+    const record = await page.evaluate(async () => (await (await fetch("/api/requests")).json()).find((item) => item.trace_available && item.kind === "api" && item.output_tokens > 50));
+    await page.goto(`${base}/requests/${record.session_id}/${record.request_id}`, { waitUntil: "networkidle", timeout: 10000 }).catch(() => {});
+    await page.waitForTimeout(1200);
+  },
+});
+await shot("settings", "/settings", { fullPage: true });
+await shot("organization", "/organization", { fullPage: true });
+await shot("machines", "/machines", { fullPage: true });
+await shot("machine-agents", "/machines/build-box/agents", { fullPage: true });
+await shot("machine-terminal", "/machines/build-box/terminal", { fullPage: true });
+await shot("machine-model-servers", "/machines/ai-desktop/model-servers", { fullPage: true });
+await shot("ollama-server", "/machines/ai-desktop/ollama", { fullPage: true });
+await shot("containers", "/machines/ai-desktop/containers", { fullPage: true });
+await shot("machine-mcp", "/machines/build-box/mcp", { fullPage: true });
+await shot("machine-access", "/machines/build-box/access", { fullPage: true });
 await browser.close();

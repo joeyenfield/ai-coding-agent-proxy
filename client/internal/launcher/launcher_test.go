@@ -30,6 +30,10 @@ func TestArgumentsGoToTheLauncherOrTheAgent(t *testing.T) {
 	if options.Project != "." || options.Model != "sonnet" || !options.Control || options.Sharing()["access"] != "control" || len(options.Extra) != 0 {
 		t.Fatalf("%+v", options)
 	}
+	options, _ = ParseArgs([]string{"qwen", "--mcp", "desk/github, desk/docs", "--mcp=laptop"})
+	if !reflect.DeepEqual(options.MCP, []string{"desk/github", "desk/docs", "laptop"}) || len(options.Extra) != 0 {
+		t.Fatalf("mcp %v, extra %v", options.MCP, options.Extra)
+	}
 	if _, err := ParseArgs([]string{"qwen", "--share", "everyone"}); err == nil {
 		t.Fatal("--share everyone accepted")
 	}

@@ -15,6 +15,11 @@ func Detach(cmd *exec.Cmd) {
 // Quiet runs a program as usual; only Windows opens windows for console programs.
 func Quiet(cmd *exec.Cmd) {}
 
+// Group runs a program as the leader of its own process group, so StopTree ends what it starts too.
+func Group(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+}
+
 // Alive tells whether a process with this id is running.
 func Alive(pid int) bool {
 	if pid <= 0 {

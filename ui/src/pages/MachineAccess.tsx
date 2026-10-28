@@ -12,6 +12,7 @@ const FALLBACK: Record<MachineFeature, string> = {
   models: "Pull, delete, load and unload models on its model servers",
   servers: "Start, stop and configure the Ollama and Strata installed there",
   update: "Update agent-machine and agent there to this server's build",
+  mcp: "Use the MCP servers it shares in the agents they start (they run there, as its user)",
 };
 const LABELS: Record<MachineFeature, string> = {
   view: "See it",
@@ -20,6 +21,7 @@ const LABELS: Record<MachineFeature, string> = {
   models: "Change models",
   servers: "Run model servers",
   update: "Update it",
+  mcp: "Use MCP servers",
 };
 
 /** The switch on the machine itself that a feature also needs, if any, and whether it's on. */

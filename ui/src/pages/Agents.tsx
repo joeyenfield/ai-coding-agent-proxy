@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api, preferredModel, providerModels, PROTOCOL_LABELS, type Agent, type InstallEnvironment, type PreparedSession } from "../api";
 import { CodeLine } from "../components/CodeLine";
+import { McpChoice, McpUrls, mcpArgs } from "../components/McpChoice";
 import { useAgents, useAuth, useClipboard, useModels, useStatus } from "../hooks";
 import { PartTag } from "../components/PartTag";
 import { ShareChoice, shareArgs } from "../components/Sharing";
@@ -106,15 +107,16 @@ function AccountLaunchPanel({ agent }: { agent: Agent }) {
   const identity = useAuth().data?.identity;
   const [shell, setShell] = useState<"powershell" | "bash">(navigator.userAgent.includes("Windows") ? "powershell" : "bash");
   const [prepared, setPrepared] = useState<PreparedSession | null>(null);
+  const [mcp, setMcp] = useState<string[]>([]);
   const intercept = status.data?.intercept;
   const prepare = useMutation({
-    mutationFn: () => api.prepareAgent(agent.id, { model: "", backend: "", trace }),
+    mutationFn: () => api.prepareAgent(agent.id, { model: "", backend: "", trace, mcp }),
     onSuccess: (result) => {
       setPrepared(result);
       client.invalidateQueries({ queryKey: ["sessions"] });
     },
   });
-  const launcher = ["agent", agent.id, ".", ...(trace ? ["--trace"] : []), ...(control ? ["--control"] : []), ...shareArgs(identity, share.value, share.control)].join(" ");
+  const launcher = ["agent", agent.id, ".", ...(trace ? ["--trace"] : []), ...(control ? ["--control"] : []), ...mcpArgs(mcp), ...shareArgs(identity, share.value, share.control)].join(" ");
   return (
     <section className="panel" aria-labelledby="launch-title">
       <h2 id="launch-title">Start {agent.name}</h2>
@@ -142,6 +144,7 @@ function AccountLaunchPanel({ agent }: { agent: Agent }) {
         Save full request and response bodies (credentials are redacted)
       </label>
       <ControlCheck checked={control} onChange={setControl} />
+      <McpChoice agent={agent} chosen={mcp} onChange={setMcp} />
       <ShareChoice value={share.value} control={share.control} onChange={(value, control) => setShare({ value, control })} />
       <h3>Run it from your project folder</h3>
       <CodeLine text={launcher} onCopy={() => copy(launcher, "Command copied")} />
@@ -172,6 +175,7 @@ function AccountLaunchPanel({ agent }: { agent: Agent }) {
                 Copy
               </button>
             </div>
+            <McpUrls servers={prepared.mcp} />
           </>
         )}
       </details>
@@ -205,6 +209,7 @@ function ProxyLaunchPanel({ agent }: { agent: Agent }) {
   const identity = useAuth().data?.identity;
   const [shell, setShell] = useState<"powershell" | "bash">(navigator.userAgent.includes("Windows") ? "powershell" : "bash");
   const [prepared, setPrepared] = useState<PreparedSession | null>(null);
+  const [mcp, setMcp] = useState<string[]>([]);
 
   useEffect(() => {
     if (!backend && preferredBackend) setBackend(preferredBackend);
@@ -219,14 +224,14 @@ function ProxyLaunchPanel({ agent }: { agent: Agent }) {
   }, [available, model, route]);
 
   const prepare = useMutation({
-    mutationFn: () => api.prepareAgent(agent.id, { model, backend, trace }),
+    mutationFn: () => api.prepareAgent(agent.id, { model, backend, trace, mcp }),
     onSuccess: (result) => {
       setPrepared(result);
       client.invalidateQueries({ queryKey: ["sessions"] });
     },
   });
   // The launcher picks preferredBackend itself, so only name a different one.
-  const launcher = ["agent", agent.id, ".", "--model", model || "<model>", ...(backend && backend !== preferredBackend ? ["--backend", backend] : []), ...(trace ? ["--trace"] : []), ...(control ? ["--control"] : []), ...shareArgs(identity, share.value, share.control)].join(" ");
+  const launcher = ["agent", agent.id, ".", "--model", model || "<model>", ...(backend && backend !== preferredBackend ? ["--backend", backend] : []), ...(trace ? ["--trace"] : []), ...(control ? ["--control"] : []), ...mcpArgs(mcp), ...shareArgs(identity, share.value, share.control)].join(" ");
   const backendState = route === "ollama" ? models.data?.backends[backend] : undefined;
 
   return (
@@ -291,6 +296,7 @@ function ProxyLaunchPanel({ agent }: { agent: Agent }) {
         Capture full request and response payloads
       </label>
       <ControlCheck checked={control} onChange={setControl} />
+      <McpChoice agent={agent} chosen={mcp} onChange={setMcp} />
       <ShareChoice value={share.value} control={share.control} onChange={(value, control) => setShare({ value, control })} />
 
       <h3>Run it from your project folder</h3>
@@ -326,6 +332,7 @@ function ProxyLaunchPanel({ agent }: { agent: Agent }) {
                 Copy
               </button>
             </div>
+            <McpUrls servers={prepared.mcp} />
           </>
         )}
       </details>

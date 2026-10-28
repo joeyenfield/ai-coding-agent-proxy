@@ -27,6 +27,11 @@ func Quiet(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW, HideWindow: true}
 }
 
+// Group runs a program without a window, like Quiet; StopTree finds what it starts by itself (taskkill /T).
+func Group(cmd *exec.Cmd) {
+	Quiet(cmd)
+}
+
 // Alive tells whether a process with this id is running.
 func Alive(pid int) bool {
 	if pid <= 0 {

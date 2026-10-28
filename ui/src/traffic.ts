@@ -118,6 +118,8 @@ export function classify(row: { kind: string; host: string; path: string; model:
     if (/\/(models|api\/tags)$/.test(path)) return { service: "Proxy", category: "models" };
     return { service: "Proxy", category: MODEL_PATHS.test(path) || row.model ? "model" : "other" };
   }
+  // A call to an MCP server a machine shares: host is "<machine>/<server>", path the JSON-RPC method.
+  if (row.kind === "mcp") return { service: `MCP ${row.host}`, category: "mcp" };
   if (row.kind === "tunnel" || row.kind === "upgrade") {
     const known = RULES.find((rule) => rule.host.test(row.host));
     return { service: known?.service ?? row.host, category: "connection" };
