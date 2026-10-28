@@ -273,7 +273,7 @@ export function TerminalPage() {
               rows={2}
               onChange={(event) => setText(event.target.value)}
               onKeyDown={onKeyDown}
-              placeholder={watchOnly ? "Shared with you to watch, not to type into" : live ? "Message for the agent" : "The agent isn't connected"}
+              placeholder={watchOnly ? "Shared with you to watch, not to type into" : !live ? "The agent isn't connected" : summary?.agent === "shell" ? "A command to run" : "Message for the agent"}
               aria-label="Message for the agent"
               disabled={!live}
             />

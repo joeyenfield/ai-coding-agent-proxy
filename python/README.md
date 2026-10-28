@@ -10,15 +10,18 @@ without a Go toolchain.
 pip install https://server:9999/downloads/<version>/python/ai_proxy_agent_py-<version>-py3-none-any.whl
                                          # the server's own build: its Downloads page has the exact line
 pip install ./python                     # or from a checkout: pip install -e "./python[dev]"
-agent-py login http://server:9999        # sign this machine in, once (same file as the Go agent)
-agent-py qwen . --model qwen3.6:35b      # launch an agent through this machine's agent-proxy
-agent-machine-py login http://server:9999
-agent-machine-py launches on && agent-machine-py roots add ~/work
-agent-machine-py start                   # join the fleet in the background
+agent login http://server:9999           # sign this machine in, once (same file as the Go agent)
+agent qwen . --model qwen3.6:35b         # launch an agent through this machine's agent-proxy
+agent-machine login http://server:9999
+agent-machine launches on && agent-machine roots add ~/work
+agent-machine start                      # join the fleet in the background
 ```
 
-The commands are named `agent-py`, `agent-proxy-py` and `agent-machine-py` so they can sit
-beside the Go binaries. `python -m agent_py.client` and `python -m agent_py.machine` work too.
+The commands are `agent`, `agent-proxy` and `agent-machine`, the same as the Go programs', so
+everything (docs, scripts, the console's commands) works the same whichever you install. Install
+one or the other on a computer, not both: whichever comes first on PATH wins. In a virtualenv or
+with `pipx` they stay out of the way. `python -m agent_py.client` and `python -m agent_py.machine`
+work too.
 
 It needs httpx, websockets, starlette and uvicorn (the server's own dependencies), and
 pywinpty on Windows. psutil is optional (`[metrics]`) for CPU and memory figures.
@@ -36,9 +39,11 @@ relayed, and account agents' HTTPS tunnelled to the server's intercept over a We
 pywinpty on Windows.
 
 **agent-machine** (`agent_py/machine`): `login`/`logout`, `run`/`start`/`stop`, the status
-display, `launches`, `roots`, `name`, `address` and `servers`. In the fleet it sends the same
-hello and updates, runs launches (checking launches are on and the folder is in a root, after
-resolving links), carries tunnels to its model servers, and answers the server's questions
+display, `launches`, `roots`, `commands`, `name`, `address` and `servers`. In the fleet it sends
+the same hello and updates, runs launches (checking launches are on and the folder is in a root,
+after resolving links), lists the folders inside its roots for the console's folder picker, opens
+terminals with `commands on` (`agent --shell`, which the Python agent has too), carries tunnels to
+its model servers, and answers the server's questions
 about them: Ollama's status, pull (streamed), delete, load, unload; Docker Model Runner's
 status and models; Strata's status; and the machine's CPU, memory and NVIDIA GPUs.
 

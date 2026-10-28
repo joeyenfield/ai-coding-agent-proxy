@@ -425,7 +425,8 @@ agent-machine                            # how the fleet sees this machine
 
 Every machine where `agent-machine` runs shows up on **Machines** and in the rail, and has its own page: an **Overview** (its model servers, the Ollama and Strata installed there, its agents and launches), a tab for each model server (models, status, logs), **Ollama server**, **Containers** and **Load**. Machines are where every local LLM provider comes from, so this is where they're managed. A machine that only supplies models needs nothing but `agent-machine`. From there you can:
 
-- **Start an agent on a machine.** Pick the agent, a folder and a model; it starts there in a shared terminal, and the console takes you to it. Start a fleet of Claude Code sessions across your machines, and drive them all from the console or your phone.
+- **Start an agent on a machine.** Pick the agent, a folder and a model; it starts there in a shared terminal, and the console takes you to it. To pick the folder, open the folders inside the machine's launch folders one by one, or name a new one to make there.
+- **Open a terminal on a machine.** With `agent-machine commands on` there, **Open a terminal** on its page starts a shell in one of its launch folders, in a terminal only you see: a remote terminal you can use from a phone. Start a fleet of Claude Code sessions across your machines, and drive them all from the console or your phone.
 - **Add a machine's model servers as providers.** Ollama, Docker Model Runner or Strata found on a machine becomes a provider with **Add as a provider** (admins), so agents anywhere can use models anywhere in the cluster. This is the only way to add one: the server refuses new local backends by URL. Backends set up by URL before machines did this keep working, and are linked to their machine as soon as it reports the same model server.
 - **Manage a machine's model servers.** Everything the console does with a model server goes to its machine: listing, pulling, loading and deleting models, logs, the machine's load, searching model catalogues, Ollama's settings. With `agent-machine servers on` there, its overview also has **Start** and **Stop** for the Ollama installed on it and for each of its saved Strata profiles. Only the machine's owner can start, stop or configure them. agent-machine only stops an Ollama it started itself. Without `servers on`, the machine still reports its model servers but changes nothing.
 - **Run containers on a machine.** With `agent-machine containers on` there (it uses Docker, or Podman when that's what's installed and answering), run Strata or Ollama on it from its **Containers** tab (see [Containers](#containers-strata-and-ollama-run-by-your-machines)).
@@ -435,10 +436,12 @@ Starting agents runs programs on the machine, so it's off until the machine allo
 ```bash
 agent-machine launches on          # let the server start agents here
 agent-machine roots add ~/code     # where they may start (and any folder inside)
+agent-machine commands on          # optional: let you open a terminal here from the console
 ```
 
 - **Only the machine's owner** (whoever signed it in) can start agents on it, not admins.
-- **The folder is checked twice:** by the server, then by the machine itself, which resolves links and `..` first.
+- **The folder is checked twice:** by the server, then by the machine itself, which resolves links and `..` first. The folder picker works the same way: the machine lists only folders (no file names), only inside its launch folders, and leaves out hidden ones and links that lead outside.
+- **Terminals are a shell on the machine** as the user agent-machine runs as, so they're off until `agent-machine commands on`, and only the owner can open one. They start in a launch folder, but a shell can go anywhere that user can. Their sessions stay private: they can't be shared with a team.
 - **Every launch is recorded** with who asked, the agent, the folder and its session. The session is tagged with its machine, and all its traffic is recorded like any other.
 - **Model servers are reached through the machine.** For each connection an agent's request needs, the server asks the machine to open a tunnel: agent-machine dials back to the server and passes the bytes to `127.0.0.1:<port>` on its side. So the server never needs a route to the machine, and the fleet works like a mesh. A machine only tunnels to its own model servers (those it found running, and the containers it runs for the server), never to any other port. A machine on the server's own computer is reached directly, and so is one whose agent-machine is older than tunnels; for those, the address the server uses is the machine's as it sees it, or the one `agent-machine address <host>` names.
 

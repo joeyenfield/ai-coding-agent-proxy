@@ -22,11 +22,11 @@ dependencies = [
 metrics = ["psutil>=5.9"]
 dev = ["pytest>=8.0", "psutil>=5.9"]
 
-# Named apart from the Go binaries (agent, agent-machine), so both can be installed on one computer.
+# The same commands as the Go programs, so either installs the same way: install one or the other on a computer.
 [project.scripts]
-agent-py = "agent_py.client:main"
-agent-proxy-py = "agent_py.client:proxy_main"
-agent-machine-py = "agent_py.machine:main"
+agent = "agent_py.client:main"
+agent-proxy = "agent_py.client:proxy_main"
+agent-machine = "agent_py.machine:main"
 
 [tool.setuptools.packages.find]
 include = ["agent_py*"]

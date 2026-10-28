@@ -295,3 +295,66 @@ def test_tunnels_only_go_to_the_machine_that_was_asked(tmp_path):
             with pytest.raises(Exception):
                 socket.receive_bytes()
         assert future.done() and isinstance(future.exception(), ConnectionError)
+
+
+def test_the_owner_browses_folders_inside_the_launch_folders_only(tmp_path):
+    app = create_app(org_settings(tmp_path))
+    alice, dave = signed_in(app, "alice"), signed_in(app, "dave")
+    with alice, dave, machine(alice) as socket:
+        # Without a path, the launch folders themselves, from the hello: nothing to ask the machine.
+        assert alice.get("/api/machines/m1/folders").json()["folders"] == [{"name": ROOT, "path": ROOT}]
+        answer: dict = {}
+        thread = threading.Thread(target=lambda: answer.update(response=alice.get("/api/machines/m1/folders", params={"path": ROOT})))
+        thread.start()
+        request = json.loads(socket.receive_text())
+        assert (request["type"], request["op"], request["path"]) == ("folders", "list", ROOT)
+        listed = [{"name": "api", "path": ROOT + "\\api"}, {"name": "web", "path": ROOT + "\\web"}]
+        socket.send_text(json.dumps({"type": "folders_result", "request": request["request"], "ok": True, "parent": None, "folders": listed}))
+        thread.join(timeout=10)
+        assert answer["response"].status_code == 200, answer["response"].text
+        assert answer["response"].json() == {"path": ROOT, "parent": None, "folders": listed, "truncated": False}
+        # Checked on the server before anything reaches the machine.
+        assert alice.get("/api/machines/m1/folders", params={"path": "C:\\Windows"}).status_code == 400
+        assert alice.get("/api/machines/m1/folders", params={"path": ROOT + "\\..\\secrets"}).status_code == 400
+        # Only the owner, as with launches: an admin sees the machine but not its files.
+        assert dave.get("/api/machines/m1/folders", params={"path": ROOT}).status_code == 403
+    with alice, machine(alice, hello(launches=False)):
+        refused = alice.get("/api/machines/m1/folders", params={"path": ROOT})
+        assert refused.status_code == 409 and "launches on" in refused.json()["detail"]
+
+
+def test_the_owner_opens_a_shell_only_on_a_machine_that_takes_commands(tmp_path):
+    app = create_app(org_settings(tmp_path))
+    alice, dave = signed_in(app, "alice"), signed_in(app, "dave")
+    with alice, dave, machine(alice) as socket:
+        assert alice.get("/api/machines/m1").json()["commands"] is False
+        refused = alice.post("/api/machines/m1/shell", json={"project": ROOT})
+        assert refused.status_code == 409 and "commands on" in refused.json()["detail"]
+    with alice, dave, machine(alice, hello(commands=True, launches=False)) as socket:
+        assert alice.get("/api/machines/m1").json()["commands"] is True
+        assert dave.post("/api/machines/m1/shell", json={"project": ROOT}).status_code == 403
+        assert alice.post("/api/machines/m1/shell", json={"project": "C:\\Windows"}).status_code == 400
+        assert alice.post("/api/machines/m1/shell", json={"project": ROOT}, headers={"origin": "http://evil.example"}).status_code == 403
+        answer: dict = {}
+        thread = threading.Thread(target=lambda: answer.update(response=alice.post("/api/machines/m1/shell", json={})))
+        thread.start()
+        request = json.loads(socket.receive_text())
+        # No folder named: the first launch folder.
+        assert request == {"type": "shell", "launch": request["launch"], "project": ROOT}
+        socket.send_text(json.dumps({"type": "launched", "launch": request["launch"], "session_id": "s-shell"}))
+        thread.join(timeout=10)
+        assert answer["response"].status_code == 201, answer["response"].text
+        [record] = alice.get("/api/machines/m1").json()["history"]
+        assert (record["agent"], record["session_id"], record["by"]) == ("shell", "s-shell", "alice")
+
+
+def test_a_shells_session_stays_private(tmp_path):
+    app = create_app(org_settings(tmp_path))
+    alice = signed_in(app, "alice")
+    with alice:
+        created = alice.post("/api/sessions", json={"client": "shell", "backend": "direct", "visibility": "team", "team": "acme/core", "access": "control"})
+        assert created.status_code == 201, created.text
+        session = app.state.runtime.sessions.get(created.json()["session_id"])
+        assert (session.tags["visibility"], session.tags["access"]) == ("private", "view")
+        widened = alice.patch(f"/api/sessions/{session.session_id}", json={"visibility": "org"})
+        assert widened.status_code == 400 and "private" in widened.json()["detail"]

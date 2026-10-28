@@ -433,6 +433,8 @@ export interface FleetMachine {
   /** Whether it lets you start agents on it, and in which folders. */
   launches: boolean;
   roots: string[];
+  /** Whether its owner may open a terminal on it from here (agent-machine commands on). */
+  commands?: boolean;
   connected: boolean;
   first_seen: number;
   last_seen: number;
@@ -485,6 +487,17 @@ export interface DownloadIndex {
   files: DownloadFile[];
   /** How to build them, when there are none. */
   hint?: string | null;
+}
+
+/** /api/machines/{id}/folders: the folders inside one of the machine's launch folders (its roots without a path). */
+export interface MachineFolders {
+  /** The folder listed; null for the list of roots. */
+  path: string | null;
+  /** The folder above it, when that's still inside a root. */
+  parent: string | null;
+  folders: { name: string; path: string }[];
+  /** It has more folders than one listing shows. */
+  truncated?: boolean;
 }
 
 export interface FleetLaunch {
@@ -1016,6 +1029,10 @@ export const api = {
   machines: () => request<{ machines: FleetMachine[] }>("/api/machines"),
   launchOnMachine: (machineId: string, body: LaunchRequest) =>
     request<FleetLaunch>(`/api/machines/${encodeURIComponent(machineId)}/launch`, { method: "POST", body: JSON.stringify(body) }),
+  machineFolders: (machineId: string, path?: string) =>
+    request<MachineFolders>(`/api/machines/${encodeURIComponent(machineId)}/folders${path ? `?path=${encodeURIComponent(path)}` : ""}`),
+  openShell: (machineId: string, project: string) =>
+    request<FleetLaunch>(`/api/machines/${encodeURIComponent(machineId)}/shell`, { method: "POST", body: JSON.stringify({ project }) }),
   adoptProvider: (machineId: string, type: string) =>
     request<{ backend: string; url: string }>(`/api/machines/${encodeURIComponent(machineId)}/providers/adopt`, { method: "POST", body: JSON.stringify({ type }) }),
   machineServer: (machineId: string, kind: "ollama" | "strata", action: "start" | "stop" | "restart", profile?: string) =>

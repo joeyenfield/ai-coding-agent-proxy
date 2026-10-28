@@ -67,6 +67,8 @@ class Machine:
     container_cli: str = ""
     # Lets the server change the models of the model servers here (pull, delete, load, unload).
     servers: bool = False
+    # Lets the owner open a shell here from the console, in one of the roots: a remote terminal, off until turned on.
+    commands: bool = False
 
     @classmethod
     def load(cls) -> "Machine":
@@ -86,7 +88,7 @@ class Machine:
         if isinstance(data, dict):
             for key in ("id", "name", "address", "container_cli"):
                 setattr(machine, key, str(data.get(key) or ""))
-            for key in ("launches", "containers", "servers"):
+            for key in ("launches", "containers", "servers", "commands"):
                 setattr(machine, key, bool(data.get(key)))
             machine.roots = [str(root) for root in data.get("roots") or [] if isinstance(root, str)]
         if not machine.id:

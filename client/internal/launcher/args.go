@@ -23,7 +23,10 @@ type Options struct {
 	// launch from the console, run by agent-machine (the machine/ component).
 	Headless bool
 	LaunchID string
-	Extra    []string
+	// Shell runs the user's shell instead of an agent, in a terminal shared with the server only
+	// for its owner: `agent --shell [folder]`, and agent-machine's terminals from the console.
+	Shell bool
+	Extra []string
 	// Proxy is the old --proxy flag, refused with a pointer to `agent login`.
 	Proxy string
 }
@@ -31,6 +34,7 @@ type Options struct {
 // Usage is `agent --help`.
 const Usage = `Usage: agent <agent> [project] [options] [-- agent arguments]
        agent --list
+       agent --shell [folder]             share a shell in a private terminal, to use it from the console
        agent login [url] [--user name]    sign this machine in to an agent-server
        agent logout [url]
        agent proxy [--server url]         run this machine's agent-proxy in the foreground
@@ -128,6 +132,8 @@ func ParseArgs(args []string) (Options, error) {
 			options.LetOthersType = true
 		case "--headless":
 			options.Headless = true
+		case "--shell":
+			options.Shell = true
 		case "-h", "--help":
 			options.Help = true
 		case "--no-remote":
@@ -135,6 +141,16 @@ func ParseArgs(args []string) (Options, error) {
 		default:
 			options.Extra = append(options.Extra, arg)
 		}
+	}
+	if options.Shell {
+		// `agent --shell [folder]`: the one plain argument is the folder, not an agent.
+		if positional > 1 {
+			return options, fmt.Errorf("--shell takes one folder")
+		}
+		if positional == 1 {
+			options.Project = options.Agent
+		}
+		options.Agent = ""
 	}
 	return options, nil
 }

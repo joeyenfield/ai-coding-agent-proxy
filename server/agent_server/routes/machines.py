@@ -27,7 +27,7 @@ from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconn
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
 from .. import auth, remote
-from ..fleet import PROVIDER_TYPES, FleetError, can_launch, can_see, normal_url, parse_provider, provider_request
+from ..fleet import PROVIDER_TYPES, FleetError, can_launch, can_see, normal_url, parse_provider, provider_request, within_roots
 from ..fleet import provider_id as fleet_provider_id
 from ..runtime import Runtime
 from .terminals import CLOSE_UNAUTHORIZED
@@ -145,6 +145,36 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             return await fleet.launch(target, auth.request_identity(request), data)
         except FleetError as exc:
             raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+
+    @app.post("/api/machines/{machine_id}/shell", status_code=201)
+    async def shell(machine_id: str, request: Request) -> dict[str, Any]:
+        """Open a shell on the machine in a terminal only you see (agent-machine commands on); answers once it's open."""
+        require_trusted(request)
+        if not remote.same_origin(request):
+            raise HTTPException(status_code=403, detail="Open terminals from the console's own page.")
+        target = visible(machine_id, request)
+        data = await request.json()
+        if not isinstance(data, dict):
+            raise HTTPException(status_code=400, detail="Send a JSON object")
+        try:
+            return await fleet.shell(target, auth.request_identity(request), data)
+        except FleetError as exc:
+            raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+
+    @app.get("/api/machines/{machine_id}/folders")
+    async def folders(machine_id: str, request: Request, path: str = "") -> dict[str, Any]:
+        """The folders inside one of the machine's launch folders, as the machine lists them; its roots without a path."""
+        require_trusted(request)
+        target = visible(machine_id, request)
+        # Who can start programs there may look at its folders, and only inside the launch folders.
+        if not can_launch(auth.request_identity(request), target):
+            raise HTTPException(status_code=403, detail="Only the machine's owner can browse its folders.")
+        if path and not within_roots(path, target.roots):
+            raise HTTPException(status_code=400, detail="That folder isn't inside one of the machine's launch folders.")
+        if not path:
+            return {"path": None, "parent": None, "folders": [{"name": root, "path": root} for root in target.roots]}
+        answer = await ask(target, "list", timeout=15, channel="folders", path=path)
+        return {"path": path, "parent": answer.get("parent"), "folders": answer.get("folders") or [], "truncated": bool(answer.get("truncated"))}
 
     @app.post("/api/machines/{machine_id}/providers/adopt", status_code=201)
     async def adopt(machine_id: str, request: Request) -> dict[str, Any]:

@@ -48,6 +48,8 @@ from .auth import Identity
 LAUNCH_HISTORY = 30
 # How long a launch may take to open its session on the machine.
 LAUNCH_TIMEOUT = 60.0
+# The client a shell's session names (`agent --shell`): it stays private, as it's a remote terminal.
+SHELL_CLIENT = "shell"
 PROVIDER_TYPES = ("ollama", "docker", "strata")
 ENGINE_FIELDS = ("id", "label", "backend_type", "image", "images", "port", "data_path", "volume", "health_path", "stop_timeout", "options", "summary")
 
@@ -71,6 +73,8 @@ class Machine:
     # Whether the server may start and stop the Ollama and Strata installed there, and their state.
     servers: dict[str, Any] = field(default_factory=dict)
     launches: bool = False
+    # Whether its owner may open a shell there from the console (agent-machine commands on): a remote terminal.
+    commands: bool = False
     # Whether the agent command launches run is installed there; None from a machine that doesn't say.
     launcher: bool | None = None
     # The protocol level its agent-machine speaks (version.py); 0 from one too old to say.
@@ -203,7 +207,7 @@ class Fleet:
             future = self._waiting.pop(str(data.get("launch") or ""), None)
             if future and not future.done():
                 future.set_result(data)
-        elif kind in {"container_result", "server_result", "provider_result"}:
+        elif kind in {"container_result", "server_result", "provider_result", "folders_result"}:
             if kind == "server_result" and isinstance(data.get("servers"), dict):
                 # Every answer carries the servers' state, refused ones too.
                 machine.servers = _servers(data["servers"])
@@ -244,6 +248,8 @@ class Fleet:
             machine.servers = _servers(data["servers"])
         if "launches" in data:
             machine.launches = bool(data.get("launches"))
+        if "commands" in data:
+            machine.commands = bool(data.get("commands"))
         if isinstance(data.get("protocol"), int):
             machine.protocol = data["protocol"]
         if "tunnel" in data:
@@ -271,7 +277,8 @@ class Fleet:
 
         channel is "container" (containers.py), "server" (starting Ollama and Strata and
         Ollama's settings) or "provider" (a model server's models, status and logs, the
-        machine's load, model catalogues). Containers and servers are off on the machine
+        machine's load, model catalogues) or "folders" (the folders inside its launch folders, for
+        choosing where to start an agent or a shell). Containers and servers are off on the machine
         until it allows them; on the provider channel the machine itself refuses changes
         unless its servers are on. progress, for pulls, receives the machine's progress
         messages until the answer comes. timeout None waits for as long as the machine
@@ -284,6 +291,8 @@ class Fleet:
             raise FleetError(409, f"{machine.name} doesn't run containers. Run `agent-machine containers on` there to allow it.")
         if channel == "server" and not machine.servers.get("enabled"):
             raise FleetError(409, f"{machine.name} doesn't let the server manage its model servers. Run `agent-machine servers on` there to allow it.")
+        if channel == "folders" and not (machine.launches or machine.commands):
+            raise FleetError(409, f"{machine.name} doesn't take launches. Run `agent-machine launches on` there to allow it.")
         request_id = secrets.token_hex(6)
         future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
         self._waiting[request_id] = future
@@ -440,6 +449,28 @@ class Fleet:
             "visibility": str(request.get("visibility") or "private"), "team": str(request.get("team") or request.get("org") or ""),
             "access": "control" if request.get("access") == "control" else "view",
         }
+        return await self._start(machine, socket, identity, message, agent, project)
+
+    async def shell(self, machine: Machine, identity: Identity | None, request: dict[str, Any]) -> dict[str, Any]:
+        """A shell on the machine, in a terminal only its owner sees: a remote terminal, so it's off until
+        the machine allows it (agent-machine commands on), and the machine checks that again."""
+        if not can_launch(identity, machine):
+            raise FleetError(403, "Only the machine's owner can open a terminal on it.")
+        socket = self.sockets.get(machine.id)
+        if socket is None:
+            raise FleetError(409, f"{machine.name} isn't connected: agent-machine isn't running there, or isn't signed in here (agent-machine login, then agent-machine start).")
+        if not machine.commands:
+            raise FleetError(409, f"{machine.name} doesn't take commands. Run `agent-machine commands on` there to open terminals on it from here.")
+        project = str(request.get("project") or "").strip() or (machine.roots[0] if machine.roots else "")
+        if not within_roots(project, machine.roots):
+            raise FleetError(400, "Choose a folder inside one of the machine's launch folders (agent-machine roots add <dir>).")
+        launch_id = secrets.token_hex(6)
+        message = {"type": "shell", "launch": launch_id, "project": project}
+        return await self._start(machine, socket, identity, message, SHELL_CLIENT, project)
+
+    async def _start(self, machine: Machine, socket: Any, identity: Identity | None, message: dict[str, Any], agent: str, project: str) -> dict[str, Any]:
+        """Sends a launch or shell to the machine and waits for the session it opens, recording it in the machine's history."""
+        launch_id = message["launch"]
         record = {"launch": launch_id, "at": time.time(), "by": identity.user if identity else None, "agent": agent, "project": project, "session_id": None, "error": None}
         machine.history = [*machine.history, record][-LAUNCH_HISTORY:]
         future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()

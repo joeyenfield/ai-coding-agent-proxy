@@ -28,6 +28,7 @@ Usage: agent-machine                           this machine as the fleet sees it
        agent-machine run [--server url]        join the fleet in the foreground (Ctrl+C leaves)
        agent-machine servers on|off            let the server pull, delete, load and unload models here (off by default)
        agent-machine launches on|off           let the server start agents here (off by default)
+       agent-machine commands on|off           let you open a terminal here from the console, in a launch folder (off by default)
        agent-machine roots add <dir>           a folder agents may be started in (and any folder inside it)
        agent-machine roots remove <dir>
        agent-machine name <name>|-             the name the console shows (default: the hostname)
@@ -35,7 +36,8 @@ Usage: agent-machine                           this machine as the fleet sees it
        agent-machine version
 
 Launches run the agent command (AI_PROXY_AGENT, else the Python agent), signed in to the same
-server with agent login. Only you, signed in as this machine's owner, can start agents here.
+server with agent login. Only you, signed in as this machine's owner, can start agents or
+terminals here; a terminal from the console (commands on) is a shell as this user that only you see.
 Settings changes reach the server within a minute.
 """
 
@@ -80,12 +82,16 @@ def configure(args: List[str]) -> int:
     """Changes one of machine.json's settings, then shows the machine."""
     machine = settings.Machine.load()
     command = args[0]
-    if command in ("launches", "servers"):
+    if command in ("launches", "servers", "commands"):
         if len(args) != 2 or args[1] not in ("on", "off"):
             return fail(f"{command} takes on or off")
         setattr(machine, command, args[1] == "on")
         if command == "launches" and machine.launches and not machine.roots:
             print("Launches are on, but there's no folder to start agents in yet: agent-machine roots add <dir>")
+        if command == "commands" and machine.commands:
+            print("Commands are on: signed in as this machine's owner, you can open a terminal here from the console, as this user.")
+            if not machine.roots:
+                print("Terminals start in a launch folder, and there's none yet: agent-machine roots add <dir>")
     elif command == "roots":
         if len(args) != 3 or args[1] not in ("add", "remove"):
             return fail("roots takes add or remove, and a folder")
@@ -267,6 +273,7 @@ def show(machine: settings.Machine) -> None:
     print("Containers: not in the Python agent-machine")
     print("Servers   : on: the server can change the models here (pull, delete, load, unload)" if machine.servers else "Servers   : off (agent-machine servers on)")
     print("Launches  :", "on" if machine.launches else "off (agent-machine launches on)")
+    print("Commands  : on: you can open a terminal here from the console" if machine.commands else "Commands  : off (agent-machine commands on)")
     if machine.launches and not machine.roots:
         print("Folders   : none (agent-machine roots add <dir>)")
     for index, root in enumerate(machine.roots):

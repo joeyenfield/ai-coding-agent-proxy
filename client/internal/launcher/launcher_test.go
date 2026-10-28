@@ -38,6 +38,26 @@ func TestArgumentsGoToTheLauncherOrTheAgent(t *testing.T) {
 	}
 }
 
+func TestAShellsOneArgumentIsItsFolder(t *testing.T) {
+	// As agent-machine runs it for a terminal from the console: the flag before or after the folder.
+	for _, args := range [][]string{{"--shell", "/work/api", "--headless", "--launch-id", "l9"}, {"/work/api", "--shell", "--headless"}} {
+		options, err := ParseArgs(args)
+		if err != nil || !options.Shell || options.Agent != "" || options.Project != "/work/api" || !options.Headless {
+			t.Fatalf("%v: %+v %v", args, options, err)
+		}
+	}
+	if options, _ := ParseArgs([]string{"--shell"}); options.Project != "." || options.Agent != "" {
+		t.Fatalf("no folder: %+v", options)
+	}
+	if _, err := ParseArgs([]string{"--shell", "/a", "/b"}); err == nil {
+		t.Fatal("two folders accepted")
+	}
+	command, err := ShellCommand()
+	if err != nil || len(command) == 0 {
+		t.Fatalf("no shell here: %v %v", command, err)
+	}
+}
+
 func TestEnvironmentOverridesReplaceInheritedValues(t *testing.T) {
 	merged := mergeEnv([]string{"PATH=/bin", "Https_Proxy=old", "KEEP=1"}, map[string]string{"HTTPS_PROXY": "new", "AI_PROXY_SESSION": "s1"})
 	joined := strings.Join(merged, "\n")

@@ -9,6 +9,7 @@ Docker, containers) or takes launches from the console, see `agent-machine` in
 | --- | --- |
 | `agent <agent> [project] [options] [-- args]` | Launch an agent through this machine's agent-proxy, in a session on the server |
 | `agent --list` | The server's agents, and whether each is installed here |
+| `agent --shell [folder]` | Your shell ($SHELL, or PowerShell on Windows) in a terminal shared with the server that only you see; agent-machine runs it with `--headless` for terminals from the console |
 | `agent login [url] [--user name] [--key key]` | Sign this machine in to an agent-server (a token, never your password, is stored) |
 | `agent logout [url]` | Forget the sign-in and revoke its token |
 | `agent proxy` | Run this machine's agent-proxy in the foreground (`agent` starts it in the background when needed) |

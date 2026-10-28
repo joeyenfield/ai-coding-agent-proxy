@@ -16,6 +16,7 @@ from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconn
 from fastapi.responses import JSONResponse
 
 from .. import access as sharing, auth, remote
+from ..fleet import SHELL_CLIENT
 from ..runtime import Runtime
 from ..terminals import Terminal
 
@@ -114,7 +115,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
                 "machine": machine.id if machine else None,
                 "machine_name": machine.name if machine else session.tags.get("machine_name"),
                 "attention": hub.attention(terminal, in_flight.get(session.session_id, 0)) if terminal else None,
-                "agent": session.client, "agent_name": agent.name if agent else session.client,
+                "agent": session.client, "agent_name": agent.name if agent else ("Terminal" if session.client == SHELL_CLIENT else session.client),
                 "project": session.project, "project_path": session.tags.get("project_path"),
                 "model": session.model, "backend": session.backend,
                 "session_ended_at": session.ended_at, "request_count": session.request_count,

@@ -99,6 +99,80 @@ def check(request: Dict[str, Any], machine: settings.Machine) -> str:
     return project
 
 
+def check_shell(request: Dict[str, Any], machine: settings.Machine) -> str:
+    """The machine's own say over a shell: commands on, and the folder (which has to exist) inside one of the roots."""
+    if not machine.commands:
+        raise Refused("this machine doesn't take commands (agent-machine commands on)")
+    folder = str(request.get("project") or "")
+    if not folder or not os.path.isdir(folder):
+        raise Refused(f"{folder} isn't a folder here")
+    resolved, ok = machine.within(folder)
+    if not ok:
+        raise Refused(f"{folder} isn't inside one of this machine's launch folders")
+    return resolved
+
+
+def shell_arguments(request: Dict[str, Any], project: str) -> List[str]:
+    """The `agent` command line for a shell, headless and private."""
+    return ["--shell", project, "--headless", "--launch-id", str(request.get("launch") or "")]
+
+
+FOLDERS_LIMIT = 500
+
+
+def folders(request: Dict[str, Any], machine: settings.Machine) -> Dict[str, Any]:
+    """The folders inside one folder, as the folders_result to send back: only inside the roots (checked
+    here after resolving links), only while launches or commands are on, and only folders, no file names.
+    Hidden folders and links that lead out of the roots are left out."""
+    answer: Dict[str, Any] = {"type": "folders_result", "request": request.get("request")}
+    try:
+        listed, parent, truncated = list_folders(str(request.get("path") or ""), machine)
+    except Refused as error:
+        answer.update(ok=False, error=str(error))
+        return answer
+    answer.update(ok=True, folders=listed, parent=parent, truncated=truncated)
+    return answer
+
+
+def list_folders(folder: str, machine: settings.Machine) -> Tuple[List[Dict[str, str]], Optional[str], bool]:
+    if not (machine.launches or machine.commands):
+        raise Refused("this machine doesn't take launches (agent-machine launches on)")
+    if not folder or not os.path.isabs(folder):
+        raise Refused("name a folder inside one of this machine's launch folders")
+    if not machine.within(folder)[1]:
+        raise Refused(f"{folder} isn't inside one of this machine's launch folders")
+    try:
+        entries = sorted(os.scandir(folder), key=lambda entry: entry.name.lower())
+    except OSError as error:
+        raise Refused(f"couldn't read {folder}: {error}")
+    listed: List[Dict[str, str]] = []
+    truncated = False
+    for entry in entries:
+        if entry.name.startswith("."):
+            continue
+        path = os.path.join(folder, entry.name)
+        try:
+            if entry.is_symlink():
+                # A link counts as a folder only when it leads to one inside the roots.
+                if not os.path.isdir(path) or not machine.within(path)[1]:
+                    continue
+            elif not entry.is_dir(follow_symlinks=False):
+                continue
+        except OSError:
+            continue
+        if len(listed) == FOLDERS_LIMIT:
+            truncated = True
+            break
+        listed.append({"name": entry.name, "path": path})
+    # Up goes no further than a root.
+    parent = None
+    is_root = any(settings.fold(os.path.normpath(root)) == settings.fold(os.path.normpath(folder)) for root in machine.roots)
+    up = os.path.dirname(folder)
+    if not is_root and up != folder and machine.within(up)[1]:
+        parent = up
+    return listed, parent, truncated
+
+
 def agent_proxy_server() -> str:
     """The server this computer's agent-proxy carries traffic to, when it runs."""
     port = os.environ.get("AI_PROXY_LOCAL_PORT") or "8184"
@@ -117,13 +191,24 @@ def launch_headless(request: Dict[str, Any], server: str) -> str:
     output. The agent goes through this computer's agent-proxy, so that has to be the same server."""
     machine = settings.Machine.load()
     project = check(request, machine)
+    return run_headless(machine, project, arguments(request, project), server)
+
+
+def shell_headless(request: Dict[str, Any], server: str) -> str:
+    """Runs `agent --shell <folder> --headless`: the user's shell in a terminal only the machine's owner sees."""
+    machine = settings.Machine.load()
+    project = check_shell(request, machine)
+    return run_headless(machine, project, shell_arguments(request, project), server)
+
+
+def run_headless(machine: settings.Machine, project: str, args: List[str], server: str) -> str:
     running = agent_proxy_server()
     if running and common.normalize(running) != common.normalize(server):
         raise Refused(f"the agent-proxy here carries traffic to {running}, not {server}; sign the agent command in there (agent login {server})")
     # AI_PROXY_URL points a newly started agent-proxy at this machine's server; the machine variables tag the session.
     env = {**os.environ, "AI_PROXY_URL": server, "AI_PROXY_MACHINE_ID": machine.id, "AI_PROXY_MACHINE_NAME": machine.display_name()}
     try:
-        process = subprocess.Popen([*agent_command(), *arguments(request, project)], cwd=project, env=env, stdin=subprocess.DEVNULL,
+        process = subprocess.Popen([*agent_command(), *args], cwd=project, env=env, stdin=subprocess.DEVNULL,
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, **detach_flags())
     except OSError as error:
         raise Refused(f"couldn't run the agent command: {error}")
@@ -174,6 +259,7 @@ class Presence:
         self.providers = providers.Manager()
         self.detect: Callable[[], List[Dict[str, Any]]] = providers.detect
         self.launch: Callable[[Dict[str, Any], str], str] = launch_headless
+        self.shell: Callable[[Dict[str, Any], str], str] = shell_headless
         # The ports tunnels may reach: the model servers in the last hello or update. Nothing else here is ever reached.
         self.tunnel_ports: set = set()
         self.status = ""
@@ -296,16 +382,19 @@ class Presence:
             elif kind == "server":
                 await send({"type": "server_result", "request": message.get("request"), "ok": False,
                             "error": "This machine runs the Python agent-machine, which doesn't start model servers", "servers": {"enabled": False}})
-            elif kind == "launch":
+            elif kind in ("launch", "shell"):
                 await self.launched(message, server, send)
+            elif kind == "folders":
+                await send(await asyncio.to_thread(folders, message, settings.Machine.load()))
         except asyncio.CancelledError:
             raise
         except Exception as error:
             log.warning("fleet: %s request failed: %s", kind, error)
 
     async def launched(self, request: Dict[str, Any], server: str, send) -> None:
+        run = self.shell if request.get("type") == "shell" else self.launch
         try:
-            session_id = await asyncio.to_thread(self.launch, request, server)
+            session_id = await asyncio.to_thread(run, request, server)
         except Exception as error:
             log.info("fleet: launch %s of %s in %s failed: %s", request.get("launch"), request.get("agent"), request.get("project"), error)
             await send({"type": "launch_failed", "launch": request.get("launch"), "error": str(error)})
@@ -372,7 +461,7 @@ class Presence:
             "type": kind, "id": machine.id, "name": machine.display_name(), "hostname": socket.gethostname(),
             "os": common.goos(), "arch": common.goarch(), "version": common.VERSION, "protocol": common.PROTOCOL,
             "address": machine.address, "agents": self.installed_agents(server), "providers": found,
-            "launches": machine.launches, "roots": machine.roots,
+            "launches": machine.launches, "roots": machine.roots, "commands": machine.commands,
             # It carries agents' requests to its model servers itself, so the server needn't reach them.
             "tunnel": 1, "launcher": True,
             "containers": {"enabled": False, "cli": "docker", "found": False, "online": False, "version": "",

@@ -584,8 +584,27 @@ FLEET = [
      "containers": {"enabled": False, "cli": "docker", "found": True, "online": False, "version": "", "error": "", "engines": []},
      "servers": {"enabled": True, "ollama": {"found": True, "running": True, "managed": True, "version": "0.12.3", "bind": "0.0.0.0"},
                  "strata": {"found": False, "profiles": []}},
-     "launches": True, "roots": ["/home/joey/code", "/srv/repos"]},
+     "launches": True, "roots": ["/home/joey/code", "/srv/repos"], "commands": True},
 ]
+
+# build-box's folders inside its launch folders, for the folder picker (agent-machine lists them there).
+FOLDERS = {
+    "/home/joey/code": ["api", "ai-coding-agent-proxy", "dotfiles", "web"],
+    "/home/joey/code/api": ["cmd", "internal", "migrations"],
+    "/home/joey/code/api/internal": ["auth", "billing", "store"],
+    "/home/joey/code/ai-coding-agent-proxy": ["client", "machine", "python", "server", "ui"],
+    "/home/joey/code/web": ["public", "src"],
+    "/srv/repos": ["infra", "mirror"],
+}
+
+
+def fake_folders(request: dict, roots: list[str]) -> dict:
+    """The folders_result agent-machine sends: the folders inside one, never above a launch folder."""
+    folder = str(request.get("path") or "").rstrip("/")
+    names = FOLDERS.get(folder, [])
+    up = folder.rsplit("/", 1)[0]
+    parent = up if folder not in roots and any(up == root or up.startswith(root + "/") for root in roots) else None
+    return {"ok": True, "parent": parent, "folders": [{"name": name, "path": f"{folder}/{name}"} for name in names]}
 
 
 class FakeContainers:
@@ -819,6 +838,20 @@ def join_fleet() -> None:
                 continue
             if request.get("type") == "container":
                 send({"type": "container_result", "request": request["request"], **containers.handle(request)})
+                continue
+            if request.get("type") == "folders":
+                send({"type": "folders_result", "request": request["request"], **fake_folders(request, hello.get("roots") or [])})
+                continue
+            if request.get("type") == "shell":
+                # A terminal on the machine, as `agent --shell` opens: a prompt that echoes what's typed.
+                session_id = httpx.post(f"{PROXY}/api/sessions", json={
+                    "client": "shell", "backend": "direct", "project": request["project"].rstrip("/").rsplit("/", 1)[-1],
+                    "tags": {"machine": hello["id"], "machine_name": hello["name"], "launch": request["launch"], "project_path": request["project"]},
+                }).json()["session_id"]
+                prompt = f"joey@{hello['name']}:{request['project'].replace('/home/joey', '~')}$ "
+                terminal = FakeLauncher(session_id, "bash", (110, 30), lambda text, term, prompt=prompt: term.append(f"{text}\r\n{prompt}".encode()))
+                terminal.append(prompt.encode())
+                send({"type": "launched", "launch": request["launch"], "session_id": session_id})
                 continue
             if request.get("type") != "launch":
                 continue

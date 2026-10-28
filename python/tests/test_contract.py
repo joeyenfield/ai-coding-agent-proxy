@@ -12,6 +12,7 @@ import httpx
 from test_client import (  # noqa: F401  (the tests are collected from here, with this folder's fixtures)
     fake_ollama_server, fleet_machine, machine, new_session,
     test_a_controlled_terminal_is_relayed_to_the_server,
+    test_a_fleet_machine_lists_its_folders_and_opens_a_shell_when_commands_are_on,
     test_a_fleet_machine_runs_an_agent_the_console_starts,
     test_account_agents_https_is_tunnelled_to_the_servers_intercept,
     test_model_requests_stream_through_to_the_server,

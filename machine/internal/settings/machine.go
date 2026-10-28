@@ -29,6 +29,9 @@ type Machine struct {
 	// Servers lets the server start and stop the Ollama and Strata installed here. Off
 	// until the owner turns it on, like containers.
 	Servers bool `json:"servers"`
+	// Commands lets the owner open a shell here from the console, in one of the roots: a
+	// remote terminal, so it's off until the owner turns it on.
+	Commands bool `json:"commands"`
 }
 
 func MachinePath() string {

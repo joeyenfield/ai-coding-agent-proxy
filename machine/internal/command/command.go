@@ -38,6 +38,7 @@ Usage: agent-machine                           this machine as the fleet sees it
        agent-machine containers cli auto|docker|podman  which runs them (auto: whichever is installed and answering)
        agent-machine servers on|off            let the server manage the model servers here: start and stop them, their settings and models (off by default)
        agent-machine launches on|off           let the server start agents here (off by default)
+       agent-machine commands on|off           let you open a terminal here from the console, in a launch folder (off by default)
        agent-machine roots add <dir>           a folder agents may be started in (and any folder inside it)
        agent-machine roots remove <dir>
        agent-machine name <name>|-             the name the console shows (default: the hostname)
@@ -51,7 +52,8 @@ also pull, delete, load and unload models, start Ollama (ollama serve, with the 
 from the console) and Strata's saved profiles here, and stop them.
 Containers run Strata or Ollama images only, with their own settings; docker run is root here.
 Launches run the agent command (agent) from PATH, signed in to the same server with agent login.
-Only you, signed in as this machine's owner, can start agents or containers here.
+Only you, signed in as this machine's owner, can start agents, containers or terminals here.
+A terminal from the console (commands on) is a shell as this user: only you see it.
 Settings changes reach the server within a minute.
 `
 
@@ -96,6 +98,17 @@ func fail(message string) int {
 func configure(args []string) int {
 	machine := settings.LoadMachine()
 	switch args[0] {
+	case "commands":
+		if len(args) != 2 || (args[1] != "on" && args[1] != "off") {
+			return fail("commands takes on or off")
+		}
+		machine.Commands = args[1] == "on"
+		if machine.Commands {
+			fmt.Println("Commands are on: signed in as this machine's owner, you can open a terminal here from the console, as this user.")
+			if len(machine.Roots) == 0 {
+				fmt.Println("Terminals start in a launch folder, and there's none yet: agent-machine roots add <dir>")
+			}
+		}
 	case "launches":
 		if len(args) != 2 || (args[1] != "on" && args[1] != "off") {
 			return fail("launches takes on or off")
@@ -400,6 +413,11 @@ func show(machine *settings.Machine) {
 		}
 	}
 	fmt.Println("Launches  :", launches)
+	if machine.Commands {
+		fmt.Println("Commands  : on: you can open a terminal here from the console")
+	} else {
+		fmt.Println("Commands  : off (agent-machine commands on)")
+	}
 	if machine.Launches && len(machine.Roots) == 0 {
 		fmt.Println("Folders   : none (agent-machine roots add <dir>)")
 	}

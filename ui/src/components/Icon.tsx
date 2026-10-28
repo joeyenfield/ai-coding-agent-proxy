@@ -28,6 +28,8 @@ const PATHS = {
   cloud: "M7 18h10a4 4 0 0 0 .5-8A6 6 0 0 0 6 9.5 4.3 4.3 0 0 0 7 18z",
   key: "M15 9a3 3 0 1 0-3 3M12 12 4 20M7 17l2 2M9 15l2 2",
   download: "M12 4v11M7 10l5 5 5-5M5 20h14",
+  folder: "M3 6.5h6l2 2h10V19H3z",
+  up: "M12 19V6M6.5 11.5 12 6l5.5 5.5",
 } as const;
 
 export type IconName = keyof typeof PATHS;

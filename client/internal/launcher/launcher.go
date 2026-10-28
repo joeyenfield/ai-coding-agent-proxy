@@ -76,6 +76,14 @@ func Main(args []string) int {
 		fmt.Fprintln(os.Stderr, "agent: --proxy is gone: sign this machine in to a server with `agent login <server>`, and its agent-proxy uses it")
 		return 2
 	}
+	if options.Shell && !options.List {
+		status, err := LaunchShell(options)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "agent: %v\n", err)
+			return 1
+		}
+		return status
+	}
 	if options.List || options.Agent == "" {
 		if err := List(); err != nil {
 			fmt.Fprintf(os.Stderr, "agent: %v\n", err)
@@ -207,9 +215,9 @@ func Launch(options Options) (int, error) {
 		route = fmt.Sprintf("all HTTPS through %v (traffic goes to the agent's own service)", intercept["url"])
 	}
 	if options.Headless {
-		return runHeadless(local, sessionID, agent, command, project, env, end), nil
+		return runHeadless(local, sessionID, agent.Executable, command, project, env, end), nil
 	}
-	share, controlLine := shareFor(local, server, sessionID, agent, options.Control)
+	share, controlLine := shareFor(local, server, sessionID, agent.Executable, options.Control)
 	model := options.Model
 	if model == "" {
 		model = "agent default"
@@ -227,13 +235,13 @@ func Launch(options Options) (int, error) {
 // runHeadless runs a launch the server asked for: it reports the session on its one line of
 // output (the agent-proxy reads it), then runs the agent with only the server's viewers
 // watching and typing.
-func runHeadless(local, sessionID string, agent Agent, command []string, dir string, env []string, end func(int)) int {
+func runHeadless(local, sessionID, name string, command []string, dir string, env []string, end func(int)) int {
 	if problem := terminal.Probe(local); strings.Contains(problem, "agent login") {
 		fmt.Fprintln(os.Stderr, problem)
 		end(1)
 		return 1
 	}
-	share := terminal.NewShare(terminal.HostURL(local, sessionID), agent.Executable)
+	share := terminal.NewShare(terminal.HostURL(local, sessionID), name)
 	opened, _ := json.Marshal(map[string]string{"session_id": sessionID})
 	fmt.Println(string(opened))
 	// Nothing else goes to standard output: the agent-proxy may stop reading it.
@@ -411,7 +419,7 @@ func writeFile(path, text string) error {
 }
 
 // shareFor sets up --control, and says how it went.
-func shareFor(local, server, sessionID string, agent Agent, wanted bool) (*terminal.Share, string) {
+func shareFor(local, server, sessionID, name string, wanted bool) (*terminal.Share, string) {
 	if !wanted {
 		return nil, "off (add --control to watch and type into this agent from the console)"
 	}
@@ -422,7 +430,7 @@ func shareFor(local, server, sessionID string, agent Agent, wanted bool) (*termi
 	if strings.Contains(problem, "agent login") {
 		return nil, "off: " + problem
 	}
-	share := terminal.NewShare(terminal.HostURL(local, sessionID), agent.Executable)
+	share := terminal.NewShare(terminal.HostURL(local, sessionID), name)
 	view := terminal.ViewURL(server, sessionID)
 	if problem != "" {
 		return share, fmt.Sprintf("%s (%s)", view, problem)

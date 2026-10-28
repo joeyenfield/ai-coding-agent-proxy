@@ -30,6 +30,7 @@ from . import settings, terminal
 
 USAGE = """Usage: agent <agent> [project] [options] [-- agent arguments]
        agent --list
+       agent --shell [folder]             share a shell in a private terminal, to use it from the console
        agent login [url] [--user name]    sign this machine in to an agent-server
        agent logout [url]
        agent proxy [--server url]         run this machine's agent-proxy in the foreground
@@ -86,6 +87,8 @@ class Options:
     help: bool = False
     # A launch from the console, run by agent-machine: no local window, its terminal shared with the server.
     headless: bool = False
+    # The user's shell instead of an agent, in a terminal shared with the server for its owner only.
+    shell: bool = False
     launch_id: str = ""
     extra: List[str] = field(default_factory=lambda: [])
     proxy: str = ""
@@ -140,13 +143,20 @@ def parse_args(args: List[str]) -> Options:
                 options.launch_id = value
             continue
         flags = {"--trace": "trace", "--list": "list", "--control": "control", "--switch": "switch",
-                 "--let-others-type": "let_others_type", "--headless": "headless", "-h": "help", "--help": "help"}
+                 "--let-others-type": "let_others_type", "--headless": "headless", "--shell": "shell", "-h": "help", "--help": "help"}
         if arg in flags:
             setattr(options, flags[arg], True)
         elif arg == "--no-remote":
             pass  # Old flag, kept so it isn't passed on to the agent.
         else:
             options.extra.append(arg)
+    if options.shell:
+        # `agent --shell [folder]`: the one plain argument is the folder, not an agent.
+        if positional > 1:
+            raise UsageError("--shell takes one folder")
+        if positional == 1:
+            options.project = options.agent
+        options.agent = ""
     return options
 
 
@@ -387,7 +397,7 @@ def run_plain(command: List[str], cwd: str, env: Dict[str, str]) -> int:
         signal.signal(signal.SIGINT, previous)
 
 
-def share_for(local: str, server: str, session_id: str, agent: Dict[str, Any], wanted: bool):
+def share_for(local: str, server: str, session_id: str, name: str, wanted: bool):
     if not wanted:
         return None, "off (add --control to watch and type into this agent from the console)"
     reason = terminal.unavailable()
@@ -396,7 +406,7 @@ def share_for(local: str, server: str, session_id: str, agent: Dict[str, Any], w
     problem = terminal.probe(local)
     if "agent login" in problem:
         return None, "off: " + problem
-    share = terminal.Share(terminal.host_url(local, session_id), str(agent.get("executable") or ""))
+    share = terminal.Share(terminal.host_url(local, session_id), name)
     view = terminal.view_url(server, session_id)
     return share, f"{view} ({problem})" if problem else f"{view} (watch and type into this terminal from the console)"
 
@@ -465,9 +475,9 @@ def launch(options: Options) -> int:
     env = merge_env({str(key): str(value) for key, value in (prepared.get("env") or {}).items()})
     try:
         if options.headless:
-            return run_headless(local, session_id, agent, command, str(project), env, end)
+            return run_headless(local, session_id, str(agent.get("executable") or ""), command, str(project), env, end)
         route = f"all HTTPS through {intercept['url']} (traffic goes to the agent's own service)" if intercept else session.get("backend")
-        share, control = share_for(local, server, session_id, agent, options.control)
+        share, control = share_for(local, server, session_id, str(agent.get("executable") or ""), options.control)
         print(f"Session : {session_id}\nAgent   : {agent.get('name')}\nModel   : {options.model or 'agent default'}\n"
               f"Backend : {route}\nServer  : {server}/live\nControl : {control}", flush=True)
         if share:
@@ -486,7 +496,7 @@ def launch(options: Options) -> int:
         shutil.rmtree(files_dir, ignore_errors=True)
 
 
-def run_headless(local: str, session_id: str, agent: Dict[str, Any], command: List[str], cwd: str, env: Dict[str, str], end) -> int:
+def run_headless(local: str, session_id: str, name: str, command: List[str], cwd: str, env: Dict[str, str], end) -> int:
     """A launch the server asked for: report the session on the one line of output (agent-machine
     reads it), then run the agent with only the server's viewers watching and typing."""
     problem = terminal.probe(local)
@@ -494,7 +504,7 @@ def run_headless(local: str, session_id: str, agent: Dict[str, Any], command: Li
         print(problem, file=sys.stderr)
         end(1)
         return 1
-    share = terminal.Share(terminal.host_url(local, session_id), str(agent.get("executable") or ""))
+    share = terminal.Share(terminal.host_url(local, session_id), name)
     print(json.dumps({"session_id": session_id}), flush=True)
     # Nothing else goes to standard output: agent-machine may stop reading it.
     try:
@@ -508,6 +518,78 @@ def run_headless(local: str, session_id: str, agent: Dict[str, Any], command: Li
         status = 127
     end(status)
     return status
+
+
+SHELL_CLIENT = "shell"
+
+
+def shell_command() -> List[str]:
+    """This user's shell: $SHELL (as a login shell) elsewhere, PowerShell on Windows (pwsh when installed), else %ComSpec%."""
+    if sys.platform == "win32":
+        for name in ("pwsh.exe", "powershell.exe"):
+            found = shutil.which(name)
+            if found:
+                return [found, "-NoLogo"]
+        if os.environ.get("ComSpec"):
+            return [os.environ["ComSpec"]]
+        raise LaunchError("no shell found: neither PowerShell nor %ComSpec%")
+    for candidate in (os.environ.get("SHELL"), "/bin/bash", "/bin/sh"):
+        found = shutil.which(candidate) if candidate else None
+        if found:
+            return [found, "-l"]
+    raise LaunchError("no shell found: set SHELL")
+
+
+def launch_shell(options: Options) -> int:
+    """The user's shell in a session of its own, its terminal shared with the server for its owner only:
+    `agent --shell [folder]` here, and the terminals agent-machine opens from the console (headless)."""
+    project = Path(options.project).resolve()
+    if not project.is_dir():
+        raise LaunchError(f"folder does not exist: {project}")
+    if not options.headless:
+        reason = terminal.unavailable()
+        if reason:
+            raise LaunchError(f"a shared shell needs a terminal here: {reason}")
+    command = shell_command()
+    status = ensure_proxy()
+    server = str(status.get("server") or "")
+    local = settings.proxy_url()
+    api = API(local)
+    check_signed_in(api, server)
+    hostname = socket.gethostname()
+    tags: Dict[str, Any] = {"project_path": str(project), "machine_name": hostname, "hostname": hostname}
+    if os.environ.get("AI_PROXY_MACHINE_ID"):
+        tags["machine"] = os.environ["AI_PROXY_MACHINE_ID"]
+    if os.environ.get("AI_PROXY_MACHINE_NAME"):
+        tags["machine_name"] = os.environ["AI_PROXY_MACHINE_NAME"]
+    if options.launch_id:
+        tags["launch"] = options.launch_id
+    session = api.call("POST", "/api/sessions", {"client": SHELL_CLIENT, "backend": "direct", "project": project.name,
+                                                 "visibility": "private", "access": "view", "tags": tags})
+    session_id = str((session or {}).get("session_id") or "")
+    if not session_id:
+        raise LaunchError("the server opened no session for the shell")
+
+    def end(exit_status: int) -> None:
+        try:
+            api.call("PATCH", "/api/sessions/" + quote(session_id, safe=""), {"ended": True, "exit_status": exit_status})
+        except (APIError, httpx.HTTPError) as error:
+            print(f"Warning: could not close the session: {error}", file=sys.stderr)
+
+    name = Path(command[0]).name
+    env = dict(os.environ)
+    if options.headless:
+        return run_headless(local, session_id, name, command, str(project), env, end)
+    share, control = share_for(local, server, session_id, name, True)
+    if share is None:
+        end(1)
+        raise LaunchError(control)
+    print(f"Session : {session_id}\nShell   : {command[0]} in {project}\nControl : {control} (only you see it)", flush=True)
+    exit_status = terminal.run(command, str(project), env, share)
+    if share.problem:
+        print(f"Control : {share.problem}", file=sys.stderr)
+    end(exit_status)
+    return exit_status
 
 
 def list_agents() -> None:
@@ -547,6 +629,12 @@ def main(args: List[str]) -> int:
     if options.proxy:
         print("agent: --proxy is gone: sign this machine in to a server with `agent login <server>`, and its agent-proxy uses it", file=sys.stderr)
         return 2
+    if options.shell and not options.list:
+        try:
+            return launch_shell(options)
+        except (LaunchError, APIError, httpx.HTTPError, OSError) as error:
+            print(f"agent: {error}", file=sys.stderr)
+            return 1
     if options.list or not options.agent:
         list_agents()
         return 0 if options.list else 2

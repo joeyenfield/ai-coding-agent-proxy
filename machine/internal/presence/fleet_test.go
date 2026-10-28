@@ -96,6 +96,8 @@ func TestPresenceSaysHelloAndAnswersLaunches(t *testing.T) {
 			if message["type"] == "hello" {
 				_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"welcome"}`))
 				_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"launch","launch":"l1","agent":"go","project":"/work"}`))
+				_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"shell","launch":"l2","project":"/work"}`))
+				_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"folders","request":"f1","op":"list","path":"/work"}`))
 			}
 		}
 	}))
@@ -107,6 +109,7 @@ func TestPresenceSaysHelloAndAnswersLaunches(t *testing.T) {
 		},
 		Detect: func() []Provider { return []Provider{{Type: "ollama", Port: 11434}} },
 		Launch: func(request Launch) (string, error) { return "session-for-" + request.ID, nil },
+		Shell:  func(request Launch) (string, error) { return "shell-for-" + request.ID, nil },
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -128,9 +131,26 @@ func TestPresenceSaysHelloAndAnswersLaunches(t *testing.T) {
 	if agents, _ := hello["agents"].([]any); len(agents) != 1 || agents[0] != "go" {
 		t.Fatalf("agents %v", hello["agents"])
 	}
-	launched := next()
-	if launched["type"] != "launched" || launched["launch"] != "l1" || launched["session_id"] != "session-for-l1" {
-		t.Fatalf("launched %v", launched)
+	if hello["commands"] != false {
+		t.Fatalf("commands are off until the owner turns them on: %v", hello["commands"])
+	}
+	// The launch, the shell and the folders are answered as each finishes, with updates between.
+	seen := map[string]map[string]any{}
+	for len(seen) < 3 {
+		message := next()
+		switch message["type"] {
+		case "launched":
+			seen[message["launch"].(string)] = message
+		case "folders_result":
+			seen["folders"] = message
+		}
+	}
+	if seen["l1"]["session_id"] != "session-for-l1" || seen["l2"]["session_id"] != "shell-for-l2" {
+		t.Fatalf("launched %v", seen)
+	}
+	// This machine doesn't take launches, so its folders aren't listed.
+	if folders := seen["folders"]; folders["request"] != "f1" || folders["ok"] != false {
+		t.Fatalf("folders %v", folders)
 	}
 	if !strings.HasPrefix(presence.Status(), "connected to ") {
 		t.Fatalf("status %q", presence.Status())

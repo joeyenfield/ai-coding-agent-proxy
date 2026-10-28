@@ -3,6 +3,7 @@ import { Link, NavLink, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, machineProviders, preferredModel, providerModels, type Agent, type FleetMachine, type MachineProvider, type ProviderRef } from "../api";
 import { CodeLine } from "../components/CodeLine";
+import { FolderPicker } from "../components/FolderPicker";
 import { Icon } from "../components/Icon";
 import { ShareChoice } from "../components/Sharing";
 import { StateDot } from "../components/ProviderState";
@@ -175,8 +176,10 @@ function MachineHeader({ machine }: { machine: FleetMachine }) {
   const agents = useAgents();
   const admin = !identity || identity.role === "admin";
   const [launching, setLaunching] = useState(false);
+  const [shell, setShell] = useState(false);
   const installed = (agents.data ?? []).filter((agent) => machine.agents.includes(agent.id));
   const canLaunch = machine.connected && machine.launches && machine.you.launch && machine.roots.length > 0 && installed.length > 0 && machine.launcher !== false;
+  const canShell = machine.connected && Boolean(machine.commands) && machine.you.launch && machine.roots.length > 0 && machine.launcher !== false;
   const forget = useMutation({
     mutationFn: () => api.forgetMachine(machine.id),
     onSuccess: () => {
@@ -220,6 +223,12 @@ function MachineHeader({ machine }: { machine: FleetMachine }) {
                 Start an agent
               </button>
             )}
+            {canShell && (
+              <button type="button" onClick={() => setShell((open) => !open)} aria-expanded={shell}>
+                <Icon name="terminal" size={14} />
+                Open a terminal
+              </button>
+            )}
             {!machine.connected && (machine.you.owner || admin) && (
               <button type="button" className="icon-button danger" title="Forget this machine" aria-label={`Forget ${machine.name}`} disabled={forget.isPending} onClick={() => forget.mutate()}>
                 <Icon name="trash" />
@@ -230,6 +239,7 @@ function MachineHeader({ machine }: { machine: FleetMachine }) {
       </header>
       {machine.update?.available && <UpdateNote machine={machine} update={machine.update} />}
       {launching && canLaunch && <LaunchForm machine={machine} agents={installed} onDone={() => setLaunching(false)} />}
+      {shell && canShell && <ShellForm machine={machine} onDone={() => setShell(false)} />}
     </>
   );
 }
@@ -346,6 +356,22 @@ function MachineOverview({ machine, providers }: { machine: FleetMachine; provid
               )}
               {machine.launches && !machine.you.launch && <span className="subtle"> Only {machine.owner ?? "its owner"} can start agents on it.</span>}
               {machine.launches && machine.you.launch && missing.length > 0 && <span className="warn launch-missing">To start agents here: {missing.join("; ")}.</span>}
+            </dd>
+          </div>
+          <div>
+            <dt>Terminals</dt>
+            <dd>
+              {machine.commands ? (
+                machine.you.launch ? (
+                  <span>On: open one with <strong>Open a terminal</strong> above. It's a shell there that only you see.</span>
+                ) : (
+                  <span className="subtle">On, for {machine.owner ?? "its owner"} only.</span>
+                )
+              ) : (
+                <span className="subtle">
+                  Off. Run <code>agent-machine commands on</code> there to open a terminal on it from here.
+                </span>
+              )}
             </dd>
           </div>
         </dl>
@@ -560,13 +586,53 @@ function InstalledServers({ machine }: { machine: FleetMachine }) {
   );
 }
 
+/** A shell on the machine, in a terminal only you see: agent-machine commands on there. */
+function ShellForm({ machine, onDone }: { machine: FleetMachine; onDone: () => void }) {
+  const navigate = useNavigate();
+  const notify = useToast();
+  const client = useQueryClient();
+  const [project, setProject] = useState(machine.roots[0] ?? "");
+  const open = useMutation({
+    mutationFn: () => api.openShell(machine.id, project),
+    onSuccess: (result) => {
+      client.invalidateQueries({ queryKey: ["machines"] });
+      onDone();
+      if (result.session_id) navigate(`/terminals/${result.session_id}`);
+    },
+    onError: (error: Error) => notify(error.message),
+  });
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    open.mutate();
+  };
+  return (
+    <form className="launch-form panel" onSubmit={submit}>
+      <div className="field">
+        Start in
+        <FolderPicker machine={machine} onChange={setProject} />
+      </div>
+      <p className="subtle">
+        A shell on {machine.name} as the user agent-machine runs as, with what that user can do there. Only you see it, and it
+        stays open until you exit it.
+      </p>
+      <div className="row wrap">
+        <button type="submit" className="primary" disabled={open.isPending || !project}>
+          {open.isPending ? "Opening…" : `Open a terminal on ${machine.name}`}
+        </button>
+        <button type="button" onClick={onDone}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
 function LaunchForm({ machine, agents, onDone }: { machine: FleetMachine; agents: Agent[]; onDone: () => void }) {
   const navigate = useNavigate();
   const notify = useToast();
   const client = useQueryClient();
   const [agentId, setAgentId] = useState(agents[0]?.id ?? "");
-  const [root, setRoot] = useState(machine.roots[0] ?? "");
-  const [folder, setFolder] = useState("");
+  const [project, setProject] = useState(machine.roots[0] ?? "");
   const [model, setModel] = useState("");
   const [backend, setBackend] = useState("");
   const [trace, setTrace] = useState(false);
@@ -593,11 +659,6 @@ function LaunchForm({ machine, agents, onDone }: { machine: FleetMachine; agents
     const info = status.data?.backends[name];
     return `${name} (${providerLabel(info?.type, true)}${info?.machine_name ? ` on ${info.machine_name}` : ""})`;
   };
-  const separator = root.includes("\\") ? "\\" : "/";
-  const project = useMemo(() => {
-    const sub = folder.trim().replace(/^[\\/]+|[\\/]+$/g, "");
-    return sub ? `${root.replace(/[\\/]+$/, "")}${separator}${sub.replace(/[\\/]+/g, separator)}` : root;
-  }, [folder, root, separator]);
   const launch = useMutation({
     mutationFn: () => {
       const [visibility, team] = share.value.split(":");
@@ -650,25 +711,10 @@ function LaunchForm({ machine, agents, onDone }: { machine: FleetMachine; agents
             </select>
           </label>
         )}
-        <label className="field">
+        <div className="field span-2">
           Folder
-          <select value={root} onChange={(event) => setRoot(event.target.value)}>
-            {machine.roots.map((item) => (
-              <option key={item} value={item}>
-                {item}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="field">
-          <span className="field-label">
-            Inside it <span className="optional">optional</span>
-          </span>
-          <input value={folder} placeholder="my-project" onChange={(event) => setFolder(event.target.value)} />
-          <small>
-            <span className="mono">{project}</span> (made there if it doesn't exist yet)
-          </small>
-        </label>
+          <FolderPicker machine={machine} onChange={setProject} allowNew />
+        </div>
         <label className="field span-2">
           <span className="field-label">
             Model {agent?.needs_model ? "" : <span className="optional">optional</span>}
@@ -730,7 +776,7 @@ function LaunchForm({ machine, agents, onDone }: { machine: FleetMachine; agents
         Capture full request and response payloads
       </label>
       <div className="row wrap">
-        <button type="submit" className="primary" disabled={launch.isPending || !agentId || !root}>
+        <button type="submit" className="primary" disabled={launch.isPending || !agentId || !project}>
           {launch.isPending ? "Starting…" : `Start on ${machine.name}`}
         </button>
         <button type="button" onClick={onDone}>

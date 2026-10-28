@@ -58,6 +58,9 @@ type Presence struct {
 	Logger *log.Logger
 	// Launch starts a launch; tests replace it. By default it runs `agent` headless.
 	Launch func(request Launch) (string, error)
+	// Shell opens a shell for the owner (agent-machine commands on); tests replace it. By default
+	// it runs `agent --shell` headless.
+	Shell func(request Launch) (string, error)
 	// OnStatus hears every change of the connection's state (agent-machine writes status.json).
 	OnStatus func(status string)
 	// OnServerVersion hears the server's version each time the machine connects.
@@ -118,6 +121,9 @@ func Dial(upstream settings.Upstream, server, path string) (*websocket.Conn, *ht
 func (p *Presence) Run(ctx context.Context) {
 	if p.Launch == nil {
 		p.Launch = p.launchHeadless
+	}
+	if p.Shell == nil {
+		p.Shell = p.shellHeadless
 	}
 	if p.Dial == nil {
 		p.Dial = func(server, path string) (*websocket.Conn, *http.Response, error) {
@@ -276,18 +282,29 @@ func (p *Presence) session(ctx context.Context) error {
 			}
 			continue
 		}
+		if kind.Type == "folders" {
+			var request FoldersRequest
+			if json.Unmarshal(data, &request) == nil {
+				go func() { _ = send(Folders(request, settings.LoadMachine())) }()
+			}
+			continue
+		}
 		var message Launch
-		if json.Unmarshal(data, &message) != nil || message.Type != "launch" {
+		if json.Unmarshal(data, &message) != nil || (message.Type != "launch" && message.Type != "shell") {
 			continue
 		}
 		go func(request Launch) {
-			sessionID, err := p.Launch(request)
+			run, what := p.Launch, request.Agent
+			if request.Type == "shell" {
+				run, what = p.Shell, "a shell"
+			}
+			sessionID, err := run(request)
 			if err != nil {
-				p.logf("fleet: launch %s of %s in %s failed: %v", request.ID, request.Agent, request.Project, err)
+				p.logf("fleet: launch %s of %s in %s failed: %v", request.ID, what, request.Project, err)
 				_ = send(map[string]any{"type": "launch_failed", "launch": request.ID, "error": err.Error()})
 				return
 			}
-			p.logf("fleet: launched %s in %s: session %s", request.Agent, request.Project, sessionID)
+			p.logf("fleet: launched %s in %s: session %s", what, request.Project, sessionID)
 			_ = send(map[string]any{"type": "launched", "launch": request.ID, "session_id": sessionID})
 			// What's installed may have changed the server's view; send it again soon.
 			_ = send(p.describe(server, "update"))
@@ -349,7 +366,7 @@ func (p *Presence) describe(server, kind string) map[string]any {
 	return map[string]any{
 		"type": kind, "id": machine.ID, "name": machine.DisplayName(), "hostname": hostname, "os": runtime.GOOS, "arch": runtime.GOARCH,
 		"version": settings.Version, "protocol": settings.Protocol, "address": machine.Address, "agents": p.installedAgents(server),
-		"providers": found, "launches": machine.Launches, "roots": machine.Roots,
+		"providers": found, "launches": machine.Launches, "roots": machine.Roots, "commands": machine.Commands,
 		// It carries agents' requests to its model servers itself, so the server needn't reach them (tunnel.go).
 		"tunnel": 1,
 		// Launches run the agent command: say whether it's here, so the console can say what's missing.
@@ -408,6 +425,24 @@ func Check(request Launch, machine *settings.Machine) (string, error) {
 	if !machine.Launches {
 		return "", errors.New("this machine doesn't take launches (agent-machine launches on)")
 	}
+	return inRoots(request.Project, machine)
+}
+
+// CheckShell is the machine's own say over a shell: commands on, and the folder (which has
+// to exist) inside one of the roots. It returns the folder resolved.
+func CheckShell(request Launch, machine *settings.Machine) (string, error) {
+	if !machine.Commands {
+		return "", errors.New("this machine doesn't take commands (agent-machine commands on)")
+	}
+	if _, missing, err := existingParent(request.Project); err != nil || len(missing) > 0 {
+		return "", fmt.Errorf("%s isn't a folder here", request.Project)
+	}
+	return inRoots(request.Project, machine)
+}
+
+// inRoots resolves a folder inside one of the roots, making the part that doesn't exist yet.
+func inRoots(folder string, machine *settings.Machine) (string, error) {
+	request := Launch{Project: folder}
 	// A new project folder is made, inside a launch folder: the part that exists is resolved
 	// (links followed) and checked, and only plain names are added to it.
 	existing, missing, err := existingParent(request.Project)
@@ -529,6 +564,28 @@ func (p *Presence) launchHeadless(request Launch) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return p.runHeadless(machine, project, Arguments(request, project))
+}
+
+// shellHeadless runs `agent --shell <folder> --headless`: the user's shell in a terminal only the
+// machine's owner sees, for a remote terminal from the console.
+func (p *Presence) shellHeadless(request Launch) (string, error) {
+	machine := settings.LoadMachine()
+	project, err := CheckShell(request, machine)
+	if err != nil {
+		return "", err
+	}
+	return p.runHeadless(machine, project, ShellArguments(request, project))
+}
+
+// ShellArguments is the `agent` command line for a shell, headless and private.
+func ShellArguments(request Launch, project string) []string {
+	return []string{"--shell", project, "--headless", "--launch-id", request.ID}
+}
+
+// runHeadless runs the agent command with args in project, detached, and returns the session
+// it reports on its first line of output.
+func (p *Presence) runHeadless(machine *settings.Machine, project string, args []string) (string, error) {
 	program, err := AgentCommand()
 	if err != nil {
 		return "", err
@@ -537,7 +594,7 @@ func (p *Presence) launchHeadless(request Launch) (string, error) {
 	if running := agentProxyServer(); running != "" && settings.Normalize(running) != settings.Normalize(server) {
 		return "", fmt.Errorf("the agent-proxy here carries traffic to %s, not %s; sign the agent command in there (agent login %s)", running, server, server)
 	}
-	cmd := exec.Command(program, Arguments(request, project)...)
+	cmd := exec.Command(program, args...)
 	cmd.Dir = project
 	// AI_PROXY_URL points a newly started agent-proxy at this machine's server; the machine
 	// variables tag the session with the machine it runs on.

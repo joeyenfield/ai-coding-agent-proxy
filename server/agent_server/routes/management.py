@@ -16,7 +16,7 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 
 from .. import access, auth, remote, strata, version
 from ..config import DIRECT_BACKEND, LOCAL_PROXY_URL, ModelProfile, serves
-from ..fleet import PROVIDER_TYPES, FleetError, parse_provider, provider_id, provider_request
+from ..fleet import PROVIDER_TYPES, SHELL_CLIENT, FleetError, parse_provider, provider_id, provider_request
 from ..runtime import Runtime
 from ..sessions import Session
 
@@ -199,6 +199,8 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         if identity is not None and any(key in data for key in ("visibility", "team", "org", "access")):
             if not access.is_owner(identity, session):
                 raise HTTPException(status_code=403, detail="Only the person who started a session can change who it's shared with.")
+            if session.client == SHELL_CLIENT:
+                raise HTTPException(status_code=400, detail="A shell stays private: it's a terminal on your machine.")
             try:
                 runtime.sessions.update_tags(session, access.sharing_tags(identity, data, access.sharing(session)))
             except ValueError as exc:
@@ -420,6 +422,9 @@ def _new_tags(data: dict[str, Any], tags: Any, request: Request) -> dict[str, An
     tags = access.client_tags(tags)
     identity = auth.request_identity(request)
     if identity is not None:
+        if data.get("client") == SHELL_CLIENT:
+            # A shell is a remote terminal: only the person who opened it sees it, whatever was asked.
+            data = {**data, "visibility": "private", "access": "view"}
         tags.update(access.sharing_tags(identity, data))
     return tags
 

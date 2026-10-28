@@ -26,6 +26,7 @@ agent-machine                                  # how the fleet sees this machine
 | `agent-machine servers on\|off` | Let the console manage the model servers here: start and stop the Ollama and Strata installed here, change Ollama's settings, and pull, delete, load and unload models (off by default) |
 | `sudo agent-machine servers service [off]` | Linux: let agent-machine start, stop and restart an Ollama that's the systemd service `ollama.service`, with the console's settings (a sudoers rule for only those three commands, and a drop-in that reads `/etc/agent-machine/ollama.env`) |
 | `agent-machine launches on\|off`, `agent-machine roots add\|remove <dir>` | Let the server start agents here, in those folders only (off by default) |
+| `agent-machine commands on\|off` | Let the owner open a terminal here from the console: a shell in one of the roots, as this user, that only they see (off by default) |
 | `agent-machine name <name>\|-`, `agent-machine address <host>\|-` | The name the console shows, and how the server reaches this machine's model servers |
 | `agent-machine update [--force]` | Replace agent-machine with the build the server offers for this computer, and restart it |
 | `agent-machine version` | Its version and the server protocol it speaks |
@@ -40,6 +41,13 @@ agent-machine                                  # how the fleet sees this machine
   Strata 18500), the server's agents installed here, whether it runs containers (its
   CLI, whether the engine answers, the engines it offers) and its launch settings. The
   console adds a model server as a provider from this ("Add as a provider").
+- **Folders** (`{"type": "folders", "path": ...}`, answered by `folders_result`): the folders
+  inside one of the roots, for the console's folder picker. Only while launches or commands are on,
+  only inside the roots (checked here after resolving links), only folder names, and no hidden
+  folders or links out of the roots.
+- **Terminals** (`{"type": "shell", "project": ...}`, with `commands on`): runs
+  `agent --shell <folder> --headless`, the user's shell in a terminal shared with the server for the
+  owner only, answered like a launch (`launched` with its session).
 - **Container requests** (`{"type": "container", "op": ...}`): status, start, stop,
   restart, remove, logs. The machine runs `docker` (or `podman`) itself, with its own
   environment, so `DOCKER_HOST` and docker contexts apply. `docker run` is root here, so

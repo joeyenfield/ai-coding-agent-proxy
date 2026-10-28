@@ -563,3 +563,49 @@ def test_a_machine_the_server_cant_reach_serves_agents_through_its_tunnel(tmp_pa
         assert any(method == "GET" and path == "/api/tags" for method, path, _ in seen)
         # Keep-alive: the next request reuses the tunnel, and it still works.
         assert httpx.get(f"{m.server}/session/{session}/v1/models", timeout=30).status_code == 200
+
+
+def test_a_fleet_machine_lists_its_folders_and_opens_a_shell_when_commands_are_on(tmp_path, agent_binary, machine_binary):
+    work = tmp_path / "work"
+    (work / "api" / "src").mkdir(parents=True)
+    (work / "web").mkdir()
+    (work / ".git").mkdir()
+    (work / "notes.txt").write_text("not a folder")
+    with machine(tmp_path, agent_binary) as m, fleet_machine(m, machine_binary, tmp_path, ["roots", "add", str(work)]) as fleet:
+        base = f"{m.server}/api/machines/{fleet.box['id']}"
+        assert fleet.box["commands"] is False and "Commands  : off" in fleet.status
+        # Neither launches nor commands: its folders stay private, and so does its shell.
+        assert httpx.get(f"{base}/folders", params={"path": str(work)}, timeout=30).status_code == 409
+        refused = httpx.post(f"{base}/shell", json={"project": str(work)}, timeout=30)
+        assert refused.status_code == 409 and "commands on" in refused.json()["detail"]
+
+        fleet.command("commands", "on")
+        deadline = time.monotonic() + 90
+        while time.monotonic() < deadline and not httpx.get(base).json()["commands"]:
+            time.sleep(0.5)  # the machine says so in its next update, within a minute
+        assert httpx.get(base).json()["commands"] is True
+        listed = httpx.get(f"{base}/folders", params={"path": str(work)}, timeout=30).json()
+        assert [folder["name"] for folder in listed["folders"]] == ["api", "web"] and listed["parent"] is None
+        inside = httpx.get(f"{base}/folders", params={"path": listed["folders"][0]["path"]}, timeout=30).json()
+        assert [folder["name"] for folder in inside["folders"]] == ["src"] and Path(inside["parent"]) == work
+
+        opened = httpx.post(f"{base}/shell", json={"project": str(work / "api")}, timeout=90)
+        assert opened.status_code == 201, opened.text
+        session_id = opened.json()["session_id"]
+        session = m.runtime.sessions.get(session_id)
+        assert session.client == "shell" and session.tags["machine"] == fleet.box["id"]
+        assert Path(session.tags["project_path"]).resolve() == (work / "api").resolve()
+        # The console types into it; exit ends the shell, and the session with it.
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline and not httpx.get(f"{m.server}/api/terminals").json()["terminals"]:
+            time.sleep(0.2)
+        with connect(m.server.replace("http", "ws") + f"/api/terminals/{session_id}/view", proxy=None) as viewer:
+            viewer.recv(timeout=10)
+            time.sleep(2)  # let the shell draw its prompt
+            viewer.send(json.dumps({"type": "input", "text": "exit", "enter": True}))
+            deadline = time.monotonic() + 30
+            while time.monotonic() < deadline and m.runtime.sessions.get(session_id).ended_at is None:
+                time.sleep(0.2)
+        assert m.runtime.sessions.get(session_id).ended_at is not None
+        [record] = httpx.get(base).json()["history"]
+        assert record["agent"] == "shell" and record["session_id"] == session_id
