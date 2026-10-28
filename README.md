@@ -354,7 +354,7 @@ The launcher picks the `anthropic` backend automatically. The proxy sees Claude 
 
 ## Running agents on your phone
 
-Start an agent with `--control` (`agent claude-account . --control`) and the launcher runs it in a pseudo-terminal it shares with the server through the `agent-proxy`, a bit like a one-window tmux. The agent draws in your terminal window as usual. Meanwhile the console's **Running agents** page shows the same screen, scrollback included, and can type into it. Sign in on your phone once, and you can check on every such agent from any network:
+Start an agent with `--control` (`agent claude-account . --control`) and the launcher runs it in a pseudo-terminal it shares with the server through the `agent-proxy`, a bit like a one-window tmux. The agent draws in your terminal window as usual. Meanwhile the console's **Running agents** page shows the same screen, scrollback included, and can type into it. Agents that run full screen (Claude Code, OpenCode, Qwen Code) keep their history themselves: scroll it with the mouse wheel over the terminal, or **Scroll ↑**/**Scroll ↓** below it on a phone. Sign in on your phone once, and you can check on every such agent from any network:
 
 - see which agents are working and which are waiting for you: an agent asking something (a permission prompt) gets a banner above every page with its question, and **Notify me when an agent is waiting** on Running agents turns on browser notifications;
 - read what they printed;

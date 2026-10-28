@@ -24,8 +24,28 @@ const SIZES = { min: 6, max: 22 };
  */
 const REPLY = /^(?:\x1b\[[?>]?[\d;]*[cnRIO]|\x1b\[\?[\d;]*u|\x1b\][\s\S]*(?:\x07|\x1b\\)|\x1b\[<[\d;]*[Mm]|\x1b\[M[\s\S]{3}|\x1b\[\?[\d;]*\$y|\x1bP[\s\S]*\x1b\\)$/;
 
+/**
+ * Mouse-wheel reports (SGR buttons 64-67, or the older X10 form), let through though they look like
+ * replies: full-screen agents (Claude Code, OpenCode, Qwen Code) keep their own history in the
+ * alternate screen, which has no terminal scrollback, and scroll it on these. Clicks stay filtered,
+ * so tapping the terminal on a phone doesn't click inside the agent.
+ */
+const WHEEL = /^(?:\x1b\[<6[4-7];\d+;\d+M|\x1b\[M[\x60-\x63][\s\S]{2})$/;
+
 /** Arrow keys as the agent expects them: application cursor mode changes the sequence. */
 const arrow = (term: Terminal | null, key: string) => (term?.modes.applicationCursorKeysMode ? `\x1bO${key}` : `\x1b[${key}`);
+
+/**
+ * Scrolling the agent's own history, for phones, where touch makes no wheel events: wheel reports
+ * (a few notches, at the middle of its screen) when it listens to the mouse, else Page Up or Down.
+ */
+const scroll = (term: Terminal | null, up: boolean) => {
+  if (term && term.modes.mouseTrackingMode !== "none") {
+    const report = `\x1b[<${up ? 64 : 65};${Math.ceil(term.cols / 2)};${Math.ceil(term.rows / 2)}M`;
+    return report.repeat(5);
+  }
+  return up ? "\x1b[5~" : "\x1b[6~";
+};
 
 const KEYS: { label: string; title: string; keys: (term: Terminal | null) => string }[] = [
   { label: "Esc", title: "Escape: interrupt the agent or close a menu", keys: () => "\x1b" },
@@ -34,6 +54,10 @@ const KEYS: { label: string; title: string; keys: (term: Terminal | null) => str
   { label: "↓", title: "Down", keys: (term) => arrow(term, "B") },
   { label: "←", title: "Left", keys: (term) => arrow(term, "D") },
   { label: "→", title: "Right", keys: (term) => arrow(term, "C") },
+  { label: "Scroll ↑", title: "Scroll up through the agent's history (like the mouse wheel)", keys: (term) => scroll(term, true) },
+  { label: "Scroll ↓", title: "Scroll down through the agent's history", keys: (term) => scroll(term, false) },
+  { label: "PgUp", title: "Page Up", keys: () => "\x1b[5~" },
+  { label: "PgDn", title: "Page Down", keys: () => "\x1b[6~" },
   { label: "Tab", title: "Tab", keys: () => "\t" },
   { label: "⇧Tab", title: "Shift+Tab: in Claude Code, switches between modes such as plan and auto-accept", keys: () => "\x1b[Z" },
   { label: "Ctrl+C", title: "Ctrl+C: cancel; pressed twice, most agents quit", keys: () => "\x03" },
@@ -115,7 +139,7 @@ export function TerminalPage() {
     let stopped = false;
     let retry: number | undefined;
     const typed = terminal.onData((data) => {
-      if (!REPLY.test(data) && !watchOnlyRef.current) send({ keys: data });
+      if ((WHEEL.test(data) || !REPLY.test(data)) && !watchOnlyRef.current) send({ keys: data });
     });
     const connect = () => {
       const ws = new WebSocket(terminalSocketUrl(sessionId));
