@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-proxy-agent-py"
+version = "1.0.0"
+description = "The Python versions of agent (with its agent-proxy) and agent-machine: the agent machine's programs, for any computer that runs Python"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+  "httpx>=0.27",
+  "websockets>=15",
+  "starlette>=0.37",
+  "uvicorn>=0.27",
+  # --control and launches from the console run the agent in a ConPTY on Windows; elsewhere the standard library's pty does.
+  "pywinpty>=2; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+# psutil: CPU and memory figures on every platform (without it: /proc on Linux, the Windows API on Windows).
+metrics = ["psutil>=5.9"]
+dev = ["pytest>=8.0", "psutil>=5.9"]
+
+# Named apart from the Go binaries (agent, agent-machine), so both can be installed on one computer.
+[project.scripts]
+agent-py = "agent_py.client:main"
+agent-proxy-py = "agent_py.client:proxy_main"
+agent-machine-py = "agent_py.machine:main"
+
+[tool.setuptools.packages.find]
+include = ["agent_py*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -11,6 +11,7 @@ A proxy that every coding-agent request goes through, in components with a folde
 - **Client** (`client/`, Go): the **`agent`** binary for each agent machine: the launcher, `agent login`/`logout`, and **`agent-proxy`** (`agent proxy`, or `cmd/agent-proxy`), which runs on loopback only. The client knows the server only by URL and gets agents, backends and launch environments from the API. It doesn't join the fleet.
 - **Machine** (`machine/`, Go, its own module): the **`agent-machine`** binary, which keeps a computer in the server's **fleet**: `agent-machine login` (its own credentials, apart from `agent login`), `run`/`start`/`stop`, and the machine's settings. Through its fleet connection the server uses the model servers it runs, has it manage them (models, logs, load, Ollama's settings, starting and stopping), runs containers on it and starts agents there (by running the client's `agent`). It shares no code with `client/`: the two talk only to the server, and agent-machine runs `agent` as a program.
 - **Android app** (`android/`, Kotlin): a list of servers and each one's console in a WebView. All its features are the console's.
+- **Python client and machine** (`python/`, package `agent_py`): `agent-py` and `agent-machine-py`, the same protocol, files and ports as the Go programs, for computers without a Go build. It has no containers, no starting of model servers, and no `update`; its hello says so. `python/tests` runs `server/tests/test_client.py` against it. When you change the API between the client or machine and the server, change it here too.
 
 Agents (Claude Code, Codex, OpenCode, Qwen Code, Aider, Goose, Copilot CLI, ...) are launched pointed at their machine's `agent-proxy` and a **session**. The `agent-proxy` carries everything to the server that machine signed in to with `agent login`. The server forwards each request to an **LLM provider** and records it: tokens, timings, full traces and live streamed text. There are three ways traffic reaches a provider.
 
@@ -119,6 +120,10 @@ benchmarks/tests/<name>/    prompt.md + test.yaml; results go to benchmarks/resu
 logs/  certs/  ui/dist/     Runtime output, the intercept CA plus the terminal access key (certs/remote-access-key), and the UI build; all gitignored
 client/bin/ machine/bin/    This machine's builds; dist/<version>/<os>-<arch>/ every platform's (archives and packages, binaries in artifact/); all gitignored
 android/                    THE ANDROID APP (Kotlin, no libraries): ServersActivity (servers list), ConsoleActivity (the console in a WebView); see android/README.md
+python/agent_py/            THE PYTHON CLIENT AND MACHINE; see python/README.md
+  common.py login.py        Shared by both: protocol and headers, credentials files, loopback checks, look_path; login/logout
+  client/                   agent: launcher.py (arguments, launch, list, containers), localproxy.py (agent-proxy: ASGI app on uvicorn + HTTPS tunnel port), terminal.py (pty/ConPTY, Share)
+  machine/                  agent-machine: __init__.py (command line), presence.py (fleet socket, launches, tunnels), providers.py (model servers, metrics)
 ```
 
 ## Commands
@@ -134,6 +139,7 @@ cd server && python -m pytest -q         # ~145 tests, ~1 min, no network beyond
 cd client && go test ./...               # the client's unit tests; go vet ./... and GOOS=linux go vet ./... for both pty paths
 cd machine && go test ./...              # agent-machine's unit tests; vet it for Windows and Linux too (process_*.go differ)
 cd tools && go test ./...                # tools/dist: package versions, every Linux format for every target, rpm headers
+cd python && python -m pytest -q         # the Python agent and agent-machine against a real agent-server (~11 tests, ~1 min)
 PACKAGES=1 ./scripts/build-dist.sh       # the same plus .deb/.rpm/.apk/Arch (and .msi with wix, .pkg on a Mac); -Packages in .ps1
 cd ui && npm run typecheck               # tsc, strict, noUnusedLocals/Parameters
 cd ui && npm run build                   # writes ui/dist
