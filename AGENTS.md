@@ -2,6 +2,36 @@
 
 Notes for coding agents (and people) changing this repository. `README.md` is the short introduction and `docs/` (start at `docs/index.md`) the user documentation: what every part does and how to use it; this file covers how the code is put together and how to change it safely. `spec.md` is the original design document and is out of date in places: it predates Strata, Docker Model Runner, account agents and the console's current layout.
 
+## Structure guide: `.context/`
+
+`.context/` holds the design of each component, one file each. **Before changing a component, read `.context/overview.md` and that component's file**; they say how it is built, what it owns, what it must never do, and where a change goes.
+
+| Working in | Read |
+| --- | --- |
+| Anything across components | `.context/overview.md` |
+| `server/` | `.context/server.md` |
+| `client/` | `.context/client.md` |
+| `machine/` | `.context/machine.md` |
+| `python/` | `.context/python.md` (plus `client.md` or `machine.md`, which it mirrors) |
+| `ui/` | `.context/console.md` |
+| `android/` | `.context/android.md` |
+| `tools/`, `scripts/`, Docker, `sandbox/` | `.context/build-and-deploy.md` |
+
+When a change alters a component's shape (a module, message type, boundary, file on disk or invariant), update its `.context/` file in the same change. Where `.context/` and this file disagree with the code, the code wins: fix the document.
+
+## Every change: review the docs
+
+Reviewing the documentation is a step of every change, not an afterthought. Before calling a change done, go through what it touched, check each of these, and update what's out of date in the same change:
+
+- `docs/`: any command, option, console page or control, endpoint (`docs/api.md`), setting, file on disk or environment variable that was added, changed, renamed or removed. `docs/index.md` says which page covers what. Changes in behaviour count too, even when no name changed.
+- `.context/`: the component's file, when its shape changed (see above).
+- This file (`AGENTS.md`): the layout, commands, conventions and gotchas, when they no longer match.
+- `README.md`, only if the introduction or its links are now wrong.
+- Comments in `config/*.yaml`, when a setting's meaning changed.
+- Screenshots in `docs/screenshots/`, when a page they show changed visibly (see "Checking changes visually").
+
+If nothing needed updating, say so when reporting the change, so it's clear the docs were checked.
+
 ## What it is
 
 A proxy that every coding-agent request goes through, in components with a folder each. Keep them separate: they talk only over HTTP and WebSockets, never by importing each other.
@@ -11,7 +41,7 @@ A proxy that every coding-agent request goes through, in components with a folde
 - **Client** (`client/`, Go): the **`agent`** binary for each agent machine: the launcher, `agent login`/`logout`, and **`agent-proxy`** (`agent proxy`, or `cmd/agent-proxy`), which runs on loopback only. The client knows the server only by URL and gets agents, backends and launch environments from the API. It doesn't join the fleet.
 - **Machine** (`machine/`, Go, its own module): the **`agent-machine`** binary, which keeps a computer in the server's **fleet**: `agent-machine login` (its own credentials, apart from `agent login`), `run`/`start`/`stop`, and the machine's settings. Through its fleet connection the server uses the model servers it runs, has it manage them (models, logs, load, Ollama's settings, starting and stopping), runs containers on it and starts agents there (by running the client's `agent`). It shares no code with `client/`: the two talk only to the server, and agent-machine runs `agent` as a program.
 - **Android app** (`android/`, Kotlin): a list of servers and each one's console in a WebView. All its features are the console's.
-- **Python client and machine** (`python/`, package `agent_py`): `agent`, `agent-proxy` and `agent-machine` (the Go programs' names, so it installs as a drop-in), the same protocol, files and ports, for computers without a Go build. It has no containers and no starting of model servers; its hello says so. Its `update` pip-installs the server's wheel (`agent_py/update.py`), and a checkout reports the same version as the server would from it (`common.checkout_version`, in step with `version.py` and `version.go`). `python/tests` runs `server/tests/test_client.py` against it. When you change the API between the client or machine and the server, change it here too.
+- **Python client and machine** (`python/`, package `agent_py`): `agent`, `agent-proxy` and `agent-machine` (the Go programs' names, so it installs as a drop-in), the same protocol, files and ports, for computers without a Go build. Its agent-machine runs no containers and starts no model servers, and its hello says so (its launcher still starts a container backend another machine runs). Its `update` pip-installs the server's wheel (`agent_py/update.py`), and a checkout reports the same version as the server would from it (`common.checkout_version`, in step with `version.py` and `version.go`). `python/tests` runs `server/tests/test_client.py` against it. When you change the API between the client or machine and the server, change it here too.
 
 Agents (Claude Code, Codex, OpenCode, Qwen Code, Aider, Goose, Copilot CLI, ...) are launched pointed at their machine's `agent-proxy` and a **session**. The `agent-proxy` carries everything to the server that machine signed in to with `agent login`. The server forwards each request to an **LLM provider** and records it: tokens, timings, full traces and live streamed text. There are three ways traffic reaches a provider.
 
@@ -47,7 +77,7 @@ server/                     THE SERVER (Python); console scripts in server/pypro
 server/agent_server/        Python package (FastAPI)
   app.py                    create_app(), route registration order, UI serving, `agent-server` CLI, Supervisor, ensure_first_user
   config.py                 Settings, Backend, backend types, serves()/backend_for(), model profiles, the client's default LOCAL_* ports
-  runtime.py                Runtime: shared state (settings, sessions, httpx client, live hub, totals)
+  runtime.py                Runtime: shared state (settings, sessions, chats, terminals, fleet, tunnels, containers, auth, remote, httpx client, live hub, totals)
   agents.py                 Agent definitions from config/agents.yaml, template rendering (for the console and every client launch)
   terminals.py              Server side of --control: TerminalHub, per-session history, terminal.log/terminal.json, viewer fan-out, attention (waiting for its user, a question read off the screen)
   remote.py                 Who may use terminals: this computer (loopback + loopback Host) or the access key; LAN addresses
@@ -70,7 +100,7 @@ server/agent_server/        Python package (FastAPI)
   installer.py install/     The one-line installers (/install.sh, /install.ps1): templates filled in with the server's address and its build's archives
   openapi.py                /openapi.json, /docs, /redoc: tags each route by its module (TAGS), unique operation ids, sign-in schemes, the WebSockets in the description
   routes/compat.py          Agent-facing APIs: /v1, /anthropic, /api, plus /session/<id>/... versions
-  routes/management.py      Console API: status, config, sessions, requests, traces, live, agents, models, hosts
+  routes/management.py      Console API: status, config, sessions, requests, traces, live, agents, models, intercept
   routes/machines.py        WS /api/machines/connect, /api/machines (list, launch, adopt a model server, forget), and every LLM provider
                             operation, relayed to the machine: providers/{kind}-{port} (status, models, log), metrics, catalog, servers
   routes/terminals.py       /api/remote (pairing), /api/terminals, WebSockets .../{id}/host (launcher) and .../{id}/view (console)
@@ -78,18 +108,22 @@ server/agent_server/        Python package (FastAPI)
   routes/proxy.py           WS /api/proxy/tunnel: one account-agent connection from an agent-proxy, into InterceptProxy.serve_tunnel
   routes/containers.py      /api/containers: create on a machine, edit, delete, start/stop/restart (switch), logs; trusted devices, the machine's owner for changes
   routes/auth.py            /api/auth/* (sign-in, tokens, password), /api/orgs/* (organizations, their teams) and /api/users/*
-server/tests/               pytest; one file per area (test_proxy, test_units, test_intercept, test_providers, test_strata, test_model_runner, test_terminals, test_containers, test_auth)
-  test_client.py            Builds ../client and runs it against a real agent-server: the contract between the two (skipped without Go)
+server/tests/               pytest; one file per area (test_proxy, test_units, test_intercept, test_providers, test_strata, test_model_runner, test_terminals, test_containers, test_auth,
+                            test_fleet, test_mcp, test_chat, test_help, test_installer, test_restart, test_upstream_cookies, test_versions)
+  test_client.py            Builds ../client and ../machine and runs them against a real agent-server: the contract between them (skipped without Go)
   fake_mcp.py               A stand-in stdio MCP server, which the real agent-machine runs in test_client.py
   fake_docker.py            A stand-in docker CLI (state in a JSON file), run by the real client in test_client.py and its Go tests
+  fake_ollama.py fake_strata.py fake_systemctl.py
+                            Stand-in Ollama, Strata CLI and systemctl for the real agent-machine in test_client.py
   conftest.py               Fails (and undoes) any test that changes the real config/*.yaml or creates secrets in certs/
 client/                     THE CLIENT (Go module ai-coding-agent-proxy/client); see client/README.md
-  cmd/agent/ cmd/agent-proxy/  the binaries: `agent` (subcommands login, logout, proxy, version) and a standalone agent-proxy
+  cmd/agent/ cmd/agent-proxy/  the binaries: `agent` (subcommands login, logout, proxy, update, version) and a standalone agent-proxy
   internal/settings/        ports, `agent login`'s credentials.json (same format as before), HTTP clients with Proxy: nil
   internal/api/             JSON calls through the agent-proxy
   internal/localproxy/      agent-proxy: LauncherAPI allowlist, Host/Origin checks, agent traffic (ReverseProxy), terminal relay, HTTPS tunnel
-  internal/launcher/        `agent`: argument parsing, Launch (agents, CA copy, session, run), EnsureProxy/agent-server start, EnsureContainer
+  internal/launcher/        `agent`: argument parsing, Launch (agents, CA copy, session, run), EnsureProxy/agent-server start, EnsureContainer; shell.go (LaunchShell, `agent --shell`)
   internal/login/           `agent login`/`logout`
+  internal/update/          `agent update`: the server's build from /downloads/index.json, SHA-256 checked, swapped in beside the old one
   internal/terminal/        --control: History, Share (WebSocket), Run, RunHeadless (fleet launches), pty_windows.go (ConPTY), pty_unix.go
   internal/process/         starting programs detached from the terminal
 machine/                    AGENT-MACHINE (Go module ai-coding-agent-proxy/machine); see machine/README.md
@@ -99,13 +133,16 @@ machine/                    AGENT-MACHINE (Go module ai-coding-agent-proxy/machi
   internal/providers/       the model servers here, for the server: status, models (pull streams progress), logs, metrics, catalogue search
   internal/mcp/             the MCP servers it shares (mcp.json, `agent-machine mcp add`) and the bridge: Streamable HTTP on a loopback port, a process per session for stdio servers, URL servers proxied
   internal/containers/      containers the machine runs for the server: the engine table, spec checks, run args (Podman gets GPUs as CDI devices), the CLI (Detect: Docker if answering, else Podman), jobs
-  internal/servers/         starting and stopping the Ollama (`ollama serve`, only one it started; its OLLAMA_* settings in ollama.json) and Strata profiles (`strata runtime`) installed there
-  internal/settings/        its folder (AI_PROXY_MACHINE_HOME): credentials.json, machine.json (carried over once from agent-proxy/), status.json, log
+  internal/servers/         starting and stopping the Ollama (`ollama serve`, only one it started, or a systemd ollama.service once `sudo agent-machine servers service` allows it; its OLLAMA_* settings in ollama.json) and Strata profiles (`strata runtime`) installed there
+  internal/settings/        its folder (AI_PROXY_MACHINE_HOME): credentials.json, machine.json (carried over once from agent-proxy/), status.json, log; mcp.json, servers.json, ollama.json and ollama.log sit there too
   internal/login/ process/  `agent-machine login`/`logout`; detaching, windowless runs, Alive/Stop for start/stop
+  internal/update/          `agent-machine update` (and remote updates): the server's build, SHA-256 checked, swapped in beside the old one
 tools/                      build tooling (Go module ai-coding-agent-proxy/tools): dist/ builds and packs both Go components for every platform (targets and components live here)
   dist/install/             install.sh (Linux, macOS, FreeBSD) and install.ps1 (Windows), embedded into every archive: copy onto PATH, --service, --uninstall
   dist/packages.go rpm.go   -packages: .deb, .apk, Arch and .rpm written in Go; .msi through wix, macOS .pkg through pkgbuild, each skipped without its tool
   dist/python.go            the Python client and machine (python/) as one wheel, written in Go from pyproject.toml, into dist/<version>/python/ (-python=false skips it)
+  dist/android.go           the Android app's APK through Gradle, into dist/<version>/android/ (-android=false skips it; skipped without a JDK and SDK)
+  dist/version.go           the build's version (in step with server's version.py; -print-version prints it for the build scripts)
 ui/src/                     THE CONSOLE: React 19 + TypeScript + Vite + TanStack Query + react-router
   api.ts                    Every fetch call and every response type
   navigation.ts             The console's three parts (Agents, Server, Machines) and their pages (drives the side rail)
@@ -142,11 +179,11 @@ cd ui && npm install                     # once
 ./scripts/build-machine.sh |  .\scripts\build-machine.ps1  # agent-machine into machine/bin
 ./scripts/build-dist.sh    |  .\scripts\build-dist.ps1     # both, every platform, into dist/<version>/<os>-<arch>/: archives (binaries in artifact/); the Python wheel in dist/<version>/python/
 
-cd server && python -m pytest -q         # ~145 tests, ~1 min, no network beyond 127.0.0.1; test_client.py builds the Go client
+cd server && python -m pytest -q         # ~170 tests, ~1 min, no network beyond 127.0.0.1; test_client.py builds the Go client
 cd client && go test ./...               # the client's unit tests; go vet ./... and GOOS=linux go vet ./... for both pty paths
 cd machine && go test ./...              # agent-machine's unit tests; vet it for Windows and Linux too (process_*.go differ)
 cd tools && go test ./...                # tools/dist: package versions, every Linux format for every target, rpm headers
-cd python && python -m pytest -q         # the Python agent and agent-machine against a real agent-server (~11 tests, ~1 min)
+cd python && python -m pytest -q         # the Python agent and agent-machine against a real agent-server (~17 tests, ~1 min)
 PACKAGES=1 ./scripts/build-dist.sh       # the same plus .deb/.rpm/.apk/Arch (and .msi with wix, .pkg on a Mac); -Packages in .ps1
 cd ui && npm run typecheck               # tsc, strict, noUnusedLocals/Parameters
 cd ui && npm run build                   # writes ui/dist
@@ -173,10 +210,10 @@ The one pytest warning (Starlette's httpx deprecation in `TestClient`) is expect
    - `{anthropic_url}` = `…/session/<id>/anthropic`
    - `{ollama_url}` = `…/session/<id>` (native `/api/...`)
 
-   Account agents get `HTTPS_PROXY=http://<id>:agent-proxy@127.0.0.1:8183` and the server's CA, cached in `~/.cache/agent-proxy/<fingerprint>/`. The `agent-proxy` passes the same paths to the server. Bare `/v1`, `/anthropic` and `/api` also work, with the headers `X-AI-Proxy-Session` and `X-AI-Proxy-Backend`.
+   Account agents get `HTTPS_PROXY=http://<id>:agent-proxy@127.0.0.1:8183` and the server's CA, cached in `~/.cache/agent-proxy/<fingerprint>/`. The `agent-proxy` passes the same paths to the server. Bare `/v1` and `/anthropic` also work, with the headers `X-AI-Proxy-Session` and `X-AI-Proxy-Backend` (the server takes bare `/api` too, but the `agent-proxy` keeps `/api/*` for its `LauncherAPI`, so agents use `/session/<id>/api/...`).
 4. `routes/compat.py` on the server picks the session's backend and translates or forwards. Every request gets a `RequestTelemetry` entry. With `trace`, the full request and response are saved as well.
 5. With `--control` (and an interactive terminal), the launcher runs the agent through `terminal.Run` rather than `exec.Cmd.Run`. It shares the terminal at `/api/terminals/<id>/host` on the `agent-proxy`, which relays it to the server.
-6. Everything is written to the server's `logs/sessions/<id>/`: `session.json`, `requests.jsonl`, `traces/000001.json`, and `terminal.log`/`terminal.json` when the terminal was shared. The proxy's own log is `logs/proxy/proxy.log`. When agent-machine starts Ollama, its output goes to `ollama.log` in agent-machine's folder (and the Ollama it started is in `servers.json` there).
+6. Everything is written to the server's `logs/sessions/<id>/`: `session.json`, `requests.jsonl`, `traces/000001.json`, and `terminal.log`/`terminal.json` when the terminal was shared. The server's own log is `logs/proxy/proxy.log`; the `agent-proxy` logs to `agent-proxy.log` beside `agent login`'s `credentials.json`. When agent-machine starts Ollama, its output goes to `ollama.log` in agent-machine's folder (and the Ollama it started is in `servers.json` there).
 
 ## Configuration
 
@@ -184,7 +221,7 @@ The one pytest warning (Starlette's httpx deprecation in `TestClient`) is expect
 - `config/models.yaml`: Ollama-only tuning, applied in layers: `defaults`, then the first matching `profiles` entry (shell pattern on the Ollama model name), then the exact alias under `models`. Values a client sends explicitly win. `Settings.profile()` implements it.
 - `config/agents.yaml`: every agent. Supporting a new agent is usually just a new entry (see the comment block at the top of the file for placeholders, `protocol`, `backend_type`, `intercept`, `files`). `files` are rendered by the server and written by the launcher into the `files_dir` it sends (`~/.cache/agent-proxy/sessions/<random>/`, removed when the agent exits); a template whose placeholder has no value for the session is left out (`agents._render`).
 - Ollama's `OLLAMA_*` settings are the machine's: agent-machine keeps them in `ollama.json` in its folder and applies them when it starts Ollama. The server has no Ollama config.
-- The repo root is found via `AI_PROXY_HOME`, or else the first directory up from the package or the cwd that has `config/backends.yaml`. Environment overrides: `AI_PROXY_HOST`, `AI_PROXY_PORT`, `AI_PROXY_URL`, `AI_PROXY_BACKENDS`, `AI_PROXY_MODELS`, `AI_PROXY_AGENTS`, `AI_PROXY_LOG_DIR`, `AI_PROXY_UI_DIR`, `AI_PROXY_DIST_DIR`, `AI_PROXY_VERSION`, `AI_PROXY_DEFAULT_BACKEND`, `AI_PROXY_INTERCEPT=0`, `AI_PROXY_INTERCEPT_HOST`, `AI_PROXY_INTERCEPT_PORT`, `AI_PROXY_CA_DIR`, `AI_PROXY_LIVE=0` (stop streaming request text to the UI), `AI_PROXY_UI_BUILD=0`. On agent machines: `AI_PROXY_LOCAL_PORT`, `AI_PROXY_LOCAL_INTERCEPT_PORT`, `AI_PROXY_CONTROL=1`, `AI_PROXY_CREDENTIALS`, `AI_PROXY_TOKEN`.
+- The repo root is found via `AI_PROXY_HOME`, or else the first directory up from the package or the cwd that has `config/backends.yaml`. Environment overrides: `AI_PROXY_HOST`, `AI_PROXY_PORT`, `AI_PROXY_URL`, `AI_PROXY_BACKENDS`, `AI_PROXY_MODELS`, `AI_PROXY_AGENTS`, `AI_PROXY_LOG_DIR`, `AI_PROXY_UI_DIR`, `AI_PROXY_DIST_DIR`, `AI_PROXY_VERSION`, `AI_PROXY_DEFAULT_BACKEND`, `AI_PROXY_INTERCEPT=0`, `AI_PROXY_INTERCEPT_HOST`, `AI_PROXY_INTERCEPT_PORT`, `AI_PROXY_CA_DIR`, `AI_PROXY_LIVE=0` (stop streaming request text to the UI), `AI_PROXY_UI_BUILD=0`, `AI_PROXY_DOCS_DIR`, `AI_PROXY_REMOTE_KEY_FILE`, `AI_PROXY_USERNAME`/`AI_PROXY_PASSWORD`, `STRATA_API_KEY`. On agent machines: `AI_PROXY_LOCAL_PORT`, `AI_PROXY_LOCAL_INTERCEPT_PORT`, `AI_PROXY_CONTROL=1`, `AI_PROXY_CREDENTIALS`, `AI_PROXY_TOKEN`, `AI_PROXY_PASSWORD_INPUT` (a password for `login` without a terminal, for tests and the sandbox).
 - Secrets never go in `config/`. Strata's key is read by the machine from Strata's own profile and sent in its hello (`api_key` on the provider; the server keeps it in `Machine.keys`, never in machines.json or the console), or comes from `STRATA_API_KEY` on the server. `certs/` holds the intercept CA's private key.
 
 ## Backend conventions and gotchas
@@ -196,7 +233,7 @@ The one pytest warning (Starlette's httpx deprecation in `TestClient`) is expect
 - **The client/server boundary is the API.** The client must not read `config/` or import anything of the server's; the server must not assume anything about the client beyond the API. When the client needs something new from the server, add it to the API (and to the agent-proxy's `LauncherAPI` if the launcher calls it), test it in `server/tests/test_client.py`, and keep the server the owner of the logic: agent definitions, backend choice and template rendering live in Python, not Go.
 - **The agent-proxy (`client/internal/localproxy`) signs as the user, so treat it like the terminal endpoints.**
   - It binds 127.0.0.1 only and checks for a loopback Host and same-origin on every route (`local`).
-  - Only `LauncherAPI` paths are forwarded with the token. Agent traffic (`/session`, `/v1`, `/anthropic`) is streamed without it, because the session id is the credential. Cookies and Origin are never forwarded.
+  - Only `LauncherAPI` paths are forwarded with the token (besides the proxy's own WebSockets: the HTTPS tunnel and the terminal relay). Agent traffic (`/session`, `/v1`, `/anthropic`) is streamed without it, because the session id is the credential. Cookies and Origin are never forwarded.
   - Every HTTP client and WebSocket dialer in the client has `Proxy: nil` (`settings.Transport`). Started from inside an intercepted agent, it would otherwise inherit `HTTPS_PROXY` and loop.
   - It reads `agent login`'s credentials file on every request, so `agent login`/`logout` apply at once.
   - Account agents' connections use one WebSocket each to `/api/proxy/tunnel`. There, the server's `InterceptProxy.serve_tunnel` hands one end of a socket pair to the unchanged `_accept`, because `start_tls` needs a real transport.
@@ -238,7 +275,7 @@ The one pytest warning (Starlette's httpx deprecation in `TestClient`) is expect
 - **Containers machines run.**
   - A backend with `machine:` and `container:` in backends.yaml is a container on that machine. The machine runs it: the server never runs `docker`. The machine turns it on with `agent-machine containers on`, reports its engines (the table lives in Go, `machine/internal/containers`) in its hello, and the server asks it with `Fleet.ask` over the fleet socket (`{"type": "container", "op": status|start|stop|restart|remove|logs}`, answered by `container_result`).
   - Both sides check specs: `containers.validate_spec()` against the machine's reported engine, and agent-machine again whatever the server sends. They allow only known engines, each engine's own env settings, plain image names, `gpus` of all/none/card numbers, and a volume name or absolute folder. Never add free-form docker arguments: `docker run` is root on that machine.
-  - Creating, editing or deleting one needs the machine's owner (and ADMIN_ONLY with accounts); starting and stopping is open to trusted users, as the launcher's `EnsureContainer` needs.
+  - Creating, editing or deleting one needs the machine's owner, and with accounts that owner must also be an admin (ADMIN_ONLY); starting and stopping is open to trusted users, as the launcher's `EnsureContainer` needs.
   - `Settings.update_network_config` (the Settings page) keeps existing machine and container blocks and ignores new ones. Only `/api/containers` or a hand edit changes them, via `Settings.save_backend`/`remove_backend`.
   - Strata containers get `PRESET=<name>` and a server-generated `API_KEY`, sent with each request to the machine. The keys live in `container-keys.json` beside the access key and are published to `strata.managed_keys` for `strata.key_for()`.
   - Server tests replace `Fleet.ask` with `FakeMachine` (test_containers.py), or put a `FakeSocket` in the fleet that answers like agent-machine (test_providers.py, provider and server requests); `test_fleet.py` covers the socket round trip and `test_client.py` runs the real agent-machine with `AI_PROXY_CONTAINER_COMMAND='["python", ".../fake_docker.py"]'`. The fake takes a lock-directory, because status polling runs `inspect` while a start or stop is still working.
@@ -246,30 +283,30 @@ The one pytest warning (Starlette's httpx deprecation in `TestClient`) is expect
   - For a real runtime, Podman works as the machine's CLI (`agent-machine containers cli podman`). The machine here is `podman-machine-default`, normally stopped: start it, test, then clean up and stop it again.
 - **Don't write code containing backslash escapes through Bash heredocs.** The tool mangles `\\`, `\n` and `\x1b`. Use the Edit/Write tools, or write the snippet to a file with Write and splice it in.
 - **Restarts.** `agent-server` runs under `app.Supervisor`. `POST /api/server/restart` goes to `Runtime.request_restart`, which:
-  1. waits until no requests or container actions are in flight (up to 30 s);
+  1. waits until no requests are in flight (up to 30 s; container jobs run on the machines, so it doesn't wait for them);
   2. ends the live SSE streams, terminal sockets and agent-proxy tunnels;
   3. has the supervisor serve again, in the same process, with `Settings.load()`. That re-reads `config/`, rebuilds the UI if stale and rebinds the address unless `--host`/`--port` pinned it.
 
   A new kind of long-lived connection must be closed in `_restart_when_idle` too, or it holds up the restart until uvicorn's 5 s `timeout_graceful_shutdown`. There's no supervisor with `--reload`, or when tests build the app directly.
-- **The fleet** (`fleet.py`, `routes/machines.py`; `machine/internal/presence`). Each `agent-machine run` holds `WS /api/machines/connect` open, signed with its own token: a hello with the machine's id (from its `machine.json`), installed agents, model servers on loopback ports, whether it runs containers (and its engines), and launch settings; updates every minute.
-  - Who may use a machine's features is `fleet.allowed(identity, machine, feature)` over `fleet.FEATURES` (view, launch, terminal, models, servers, update): its owner always, admins `ADMIN_FEATURES` (view, models, update), and the organizations and teams in `Machine.access` (set with `PUT /api/machines/{id}/access` by the owner or an admin, checked by `checked_access`: members grant only their own orgs and teams). Any grant includes view. Containers stay `owns()` plus ADMIN_ONLY. Launches and terminals run under the machine's sign-in, so `routes/machines.started` tags the session `launched_by` the person who asked, and `access.can_view`/`can_control` honour it (clients can't set it: `access.SERVER_TAGS`). Every new machine route checks its feature with `allowed`.
+- **The fleet** (`fleet.py`, `routes/machines.py`; `machine/internal/presence`). Each `agent-machine run` holds `WS /api/machines/connect` open, signed with its own token: a hello with the machine's id (from its `machine.json`), name, hostname, os/arch, version and protocol, installed agents, model servers on loopback ports (`providers`, with Strata's key as `api_key`), its containers state (`containers`, with its `engines`), its Ollama and Strata (`servers`), `launches`/`roots`, `commands`, `updates`, `tunnel`, `launcher` and its MCP bridge (`mcp`); updates every minute.
+  - Who may use a machine's features is `fleet.allowed(identity, machine, feature)` over `fleet.FEATURES` (view, launch, terminal, models, servers, update, mcp): its owner always, admins `ADMIN_FEATURES` (view, models, update), and the organizations and teams in `Machine.access` (set with `PUT /api/machines/{id}/access` by the owner or an admin, checked by `checked_access`: members grant only their own orgs and teams). Any grant includes view. Containers stay `owns()` plus ADMIN_ONLY. Launches and terminals run under the machine's sign-in, so `routes/machines.started` tags the session `launched_by` the person who asked, and `access.can_view`/`can_control` honour it (clients can't set it: `access.SERVER_TAGS`). Every new machine route checks its feature with `allowed`.
   - Removing a machine (`DELETE /api/machines/{id}`, owner or admin) works while it's connected: `Fleet.remove` closes its socket (4403) and keeps it in `Fleet.removed` (saved in machines.json), so `connect` refuses it until `POST /api/machines/{id}/restore`.
   - A launch is a remote shell: only the machine's owner, or those it grants `launch`, may start one (admins only with a grant), only when the machine has `launches` on, and only in its `roots`. The server checks the folder (`within_roots`), and the machine checks again after resolving links (`settings.Machine.Within`). Keep both checks.
   - Terminals (`POST /api/machines/{id}/shell`, a `{"type": "shell"}` message) are a real remote shell: the owner and those granted `terminal` (`fleet.allowed`), only with `agent-machine commands on` (the hello's `commands`), starting in a root. The machine runs `agent --shell <folder> --headless` (`launcher/shell.go`), whose session is client `shell` (`fleet.SHELL_CLIENT`): the server forces those private and refuses to widen their sharing. Keep it that way.
   - Remote updates (`POST /api/machines/{id}/update`, a `{"type": "update"}` message, `Fleet.ask(channel="update")`, answered by `update_result`) need `agent-machine updates on` (the hello's `updates`) and the owner or an admin (`fleet.can_update`). The machine runs its own `update` detached (`presence/remote_update.go`, `agent_py/machine/presence.py`), so only the server's build, checked by SHA-256, is ever installed.
-  - The folder picker (`GET /api/machines/{id}/folders?path=`, `Fleet.ask(channel="folders")`, answered by `folders_result`) is owner only too, and only inside the roots, checked on both sides like launches (`presence/folders.go`). It returns folder names only, never files.
-  - agent-machine runs a launch as `agent <id> <folder> --headless --launch-id <id>` (detached; `agent` from PATH or `AI_PROXY_AGENT`), with `AI_PROXY_URL` set to its server and refused if this computer's agent-proxy already carries traffic to another one. `AI_PROXY_MACHINE_ID`/`_NAME` tag the session. headless mode prints `{"session_id": ...}` as its only line of output, then runs the agent in a pseudo-terminal with no local window (`terminal.RunHeadless`), shared with the server. Sessions carry `machine`, `machine_name` and `launch` tags. Agents started by hand only carry `hostname`; `Fleet.machine_for` puts them under the same owner's machine with that hostname (from its hello), so a machine's page lists both.
+  - The folder picker (`GET /api/machines/{id}/folders?path=`, `Fleet.ask(channel="folders")`, answered by `folders_result`) is for those who may launch or open terminals there (`launch` or `terminal`), and only inside the roots, checked on both sides like launches (`presence/folders.go`). It returns folder names only, never files.
+  - agent-machine runs a launch as `agent <id> <folder> --headless --launch-id <id> --share <visibility>`, plus `--model`, `--backend`, `--trace`, `--team`, `--let-others-type` and `--mcp` when asked (`presence.Arguments`; detached; `agent` from PATH or `AI_PROXY_AGENT`), with `AI_PROXY_URL` set to its server and refused if this computer's agent-proxy already carries traffic to another one. `AI_PROXY_MACHINE_ID`/`_NAME` tag the session. headless mode prints `{"session_id": ...}` as its only line of output, then runs the agent in a pseudo-terminal with no local window (`terminal.RunHeadless`), shared with the server. Sessions carry `machine`, `machine_name` and `launch` tags. Agents started by hand only carry `hostname`; `Fleet.machine_for` puts them under the same owner's machine with that hostname (from its hello), so a machine's page lists both.
   - Adopting a machine's model server (`providers/adopt`) is admin-only (ADMIN_ONLY) and adds a backend at the machine's address as the server saw it, unless the machine names one (`agent-machine address`).
-  - Starting the machine's own Ollama and Strata (`POST /api/machines/{id}/servers/{kind}/{action}`) goes over the same socket as `{"type": "server"}`, answered by `server_result` (each answer carries the machine's servers state, which `Fleet.message` keeps). Owner only, like launches, and only with `agent-machine servers on`. `Fleet.ask(..., channel="server")` checks that; `channel="container"` is the containers' request.
+  - Starting the machine's own Ollama and Strata (`POST /api/machines/{id}/servers/{kind}/{action}`) goes over the same socket as `{"type": "server"}`, answered by `server_result` (each answer carries the machine's servers state, which `Fleet.message` keeps). For the owner and those granted `servers` (`fleet.allowed`), and only with `agent-machine servers on`. `Fleet.ask(..., channel="server")` checks that; `channel="container"` is the containers' request.
   - The fleet's sockets close on a restart (`Fleet.close_all` in `_restart_when_idle`); machines reconnect by themselves.
 - **The running proxy doesn't pick up Python changes.** A restart from the console reloads config, not code. Unless it was started with `--reload`, restart `agent-server` itself (port 9999). A rebuilt client needs the running `agent-proxy` (port 8184) stopped, so `agent` starts the new one; a rebuilt agent-machine needs `agent-machine stop` and `start`. UI changes show up after `npm run build` and a page refresh, because the proxy serves `ui/dist` directly.
 
 ## UI conventions
 
 - All HTTP calls and their response types live in `ui/src/api.ts`, as `api.<name>` methods or exported helpers. Keep the types in step with the Python response shapes.
-- Data comes from TanStack Query. Query keys are short arrays (`["docker"]`, `["docker", name]`, `["models"]`, `["agents"]`). After a mutation, invalidate the affected keys. Common queries are in `hooks.tsx` (`useStatus`, `useModels`, `useAgents`, ...).
+- Data comes from TanStack Query. Query keys are short arrays (`["machines"]`, `["provider", machine, provider]`, `["containers"]`, `["models"]`, `["agents"]`). After a mutation, invalidate the affected keys. Common queries are in `hooks.tsx` (`useStatus`, `useModels`, `useAgents`, ...).
 - The console has three parts, defined once in `navigation.ts`: Agents (Start an agent, Running agents), Server (Live, Traffic, Requests, Sessions, Server settings, Organizations, Downloads), Machines (All machines, then each machine, listed by App.tsx from `/api/machines`).
-  - **Everything about a model server is on its machine's page**, `pages/Machine.tsx` at `/machines/:id/:section`, a tab per function: Summary (``, what it supports and core stats, removing it), `agents`, `terminal`, `model-servers`, one tab per model server (`ollama-11434`, from `machineProviders()` in `api.ts`: what the machine reports plus its backends), `ollama` (the installed Ollama's settings), `containers`, `load`, `access` (`pages/MachineAccess.tsx`, for those who manage it). Show a tab's function by what `machine.you` says (each feature, `manage`), not by role. The views are per model server and take a `ProviderRef`: `OllamaProvider` (Models.tsx), `StrataProvider` (Strata.tsx), `DockerProvider` (Docker.tsx), `MachineOllama` (OllamaServer.tsx), `MachineContainers` (Containers.tsx), `MachineLoad` (Hosts.tsx). Don't add global pages for providers; the old addresses (`/models`, `/strata`, ...) redirect to `/machines`.
+  - **Everything about a model server is on its machine's page**, `pages/Machine.tsx` at `/machines/:id/:section`, a tab per function: Summary (no section: what it supports and core stats, removing it), `agents`, `terminal`, `model-servers`, one tab per model server (`ollama-11434`, from `machineProviders()` in `api.ts`: what the machine reports plus its backends), `ollama` (the installed Ollama's settings), `containers`, `load`, `mcp` (`pages/MachineMcp.tsx`, the MCP servers it shares), `access` (`pages/MachineAccess.tsx`, for those who manage it). Show a tab's function by what `machine.you` says (each feature, `manage`), not by role. The model server views take `{target: ProviderRef, label, backend, manageable}`: `OllamaProvider` (Models.tsx), `StrataProvider` (Strata.tsx), `DockerProvider` (Docker.tsx). The machine-wide ones take the machine: `MachineOllama` (OllamaServer.tsx), `MachineContainers({machine})` (Containers.tsx), `MachineLoad({machine, ollama})` (Hosts.tsx). Don't add global pages for providers; the old addresses (`/models`, `/strata`, ...) redirect to `/machines`.
   - A model server that isn't a backend yet is managed the same way, with **Add as a provider** (admins) at its top. Say so in UI text: local providers come from machines, hosted APIs are the exception (Server settings adds those).
   - **Downloads** (`/get`) is public: App.tsx renders it without the console when signed out, and the sign-in page and the rail link to it. The SPA must not use paths under `/downloads/` or `/android`: the server serves files there.
   - To add a page:
@@ -283,12 +320,12 @@ The one pytest warning (Starlette's httpx deprecation in `TestClient`) is expect
   - `Tabs`, for tabbed views kept in `?tab=`.
   - `CodeLine`, for copyable commands.
   - `ConfirmDialog`.
-  - `ModelSearch`/`usePull(onPulled, provider)`, for streamed pull progress.
+  - `ModelSearch`/`usePull(target, label, onPulled)`, for streamed pull progress.
   - `AddBackendForm`/`addBackend()`.
   - `ProviderState`/`StateDot`.
   - `LogPanel`.
   - `RouteBadge`.
-- Styling goes in `styles.css`, using the existing CSS variables, so both themes keep working. Check dark mode and a narrow viewport (about 420 px) for layout changes.
+- Styling goes in `styles.css`, using the existing CSS variables, so both themes keep working. Check dark mode and a narrow viewport (412 px, as above) for layout changes.
 - **Every user-facing function is documented in `docs/`.** A new command, option, console page or control, endpoint, setting or environment variable goes into its page (`docs/index.md` maps features to pages; `docs/api.md` lists every route). Keep `README.md` short: it only introduces and links. Draw diagrams as Mermaid blocks (`sequenceDiagram` for flows, `flowchart` for structure), not ASCII art: the Docs page (`/help`) and GitHub both render them.
 - UI, README and docs text: plain, short sentences, sentence case, and say what something does for the user. Name providers with `providerLabel()`/`PROVIDERS` in `routes.ts`.
 
@@ -330,7 +367,7 @@ It uses a temporary home, so your real `logs/` and `config/` aren't touched. Sto
 
 ## Environment
 
-- Development is on Windows 11, with PowerShell 5.1 and Git Bash both available. Scripts come in `.ps1` and `.sh` pairs; change both.
+- Development is on Windows 11, with PowerShell 5.1 and Git Bash both available. Scripts come in `.ps1` and `.sh` pairs; change both. The exceptions are `scripts/start-ollama.sh` and `scripts/https/setup-https.ps1`, which only exist for one platform.
 - Python 3.13 with no virtualenv; the server package is installed editable from `server/`. Go 1.25 is installed; `GOTOOLCHAIN=local` keeps it from downloading another.
 - `go get` fails TLS checks inside an intercepted agent session (Go on Windows ignores `SSL_CERT_FILE`); run Go module downloads with `HTTPS_PROXY`/`HTTP_PROXY` unset.
 - Podman (`podman-machine-default`, WSL-based, no localhost forwarding) builds and runs `server/Dockerfile`; reach a published port at the VM's address (`ip -4 addr` inside `wsl -d podman-machine-default`). Pass `--http-proxy=false` to `podman build`.

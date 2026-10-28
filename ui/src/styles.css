@@ -651,7 +651,7 @@ details.collapsible > summary::-webkit-details-marker { display: none; }
 .fact-list dd small { font-weight: 400; }
 @media (prefers-reduced-motion: reduce) { .meter-bar span { transition: none; } }
 
-/* The console's parts: 1 Agents, 2 Traffic, 3 LLM providers, 4 Settings */
+/* The console's parts: 1 Agents, 2 Server, 3 Machines */
 .part-number { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 18px; height: 18px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 11px; font-weight: 700; letter-spacing: 0; line-height: 1; text-transform: none; font-variant-numeric: tabular-nums; }
 :root[data-theme="dark"] .part-number { color: #0d1220; }
 .part-tag { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--steel); }

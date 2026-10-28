@@ -247,7 +247,7 @@ func Launch(options Options) (int, error) {
 }
 
 // runHeadless runs a launch the server asked for: it reports the session on its one line of
-// output (the agent-proxy reads it), then runs the agent with only the server's viewers
+// output (agent-machine reads it), then runs the agent with only the server's viewers
 // watching and typing.
 func runHeadless(local, sessionID, name string, command []string, dir string, env []string, end func(int)) int {
 	if problem := terminal.Probe(local); strings.Contains(problem, "agent login") {

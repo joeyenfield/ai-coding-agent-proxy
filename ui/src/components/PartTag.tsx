@@ -1,7 +1,7 @@
 import { Link, useLocation } from "react-router-dom";
 import { partFor } from "../navigation";
 
-/** "LLM providers › Ollama" above a page title: which of the console's parts this page is in. */
+/** "Machines › ai-desktop" above a page title: which of the console's parts this page is in. */
 export function PartTag() {
   const { pathname } = useLocation();
   const found = partFor(pathname);
