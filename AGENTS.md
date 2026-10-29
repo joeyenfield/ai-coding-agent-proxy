@@ -159,7 +159,8 @@ ui/src/                     THE CONSOLE: React 19 + TypeScript + Vite + TanStack
   styles.css                The only stylesheet: CSS variables, light and dark themes, no CSS framework
 config/                     backends.yaml, models.yaml, agents.yaml
 VERSION                     The project's version (X.Y.Z), stamped into every component
-compose.yaml .dockerignore  The server in Docker (volumes for config, logs, certs), and the sandbox (--profile sandbox); one build context for both images
+compose.yaml .dockerignore  The site and server in Docker (volumes for config, logs, certs), and the sandbox (--profile sandbox)
+site/                       the static public brochure website, served separately from the console
 sandbox/                    agent-sandbox's Dockerfile and entrypoint: agent + agent-machine + npm coding agents; signs in from env, launches on for /workspace only
 scripts/https/              setup-https.ps1 (Windows: nginx + win-acme for Let's Encrypt, firewall, startup task) and the nginx.conf templates it fills in
 scripts/                    build-client.ps1/.sh, build-machine.ps1/.sh, build-dist.ps1/.sh (every platform, via tools/dist), agent.ps1/.sh (build and run the client), dev.ps1/.sh, start-ollama.sh, screenshots/ (demo + capture)
@@ -378,6 +379,7 @@ It uses a temporary home, so your real `logs/` and `config/` aren't touched. Sto
 - `core.autocrlf=true` and working copies use CRLF. Keep a file's existing line endings.
 - Ports in normal use:
   - 9999: agent-server, on all interfaces (`config/backends.yaml`; the code's default without a config is 8181).
+  8080: marketing site, loopback only for nginx reverse proxying.
   - 8184: agent-proxy, loopback only (its launcher API and agents' model endpoints).
   - 8183: agent-proxy's HTTPS proxy for account agents, loopback only. The server itself no longer listens there.
   - 5173: Vite. It proxies `/api` with `ws: true` and forwards the browser's Host, so the dev server counts as local.

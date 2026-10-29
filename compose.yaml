@@ -5,6 +5,15 @@
 # saved as certs/first-user-password in the agent-server-certs volume. Sign each agent
 # machine in with the Go client: agent login http://<this host>:9999
 services:
+  marketing-site:
+    build:
+      context: .
+      dockerfile: site/Dockerfile
+    image: ai-control-mesh-site
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:80"
+
   agent-server:
     build:
       context: .

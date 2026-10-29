@@ -1,4 +1,4 @@
-# HTTPS in front of agent-server on Windows: nginx with a Let's Encrypt certificate, renewed by itself.
+# Public site and agent-server HTTPS on Windows: nginx with a Let's Encrypt certificate, renewed by itself.
 #
 # Run once from an elevated PowerShell (it opens firewall ports and registers startup and
 # renewal tasks); rerun it any time, it picks up where things are:
@@ -8,13 +8,13 @@
 # What it sets up, in -Root (default C:\ProgramData\agent-proxy-https):
 #   nginx\      nginx for Windows (the current stable release from nginx.org), serving
 #               HTTP on -HttpPort (9980) for Let's Encrypt's check and HTTPS on -HttpsPorts
-#               (9443, 9998), proxied to -Backend (agent-server on http://127.0.0.1:9999)
+#               (9443, 9998), routing the apex and www to -SiteBackend and the console to -Backend
 #   win-acme\   win-acme, the Let's Encrypt client: it proves the name by putting a file
 #               where nginx serves /.well-known/acme-challenge/, writes the certificate to
 #               certs\, and renews it from its own scheduled task, reloading nginx
 #   tasks       "agent-proxy-https nginx" starts nginx at boot; firewall rules open the ports
 #
-# The name has to reach this computer from the internet on port 80 for Let's Encrypt
+# The apex, www and console names have to reach this computer from the internet on port 80 for Let's Encrypt
 # (the router sends 80 to -HttpPort), and on 443 for people (to the first -HttpsPorts).
 #
 # Testing: -Staging uses Let's Encrypt's staging service (a certificate browsers don't
@@ -22,10 +22,12 @@
 # -NoTasks skips the firewall and tasks (and the need for admin).
 param(
     [string]$HostName = "aicontrolmesh.com",
+    [string]$ConsoleHostName = "",
     [string]$AdditionalHostNames = "aiproxy.hopto.me",
     [string]$Email = "",
     [string]$Root = (Join-Path $env:ProgramData "agent-proxy-https"),
     [string]$Backend = "http://127.0.0.1:9999",
+    [string]$SiteBackend = "http://127.0.0.1:8080",
     [int]$HttpPort = 9980,
     # Comma-separated: powershell -File passes "9443,9998" as one string.
     [string]$HttpsPorts = "9443,9998",
@@ -38,10 +40,14 @@ $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 [int[]]$HttpsPorts = @($HttpsPorts -split "[,\s]+" | Where-Object { $_ } | ForEach-Object { [int]$_ })
 if (-not $HttpsPorts) { throw "-HttpsPorts needs at least one port" }
-$HostNames = @($HostName) + @($AdditionalHostNames -split "[,\s]+" | Where-Object { $_ })
+$HostNames = @($HostName, "www.$HostName") + @($AdditionalHostNames -split "[,\s]+" | Where-Object { $_ })
+if (-not $ConsoleHostName) { $ConsoleHostName = "console.$HostName" }
+$HostNames += $ConsoleHostName
 $HostNames = @($HostNames | Select-Object -Unique)
-$nginxHostNames = $HostNames -join " "
 $wacsHostNames = $HostNames -join ","
+$siteHostNames = @($HostName, "www.$HostName") -join " "
+$consoleHostNames = @($ConsoleHostName) + @($AdditionalHostNames -split "[,\s]+" | Where-Object { $_ })
+$consoleHostNames = @($consoleHostNames | Select-Object -Unique) -join " "
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $here = $PSScriptRoot
@@ -120,13 +126,16 @@ function Write-Config([bool]$https) {
     $block = ""
     if ($https) {
         $block = (Get-Content -Raw (Join-Path $here "nginx-https.conf.template")).Replace("`r`n", "`n")
-        $block = $block.Replace("{{HTTPS_LISTEN_DEFAULT}}", $listenDefault).Replace("{{HTTPS_LISTEN}}", $listen).Replace("{{HOST}}", $nginxHostNames)
-        $block = $block.Replace("{{CERT}}", (Slash $cert)).Replace("{{KEY}}", (Slash $key)).Replace("{{BACKEND}}", $Backend.TrimEnd("/"))
+        $block = $block.Replace("{{HTTPS_LISTEN_DEFAULT}}", $listenDefault).Replace("{{HTTPS_LISTEN}}", $listen)
+        $block = $block.Replace("{{SITE_HOSTS}}", $siteHostNames).Replace("{{CONSOLE_HOSTS}}", $consoleHostNames)
+        $block = $block.Replace("{{CERT}}", (Slash $cert)).Replace("{{KEY}}", (Slash $key))
+        $block = $block.Replace("{{BACKEND}}", $Backend.TrimEnd("/")).Replace("{{SITE_BACKEND}}", $SiteBackend.TrimEnd("/"))
     }
     $text = (Get-Content -Raw (Join-Path $here "nginx.conf.template")).Replace("`r`n", "`n")
     $text = $text.Replace("{{HTTPS_BLOCK}}", $block.TrimEnd()).Replace("{{HTTP_PORT}}", "$HttpPort").Replace("{{ACME_ROOT}}", (Slash $acmeDir))
-    $redirects = ($HostNames | ForEach-Object { "    $_    $_;" }) -join "`n"
-    $text = $text.Replace("{{HOST}}", $HostName).Replace("{{HOST_REDIRECTS}}", $redirects).Replace("{{BACKEND}}", $Backend.TrimEnd("/")).Replace("{{HTTPS_LISTEN}}", ($HttpsPorts -join ", "))
+    $redirects = ($HostNames | ForEach-Object { "        $_    $_;" }) -join "`n"
+    $text = $text.Replace("{{HOST}}", $HostName).Replace("{{HOST_REDIRECTS}}", $redirects)
+    $text = $text.Replace("{{BACKEND}}", $Backend.TrimEnd("/")).Replace("{{HTTPS_LISTEN}}", ($HttpsPorts -join ", "))
     [IO.File]::WriteAllText((Join-Path $nginxDir "conf\nginx.conf"), $text)
 }
 
@@ -215,5 +224,6 @@ if (-not $NoTasks) {
 }
 
 Write-Output ""
-Write-Output "HTTPS is up: https://$HostName (the router's 443 to $($HttpsPorts[0])), and on port(s) $($HttpsPorts -join ', ') here."
-Write-Output "Set proxy.public_url in config/backends.yaml to https://$HostName so the console's links use it."
+Write-Output "HTTPS is up: https://$HostName and https://www.$HostName serve the website; https://$ConsoleHostName serves the console."
+Write-Output "The router's 443 goes to $($HttpsPorts[0]); nginx listens on $($HttpsPorts -join ', ') here."
+Write-Output "Set proxy.public_url in config/backends.yaml to https://$ConsoleHostName so the console's links use it."

@@ -1,6 +1,6 @@
 # Build and deploy (`tools/`, `scripts/`, `server/Dockerfile`, `compose.yaml`, `sandbox/`)
 
-How the components are versioned, built for every platform, handed out by the server, installed and run in containers.
+How the components are versioned, built for every platform, handed out by the server, installed and run in containers. The static brochure site in `site/` is separate from the application console in `ui/`; Compose serves it privately on port 8080 for the public reverse proxy.
 
 ## Design in one paragraph
 
@@ -40,13 +40,14 @@ flowchart LR
 ## Containers
 
 - `server/Dockerfile` (built from the repo root, because it needs `ui/`): builds the console with Node, then a python:3.13-slim image running as uid 10001. Volumes `/app/config`, `/app/logs`, `/app/certs`; port 9999. The entrypoint seeds `config/` from `/app/defaults/config` without overwriting. Pass `--build-arg AI_PROXY_VERSION` to match a `dist/` folder (no git in the image).
-- `compose.yaml`: `agent-server` with named volumes and `./dist:/app/dist:ro`; `agent-sandbox` under `--profile sandbox`.
+- `compose.yaml`: `marketing-site` on host loopback port 8080, `agent-server` with named volumes and `./dist:/app/dist:ro`, and `agent-sandbox` under `--profile sandbox`.
+- `site/`: static public brochure site (`index.html`, `styles.css`), served by its own small nginx image. The apex and `www` hostnames serve this site; the console hostname is routed to `agent-server`.
 - `sandbox/`: an image with `agent`, `agent-machine` and the npm coding agents. Its entrypoint signs both in from the environment, sets launches on for `/workspace` only (containers and servers off), and runs `agent-machine run`.
 
 ## Scripts (`.sh`/`.ps1` pairs; change both)
 
 - `build-client`, `build-machine` (into `client/bin`, `machine/bin`), `build-dist` (wraps `tools/dist`; `PACKAGES=1` / `-Packages`), `agent` (build and run), `dev` (API with reload + Vite).
-- No pair: `start-ollama.sh`, and `scripts/https/setup-https.ps1` (Windows: nginx + win-acme for Let's Encrypt in front of :9999, firewall rule, boot task).
+- No pair: `start-ollama.sh`, and `scripts/https/setup-https.ps1` (Windows: nginx + win-acme for Let's Encrypt, serving the brochure site on the apex/`www` and the console/API on its own hostname).
 
 ## Rules
 

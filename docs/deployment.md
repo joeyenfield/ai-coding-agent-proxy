@@ -4,14 +4,16 @@ How to run the server for other machines and people, put HTTPS in front of it, a
 
 ## The server in Docker
 
-`server/Dockerfile` builds one image with the server and its console. Build it from the repository root, because it needs `ui/`:
+`server/Dockerfile` builds one image with the server and its console. Compose also builds the static brochure site in `site/`. Build them from the repository root:
 
 ```bash
 docker compose up -d                                  # with compose.yaml at the root
-docker build -f server/Dockerfile -t agent-server .   # or by hand
+docker build -f server/Dockerfile -t agent-server .   # server and console, or by hand
 ```
 
 The image builds the console with Node, then installs the server on `python:3.13-slim`. It runs as a non-root user (`agent`, uid 10001), listens on `0.0.0.0:9999`, and checks `/health` every 30 seconds. It sets `AI_PROXY_HOME=/app`, `AI_PROXY_HOST=0.0.0.0` and `AI_PROXY_UI_BUILD=0`.
+
+The `marketing-site` service serves `site/` on `127.0.0.1:8080` for the reverse proxy. The public website uses the apex and `www` hostnames; the application console and API use `console.<domain>`.
 
 | Volume | What it holds |
 |---|---|
@@ -36,7 +38,7 @@ Put HTTPS in front of the server whenever it's reachable from outside your own n
 
 ### nginx and Let's Encrypt on Windows
 
-`scripts/https/setup-https.ps1` sets up nginx with a Let's Encrypt certificate that renews itself. Run it once from an elevated PowerShell; rerun it any time, and it picks up where things are:
+`scripts/https/setup-https.ps1` sets up nginx with a Let's Encrypt certificate that renews itself. It serves the brochure site on the apex and `www` hostnames and the application on `console.<domain>`. Point all three DNS names to this host, start the Compose services, then run it once from an elevated PowerShell; rerun it any time, and it picks up where things are:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\https\setup-https.ps1 -HostName aicontrolmesh.com -AdditionalHostNames aiproxy.hopto.me -Email you@example.net
@@ -44,7 +46,7 @@ powershell -ExecutionPolicy Bypass -File scripts\https\setup-https.ps1 -HostName
 
 It installs, under `-Root` (default `C:\ProgramData\agent-proxy-https`):
 
-- **nginx** for Windows, serving plain HTTP on `-HttpPort` (9980) for Let's Encrypt's check, and HTTPS on `-HttpsPorts` (9443 and 9998), proxied to `-Backend` (`http://127.0.0.1:9999`);
+- **nginx** for Windows, serving plain HTTP on `-HttpPort` (9980) for Let's Encrypt's check, and HTTPS on `-HttpsPorts` (9443 and 9998). The apex and `www` proxy to `-SiteBackend` (`http://127.0.0.1:8080`); the console hostname proxies to `-Backend` (`http://127.0.0.1:9999`);
 - **win-acme**, the Let's Encrypt client, which proves the name with a file nginx serves under `/.well-known/acme-challenge/`, writes the certificate, and renews it from its own scheduled task, reloading nginx;
 - a scheduled task, `agent-proxy-https nginx`, that starts nginx at boot, and firewall rules for the ports.
 
@@ -53,18 +55,20 @@ The name has to reach this computer from the internet on port 80 for Let's Encry
 | Option | What it does |
 |---|---|
 | `-HostName` | The primary DNS name to get a certificate for (default: `aicontrolmesh.com`). |
-| `-AdditionalHostNames` | Comma-separated DNS aliases to include in the certificate and nginx site (default: `aiproxy.hopto.me`). HTTP requests keep their hostname when redirected to HTTPS. |
+| `-ConsoleHostName` | The application hostname (default: `console.<HostName>`). |
+| `-AdditionalHostNames` | Comma-separated DNS aliases for the console, included in the certificate (default: `aiproxy.hopto.me`). HTTP requests keep their hostname when redirected to HTTPS. |
 | `-Email` | Your address, for Let's Encrypt. |
 | `-Root` | Where nginx, win-acme and the certificates go. |
 | `-Backend` | The server nginx forwards to. |
+| `-SiteBackend` | The static brochure site nginx forwards to. |
 | `-HttpPort`, `-HttpsPorts` | The ports nginx listens on. `-HttpsPorts` is comma-separated. |
 | `-Staging` | Let's Encrypt's staging service: a certificate browsers don't trust, but no rate limits. For testing. |
 | `-CertFile`, `-KeyFile` | Use your own certificate instead of Let's Encrypt. |
 | `-NoTasks` | Skip the firewall rules and tasks, and the need to run as administrator. |
 
-nginx forwards the `Host` header, upgrades WebSockets, turns buffering off and allows hour-long reads, so live views, pulls and terminals stream. Requests for any other name get no TLS at all. The templates are `scripts/https/nginx.conf.template` and `nginx-https.conf.template`; on another system, use them as a starting point for your own nginx.
+nginx forwards the `Host` header to both services. The console route upgrades WebSockets, turns buffering off and allows hour-long reads, so live views, pulls and terminals stream. Requests for any other name get no TLS at all. The templates are `scripts/https/nginx.conf.template` and `nginx-https.conf.template`; on another system, use them as a starting point for your own nginx.
 
-When it's done, set `proxy.public_url` in `config/backends.yaml` to `https://<name>` so the console's links and pairing codes use it.
+When it's done, set `proxy.public_url` in `config/backends.yaml` to `https://console.<domain>` so the console's links and pairing codes use it.
 
 ### HTTPS from the server itself
 
