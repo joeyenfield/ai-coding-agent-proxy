@@ -20,6 +20,16 @@ const queryClient: QueryClient = new QueryClient({
   }),
 });
 
+// A console loaded before the server's last update asks for chunks (mermaid.js, the terminal) that the
+// rebuild replaced. Reload once to get the new build; the flag stops a loop if the chunk really is missing.
+window.addEventListener("vite:preloadError", (event) => {
+  if (sessionStorage.getItem("ai-proxy-reloaded-for-update")) return;
+  sessionStorage.setItem("ai-proxy-reloaded-for-update", "1");
+  event.preventDefault();
+  window.location.reload();
+});
+window.addEventListener("load", () => setTimeout(() => sessionStorage.removeItem("ai-proxy-reloaded-for-update"), 10_000));
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>

@@ -140,17 +140,31 @@ def _register_help(app: FastAPI, docs_dir: Path) -> None:
         # Only the documentation's own pages and pictures, and nothing outside docs/ (no "..", no links out).
         if candidate.suffix.lower() not in HELP_FILES or not candidate.is_relative_to(root) or not candidate.is_file():
             raise HTTPException(status_code=404, detail="Not one of the documentation's pages. See /help.")
-        return FileResponse(candidate, media_type=HELP_FILES[candidate.suffix.lower()])
+        # Checked again every time, so a page changed by a deploy shows at once.
+        return FileResponse(candidate, media_type=HELP_FILES[candidate.suffix.lower()], headers=NO_CACHE)
+
+
+# index.html names the build's assets, so a browser holding on to an old one runs the old console, and
+# its lazy chunks (mermaid.js, the terminal) are gone after a rebuild. It's checked again every time
+# (an ETag makes that cheap); the assets have the build in their names and never change.
+NO_CACHE = {"Cache-Control": "no-cache"}
+
+
+class _Assets(StaticFiles):
+    def file_response(self, *args: Any, **kwargs: Any) -> Any:
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
 
 
 def _register_ui(app: FastAPI, ui_dir: Path) -> None:
     index = ui_dir / "index.html"
     if (ui_dir / "assets").is_dir():
-        app.mount("/assets", StaticFiles(directory=ui_dir / "assets"), name="assets")
+        app.mount("/assets", _Assets(directory=ui_dir / "assets"), name="assets")
 
     @app.get("/", include_in_schema=False)
     async def ui_root() -> Any:
-        return FileResponse(index) if index.exists() else HTMLResponse(UI_MISSING)
+        return FileResponse(index, headers=NO_CACHE) if index.exists() else HTMLResponse(UI_MISSING)
 
     # Registered last so API and compatibility routes take precedence; anything
     # else is a client-side route in the single-page app.
@@ -158,10 +172,10 @@ def _register_ui(app: FastAPI, ui_dir: Path) -> None:
     async def ui_fallback(path: str) -> Any:
         candidate = (ui_dir / path).resolve()
         if candidate.is_file() and candidate.is_relative_to(ui_dir.resolve()):
-            return FileResponse(candidate)
+            return FileResponse(candidate, headers=NO_CACHE)
         if path.startswith(("api/", "v1/", "session/", "anthropic/", "downloads/", "help-files/")) or not index.exists():
             raise HTTPException(status_code=404, detail="Not found")
-        return FileResponse(index)
+        return FileResponse(index, headers=NO_CACHE)
 
 
 def _configure_logging(path: Path) -> None:

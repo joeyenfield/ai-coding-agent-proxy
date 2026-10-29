@@ -84,7 +84,21 @@ async function renderDiagrams(root: HTMLElement): Promise<void> {
   const blocks = [...root.querySelectorAll<HTMLElement>(".mermaid-diagram")];
   if (!blocks.length) return;
   mermaidLoader ??= import("mermaid").then((module) => module.default);
-  const mermaid = await mermaidLoader;
+  let mermaid: Awaited<typeof mermaidLoader>;
+  try {
+    mermaid = await mermaidLoader;
+  } catch (error) {
+    // Most often a console from before the server's last update, whose mermaid.js is gone (main.tsx
+    // reloads for that). Try again next time, and say why on each diagram instead of leaving its source.
+    mermaidLoader = null;
+    for (const block of blocks) {
+      const source = block.dataset.source ?? block.querySelector(".mermaid-source")?.textContent ?? "";
+      block.dataset.source = source;
+      block.classList.add("mermaid-failed");
+      block.innerHTML = `<pre class="mermaid-source"><code>${escapeHtml(source)}</code></pre><p class="bad">The diagram drawer didn't load (${escapeHtml(String((error as Error)?.message ?? error))}). Reload the page.</p>`;
+    }
+    return;
+  }
   const dark = document.documentElement.dataset.theme === "dark";
   mermaid.initialize({
     startOnLoad: false,
