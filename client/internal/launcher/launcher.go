@@ -256,6 +256,7 @@ func runHeadless(local, sessionID, name string, command []string, dir string, en
 		return 1
 	}
 	share := terminal.NewShare(terminal.HostURL(local, sessionID), name)
+	share.Revive = proxyReviver()
 	opened, _ := json.Marshal(map[string]string{"session_id": sessionID})
 	fmt.Println(string(opened))
 	// Nothing else goes to standard output: the agent-proxy may stop reading it.
@@ -445,6 +446,7 @@ func shareFor(local, server, sessionID, name string, wanted bool) (*terminal.Sha
 		return nil, "off: " + problem
 	}
 	share := terminal.NewShare(terminal.HostURL(local, sessionID), name)
+	share.Revive = proxyReviver()
 	view := terminal.ViewURL(server, sessionID)
 	if problem != "" {
 		return share, fmt.Sprintf("%s (%s)", view, problem)

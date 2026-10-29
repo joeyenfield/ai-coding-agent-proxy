@@ -8,7 +8,11 @@ import { SharingControl } from "../components/Sharing";
 import { useToast } from "../hooks";
 import { PairPanel, terminalState } from "./Terminals";
 
-type Connection = "connecting" | "open" | "retrying" | "unauthorized" | "missing";
+type Connection = "connecting" | "open" | "retrying" | "waiting" | "unauthorized" | "missing";
+
+/** How long a terminal that isn't there yet is waited for: a launch from the console opens its page as soon as the
+ * session exists, a moment before the agent's launcher has connected its terminal. */
+const WAIT_FOR_TERMINAL_MS = 60_000;
 
 const THEMES: Record<"dark" | "light", ITheme> = {
   dark: { background: "#11141a", foreground: "#e6eaf0", cursor: "#e6eaf0", cursorAccent: "#11141a", selectionBackground: "#3d4552" },
@@ -138,6 +142,7 @@ export function TerminalPage() {
     term.current = terminal;
     let stopped = false;
     let retry: number | undefined;
+    const waitUntil = Date.now() + WAIT_FOR_TERMINAL_MS;
     const typed = terminal.onData((data) => {
       if ((WHEEL.test(data) || !REPLY.test(data)) && !watchOnlyRef.current) send({ keys: data });
     });
@@ -170,7 +175,10 @@ export function TerminalPage() {
       ws.onclose = (event) => {
         if (stopped) return;
         if (event.code === 4401) setConnection("unauthorized");
-        else if (event.code === 4404) setConnection("missing");
+        else if (event.code === 4404 && Date.now() < waitUntil) {
+          setConnection("waiting");
+          retry = window.setTimeout(connect, 1500);
+        } else if (event.code === 4404) setConnection("missing");
         else {
           // The proxy restarted or a network blip: reconnect and replay from the start.
           setConnection("retrying");
@@ -280,6 +288,7 @@ export function TerminalPage() {
           </div>
         </div>
         {connection === "retrying" && <p className="banner warn">Lost the connection to the proxy. Reconnecting…</p>}
+        {connection === "waiting" && <p className="banner">Waiting for the agent to share its terminal…</p>}
         {info && !live && (
           <p className="banner">
             {info.ended_at

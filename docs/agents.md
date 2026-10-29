@@ -237,7 +237,7 @@ Any program on the computer can reach the `agent-proxy`, and what it forwards to
 
 | Command | What it does |
 |---|---|
-| `agent update [--force] [--server url]` | Replaces `agent` and `agent-proxy` with the build the server offers for this platform, checked against the server's SHA-256, then stops the running `agent-proxy` so the next agent starts the new one. It does nothing when the server's version is this one, unless you pass `--force`. `--server` names the server to update from (default: the one the `agent-proxy` uses). If the server has no build of its exact version, it takes the closest one and says so. |
+| `agent update [--force] [--server url]` | Replaces `agent` and `agent-proxy` with the build the server offers for this platform, checked against the server's SHA-256, then stops the running `agent-proxy` so the new one takes over: agents still running start it again within seconds, else the next agent does. It does nothing when the server's version is this one, unless you pass `--force`. `--server` names the server to update from (default: the one the `agent-proxy` uses). If the server has no build of its exact version, it takes the closest one and says so. |
 | `agent version` (or `agent --version`) | Prints the version and the protocol level. |
 
 See [Deployment](deployment.md) for how the server hands out builds.
@@ -445,7 +445,7 @@ With `--control`, the launcher runs the agent in a pseudo-terminal (ConPTY on Wi
 - **It's off unless you ask.** Without `--control`, the agent runs directly and only its traffic is recorded. `AI_PROXY_CONTROL=1` makes `--control` a computer's default.
 - **It needs an interactive terminal.** On Windows that's Windows Terminal, PowerShell or cmd, not Git Bash's mintty. Otherwise the launcher prints why sharing is off and runs the agent directly.
 - **Your window stays the main one.** Its size sets the terminal's size, and closing it ends the agent.
-- **History is saved** on the server, in `logs/sessions/<id>/terminal.log` (up to 64 MB), so finished sessions stay readable. If the launcher loses the server, it resends what the server missed when it reconnects.
+- **History is saved** on the server, in `logs/sessions/<id>/terminal.log` (up to 64 MB), so finished sessions stay readable. If the launcher loses the server, it keeps trying and resends what the server missed when it reconnects; if this computer's `agent-proxy` has stopped (`agent update` stops it), the launcher starts it again.
 - **Agents on other computers** can be shared once the computer is signed in with `agent login <server>`. On a server without accounts, give it the access key: `agent login <server> --key <access key>`, or set `AI_PROXY_TOKEN`.
 
 Typing into an agent's terminal is as good as a shell on that computer, so the server only lets trusted viewers watch or type. See [Console](console.md) for the Running agents page and pairing a phone, and [Accounts](accounts.md) for sign-in.

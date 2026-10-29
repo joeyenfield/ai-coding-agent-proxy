@@ -177,7 +177,7 @@ Open a running agent to see its terminal:
 Things to know:
 
 - **Your window stays the main one.** Its size sets the terminal's size, and closing it ends the agent.
-- **History is saved.** Each terminal's output goes to `logs/sessions/<id>/terminal.log` (up to 64 MB), so finished sessions stay readable. If the launcher loses the server, it resends what the server missed when it reconnects.
+- **History is saved.** Each terminal's output goes to `logs/sessions/<id>/terminal.log` (up to 64 MB), so finished sessions stay readable. If the launcher loses the server, it keeps trying and resends what the server missed when it reconnects; if this computer's `agent-proxy` has stopped (`agent update` stops it), the launcher starts it again.
 - **It's off unless you ask.** Without `--control`, the agent runs directly and only its traffic is recorded. `AI_PROXY_CONTROL=1` makes `--control` a machine's default.
 - **It needs an interactive terminal.** On Windows that's Windows Terminal, PowerShell or cmd, not Git Bash's mintty. Otherwise the launcher says why sharing is off and runs the agent directly.
 - **Away from home**, put the server and your phone on the same [Tailscale](https://tailscale.com) network (or another VPN), and pick its `100.x` address under **Use it from your phone**. If your router forwards a public name here, set it as `proxy.public_url`; pairing links then use it first. On a public address, use accounts and HTTPS ([Deployment](deployment.md)), or anyone who finds it can read your traffic.

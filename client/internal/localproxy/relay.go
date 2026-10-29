@@ -58,8 +58,12 @@ func (p *Proxy) terminal(w http.ResponseWriter, r *http.Request, sessionID strin
 	server := p.Upstream.Server()
 	remote, response, err := Dial(p.Upstream, server, "/api/terminals/"+url.PathEscape(sessionID)+"/host")
 	if err != nil {
-		if response != nil {
+		if response != nil && (response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden) {
 			closeWith(launcher, 4400+response.StatusCode%100, "the agent-server refused this machine: run `agent login`")
+		} else if response != nil {
+			// Anything else (a reverse proxy's 502/503/504 while the server restarts) passes: the
+			// launcher gives up on 4403 and 4404, so they mustn't stand for "try again later".
+			closeWith(launcher, 1011, fmt.Sprintf("the agent-server at %s answered HTTP %d", server, response.StatusCode))
 		} else {
 			closeWith(launcher, 1011, fmt.Sprintf("couldn't reach the agent-server at %s: %v", server, err))
 		}

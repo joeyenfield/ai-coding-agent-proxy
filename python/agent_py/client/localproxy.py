@@ -227,8 +227,12 @@ class AgentProxy:
             remote = await dial(self.upstream, server, f"/api/terminals/{quote(match.group(1), safe='')}/host")
         except Exception as error:
             status = refused_status(error)
-            if status:
+            if status in (401, 403):
                 await launcher.close(4400 + status % 100, "the agent-server refused this machine: run `agent login`")
+            elif status:
+                # Anything else (a reverse proxy's 502/503/504 while the server restarts) passes: the
+                # launcher gives up on 4403 and 4404, so they mustn't stand for "try again later".
+                await launcher.close(1011, f"the agent-server at {server} answered HTTP {status}"[:120])
             else:
                 await launcher.close(1011, f"couldn't reach the agent-server at {server}: {error}"[:120])
             return

@@ -88,6 +88,23 @@ func VersionNotices(own string, proxy, server map[string]any) []string {
 
 // start runs program in the background, detached from this terminal, and waits until
 // url/health answers.
+// proxyReviver starts this machine's agent-proxy again when it has gone away while an agent
+// runs (`agent update` stops it so the new build takes over): the agent's shared terminal and
+// its model traffic both go through it. The program's path is taken now, before an update can
+// rename this binary to .old, so the new build is the one started.
+func proxyReviver() func() {
+	self, err := os.Executable()
+	if err != nil {
+		return nil
+	}
+	local := settings.ProxyURL()
+	return func() {
+		if api.Health(local) == nil {
+			_ = start(self, []string{"proxy", "--port", strconv.Itoa(settings.ProxyPort())}, local, "agent-proxy", "agent proxy", 30*time.Second)
+		}
+	}
+}
+
 func start(program string, args []string, url, name, manual string, timeout time.Duration) error {
 	cmd := exec.Command(program, args...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil

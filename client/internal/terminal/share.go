@@ -72,6 +72,9 @@ func Probe(proxyURL string) string {
 type Share struct {
 	URL     string
 	Command string
+	// Revive, when set, is called after a lost or failed connection, before the next try:
+	// the launcher starts the agent-proxy again there if it has gone away (`agent update` stops it).
+	Revive func()
 
 	history  *History
 	write    func([]byte)
@@ -158,6 +161,9 @@ func (s *Share) run() {
 		s.setProblem(fmt.Sprintf("lost the connection to the proxy (%v)", err))
 		if s.finished() && attempt >= 1 {
 			return
+		}
+		if s.Revive != nil {
+			s.Revive()
 		}
 		delay := retryDelays[min(attempt, len(retryDelays)-1)]
 		unlock := s.history.Wait(func() bool { return s.exit != nil }, delay)

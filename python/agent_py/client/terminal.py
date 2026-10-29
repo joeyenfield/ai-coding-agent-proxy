@@ -113,6 +113,9 @@ class Share:
         self.exit: Optional[Dict[str, Any]] = None
         self.done = threading.Event()
         self.problem = ""
+        # Called after a lost or failed connection, before the next try: the launcher starts the
+        # agent-proxy again there if it has gone away (`agent update` stops it).
+        self.revive: Optional[Callable[[], None]] = None
 
     def start(self, write: Callable[[bytes], None], cols: int, rows: int) -> None:
         self.write, self.cols, self.rows = write, cols, rows
@@ -143,6 +146,8 @@ class Share:
                     return
                 except Exception as error:
                     self.problem = f"lost the connection to the proxy ({error})"
+                if self.revive is not None:
+                    self.revive()
                 with self.history.changed:
                     if self.exit is not None and attempt >= 1:
                         return

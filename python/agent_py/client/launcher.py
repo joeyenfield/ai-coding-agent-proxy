@@ -20,7 +20,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import quote, urlparse
 
 import httpx
@@ -223,6 +223,22 @@ def start(command: List[str], url: str, name: str, manual: str, timeout: float) 
     raise LaunchError(f"{name} didn't become ready at {url}")
 
 
+def proxy_reviver() -> Callable[[], None]:
+    """Starts this machine's agent-proxy again when it has gone away while an agent runs (`agent update`
+    stops it so the new build takes over): the agent's shared terminal and model traffic go through it."""
+    local = settings.proxy_url()
+    command = self_command("proxy", "--port", str(settings.proxy_port()))
+
+    def revive() -> None:
+        if common.health(local) is None:
+            try:
+                start(command, local, "agent-proxy", "agent proxy", 30)
+            except LaunchError:
+                pass
+
+    return revive
+
+
 def ensure_proxy() -> Dict[str, Any]:
     """Starts this machine's agent-proxy if it isn't running, and the agent-server too when it's this computer and down."""
     local = settings.proxy_url()
@@ -414,6 +430,7 @@ def share_for(local: str, server: str, session_id: str, name: str, wanted: bool)
     if "agent login" in problem:
         return None, "off: " + problem
     share = terminal.Share(terminal.host_url(local, session_id), name)
+    share.revive = proxy_reviver()
     view = terminal.view_url(server, session_id)
     return share, f"{view} ({problem})" if problem else f"{view} (watch and type into this terminal from the console)"
 
@@ -516,6 +533,7 @@ def run_headless(local: str, session_id: str, name: str, command: List[str], cwd
         end(1)
         return 1
     share = terminal.Share(terminal.host_url(local, session_id), name)
+    share.revive = proxy_reviver()
     print(json.dumps({"session_id": session_id}), flush=True)
     # Nothing else goes to standard output: agent-machine may stop reading it.
     try:

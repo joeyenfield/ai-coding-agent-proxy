@@ -216,6 +216,27 @@ func TestTerminalRelayPassesTheServersRefusalOn(t *testing.T) {
 	}
 }
 
+// A reverse proxy's error page while the server restarts isn't a refusal: the launcher gives up
+// on 4403 and 4404, so a 503 or 504 has to reach it as something it retries.
+func TestTerminalRelayRetriesThroughAGatewayError(t *testing.T) {
+	for status, want := range map[int]int{http.StatusServiceUnavailable: 1011, http.StatusGatewayTimeout: 1011, http.StatusUnauthorized: 4401} {
+		server := newFakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "gateway", status)
+		})
+		_, front := newProxy(t, server.URL)
+		conn, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(front.URL, "http")+"/api/terminals/s1/host", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _, err = conn.ReadMessage()
+		conn.Close()
+		closed, ok := err.(*websocket.CloseError)
+		if !ok || closed.Code != want {
+			t.Fatalf("HTTP %d: close %v, want %d", status, err, want)
+		}
+	}
+}
+
 func TestTunnelRefusedByTheServerAnswers407(t *testing.T) {
 	server := newFakeServer(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusUnauthorized) })
 	proxy, _ := newProxy(t, server.URL)

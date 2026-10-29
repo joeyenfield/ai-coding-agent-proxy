@@ -80,6 +80,7 @@ flowchart LR
 - The token goes only on `LauncherAPI` forwards and the proxy's own WebSocket dials (tunnel, terminal host), never on agent traffic.
 - `Proxy: nil` everywhere (`settings.Transport`, `localproxy.Dial`, `Share`). Started from inside an intercepted agent, it would otherwise loop.
 - Terminal input: text and Enter go as separate writes `InputGap` apart (Claude Code reads them together as a paste).
+- A `Share` stops retrying only on close 4401, 4403 or 4404, so the terminal relay sends those for real refusals only (HTTP 401/403 from the server, or the server's own close); any other HTTP answer (a reverse proxy's 502/503/504 during a restart) goes to the launcher as 1011. Between tries it calls `Share.Revive` (`launcher.proxyReviver`), which starts the agent-proxy again if it's gone (`agent update` stops it).
 
 ## Extending and testing
 
