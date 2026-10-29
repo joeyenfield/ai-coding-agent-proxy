@@ -28,7 +28,7 @@ The rail on the left has three parts, in the order a request flows:
 | Part | Pages | What it's for |
 | --- | --- | --- |
 | **1 Agents** | Start an agent, Running agents | Start a coding agent through the server, then watch it and type into it from any device. |
-| **2 Server** | Live, Traffic, Requests, Sessions, Server settings, Organizations, Downloads | The hub: every request agents make passes through it and is recorded. |
+| **2 Server** | Live, Traffic, Requests, Sessions, Server settings, Organizations, Downloads | The hub: allowed agent requests pass through it and are recorded. |
 | **3 Machines** | All machines, Add a machine | Open **All machines** to search and select a computer. Individual machines aren't listed in the rail. |
 
 - The small label above each page's title is its breadcrumb ("Machines › build-box").
@@ -125,7 +125,7 @@ Account agents' other calls (sign-in, telemetry, MCP) aren't shown here; they're
 
 ![Traffic](screenshots/traffic.png)
 
-`/traffic` is every request through the server: model calls on the proxy endpoints, everything account agents send to their own services, and calls to shared MCP servers.
+`/traffic` lists recorded requests through the server: model calls on the proxy endpoints, permitted account-agent requests to public services, and calls to shared MCP servers. The HTTPS proxy refuses private and reserved destinations.
 
 - **Search** by service, host, path, agent or model, pick a **session**, and tick **Failed only**.
 - **Request types** filter the list: Model call, Token count, Model list, MCP, Account, Sign-in, Settings & flags, Telemetry, Updates, Connection and Other, each with its count. What each type covers is in [What the requests are](agents.md#what-the-requests-are).
@@ -220,9 +220,11 @@ If nothing has been built (`scripts/build-dist`), it says **Nothing built yet**.
 
 ![Machines](screenshots/machines.png)
 
-`/machines` lists the fleet: each machine's state (connected or not), owner, system, its model servers, the agents installed on it, whether it takes launches, and whether it needs an update.
+`/machines` lists the fleet in rows: **Name** (with online/offline state and owner), **Architecture** (with operating system), **Last contact** (hover for the full date and time), and **Functions**. Open a machine's name to manage it.
 
-- **Search machines**: filter by name, machine id, hostname, address or owner. Search ignores case; clearing it shows the whole list again. Open a machine's name or **Open** to manage it.
+Each row marks **Agents**, **Terminals**, **Model servers**, **Server management**, **Containers**, **Updates**, **Tunnel** and **MCP servers** as Enabled or Disabled. These are the machine's reported settings, not your personal permissions or a promise that an offline machine is usable. Model servers and MCP servers are enabled when the machine reports servers; the other functions follow its switches. An update badge shows when a newer build is available. Narrow screens show the same fields stacked.
+
+- **Search machines**: filter by name, machine id, hostname, address or owner. Search ignores case; clearing it shows the whole list again.
 - **Add a machine**: the commands to install and sign in agent-machine on Linux or macOS and on Windows (PowerShell). **Add another machine** shows them again when the fleet isn't empty.
 - **Or run a sandbox machine in a container**: the Docker or Podman command for the sandbox image, which runs agents in a container (see [Machines](machines.md#a-sandbox-machine-in-docker)).
 - **Removed**: machines taken off the server, which you (their owner or an admin) can allow back.

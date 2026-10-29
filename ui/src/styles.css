@@ -983,6 +983,21 @@ code { background: var(--ground); border: 1px solid var(--line); padding: 0 5px;
 
 /* Machines: the fleet */
 .machine-list { display: flex; flex-direction: column; gap: 12px; }
+.fleet-table td { vertical-align: top; }
+.fleet-table td:first-child { min-width: 150px; }
+.fleet-name { display: block; font-weight: 650; overflow-wrap: anywhere; }
+.fleet-state { gap: 6px; margin: 6px 0; font-size: 13px; }
+.fleet-system { display: block; margin-top: 6px; }
+.fleet-functions { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.fleet-functions .pill { display: inline-flex; align-items: center; gap: 6px; }
+@media (max-width: 700px) {
+  .fleet-table, .fleet-table tbody { display: block; width: 100%; }
+  .fleet-table thead { display: none; }
+  .fleet-table tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding: 16px; border-bottom: 1px solid var(--line); }
+  .fleet-table td { display: block; padding: 0; border: 0; min-width: 0; }
+  .fleet-table td:first-child, .fleet-table td:last-child { grid-column: 1 / -1; min-width: 0; }
+  .fleet-table td::before { content: attr(data-label); display: block; margin-bottom: 6px; color: var(--steel); font-size: 12px; font-weight: 650; }
+}
 .machine-card { display: flex; flex-direction: column; gap: 14px; padding: 16px 18px; background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
 .machine-card:not(.is-online) { background: var(--raised); }
 .machine-card:not(.is-online) .provider-icon { opacity: 0.6; }

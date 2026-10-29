@@ -3,12 +3,11 @@ import { Link, useLocation } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, machineProviders, type FleetMachine, type RemovedMachine } from "../api";
 import { CodeLine } from "../components/CodeLine";
-import { Icon } from "../components/Icon";
 import { PartTag } from "../components/PartTag";
 import { StateDot } from "../components/ProviderState";
-import { useAgents, useAuth, useClipboard, useMachines, useStatus, useToast } from "../hooks";
-import { formatRelative } from "../format";
-import { OS_LABELS, machinePath, providerName } from "./Machine";
+import { useAuth, useClipboard, useMachines, useStatus, useToast } from "../hooks";
+import { formatDate, formatRelative } from "../format";
+import { OS_LABELS, machinePath } from "./Machine";
 import { OneLineInstall, serverAddress } from "./Downloads";
 
 /** The fleet: machines signed in to this server. Each one's page has its model servers, containers, load and launches. */
@@ -79,11 +78,18 @@ export function MachinesPage() {
         </div>
       )}
       {machines.data && list.length > 0 && shown.length === 0 && <p className="subtle">No machines match your search.</p>}
-      <div className="machine-list">
-        {shown.map((machine) => (
-          <MachineSummary key={machine.id} machine={machine} />
-        ))}
-      </div>
+      {shown.length > 0 && (
+        <div className="table-scroll">
+          <table className="table fleet-table">
+            <thead>
+              <tr><th>Name</th><th>Architecture</th><th>Last contact</th><th>Functions</th></tr>
+            </thead>
+            <tbody>
+              {shown.map((machine) => <MachineRow key={machine.id} machine={machine} />)}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {(machines.data?.removed ?? []).length > 0 && <RemovedMachines removed={machines.data?.removed ?? []} />}
 
@@ -139,64 +145,45 @@ function RemovedMachines({ removed }: { removed: RemovedMachine[] }) {
   );
 }
 
-function MachineSummary({ machine }: { machine: FleetMachine }) {
+function MachineRow({ machine }: { machine: FleetMachine }) {
   const status = useStatus();
-  const agents = useAgents();
-  const providers = machineProviders(machine, status.data?.backends);
-  const installed = (agents.data ?? []).filter((agent) => machine.agents.includes(agent.id));
+  const lastContact = new Date(machine.last_seen * 1000).toISOString();
+  const functions = [
+    { name: "Agents", enabled: machine.launches },
+    { name: "Terminals", enabled: Boolean(machine.commands) },
+    { name: "Model servers", enabled: machineProviders(machine, status.data?.backends).length > 0 },
+    { name: "Server management", enabled: Boolean(machine.servers.enabled) },
+    { name: "Containers", enabled: Boolean(machine.containers.enabled) },
+    { name: "Updates", enabled: Boolean(machine.updates) },
+    { name: "Tunnel", enabled: Boolean(machine.tunnel) },
+    { name: "MCP servers", enabled: (machine.mcp?.servers?.length ?? 0) > 0 },
+  ];
   return (
-    <article className={`machine-card ${machine.connected ? "is-online" : ""}`} aria-labelledby={`machine-${machine.id}`}>
-      <header className="machine-card-head">
-        <span className="provider-icon" aria-hidden="true">
-          <Icon name="monitor" size={20} />
-        </span>
-        <div className="machine-card-title">
-          <h2 id={`machine-${machine.id}`}>
-            <Link to={machinePath(machine.id)}>{machine.name}</Link>
-            <span className={`pill ${machine.connected ? "good" : ""}`}>
-              <StateDot tone={machine.connected ? "good" : "idle"} />{" "}
-              {machine.connected ? "Online" : `Seen ${formatRelative(new Date(machine.last_seen * 1000).toISOString())}`}
-            </span>
-            {machine.update?.available && <span className="pill live">Update available</span>}
-          </h2>
-          <p className="subtle">
-            {OS_LABELS[machine.os] ?? machine.os} {machine.arch}
-            {machine.owner && <> · {machine.owner}</>}
-            {machine.address && <> · <span className="mono">{machine.address}</span></>}
-            {machine.version && <> · agent-machine {machine.version}</>}
-          </p>
-        </div>
-        <div className="row wrap machine-card-actions">
-          <Link className="button" to={machinePath(machine.id)}>
-            Open
-          </Link>
-        </div>
-      </header>
-      <dl className="machine-facts">
-        <div>
-          <dt>Model servers</dt>
-          <dd className="chips">
-            {providers.length ? (
-              providers.map((provider) => (
-                <Link key={provider.id} className={`pill ${provider.backend ? "accent" : ""}`} to={machinePath(machine.id, provider.id)}>
-                  {provider.backend ?? providerName(provider)}
-                  {provider.container ? " (container)" : ""}
-                </Link>
-              ))
-            ) : (
-              <span className="subtle">None found</span>
-            )}
-          </dd>
-        </div>
-        <div>
-          <dt>Agents</dt>
-          <dd>
-            {installed.length ? `${installed.length} installed` : <span className="subtle">None of the server's agents</span>}
-            {machine.launches ? <span className="subtle"> · takes launches</span> : null}
-          </dd>
-        </div>
-      </dl>
-    </article>
+    <tr>
+      <td data-label="Name">
+        <Link className="fleet-name" to={machinePath(machine.id)}>{machine.name}</Link>
+        <span className="row fleet-state"><StateDot tone={machine.connected ? "good" : "idle"} />{machine.connected ? "Online" : "Offline"}</span>
+        {machine.owner && <span className="subtle">{machine.owner}</span>}
+        {machine.update?.available && <span className="pill live">Update available</span>}
+      </td>
+      <td data-label="Architecture">
+        <span className="mono">{machine.arch || "Unknown"}</span>
+        <span className="subtle fleet-system">{OS_LABELS[machine.os] ?? machine.os}</span>
+      </td>
+      <td data-label="Last contact">
+        <time dateTime={lastContact} title={formatDate(lastContact)}>{formatRelative(lastContact)}</time>
+      </td>
+      <td data-label="Functions">
+        <ul className="fleet-functions" aria-label={`${machine.name} functions`}>
+          {functions.map(({ name, enabled }) => (
+            <li key={name} className={`pill ${enabled ? "good" : ""}`}>
+              <StateDot tone={enabled ? "good" : "idle"} />
+              <span>{name}: {enabled ? "Enabled" : "Disabled"}</span>
+            </li>
+          ))}
+        </ul>
+      </td>
+    </tr>
   );
 }
 

@@ -33,7 +33,7 @@ flowchart TB
 
 `navigation.ts` `PARTS`: **Agents** (`/agents` Start an agent, `/terminals` Running agents), **Server** (`/live`, `/traffic`, `/requests`, `/sessions`, `/settings`, `/organization`, `/get`), **Machines** (`/machines`, active on individual machine pages too). `partFor()` drives `PartTag`, the breadcrumb above each `<h1>`.
 
-`MachinesPage` lists machines with a case-insensitive search over name, id, hostname, address and owner. Searching only filters the cards; fleet totals and the add/removed-machine controls stay unchanged.
+`MachinesPage` lists machines in responsive rows (name, architecture, last contact, function states), with a case-insensitive search over name, id, hostname, address and owner. `MachineRow` uses reported flags for agents, terminals, server management, containers, updates and tunnel; model servers use `machineProviders`, MCP uses reported servers. These describe configuration/presence, not `machine.you` permissions or connection readiness. Searching only filters the rows; fleet totals and the add/removed-machine controls stay unchanged.
 
 ## Data layer
 
