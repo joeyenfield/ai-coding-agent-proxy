@@ -16,11 +16,10 @@ from typing import List, Optional
 
 from .. import common, login
 from .. import update as updates
-from . import mcp, presence, providers, settings
+from . import containers, mcp, presence, providers, servers, settings
 
 USAGE = """agent-machine puts this computer in an agent-server's fleet, so the server can use the
-model servers it runs (Ollama, Strata, Docker Model Runner) and start agents on it.
-This is the Python agent-machine; containers and starting Strata are the Go one's only.
+LLM providers it runs (Ollama, Strata, Docker Model Runner, containers) and start agents on it.
 
 Usage: agent-machine                           this machine as the fleet sees it
        agent-machine login [url] [--user name] [--key access-key]
@@ -28,7 +27,9 @@ Usage: agent-machine                           this machine as the fleet sees it
        agent-machine start                     join the fleet in the background
        agent-machine stop
        agent-machine run [--server url]        join the fleet in the foreground (Ctrl+C leaves)
-       agent-machine servers on|off            let the server pull, delete, load and unload models here, and start and stop Ollama (off by default)
+       agent-machine containers on|off         let the server run Strata or Ollama here in containers (off by default)
+       agent-machine containers cli auto|docker|podman  which runs them (auto: whichever is installed and answering)
+       agent-machine servers on|off            let the server manage the model servers here: start and stop them, their settings and models (off by default)
        agent-machine launches on|off           let the server start agents here (off by default)
        agent-machine commands on|off           let you open a terminal here from the console, in a launch folder (off by default)
        agent-machine roots add <dir>           a folder agents may be started in (and any folder inside it)
@@ -40,12 +41,17 @@ Usage: agent-machine                           this machine as the fleet sees it
        agent-machine name <name>|-             the name the console shows (default: the hostname)
        agent-machine address <host>|-          how the server reaches this machine's model servers
        agent-machine update [--force]          install the build the server offers (its Python wheel, with pip), and restart it
-       agent-machine updates on|off            let the console update it here to the server's build (off by default)
+       agent-machine updates on|off            let the console update agent-machine and agent here to the server's build (off by default)
        agent-machine version
 
-Launches run the agent command (AI_PROXY_AGENT, else the Python agent), signed in to the same
-server with agent login. Only you, signed in as this machine's owner, can start agents or
-terminals here; a terminal from the console (commands on) is a shell as this user that only you see.
+Ollama, Strata and Docker Model Runner running here are found by themselves, and the console
+sees their models, logs and this machine's load through agent-machine. With servers on, it can
+also pull, delete, load and unload models, start Ollama (ollama serve, with the settings saved
+from the console) and Strata's saved profiles here, and stop them.
+Containers run Strata or Ollama images only, with their own settings; docker run is root here.
+Launches run the agent command (AI_PROXY_AGENT, else the Python agent), signed in to the same server with agent login.
+Only you, signed in as this machine's owner, can start agents, containers or terminals here.
+A terminal from the console (commands on) is a shell as this user: only you see it.
 MCP servers run here, as this user, for the agents you choose and the teams you let use them
 (the machine's Access tab). Their commands, environments and URLs stay here.
 Settings changes reach the server within a minute.
@@ -68,7 +74,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 0
     if command == "login":
         return login.login(args[1:], program="agent-machine", credentials_path=settings.credentials_path, default_server=settings.upstream().server(),
-                           label="agent-machine", done="agent-machine supplies it")
+                           label="agent-machine", done="agent-machine supplies it",
+                           signed_in="agent-machine supplies this machine's providers there from now on (agent-machine logout to stop). Start it with: agent-machine start")
     if command == "logout":
         return login.logout(args[1:], program="agent-machine", credentials_path=settings.credentials_path)
     if command == "run":
@@ -106,7 +113,11 @@ def mcp_command(args: List[str]) -> int:
     if args[0] == "remove":
         if len(args) != 2:
             return fail("mcp remove takes a name")
-        if not mcp.remove(args[1]):
+        try:
+            removed = mcp.remove(args[1])
+        except ValueError as problem:
+            return fail(str(problem))
+        if not removed:
             return fail(f"this machine shares no MCP server called {args[1]}")
         return list_mcp()
     return fail("mcp takes add or remove")
@@ -161,7 +172,11 @@ def describe_mcp(server: mcp.Server) -> str:
 
 
 def list_mcp() -> int:
-    servers = mcp.load()
+    try:
+        servers = mcp.load()
+    except ValueError as problem:
+        print(f"agent-machine: {problem}", file=sys.stderr)
+        return 1
     if not servers:
         print("MCP       : none shared (agent-machine mcp add <name> -- <command>)")
     for index, server in enumerate(servers):
@@ -169,18 +184,36 @@ def list_mcp() -> int:
     return 0
 
 
+def service_command(args: List[str]) -> int:
+    """sudo agent-machine servers service [off]: lets this user restart Ollama's systemd service."""
+    off = len(args) == 3 and args[2] == "off"
+    user = os.environ.get("SUDO_USER", "")
+    try:
+        servers.set_up_service(user, off)
+    except (servers.Refused, OSError) as problem:
+        return fail(str(problem))
+    if off:
+        print("agent-machine can no longer restart ollama.service or change its settings.")
+    else:
+        print(f"{user}'s agent-machine may now start, stop and restart ollama.service, and set its OLLAMA_* settings ({servers.SERVICE_ENV_PATH}).")
+        print("Undo it with: sudo agent-machine servers service off")
+    return 0
+
+
 def configure(args: List[str]) -> int:
     """Changes one of machine.json's settings, then shows the machine."""
     machine = settings.Machine.load()
     command = args[0]
+    if command == "servers" and len(args) >= 2 and args[1] == "service":
+        return service_command(args)
     if command in ("launches", "servers", "commands", "updates"):
         if len(args) != 2 or args[1] not in ("on", "off"):
-            return fail(f"{command} takes on or off")
+            return fail("servers takes on, off, or service [off] (with sudo)" if command == "servers" else f"{command} takes on or off")
         setattr(machine, command, args[1] == "on")
         if command == "launches" and machine.launches and not machine.roots:
             print("Launches are on, but there's no folder to start agents in yet: agent-machine roots add <dir>")
         if command == "updates" and machine.updates:
-            print("Updates are on: the machine's owner or an admin can update this here to the server's build from the console.")
+            print("Updates are on: the machine's owner or an admin can update agent-machine and agent here to the server's build from the console.")
         if command == "commands" and machine.commands:
             print("Commands are on: signed in as this machine's owner, you can open a terminal here from the console, as this user.")
             if not machine.roots:
@@ -189,7 +222,7 @@ def configure(args: List[str]) -> int:
         if len(args) != 3 or args[1] not in ("add", "remove"):
             return fail("roots takes add or remove, and a folder")
         folder = os.path.abspath(args[2])
-        same = lambda root: os.path.normcase(os.path.normpath(root)) == os.path.normcase(os.path.normpath(folder))  # noqa: E731
+        same = lambda root: os.path.normpath(root).lower() == os.path.normpath(folder).lower()  # noqa: E731  (as the Go one: case-insensitive everywhere)
         if args[1] == "add":
             if not os.path.isdir(folder):
                 return fail(f"{folder} isn't a folder")
@@ -198,7 +231,12 @@ def configure(args: List[str]) -> int:
         else:
             machine.roots = [root for root in machine.roots if not same(root)]
     elif command == "containers":
-        return fail("containers are the Go agent-machine's only")
+        if len(args) == 2 and args[1] in ("on", "off"):
+            machine.containers = args[1] == "on"
+        elif len(args) == 3 and args[1] == "cli" and args[2] in ("auto", "docker", "podman"):
+            machine.container_cli = "" if args[2] == "auto" else args[2]
+        else:
+            return fail("containers takes on, off, or cli auto|docker|podman")
     elif command in ("name", "address"):
         if len(args) != 2:
             return fail(f"{command} takes one value, or - to clear it")
@@ -248,7 +286,7 @@ def run(args: List[str]) -> int:
     status = settings.Status(pid=os.getpid(), server=upstream.server(), state="connecting", started=started_by())
     status.save()
     log = logging.getLogger("agent-machine")
-    log.info("agent-machine %s (python) joining %s", common.VERSION, status.server)
+    log.info("agent-machine %s joining %s", common.VERSION, status.server)
 
     def on_status(state: str) -> None:
         status.state = state
@@ -286,13 +324,16 @@ def update_command(args: List[str]) -> int:
     parser = argparse.ArgumentParser(prog="agent-machine update", description="Install the build the agent-server offers (its Python wheel, checked against the server's SHA-256), and restart the running agent-machine.")
     parser.add_argument("--force", action="store_true", help="Install it even when the server's version is this one")
     parser.add_argument("--server", default="", help="The agent-server to update from (default: the one from agent-machine login)")
-    parser.add_argument("--with-agent", action="store_true", help="Also stop the agent-proxy, so the next agent runs the new build (agent is the same package)")
+    parser.add_argument("--with-agent", action="store_true", help="Update the agent command first (agent update), as a remote update from the console asks")
     options = parser.parse_args(args)
     other = settings.running()
     server = options.server or (other.server if other and other.server else settings.upstream().server())
+    # Read before the agent's update: an AI_PROXY_AGENT on this same Python installs the same wheel.
+    before = updates.current()
+    if options.with_agent and os.environ.get("AI_PROXY_AGENT"):
+        update_agent(os.environ["AI_PROXY_AGENT"], server)
     try:
         index = updates.fetch(server, settings.PROGRAM)
-        before = updates.current()
         if index.get("version") == before and not options.force and not updates.checkout():
             print(f"agent-machine {before} is the version the agent-server at {server} offers; nothing to do (--force installs it anyway).")
             return 0
@@ -302,12 +343,24 @@ def update_command(args: List[str]) -> int:
         return 1
     print(f"Updated agent-machine for {sys.executable}: {before or common.VERSION} -> {installed}.")
     print(updates.notes(index), end="")
-    if options.with_agent:
-        # The agent command is this same package: only its running agent-proxy is still the old code.
+    if options.with_agent and not os.environ.get("AI_PROXY_AGENT"):
+        # The agent command is this same package, now updated: only its running agent-proxy is still the old code.
         subprocess.run([sys.executable, "-m", "agent_py.client", "proxy", "stop"], cwd=str(Path.home()))
     if updates.checkout():
         print(f"This copy ran from the checkout at {updates.checkout()}; agent-machine now runs the installed one.")
     return restart_after_update()
+
+
+def update_agent(program: str, server: str) -> None:
+    """`agent update --server <server>` with the agent command launches run, as the Go agent-machine does."""
+    flags = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)} if sys.platform == "win32" else {}
+    try:
+        done = subprocess.run([program, "update", "--server", server], **flags)
+    except OSError as error:
+        print(f"agent update: {error}", file=sys.stderr)
+        return
+    if done.returncode != 0:
+        print(f"agent update: exit status {done.returncode}", file=sys.stderr)
 
 
 def restart_after_update() -> int:
@@ -413,14 +466,35 @@ def show(machine: settings.Machine) -> None:
         print("Providers : no Ollama, Strata or Docker Model Runner answering here")
     for index, provider in enumerate(found):
         print(f"{'Providers :' if index == 0 else '           '} {provider['type']} on port {provider['port']}")
-    print("Containers: not in the Python agent-machine")
-    print("Servers   : on: the server can change the models here (pull, delete, load, unload) and start and stop Ollama" if machine.servers else "Servers   : off (agent-machine servers on)")
+    show_containers(machine)
+    print("Servers   : on: the server can manage the model servers here (start, stop, settings, models)" if machine.servers else "Servers   : off (agent-machine servers on)")
     print("Launches  :", "on" if machine.launches else "off (agent-machine launches on)")
-    print("Updates   : on: the console can update this here to the server's build" if machine.updates else "Updates   : off (agent-machine updates on)")
+    print("Updates   : on: the console can update agent-machine and agent here to the server's build" if machine.updates else "Updates   : off (agent-machine updates on)")
     print("Commands  : on: you can open a terminal here from the console" if machine.commands else "Commands  : off (agent-machine commands on)")
-    for index, server in enumerate(mcp.load()):
-        print("MCP       :" if index == 0 else "           ", describe_mcp(server))
     if machine.launches and not machine.roots:
         print("Folders   : none (agent-machine roots add <dir>)")
+    try:
+        shared = mcp.load()
+    except ValueError:
+        shared = []
+    for index, server in enumerate(shared):
+        print("MCP       :" if index == 0 else "           ", describe_mcp(server))
     for index, root in enumerate(machine.roots):
         print("Folders   :" if index == 0 else "           ", root)
+
+
+def show_containers(machine: settings.Machine) -> None:
+    cli = containers.cli_for(machine)
+    how = " (found by itself; agent-machine containers cli docker|podman picks one)"
+    if machine.container_cli:
+        how = " (chosen; agent-machine containers cli auto finds it by itself)"
+    if not machine.containers:
+        print("Containers: off (agent-machine containers on)")
+    elif cli.command() is None and not machine.container_cli:
+        print("Containers: on, but neither docker nor podman is installed or on PATH")
+    elif cli.command() is None:
+        print(f"Containers: on, but {cli.name} isn't installed or isn't on PATH")
+    elif not cli.probe()["online"]:
+        print(f"Containers: on, with {cli.name}{how}, but its engine isn't answering (start Docker Desktop, or `podman machine start`)")
+    else:
+        print(f"Containers: on, with {cli.name}{how}")

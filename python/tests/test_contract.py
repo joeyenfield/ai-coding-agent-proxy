@@ -1,6 +1,6 @@
 """The server's contract tests for agent and agent-machine (server/tests/test_client.py), run
-against the Python versions, plus the agent-machine tests whose Go versions need what only the
-Go one has (containers, starting Strata)."""
+against the Python versions, plus Python-only variants of agent-machine tests (the Ollama probe
+redirected, a found model server adopted and reached through the tunnel)."""
 
 from __future__ import annotations
 
@@ -15,7 +15,11 @@ from test_client import (  # noqa: F401  (the tests are collected from here, wit
     fake_ollama_server, fleet_machine, free_port, machine, new_session,
     test_a_controlled_terminal_is_relayed_to_the_server,
     test_a_fleet_machine_lists_its_folders_and_opens_a_shell_when_commands_are_on,
+    test_a_fleet_machine_manages_its_model_server_for_the_console,
     test_a_fleet_machine_runs_an_agent_the_console_starts,
+    test_a_fleet_machine_runs_the_containers_the_server_asks_for,
+    test_a_machine_the_server_cant_reach_serves_agents_through_its_tunnel,
+    test_a_fleet_machine_starts_and_stops_strata_when_the_owner_asks,
     test_account_agents_https_is_tunnelled_to_the_servers_intercept,
     test_an_agent_uses_a_stdio_mcp_server_a_machine_shares_through_its_tunnel,
     test_model_requests_stream_through_to_the_server,
@@ -86,8 +90,9 @@ def test_a_fleet_machine_manages_its_ollama_for_the_console(tmp_path, agent_bina
         assert httpx.get(f"{base}/providers/ollama-{port}", timeout=30).json()["online"]
 
 
-def test_a_machine_the_server_cant_reach_serves_agents_through_its_tunnel(tmp_path, agent_binary, machine_binary):
-    """The machine says an address nothing answers on (TEST-NET), so agents' requests only arrive through its tunnel."""
+def test_a_machine_the_server_cant_reach_serves_an_adopted_ollama_through_its_tunnel(tmp_path, agent_binary, machine_binary):
+    """The machine says an address nothing answers on (TEST-NET), so agents' requests only arrive through its
+    tunnel; here to a model server it found and the server adopted (the shared test reaches a container's port)."""
     with fake_ollama_server() as (port, seen), machine(tmp_path, agent_binary) as m, \
             fleet_machine(m, machine_binary, tmp_path, ["address", "203.0.113.9"], env=probing(tmp_path, port)) as fleet:
         adopted = httpx.post(f"{m.server}/api/machines/{fleet.box['id']}/providers/adopt", json={"type": "ollama"})

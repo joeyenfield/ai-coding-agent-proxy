@@ -36,10 +36,11 @@ USAGE = """Usage: agent <agent> [project] [options] [-- agent arguments]
        agent logout [url]
        agent proxy [--server url]         run this machine's agent-proxy in the foreground
        agent proxy stop                   stop the agent-proxy running here (agent starts it again)
+       agent update [--force]             install the build the server offers (its Python wheel, with pip)
        agent version
 
-Launch a coding agent through this machine's agent-proxy (the Python version of the agent
-command). To put this machine in the server's fleet, use agent-machine.
+Launch a coding agent through this machine's agent-proxy. To put this machine in the
+server's fleet (its LLM providers, containers, launches from the console), use agent-machine.
 
 Options:
   -m, --model NAME        Model name or alias from the server's models.yaml (optional for account agents)
@@ -178,7 +179,12 @@ class API:
         response = self.http.request(method, self.base + path, json=body) if body is not None else self.http.request(method, self.base + path)
         if response.status_code >= 400:
             raise APIError(response.status_code, common.detail(response.content))
-        return response.json() if response.content else None
+        if not response.content:
+            return None
+        try:
+            return response.json()
+        except ValueError as error:
+            raise LaunchError(f"{method} {path}: unexpected answer: {error}")
 
     def text(self, path: str) -> str:
         response = self.http.get(self.base + path)
@@ -251,47 +257,41 @@ def ensure_proxy() -> Dict[str, Any]:
     if status.get("role") != "agent-proxy":
         raise LaunchError(f"something other than agent-proxy answers on {local}; set AI_PROXY_LOCAL_PORT to a free port")
     server = str(status.get("server") or "")
-    if common.is_loopback_url(server) and common.health(server) is None:
-        # One computer for everything: start the agent-server as well, if it's installed here.
-        program = shutil.which("agent-server")
-        if not program:
-            raise LaunchError(f"the agent-server at {server} isn't running; start it (agent-server, or its Docker container), or sign in to another with `agent login <server>`")
-        parsed = urlparse(server)
-        port = str(parsed.port or (443 if parsed.scheme == "https" else 80))
-        # Generous: a fresh agent-server rebuilds the web UI first when its sources changed.
-        start([program, "--port", port], server, "agent-server", "agent-server", 120)
-    for line in version_notices(status, common.health(server) or {}):
-        print("agent:", line, file=sys.stderr)
+    try:
+        if common.is_loopback_url(server) and common.health(server) is None:
+            # One computer for everything: start the agent-server as well, if it's installed here.
+            program = shutil.which("agent-server")
+            if not program:
+                raise LaunchError(f"the agent-server at {server} isn't running; start it (agent-server, or its Docker container), or sign in to another with `agent login <server>`")
+            parsed = urlparse(server)
+            port = str(parsed.port or (443 if parsed.scheme == "https" else 80))
+            # Generous: a fresh agent-server rebuilds the web UI first when its sources changed.
+            start([program, "--port", port], server, "agent-server", "agent-server", 120)
+    finally:
+        # On stderr: a headless launch's stdout is its session line.
+        for line in version_notices(common.VERSION, status, common.health(server)):
+            print("agent:", line, file=sys.stderr)
     return status
 
 
-def version_notices(proxy: Dict[str, Any], server: Dict[str, Any]) -> List[str]:
-    own = common.VERSION
+def version_notices(own: str, proxy: Optional[Dict[str, Any]], server: Optional[Dict[str, Any]]) -> List[str]:
+    """This agent's version compared with the agent-proxy's /health and the server's. A build
+    without a version says nothing."""
     if not own or own == "dev":
         return []
     lines = []
-    running = proxy.get("version") or "an older version"
+    running = str((proxy or {}).get("version") or "")
     if running != own:
-        lines.append(f"the running agent-proxy is {running}; this agent is {own}. Run `agent proxy stop` so the next agent starts this one.")
-    theirs = server.get("version")
-    if theirs and theirs != own and not own.startswith(f"{theirs}+"):
-        lines.append(f"agent-server is {theirs}; this agent is {own}.")
+        lines.append(f"the running agent-proxy is {running or 'an older version'}; this agent is {own}. Run `agent proxy stop` so the next agent starts this one.")
+    theirs = str((server or {}).get("version") or "")
+    if theirs and theirs != own:
+        lines.append(f"agent-server is {theirs}; this agent is {own}. Update with: agent update")
     return lines
 
 
-def environment() -> str:
-    """Which install command applies here: linux, macos, windows or wsl."""
-    if sys.platform == "win32":
-        return "windows"
-    if sys.platform == "darwin":
-        return "macos"
-    if sys.platform == "linux" and "microsoft" in os.uname().release.lower():
-        return "wsl"
-    return "linux"
-
-
 def install_command(agent: Dict[str, Any]) -> str:
-    return str((agent.get("installs") or {}).get(environment()) or agent.get("install") or "")
+    """How to install the agent here: this environment's command, else the general one."""
+    return str((agent.get("installs") or {}).get(common.environment()) or agent.get("install") or "")
 
 
 def agents(api: API) -> List[Dict[str, Any]]:
@@ -315,7 +315,9 @@ def find_agent(api: API, agent_id: str) -> Dict[str, Any]:
 def check_signed_in(api: API, server: str) -> None:
     try:
         status = api.call("GET", "/api/auth/status")
-    except (APIError, httpx.HTTPError) as error:
+        if not isinstance(status, dict):
+            raise LaunchError("GET /api/auth/status: unexpected answer")
+    except (APIError, LaunchError, httpx.HTTPError) as error:
         raise LaunchError(f"couldn't reach the agent-server at {server}: {error}")
     if status.get("required") and status.get("identity") is None:
         raise LaunchError(f"{server} needs this machine to sign in: run `agent login {server}`")
@@ -348,10 +350,10 @@ def intercept_files(api: API) -> Dict[str, Any]:
 
 def write_files(directory: Path, files: Dict[str, str]) -> None:
     """The server's files, refusing any name that isn't a plain file name."""
-    directory.mkdir(parents=True, exist_ok=True)
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
     for name, text in files.items():
         if not name or name in (".", "..") or any(char in name for char in "/\\:") or Path(name).name != name:
-            raise LaunchError(f"the server sent a file with an unsafe name: {name!r}")
+            raise LaunchError(f"the server sent a file with an unsafe name: {json.dumps(name)}")
         write_file(directory / name, text)
 
 
@@ -363,6 +365,9 @@ def merge_env(overrides: Dict[str, str]) -> Dict[str, str]:
     merged.update(overrides)
     return merged
 
+
+# How often ensure_container checks; tests shorten it.
+CONTAINER_POLL = 2.0
 
 PHASES = {"pulling": "pulling its image", "starting": "starting the container", "loading": "loading the model (the first start also downloads it)", "ready": "ready"}
 
@@ -404,15 +409,29 @@ def ensure_container(proxy_url: str, name: str, switch_others: bool, wait: float
         if phase in ("failed", "stopped", "unhealthy", "not_created") and job.get("state") != "running":
             reason = job.get("error") or (item.get("state") or {}).get("error") or phase
             raise LaunchError(f"{name} didn't start: {reason}. Its log is on the Containers page")
-        time.sleep(2)
-    raise LaunchError(f"{name} still isn't ready after {int(wait)}s")
+        time.sleep(CONTAINER_POLL)
+    raise LaunchError(f"{name} still isn't ready after {duration(wait)}")
+
+
+def duration(seconds: float) -> str:
+    """A span of time the way Go writes one (4h0m0s, 1m30s, 45s), as the Go launcher says it."""
+    whole = int(seconds)
+    hours, rest = divmod(whole, 3600)
+    minutes, secs = divmod(rest, 60)
+    if hours:
+        return f"{hours}h{minutes}m{secs}s"
+    if minutes:
+        return f"{minutes}m{secs}s"
+    return f"{secs}s"
 
 
 def run_plain(command: List[str], cwd: str, env: Dict[str, str]) -> int:
     # Ctrl+C belongs to the agent; the launcher stays to close the session afterwards.
     previous = signal.signal(signal.SIGINT, signal.SIG_IGN)
     try:
-        return subprocess.call(command, cwd=cwd, env=env)
+        code = subprocess.call(command, cwd=cwd, env=env)
+        # Ended by a signal (POSIX gives -signal): 1, as the Go launcher says.
+        return code if code >= 0 else 1
     except OSError as error:
         print(f"agent: {error}", file=sys.stderr)
         return 127
@@ -436,7 +455,7 @@ def share_for(local: str, server: str, session_id: str, name: str, wanted: bool)
 
 
 def launch(options: Options) -> int:
-    project = Path(options.project).resolve()
+    project = Path(os.path.abspath(options.project))
     if not project.is_dir():
         raise LaunchError(f"project directory does not exist: {project}")
     status = ensure_proxy()
@@ -481,7 +500,7 @@ def launch(options: Options) -> int:
     def end(exit_status: int) -> None:
         try:
             api.call("PATCH", "/api/sessions/" + quote(session_id, safe=""), {"ended": True, "exit_status": exit_status})
-        except (APIError, httpx.HTTPError) as error:
+        except (APIError, LaunchError, httpx.HTTPError) as error:
             print(f"Warning: could not close the session: {error}", file=sys.stderr)
 
     try:
@@ -572,7 +591,7 @@ def shell_command() -> List[str]:
 def launch_shell(options: Options) -> int:
     """The user's shell in a session of its own, its terminal shared with the server for its owner only:
     `agent --shell [folder]` here, and the terminals agent-machine opens from the console (headless)."""
-    project = Path(options.project).resolve()
+    project = Path(os.path.abspath(options.project))
     if not project.is_dir():
         raise LaunchError(f"folder does not exist: {project}")
     if not options.headless:
@@ -602,7 +621,7 @@ def launch_shell(options: Options) -> int:
     def end(exit_status: int) -> None:
         try:
             api.call("PATCH", "/api/sessions/" + quote(session_id, safe=""), {"ended": True, "exit_status": exit_status})
-        except (APIError, httpx.HTTPError) as error:
+        except (APIError, LaunchError, httpx.HTTPError) as error:
             print(f"Warning: could not close the session: {error}", file=sys.stderr)
 
     name = Path(command[0]).name
@@ -614,7 +633,11 @@ def launch_shell(options: Options) -> int:
         end(1)
         raise LaunchError(control)
     print(f"Session : {session_id}\nShell   : {command[0]} in {project}\nControl : {control} (only you see it)", flush=True)
-    exit_status = terminal.run(command, str(project), env, share)
+    try:
+        exit_status = terminal.run(command, str(project), env, share)
+    except OSError as error:
+        print(f"agent: {error}", file=sys.stderr)
+        exit_status = 127
     if share.problem:
         print(f"Control : {share.problem}", file=sys.stderr)
     end(exit_status)

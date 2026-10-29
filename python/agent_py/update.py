@@ -29,12 +29,14 @@ def fetch(server: str, program: str) -> Dict[str, Any]:
             response = http.get(server.rstrip("/") + "/downloads/index.json")
     except httpx.HTTPError as error:
         raise UpdateError(f"couldn't reach the agent-server at {server}: {error}")
+    if response.status_code == 404:
+        raise UpdateError(f"the agent-server at {server} doesn't offer downloads (it's older than this client; update it first)")
     if response.status_code >= 400:
         raise UpdateError(f"the agent-server at {server} answered {response.status_code}: {common.detail(response.content)}")
     try:
         index = response.json()
-    except ValueError:
-        raise UpdateError(f"the agent-server at {server} sent no downloads index")
+    except ValueError as error:
+        raise UpdateError(f"unexpected downloads index from {server}: {error}")
     return index if isinstance(index, dict) else {}
 
 

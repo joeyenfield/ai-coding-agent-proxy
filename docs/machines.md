@@ -417,12 +417,6 @@ AI_PROXY_USER=joey AI_PROXY_PASSWORD=... docker compose --profile sandbox up -d
 
 ## The Python agent-machine
 
-The Python package (`python/`, `agent_py`) installs an `agent-machine` with the same name, protocol, files and ports, for computers without a Go build. It has `login`/`logout`, `run`/`start`/`stop`, the status display, `launches`, `roots`, `commands`, `name`, `address`, `servers`, `mcp`, `update` and `updates`. It sends the same hello, runs launches and terminals (checking the folder after resolving links), lists folders, carries tunnels, shares MCP servers, and answers the server's questions about Ollama (status, pull, delete, load, unload), Docker Model Runner (status and models), Strata (status) and the machine's load. With `servers on` it starts, stops and restarts the Ollama installed there with the settings saved from the console (`ollama.json`, its output in `ollama.log`), like the Go one. That includes Termux on Android (`pkg install ollama`).
+The Python package (`python/`, `agent_py`) installs an `agent-machine` with the same name, protocol, files and ports, for computers without a Go build. It does everything the Go one does: every command (`login`/`logout`, `run`/`start`/`stop`, the status display, `launches`, `roots`, `commands`, `name`, `address`, `servers` and `servers service`, `containers`, `mcp`, `update` and `updates`), the same hello, launches and terminals, folders, tunnels, shared MCP servers, containers (Docker or Podman), starting and stopping Ollama (or its systemd `ollama.service`) and Strata's profiles, every model server question (Ollama, Docker Model Runner and Strata, with Strata's key read from its profile), catalogue searches and the machine's load. Ollama runs on Termux on Android too (`pkg install ollama`).
 
-What it lacks:
-
-- **Containers.** Its hello says they're off, so the console doesn't offer them, and container requests are refused.
-- **Starting and stopping Strata profiles, and Ollama's systemd service.** It starts and stops only an Ollama it runs itself.
-- **Strata's load, unload and logs, and catalogue searches.**
-
-Its `update` pip-installs the server's wheel, checked against its SHA-256. A launch runs `AI_PROXY_AGENT` if it's set, otherwise the Python `agent` with the same Python.
+Its `update` pip-installs the server's wheel, checked against its SHA-256; `--with-agent` runs `AI_PROXY_AGENT update` first when that names the agent command, and otherwise stops the agent-proxy, as the Python agent is the same package. A launch runs `AI_PROXY_AGENT` if it's set, otherwise the Python `agent` with the same Python. Installed with pip, `sudo agent-machine servers service` may not find the program on sudo's `secure_path`: run `sudo "$(which agent-machine)" servers service`.

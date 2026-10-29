@@ -68,7 +68,7 @@ class Server:
 
     def check(self) -> None:
         if not NAME.fullmatch(self.name):
-            raise ValueError(f"name an MCP server with up to 40 lowercase letters, numbers, '-' and '_' (not {self.name!r})")
+            raise ValueError(f"name an MCP server with up to 40 lowercase letters, numbers, '-' and '_' (not {json.dumps(self.name)})")
         if bool(self.url) == bool(self.command):
             raise ValueError("give an MCP server either a command (after --) or --url")
         if self.url:
@@ -88,12 +88,18 @@ def path() -> Path:
 
 
 def load() -> List[Server]:
+    """The servers in mcp.json, sorted by name; none when there's no file. A file that can't be read or
+    isn't JSON raises ValueError, naming it."""
     try:
         data = json.loads(path().read_text(encoding="utf-8"))
     except FileNotFoundError:
         return []
+    except (OSError, ValueError) as problem:
+        raise ValueError(f"{path()}: {problem}")
     servers = []
-    for item in (data or {}).get("servers") or []:
+    for item in (data.get("servers") if isinstance(data, dict) else None) or []:
+        if not isinstance(item, dict):
+            continue
         try:
             server = Server(**{key: value for key, value in item.items() if key in Server.__dataclass_fields__})
             server.check()
@@ -137,10 +143,18 @@ class Bridge:
     def describe(self) -> Optional[Dict[str, Any]]:
         """The bridge for the hello: its port and key, and the servers by name (never how they run).
         It starts the bridge the first time there are servers to share."""
-        servers = self.loader()
+        try:
+            servers = self.loader()
+        except ValueError as problem:
+            log.info("mcp: %s", problem)
+            return None
         if not servers:
             return None
-        self.start()
+        try:
+            self.start()
+        except OSError as problem:
+            log.info("mcp: %s", problem)
+            return None
         return {"port": self.port, "key": self.key, "servers": [
             {"name": server.name, "description": server.description, "transport": server.transport, "found": server.found()}
             for server in servers
@@ -169,9 +183,16 @@ class Bridge:
             self.port = listener.getsockname()[1]
 
     def close(self) -> None:
+        """Ends every stdio session (waiting a little for them) and stops listening."""
         if self.loop and self.server:
-            for session in list(self.sessions.values()):
-                asyncio.run_coroutine_threadsafe(session.close(), self.loop)
+            ending = [asyncio.run_coroutine_threadsafe(session.close(), self.loop) for session in list(self.sessions.values())]
+            self.sessions = {}
+            deadline = time.monotonic() + 5
+            for future in ending:
+                try:
+                    future.result(max(0.0, deadline - time.monotonic()))
+                except Exception:
+                    pass
             self.server.should_exit = True
 
     async def reap(self) -> None:
@@ -195,7 +216,11 @@ class Bridge:
         if not request.url.path.startswith("/mcp/"):
             return error(404, "not found")
         name = request.url.path[len("/mcp/"):]
-        server = next((item for item in await asyncio.to_thread(self.loader) if item.name == name), None)
+        try:
+            servers = await asyncio.to_thread(self.loader)
+        except ValueError as problem:
+            return error(500, str(problem))
+        server = next((item for item in servers if item.name == name), None)
         if server is None:
             return error(404, f"this machine shares no MCP server called {name}")
         if server.url:
@@ -461,7 +486,8 @@ async def forward(request: Request, server: Server) -> Response:
     target = server.url + (("&" if "?" in server.url else "?") + request.url.query if request.url.query else "")
     headers = {name: value for name, value in request.headers.items() if name.lower() not in {"host", "content-length", KEY_HEADER, "connection"}}
     headers.update(server.headers)
-    client = httpx.AsyncClient(trust_env=False, timeout=httpx.Timeout(600, connect=10))
+    # No time limit, like the Go bridge's proxy: a GET stream can stay quiet for a long time.
+    client = httpx.AsyncClient(trust_env=False, timeout=httpx.Timeout(None, connect=30))
     try:
         answer = await client.send(client.build_request(request.method, target, headers=headers, content=await request.body()), stream=True)
     except httpx.HTTPError as problem:

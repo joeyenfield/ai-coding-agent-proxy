@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess
 import sys
 import threading
@@ -146,11 +145,12 @@ class Share:
                     return
                 except Exception as error:
                     self.problem = f"lost the connection to the proxy ({error})"
-                if self.revive is not None:
-                    self.revive()
                 with self.history.changed:
                     if self.exit is not None and attempt >= 1:
                         return
+                if self.revive is not None:
+                    self.revive()
+                with self.history.changed:
                     self.history.changed.wait_for(lambda: self.exit is not None, RETRY_DELAYS[min(attempt, len(RETRY_DELAYS) - 1)])
                 attempt += 1
         finally:
@@ -316,6 +316,15 @@ class PosixChild(Child):
             pass
 
 
+def windows_command(command: List[str]) -> Tuple[str, str]:
+    """The program and the arguments after it for a ConPTY. A ConPTY can't start a .cmd or .bat (npm installs
+    agents as those) by itself: they run in %COMSPEC% /d /s /c, as the Go client's windowsCommand does."""
+    if os.path.splitext(command[0])[1].lower() in (".cmd", ".bat"):
+        shell = os.environ.get("COMSPEC") or "cmd.exe"
+        return shell, '/d /s /c "' + subprocess.list2cmdline(command) + '"'
+    return command[0], subprocess.list2cmdline(command[1:])
+
+
 class WindowsChild(Child):
     """The agent in a ConPTY, through pywinpty's PTY (its PtyProcess names the program twice to a ConPTY)."""
 
@@ -324,7 +333,8 @@ class WindowsChild(Child):
 
         self.pty = PTY(cols, rows, backend=Backend.ConPTY)
         block = "".join(f"{name}={value}\0" for name, value in env.items())
-        if not self.pty.spawn(command[0], cmdline=subprocess.list2cmdline(command[1:]) or None, cwd=cwd, env=block):
+        program, arguments = windows_command(command)
+        if not self.pty.spawn(program, cmdline=arguments or None, cwd=cwd, env=block):
             raise OSError(f"couldn't start {command[0]}")
         self.lock = threading.Lock()
 
@@ -377,6 +387,15 @@ def platform_unavailable() -> str:
             import winpty  # noqa: F401
         except ImportError:
             return "sharing a terminal on Windows needs pywinpty (pip install pywinpty)"
+        import ctypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        # ConPTY needs Windows 10 1809 or later.
+        if not hasattr(kernel32, "CreatePseudoConsole"):
+            return "this version of Windows has no ConPTY"
+        mode = ctypes.c_ulong()
+        if not kernel32.GetConsoleMode(kernel32.GetStdHandle(-10), ctypes.byref(mode)):
+            return "this isn't a Windows console window (Windows Terminal, PowerShell or cmd)"
     return ""
 
 
@@ -387,7 +406,11 @@ def start_child(command: List[str], cwd: str, env: Dict[str, str], cols: int, ro
 
 
 def size() -> Tuple[int, int]:
-    cols, rows = shutil.get_terminal_size((120, 40))
+    """This terminal's own size (not COLUMNS and LINES), with a fallback for when it can't be read."""
+    try:
+        cols, rows = os.get_terminal_size(sys.stdout.fileno())
+    except (OSError, ValueError, AttributeError):
+        return 120, 40
     return (cols, rows) if cols >= 2 and rows >= 2 else (120, 40)
 
 
@@ -443,7 +466,7 @@ class WindowsConsole(Console):
 
     ENABLE_PROCESSED_INPUT, ENABLE_LINE_INPUT, ENABLE_ECHO_INPUT = 0x1, 0x2, 0x4
     ENABLE_VIRTUAL_TERMINAL_INPUT = 0x200
-    ENABLE_VIRTUAL_TERMINAL_PROCESSING, DISABLE_NEWLINE_AUTO_RETURN = 0x4, 0x8
+    ENABLE_PROCESSED_OUTPUT, ENABLE_VIRTUAL_TERMINAL_PROCESSING, DISABLE_NEWLINE_AUTO_RETURN = 0x1, 0x4, 0x8
 
     def __init__(self) -> None:
         import ctypes
@@ -459,7 +482,7 @@ class WindowsConsole(Console):
     def raw(self) -> None:
         mode_in = (self.saved_in.value & ~(self.ENABLE_PROCESSED_INPUT | self.ENABLE_LINE_INPUT | self.ENABLE_ECHO_INPUT)) | self.ENABLE_VIRTUAL_TERMINAL_INPUT
         self.kernel32.SetConsoleMode(self.stdin, mode_in)
-        self.kernel32.SetConsoleMode(self.stdout, self.saved_out.value | self.ENABLE_VIRTUAL_TERMINAL_PROCESSING | self.DISABLE_NEWLINE_AUTO_RETURN)
+        self.kernel32.SetConsoleMode(self.stdout, self.saved_out.value | self.ENABLE_PROCESSED_OUTPUT | self.ENABLE_VIRTUAL_TERMINAL_PROCESSING | self.DISABLE_NEWLINE_AUTO_RETURN)
 
     def restore(self) -> None:
         self.kernel32.SetConsoleMode(self.stdin, self.saved_in.value)
@@ -483,8 +506,12 @@ def run(command: List[str], cwd: str, env: Dict[str, str], share: Optional[Share
     history = share.history if share else History()
     if share:
         share.start(agent.write, cols, rows)
-    screen: Console = WindowsConsole() if sys.platform == "win32" else PosixConsole()
-    screen.raw()
+    try:
+        screen: Console = WindowsConsole() if sys.platform == "win32" else PosixConsole()
+        screen.raw()
+    except Exception:
+        agent.close()
+        raise
     out = sys.stdout.buffer
 
     def output() -> None:
@@ -515,7 +542,8 @@ def run(command: List[str], cwd: str, env: Dict[str, str], share: Optional[Share
 
     def watch() -> None:
         current = (cols, rows)
-        while not stopped.wait(0.5):
+        # Polled, as the Go launcher does on Windows (which has no resize signal).
+        while not stopped.wait(0.25):
             now = size()
             if now != current:
                 current = now

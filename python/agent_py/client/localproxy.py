@@ -60,6 +60,9 @@ SKIPPED = {
     "proxy-authorization", "proxy-connection", "cookie", "origin",
 }
 
+# Also dropped from agents' requests, as Go's ReverseProxy drops them: this hop's forwarding headers.
+FORWARDING = {"forwarded", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto"}
+
 # WebSocket close codes a peer may not send itself.
 RESERVED_CLOSE = {1005, 1006, 1015}
 
@@ -115,6 +118,8 @@ class AgentProxy:
         self.upstream = upstream
         self.intercept_port = intercept_port
         self.http = httpx.AsyncClient(trust_env=False, timeout=httpx.Timeout(None, connect=30))
+        # Only what the request itself carries: no User-Agent or Accept-Encoding of httpx's own.
+        self.http.headers.clear()
         self.shutdown: Optional[Any] = None
 
     async def __call__(self, scope, receive, send) -> None:
@@ -133,7 +138,7 @@ class AgentProxy:
             server = self.upstream.server()
             return JSONResponse({
                 "status": "ok", "role": "agent-proxy", "server": server, "user": self.upstream.user(server) or None,
-                "intercept_port": self.intercept_port, "version": common.VERSION, "protocol": common.PROTOCOL, "implementation": "python",
+                "intercept_port": self.intercept_port, "version": common.VERSION, "protocol": common.PROTOCOL,
             })
         if path == "/shutdown":
             return self.stop(request)
@@ -174,7 +179,7 @@ class AgentProxy:
             headers[common.TOKEN_HEADER] = token
         target = server + path + (f"?{request.url.query}" if request.url.query else "")
         try:
-            answer = await self.http.request(request.method, target, content=await request.body(), headers=headers, timeout=120)
+            answer = await self.http.request(request.method, target, content=await request.body(), headers=headers)
         except httpx.HTTPError as error:
             return JSONResponse({"detail": f"agent-proxy couldn't reach the agent-server at {server}: {error}"}, status_code=502)
         if path == "/api/intercept" and answer.status_code == 200:
@@ -192,16 +197,24 @@ class AgentProxy:
         """An agent's request, to the same path on the server, streamed both ways. The session id is the credential: no token."""
         server = self.upstream.server()
         target = server + request.url.path + (f"?{request.url.query}" if request.url.query else "")
-        headers = common.identify(forwarded(request.headers))
+        headers = common.identify({name: value for name, value in forwarded(request.headers).items() if name.lower() not in FORWARDING})
+        length = request.headers.get("content-length")
+        if length is not None:
+            headers["Content-Length"] = length
+        if "accept-encoding" not in request.headers:
+            # As the agent asked: what it reads raw, not compressed for a client that never asked.
+            headers["Accept-Encoding"] = "identity"
+        # The body streams through as it arrives, like the response: an upload is never held here whole.
+        body = request.stream() if length not in (None, "0") or "chunked" in request.headers.get("transfer-encoding", "").lower() else None
         try:
-            outgoing = self.http.build_request(request.method, target, content=await request.body(), headers=headers)
+            outgoing = self.http.build_request(request.method, target, content=body, headers=headers)
             answer = await self.http.send(outgoing, stream=True)
         except httpx.HTTPError as error:
             message = f"agent-proxy couldn't reach the agent-server at {server}: {error}"
             return JSONResponse({"error": {"message": message, "type": "proxy_error"}}, status_code=502)
         kept = {name: value for name, value in answer.headers.items() if name.lower() not in SKIPPED}
 
-        async def body():
+        async def chunks():
             try:
                 # Every chunk at once: agents read server-sent events as they arrive.
                 async for chunk in answer.aiter_raw():
@@ -209,7 +222,7 @@ class AgentProxy:
             finally:
                 await answer.aclose()
 
-        return StreamingResponse(body(), status_code=answer.status_code, headers=kept)
+        return StreamingResponse(chunks(), status_code=answer.status_code, headers=kept)
 
     async def websocket(self, launcher: WebSocket) -> None:
         """A terminal shared with --control, relayed to the server signed as this machine."""
@@ -419,7 +432,8 @@ def open_log() -> None:
         handler: logging.Handler = logging.FileHandler(path, encoding="utf-8")
     except OSError:
         handler = logging.NullHandler()
-    handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+    # The Go agent-proxy's format (log.LstdFlags), so one log reads the same whichever wrote it.
+    handler.setFormatter(logging.Formatter("%(asctime)s %(message)s", "%Y/%m/%d %H:%M:%S"))
     log.addHandler(handler)
     log.setLevel(logging.INFO)
 

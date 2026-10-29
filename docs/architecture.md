@@ -23,7 +23,7 @@ The server is the hub. It owns all configuration, accounts and recordings. Every
 | Client, `agent` and `agent-proxy` | `client/` | Go | `agent` launches coding agents and signs the computer in (`agent login`). `agent-proxy` (`agent proxy`) runs on loopback and carries the agents' traffic to the server. |
 | Machine, `agent-machine` | `machine/` | Go | Keeps a computer in the fleet. Reports its model servers, carries agents' traffic to them, manages them, runs containers, starts agents and terminals there. |
 | Android app | `android/` | Kotlin | A list of servers, and each one's console in a WebView. Its features are the console's. |
-| Python port, `agent_py` | `python/` | Python | `agent`, `agent-proxy` and `agent-machine` with the same protocol, files and ports, for computers without a Go build. It has no containers and doesn't start Strata. |
+| Python port, `agent_py` | `python/` | Python | `agent`, `agent-proxy` and `agent-machine` with the same protocol, files and ports, for computers without a Go build. Same functionality as the Go programs. |
 
 ### Why they're separate
 

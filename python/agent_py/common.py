@@ -279,7 +279,8 @@ def goarch() -> str:
     return {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64", "i386": "386", "i686": "386", "x86": "386"}.get(machine, "armv7" if machine.startswith("arm") else machine)
 
 
-WSL_DRIVES = ("/mnt/", "/c/", "/d/")
+# Where Linux lists its mounts; tests point it elsewhere.
+MOUNTS_FILE = "/proc/mounts"
 
 
 def agent_dirs() -> List[Path]:
@@ -288,17 +289,51 @@ def agent_dirs() -> List[Path]:
     return [home / part for part in (".opencode/bin", ".local/bin", "bin", ".bun/bin", ".cargo/bin", ".npm-global/bin")]
 
 
+def windows_drives() -> List[str]:
+    """The mount points of Windows drives in WSL (9p with aname=drvfs, or drvfs); none elsewhere."""
+    try:
+        with open(MOUNTS_FILE, encoding="utf-8", errors="replace") as mounts:
+            lines = mounts.read().splitlines()
+    except OSError:
+        return []
+    drives = []
+    for line in lines:
+        fields = line.split()
+        if len(fields) >= 4 and (fields[2] == "drvfs" or (fields[2] == "9p" and "aname=drvfs" in fields[3])):
+            drives.append(fields[1].replace("\\040", " "))
+    return drives
+
+
+def on_drive(path: str, drives: List[str]) -> bool:
+    clean = os.path.normpath(path)
+    return any(clean == drive or clean.startswith(drive.rstrip("/") + "/") for drive in drives)
+
+
+def _which(name: str) -> Optional[str]:
+    if sys.platform != "linux" or "/" in name:
+        return shutil.which(name)
+    drives = windows_drives()
+    if not drives:
+        return shutil.which(name)
+    for folder in os.environ.get("PATH", "").split(os.pathsep):
+        folder = folder or "."
+        if on_drive(folder, drives):
+            continue
+        found = shutil.which(name, path=folder)
+        # A Linux folder can hold a link to a Windows program too.
+        if found and not on_drive(os.path.realpath(found), drives):
+            return found
+    return None
+
+
 def look_path(name: str) -> Optional[str]:
-    """shutil.which, except that in WSL a program on the Windows drives doesn't count: run through
-    interop, it can't use Linux paths and its terminal shows nothing."""
+    """shutil.which, except that in WSL a program on the Windows drives doesn't count: WSL puts Windows'
+    PATH after its own, and a Windows build run through interop can't use Linux paths and its terminal
+    shows nothing. Agents' own install folders count too: a service or a fresh terminal never reads the
+    shell's startup file that adds them to PATH."""
     if not name:
         return None
-    in_wsl = sys.platform == "linux" and "microsoft" in os.uname().release.lower()
-    if in_wsl and "/" not in name:
-        dirs = [entry for entry in os.environ.get("PATH", "").split(os.pathsep) if not entry.startswith(WSL_DRIVES)]
-        found = shutil.which(name, path=os.pathsep.join(dirs))
-    else:
-        found = shutil.which(name)
+    found = _which(name)
     if found or "/" in name or "\\" in name:
         return found
     for folder in agent_dirs():
@@ -306,3 +341,14 @@ def look_path(name: str) -> Optional[str]:
         if candidate:
             return candidate
     return None
+
+
+def environment() -> str:
+    """Where this runs, as the server names install commands: linux, macos, windows or wsl."""
+    if sys.platform == "darwin":
+        return "macos"
+    if sys.platform == "win32":
+        return "windows"
+    if sys.platform == "linux" and windows_drives():
+        return "wsl"
+    return "linux"

@@ -131,10 +131,13 @@ def test_the_console_updates_a_python_machine_that_takes_updates(tmp_path, agent
     launcher = tmp_path / "launcher"
     launcher.mkdir()
     binary = script(launcher, "agent-machine", "agent_py.machine:main", python=str(venv))
+    # --with-agent runs AI_PROXY_AGENT's own update, as the Go agent-machine does: on the virtualenv's
+    # Python too, so it never installs into the Python running the tests.
+    agent = script(launcher, "agent", "agent_py.client:main", python=str(venv))
     home = tmp_path / "machine-home"
     with machine(tmp_path, agent_binary) as m:
         m.env.pop("AI_PROXY_VERSION", None)
-        with fleet_machine(m, binary, tmp_path, ["updates", "on"], env={"AI_PROXY_MACHINE_STARTED": "background"}) as fleet:
+        with fleet_machine(m, binary, tmp_path, ["updates", "on"], env={"AI_PROXY_MACHINE_STARTED": "background", "AI_PROXY_AGENT": str(agent)}) as fleet:
             base = f"{m.server}/api/machines/{fleet.box['id']}"
             assert fleet.box["updates"] is True
             first = json.loads((home / "status.json").read_text())["pid"]

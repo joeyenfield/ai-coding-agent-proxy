@@ -1,16 +1,21 @@
-"""Starts and stops the Ollama installed on this machine when the server asks ({"type": "server"}
-over the fleet connection), with the OLLAMA_* settings saved from the console. It's off until
-`agent-machine servers on`. Mirrors machine/internal/servers in the Go agent-machine.
+"""Starts and stops the model servers installed on this machine when the server asks
+({"type": "server"} over the fleet connection): Ollama (`ollama serve`, with the OLLAMA_* settings
+saved from the console, or its systemd ollama.service once `sudo agent-machine servers service`
+allowed it) and Strata (a saved profile, through Strata's own `strata runtime start|stop`). It's
+off until `agent-machine servers on`. Mirrors machine/internal/servers in the Go agent-machine.
 
-It only stops the Ollama it started itself (one run by its own app, a service or by hand is
-left to that), and requests only name a kind, so the server can't run anything else here.
-Starting Strata profiles and Ollama's systemd service are the Go agent-machine's only.
+It only stops what it can own: the Ollama it started itself or its allowed service (one run by
+its own app or by hand is left to that), and Strata instances, which Strata's runtime owns and
+stops cleanly. Requests only name a kind and, for Strata, one of the machine's own saved
+profiles, so the server can't run anything else here.
 """
 
 from __future__ import annotations
 
+import datetime
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -18,16 +23,21 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import httpx
 
 from . import settings
 
-# A command to run instead of ollama, as a JSON list of arguments (tests use a fake).
+# Commands to run instead of ollama or strata, as JSON lists of arguments (tests use fakes).
 OLLAMA_ENV = "AI_PROXY_OLLAMA_COMMAND"
+STRATA_ENV = "AI_PROXY_STRATA_COMMAND"
 # Where Ollama listens by default, and where the fleet looks for it.
 OLLAMA_PORT = 11434
+
+PROFILE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+# Programs run to ask something get no console window of their own on Windows.
+QUIET: Dict[str, Any] = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)} if sys.platform == "win32" else {}
 
 MEMORY, SCHED, HARDWARE, SERVER = "Memory / KV cache", "Concurrency / scheduling", "Hardware", "Server"
 GROUPS = [MEMORY, SCHED, HARDWARE, SERVER]
@@ -97,7 +107,7 @@ def parse_extra_env(text: str) -> Dict[str, Optional[str]]:
         name, found, value = line.partition("=")
         name = name.strip()
         if not found or not name or " " in name or "\t" in name:
-            raise Refused(f"Extra environment line {number} is not KEY=VALUE: {raw.rstrip(chr(13))!r}")
+            raise Refused(f"Extra environment line {number} is not KEY=VALUE: {json.dumps(raw.rstrip(chr(13)))}")
         if not name.startswith("OLLAMA_") or name == "OLLAMA_HOST":
             raise Refused(f"Extra environment line {number} sets {name}: only OLLAMA_* variables (other than OLLAMA_HOST) can be set here")
         result[name] = value.strip() or None
@@ -239,7 +249,8 @@ def save_config(data: Any) -> Dict[str, Any]:
     path = config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+    # Sorted keys, as Go writes a map, so the file is the same whichever agent-machine saved it.
+    temporary.write_text(json.dumps(config, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     try:
         os.chmod(temporary, 0o600)
     except OSError:
@@ -249,7 +260,9 @@ def save_config(data: Any) -> Dict[str, Any]:
 
 
 def load_state() -> Dict[str, Any]:
-    """servers.json in agent-machine's folder: the Ollama it started (ollama_pid, ollama_bind, ollama_env)."""
+    """servers.json in agent-machine's folder: the Ollama it started (ollama_pid, ollama_bind, and
+    ollama_env, the managed environment it was started with, to tell whether it runs the saved
+    settings), or service: true when it was started through its systemd service."""
     try:
         value = json.loads(state_path().read_text(encoding="utf-8"))
         return value if isinstance(value, dict) else {}
@@ -258,9 +271,13 @@ def load_state() -> Dict[str, Any]:
 
 
 def save_state(value: Dict[str, Any]) -> None:
+    # The Go agent-machine's layout: its fields in order, empty ones left out, the environment sorted.
+    ordered = {key: value[key] for key in ("ollama_pid", "ollama_bind", "ollama_env", "service") if value.get(key)}
+    if isinstance(ordered.get("ollama_env"), dict):
+        ordered["ollama_env"] = dict(sorted(ordered["ollama_env"].items()))
     path = state_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+    path.write_text(json.dumps(ordered, indent=2) + "\n", encoding="utf-8")
     try:
         os.chmod(path, 0o600)
     except OSError:
@@ -273,29 +290,311 @@ def managed_pid() -> int:
     return pid if pid > 0 and settings.alive(pid) else 0
 
 
-def ollama_command() -> Optional[List[str]]:
-    """ollama on PATH, or where its installer (or Termux's package) puts it."""
-    override = os.environ.get(OLLAMA_ENV)
+def command(env: str, find: Callable[[], Optional[str]]) -> Optional[List[str]]:
+    """The program to run: the override from the environment (a JSON list), else what find returns."""
+    override = os.environ.get(env)
     if override:
         try:
             parts = json.loads(override)
         except ValueError:
             return None
         return [str(part) for part in parts] if isinstance(parts, list) and parts else None
+    found = find()
+    return [found] if found else None
+
+
+def run(timeout: float, program: List[str], *args: str) -> Tuple[str, Optional[str]]:
+    """Runs a program quietly: its output and error output together, and what went wrong, if anything."""
+    try:
+        done = subprocess.run([*program, *args], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                              timeout=timeout, check=False, **QUIET)
+    except subprocess.TimeoutExpired as expired:
+        return decode(expired.output).strip(), f"timed out after {timeout:g}s"
+    except OSError as error:
+        return "", str(error)
+    return decode(done.stdout).strip(), None if done.returncode == 0 else f"exit status {done.returncode}"
+
+
+def decode(output: Optional[bytes]) -> str:
+    return (output or b"").decode("utf-8", errors="replace")
+
+
+def _find_ollama() -> Optional[str]:
     found = shutil.which("ollama")
     if found:
-        return [found]
+        return found
     if sys.platform == "win32":
         candidates = [os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Ollama", "ollama.exe")]
     elif sys.platform == "darwin":
         candidates = ["/Applications/Ollama.app/Contents/Resources/ollama", "/usr/local/bin/ollama", "/opt/homebrew/bin/ollama"]
     else:
+        # The last is Termux's (pkg install ollama), for agent-machine started without its PATH.
         prefix = os.environ.get("PREFIX") or "/data/data/com.termux/files/usr"
         candidates = ["/usr/local/bin/ollama", "/usr/bin/ollama", os.path.join(prefix, "bin", "ollama")]
     for candidate in candidates:
         if os.path.isfile(candidate):
-            return [candidate]
+            return candidate
     return None
+
+
+def ollama_command() -> Optional[List[str]]:
+    """ollama on PATH, or where its installer (or Termux's package) puts it."""
+    return command(OLLAMA_ENV, _find_ollama)
+
+
+# Strata
+
+
+def _find_strata() -> Optional[str]:
+    found = shutil.which("strata")
+    if found:
+        return found
+    if sys.platform == "win32":
+        candidate = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Strata", "control", "bin", "strata.cmd")
+        if os.path.exists(candidate):
+            return candidate
+    return None
+
+
+def strata_command() -> Optional[List[str]]:
+    """strata on PATH, or the terminal Strata's desktop app installs."""
+    return command(STRATA_ENV, _find_strata)
+
+
+def last_line(output: str) -> str:
+    """The last non-empty line: Strata prints its JSON answer last."""
+    return output.strip().split("\n")[-1].strip()
+
+
+def strata_error(answer: Dict[str, Any], stderr: str) -> str:
+    for key in ("error", "message", "detail", "reason"):
+        value = answer.get(key)
+        if isinstance(value, str) and value:
+            return value
+        if isinstance(value, dict) and isinstance(value.get("message"), str):
+            return value["message"]
+    return stderr.strip() or "it refused"
+
+
+def strata(timeout: float, *args: str) -> Dict[str, Any]:
+    """Runs a strata command with --json and decodes its answer; refused unless it says ok."""
+    program = strata_command()
+    if program is None:
+        raise Refused("Strata isn't installed here, or its strata command isn't on PATH")
+    error: Optional[str] = None
+    try:
+        done = subprocess.run([*program, *args, "--json"], stdin=subprocess.DEVNULL, capture_output=True, timeout=timeout, check=False, **QUIET)
+        stdout, stderr = decode(done.stdout), decode(done.stderr)
+        if done.returncode != 0:
+            error = f"exit status {done.returncode}"
+    except subprocess.TimeoutExpired as expired:
+        stdout, stderr, error = decode(expired.stdout), decode(expired.stderr), f"timed out after {timeout:g}s"
+    except OSError as problem:
+        stdout, stderr, error = "", "", str(problem)
+    try:
+        answer = json.loads(last_line(stdout))
+        if answer is None:
+            answer = {}
+        if not isinstance(answer, dict):
+            raise ValueError("not an object")
+    except ValueError:
+        message = (stderr + " " + stdout).strip()
+        if error:
+            raise Refused(f"strata {args[0]}: {error} {message}")
+        raise Refused(f"strata {args[0]}: unexpected answer {json.dumps(message)}")
+    if answer.get("ok") is not True:
+        raise Refused(f"strata {' '.join(args)}: {strata_error(answer, stderr)}")
+    return answer
+
+
+def profiles() -> List[str]:
+    """The ids of the machine's saved Strata profiles."""
+    answer = strata(30, "profile", "list")
+    items = answer.get("profiles")
+    ids = []
+    for item in items if isinstance(items, list) else []:
+        if isinstance(item, dict) and isinstance(item.get("id"), str) and PROFILE_NAME.fullmatch(item["id"]):
+            ids.append(item["id"])
+    return ids
+
+
+def strata_state() -> Dict[str, Any]:
+    if strata_command() is None:
+        return {"found": False, "profiles": []}
+    try:
+        ids = profiles()
+    except Refused as error:
+        return {"found": True, "profiles": [], "error": str(error)}
+    listed = []
+    for profile in ids:
+        entry: Dict[str, Any] = {"id": profile, "state": "unknown"}
+        try:
+            answer = strata(30, "runtime", "status", "--profile", profile)
+        except Refused as error:
+            entry["error"] = str(error)
+        else:
+            if isinstance(answer.get("state"), str):
+                entry["state"] = answer["state"]
+            for key in ("api_url", "url"):
+                if isinstance(answer.get(key), str) and answer[key]:
+                    entry["url"] = answer[key]
+                    break
+        listed.append(entry)
+    return {"found": True, "profiles": listed}
+
+
+def strata_action(op: str, profile: Any) -> None:
+    if not isinstance(profile, str) or not PROFILE_NAME.fullmatch(profile):
+        raise Refused("name one of this machine's Strata profiles")
+    if profile not in profiles():
+        raise Refused(f"this machine has no Strata profile {json.dumps(profile)}")
+    if op == "start":
+        strata(3 * 60, "runtime", "start", "--profile", profile)
+    else:
+        # Strata drains requests in flight and unloads the model before it stops.
+        strata(5 * 60, "runtime", "stop", "--profile", profile)
+
+
+# Ollama as a systemd service.
+#
+# An Ollama installed as a systemd service (Ollama's own Linux installer sets up ollama.service,
+# run as the ollama user) belongs to root: agent-machine, running as you, can't restart it or
+# change its settings. `sudo agent-machine servers service` lets it, once and narrowly:
+#
+#   - a sudoers rule lets this user run only `systemctl start|stop|restart ollama`;
+#   - a drop-in makes the service read its environment from SERVICE_ENV_PATH, which this user
+#     may write, so the console's OLLAMA_* settings apply when it restarts.
+#
+# The file only sets environment variables for the ollama user's process; it can't change what
+# runs or as whom, so it doesn't hand out root.
+
+SERVICE_UNIT = "ollama"
+SUDOERS_PATH = "/etc/sudoers.d/agent-machine-ollama"
+DROP_IN_PATH = "/etc/systemd/system/ollama.service.d/agent-machine.conf"
+SERVICE_ENV_PATH = "/etc/agent-machine/ollama.env"
+# Commands to run instead of systemctl and sudo, as JSON lists of arguments, and another
+# environment file (tests use fakes).
+SYSTEMCTL_ENV = "AI_PROXY_SYSTEMCTL_COMMAND"
+SERVICE_CTL_ENV = "AI_PROXY_SERVICE_COMMAND"
+SERVICE_ENV_ENV = "AI_PROXY_SERVICE_ENV"
+
+SERVICE_HINT = ("Ollama here is the systemd service ollama.service, which agent-machine can't restart yet: "
+                "run `sudo agent-machine servers service` there once to let it")
+
+
+def service_env_path() -> str:
+    return os.environ.get(SERVICE_ENV_ENV) or SERVICE_ENV_PATH
+
+
+def systemctl() -> Optional[List[str]]:
+    """The systemctl to read state with (no privileges needed)."""
+    return command(SYSTEMCTL_ENV, lambda: shutil.which("systemctl") if sys.platform.startswith("linux") else None)
+
+
+def service_control() -> Optional[List[str]]:
+    """How this user starts, stops and restarts the service: through sudo, without a password, as
+    the sudoers rule allows (-n: never ask, fail instead)."""
+    override = os.environ.get(SERVICE_CTL_ENV)
+    if override:
+        try:
+            parts = json.loads(override)
+        except ValueError:
+            return None
+        return [str(part) for part in parts] if isinstance(parts, list) and parts else None
+    ctl = systemctl()
+    return None if ctl is None else ["sudo", "-n", *ctl]
+
+
+def ollama_service() -> bool:
+    """Whether Ollama here is a systemd service."""
+    ctl = systemctl()
+    if ctl is None:
+        return False
+    state, error = run(5, ctl, "show", SERVICE_UNIT, "-p", "LoadState", "--value")
+    return error is None and state == "loaded"
+
+
+def service_allowed() -> bool:
+    """Whether `sudo agent-machine servers service` has been run: this user may restart it without
+    a password, and may write the environment it starts with."""
+    if service_control() is None:
+        return False
+    if not os.environ.get(SERVICE_CTL_ENV):
+        # sudo -n -l <command> answers 0 only when that exact command is allowed without a password.
+        _, error = run(5, ["sudo", "-n", "-l"], *(systemctl() or []), "restart", SERVICE_UNIT)
+        if error:
+            return False
+    try:
+        os.close(os.open(service_env_path(), os.O_WRONLY | os.O_APPEND))
+    except OSError:
+        return False
+    return True
+
+
+def quote_env(value: str) -> str:
+    """A value quoted for a systemd EnvironmentFile."""
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ") + '"'
+
+
+def write_service_env(env: Dict[str, Optional[str]], host: str) -> None:
+    """The environment the service starts with: the saved settings, then OLLAMA_HOST."""
+    lines = ["# Written by agent-machine from the console's Ollama settings; `sudo agent-machine servers service` set this up."]
+    lines += [f"{name}={quote_env(value)}" for name, value in sorted(env.items()) if value is not None]
+    lines.append(f"OLLAMA_HOST={quote_env(host)}")
+    write_file(service_env_path(), "\n".join(lines) + "\n", 0o644)
+
+
+def write_file(path: str, text: str, mode: int) -> None:
+    """Writes text with LF line ends; mode applies when the file is new, as with Go's os.WriteFile."""
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
+    with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as file:
+        file.write(text)
+
+
+def set_up_service(user: str, off: bool) -> None:
+    """`sudo agent-machine servers service`: lets user restart ollama.service and write its settings.
+    off removes it all again."""
+    if not sys.platform.startswith("linux"):
+        raise Refused("this is for an Ollama installed as a systemd service on Linux")
+    if getattr(os, "geteuid", lambda: -1)() != 0:
+        raise Refused("run it with sudo: sudo agent-machine servers service")
+    ctl = systemctl()
+    if ctl is None or not ollama_service():
+        raise Refused("there's no ollama.service here: agent-machine starts and stops this Ollama itself")
+    if off:
+        for path in (SUDOERS_PATH, DROP_IN_PATH, SERVICE_ENV_PATH):
+            try:
+                os.remove(path)
+            except FileNotFoundError:
+                pass
+        _, error = run(30, ctl, "daemon-reload")
+        if error:
+            raise Refused(error)
+        return
+    if not user or user == "root" or any(character in user for character in " \t\n:,=\\"):
+        raise Refused("run it with sudo from your own account, so it knows whose agent-machine may restart Ollama")
+    program = ctl[0]
+    rule = ("# Written by agent-machine (sudo agent-machine servers service): only these three commands.\n"
+            f"{user} ALL=(root) NOPASSWD: {program} start {SERVICE_UNIT}, {program} stop {SERVICE_UNIT}, {program} restart {SERVICE_UNIT}\n")
+    candidate = SUDOERS_PATH + ".new"
+    write_file(candidate, rule, 0o440)
+    output, error = run(10, ["visudo", "-cf"], candidate)
+    if error:
+        os.remove(candidate)
+        raise Refused(f"the sudoers rule didn't check out: {error} {output}")
+    os.replace(candidate, SUDOERS_PATH)
+    os.makedirs(os.path.dirname(DROP_IN_PATH), mode=0o755, exist_ok=True)
+    write_file(DROP_IN_PATH, "# Written by agent-machine (sudo agent-machine servers service): Ollama's settings from the console.\n"
+                             f"[Service]\nEnvironmentFile=-{SERVICE_ENV_PATH}\n", 0o644)
+    os.makedirs(os.path.dirname(SERVICE_ENV_PATH), mode=0o755, exist_ok=True)
+    if not os.path.exists(SERVICE_ENV_PATH):
+        write_file(SERVICE_ENV_PATH, "# agent-machine writes Ollama's settings here.\n", 0o644)
+    output, error = run(10, ["chown", user], SERVICE_ENV_PATH)
+    if error:
+        raise Refused(f"chown {SERVICE_ENV_PATH}: {error} {output}")
+    output, error = run(30, ctl, "daemon-reload")
+    if error:
+        raise Refused(f"systemctl daemon-reload: {error} {output}")
 
 
 def stop_tree(pid: int) -> None:
@@ -338,7 +637,7 @@ class Manager:
         """The "servers" part of the machine's hello: what's installed and running."""
         if not self.machine().servers:
             return {"enabled": False}
-        return {"enabled": True, "ollama": self.ollama_state(), "strata": {"found": False, "profiles": []}}
+        return {"enabled": True, "ollama": self.ollama_state(), "strata": strata_state()}
 
     def handle(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """One request, always answered with a server_result for its id."""
@@ -367,14 +666,20 @@ class Manager:
         elif kind == "ollama" and op in ("start", "restart"):
             bind = str(request.get("bind") or "127.0.0.1")
             if bind not in ("127.0.0.1", "0.0.0.0"):
-                raise Refused(f"Ollama listens on 127.0.0.1 or 0.0.0.0, not {bind!r}")
+                raise Refused(f"Ollama listens on 127.0.0.1 or 0.0.0.0, not {json.dumps(bind)}")
+            if ollama_service():
+                self.service_action(op, bind)
+                return
             if op == "restart":
                 self.stop_ollama()
             self.start_ollama(bind)
         elif kind == "ollama" and op == "stop":
-            self.stop_ollama()
-        elif kind == "strata":
-            raise Refused("Starting Strata is only in the Go agent-machine")
+            if ollama_service():
+                self.service_action("stop", "")
+            else:
+                self.stop_ollama()
+        elif kind == "strata" and op in ("start", "stop"):
+            strata_action(op, request.get("profile"))
         else:
             raise Refused(f"unknown request: {op} {kind}")
 
@@ -394,18 +699,46 @@ class Manager:
         pid = managed_pid()
         result: Dict[str, Any] = {"found": ollama_command() is not None, "running": bool(version), "version": version, "managed": pid > 0, "port": self.port}
         if pid:
-            result["bind"] = load_state().get("ollama_bind")
+            result["bind"] = load_state().get("ollama_bind") or ""
+        # A systemd service is agent-machine's to start and stop once it's allowed to.
+        if ollama_service():
+            allowed = service_allowed()
+            result.update(service="systemd", service_allowed=allowed, managed=allowed)
+            if allowed:
+                result["bind"] = load_state().get("ollama_bind") or ""
         return result
 
     def ollama_settings(self) -> Dict[str, Any]:
+        """The "ollama_settings" answer: the table, the saved config, and whether the Ollama
+        agent-machine runs was started with it."""
         config = load_config()
-        env = managed_env(config)
+        env = dict(sorted(managed_env(config).items()))
         matches = None
         state = load_state()
-        if managed_pid() and self.ollama_version() and isinstance(state.get("ollama_env"), dict):
+        if (managed_pid() or state.get("service")) and self.ollama_version() and isinstance(state.get("ollama_env"), dict):
             matches = state["ollama_env"] == env
         return {"schema": schema(), "config": config, "env": env, "warnings": config_warnings(config),
                 "applied_matches_saved": matches, "config_path": str(config_path()), "log_path": str(log_path())}
+
+    def service_action(self, op: str, bind: str) -> None:
+        """Starts, stops or restarts the systemd service; start and restart write its settings first."""
+        if not service_allowed():
+            raise Refused(SERVICE_HINT)
+        if op != "stop":
+            env = managed_env(load_config())
+            write_service_env(env, f"{bind}:{self.port}")
+            save_state({"ollama_bind": bind, "ollama_env": env, "service": True})
+        output, error = run(90, service_control() or [], op, SERVICE_UNIT)
+        if error:
+            raise Refused(f"systemctl {op} {SERVICE_UNIT}: {error} {output}")
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            if bool(self.ollama_version()) == (op != "stop"):
+                return
+            time.sleep(0.25)
+        if op == "stop":
+            raise Refused("Ollama is still answering after its service stopped")
+        raise Refused("Ollama's service started but doesn't answer yet; see journalctl -u ollama")
 
     def start_ollama(self, bind: str) -> None:
         if self.ollama_version():
@@ -417,7 +750,7 @@ class Manager:
         path = log_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "a", encoding="utf-8") as log:
-            log.write(f"# agent-machine: starting {' '.join(program)} serve on {bind}:{self.port} at {time.strftime('%Y-%m-%dT%H:%M:%S%z')}\n")
+            log.write(f"# agent-machine: starting {' '.join(program)} serve on {bind}:{self.port} at {datetime.datetime.now().astimezone().isoformat(timespec='seconds')}\n")
             for name, value in sorted(managed_env(config).items()):
                 log.write(f"#   {name}={'(unset)' if value is None else value}\n")
             log.flush()

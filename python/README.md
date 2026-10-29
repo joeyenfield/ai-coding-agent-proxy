@@ -39,22 +39,27 @@ relayed, and account agents' HTTPS tunnelled to the server's intercept over a We
 pywinpty on Windows.
 
 **agent-machine** (`agent_py/machine`): `login`/`logout`, `run`/`start`/`stop`, the status
-display, `launches`, `roots`, `commands`, `name`, `address`, `servers` and `mcp`. In the fleet it sends
+display, `launches`, `roots`, `commands`, `name`, `address`, `servers` (and `servers service`),
+`containers` and `mcp`. In the fleet it sends
 the same hello and updates, runs launches (checking launches are on and the folder is in a root,
 after resolving links), lists the folders inside its roots for the console's folder picker, opens
 terminals with `commands on` (`agent --shell`, which the Python agent has too), carries tunnels to
 its model servers, shares MCP servers through the same bridge as the Go one (`agent_py/machine/mcp.py`,
 the same `mcp.json`), and answers the server's questions
-about them: Ollama's status, pull (streamed), delete, load, unload; Docker Model Runner's
-status and models; Strata's status; and the machine's CPU, memory and NVIDIA GPUs.
+about them: Ollama's, Docker Model Runner's and Strata's status, models and logs (pull
+streamed; Strata's key read from its profile), searches of ollama.com, Hugging Face and Docker
+Hub, and the machine's CPU, memory and NVIDIA GPUs. It runs containers for the server (Docker
+or Podman, `agent_py/machine/containers.py`), and with `servers on` starts and stops Ollama (or
+its systemd `ollama.service`, after `sudo agent-machine servers service`) and Strata's profiles.
 
-## What's only in the Go versions
+## Same as Go, feature for feature
 
-- Containers (`agent-machine containers ...`). The hello says containers are off, so the
-  console doesn't offer them, and any container request is refused.
-- Starting and stopping Ollama and Strata, and Ollama's settings (`servers` here only lets the
-  server change models). The hello says so in the same way.
-- Strata's load, unload and logs, and searching the model catalogues.
+Both programs do everything their Go versions do; the Go code is the reference, and a feature
+added there is added here in the same change. What differs is only how: pip instead of binaries
+for updates, and the agent and agent-machine sharing one package (so `update --with-agent`
+without `AI_PROXY_AGENT` stops the agent-proxy rather than running a second update). Installed
+with pip, `sudo agent-machine servers service` may need the full path:
+`sudo "$(which agent-machine)" servers service`.
 
 The two programs live in one package and share `common.py` (the protocol, headers, sign-in
 files, HTTP clients) and `login.py`. Each still keeps its own credentials, in the same place as

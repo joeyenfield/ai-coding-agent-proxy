@@ -18,7 +18,10 @@ import httpx
 from . import common
 
 
-def login(args: List[str], *, program: str, credentials_path: Callable[[], Path], default_server: str, label: str, done: str) -> int:
+def login(args: List[str], *, program: str, credentials_path: Callable[[], Path], default_server: str, label: str, done: str, signed_in: str = "") -> int:
+    """`<program> login [url] [--user name] [--key key]`. done ends the line for a server without accounts
+    ("... no sign-in; <done> from now on."), signed_in follows "Signed in to <server> as <user>." (default:
+    done, from now on)."""
     parser = argparse.ArgumentParser(prog=f"{program} login", description=f"Sign this machine in to an agent-server. url defaults to {default_server}.")
     parser.add_argument("url", nargs="?", default=default_server)
     parser.add_argument("-u", "--user", default="", help="Your username (asked for when omitted)")
@@ -33,14 +36,19 @@ def login(args: List[str], *, program: str, credentials_path: Callable[[], Path]
             response = http.get(server + "/api/auth/status")
             if response.status_code >= 400:
                 raise RuntimeError(common.detail(response.content))
-            required = bool(response.json().get("required"))
+            status = response.json()
+            required = bool(status.get("required")) if isinstance(status, dict) else False
         except (httpx.HTTPError, ValueError, RuntimeError) as error:
             print(f"{program} login: couldn't reach {server}: {error}", file=sys.stderr)
             return 1
         if not required:
             credentials.servers[common.normalize(server)] = common.ServerEntry(server, token=options.key)
             credentials.default = common.normalize(server)
-            credentials.save()
+            try:
+                credentials.save()
+            except OSError as error:
+                print(f"{program} login: {error}", file=sys.stderr)
+                return 1
             print(f"{server} doesn't use accounts, so there's no sign-in; {done} from now on.")
             return 0
         if not server.startswith("https://") and not common.is_loopback_url(server):
@@ -64,11 +72,21 @@ def login(args: List[str], *, program: str, credentials_path: Callable[[], Path]
     if response.status_code >= 400:
         print(f"{program} login: {common.detail(response.content)}", file=sys.stderr)
         return 1
-    token = response.json()
+    try:
+        token = response.json()
+        if not isinstance(token, dict):
+            raise ValueError("not an object")
+    except ValueError as error:
+        print(f"{program} login: unexpected answer: {error}", file=sys.stderr)
+        return 1
     credentials.servers[common.normalize(server)] = common.ServerEntry(server, str(token.get("user") or ""), str(token.get("token") or ""), str(token.get("id") or ""))
     credentials.default = common.normalize(server)
-    credentials.save()
-    print(f"Signed in to {server} as {token.get('user')}. {done[0].upper() + done[1:]} from now on ({program} logout to stop).")
+    try:
+        credentials.save()
+    except OSError as error:
+        print(f"{program} login: {error}", file=sys.stderr)
+        return 1
+    print(f"Signed in to {server} as {token.get('user') or ''}. " + (signed_in or f"{done[0].upper() + done[1:]} from now on ({program} logout to stop)."))
     return 0
 
 
@@ -91,6 +109,10 @@ def logout(args: List[str], *, program: str, credentials_path: Callable[[], Path
             pass
     if credentials.default == key:
         credentials.default = next(iter(credentials.servers), "")
-    credentials.save()
+    try:
+        credentials.save()
+    except OSError as error:
+        print(f"{program} logout: {error}", file=sys.stderr)
+        return 1
     print(f"Signed out of {entry.url}.")
     return 0

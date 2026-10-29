@@ -62,8 +62,10 @@ class Machine:
     roots: List[str] = field(default_factory=list)
     # How the server reaches this machine's model servers, when the address it sees isn't it.
     address: str = ""
-    # Kept so a machine.json written by the Go agent-machine survives a save; the Python one runs no containers.
+    # Lets the server run model servers here in containers. `docker run` is root on this machine,
+    # so it's off until the owner turns it on.
     containers: bool = False
+    # "docker" or "podman"; empty (the default) uses whichever is installed and answering.
     container_cli: str = ""
     # Lets the server change the models of the model servers here (pull, delete, load, unload).
     servers: bool = False
@@ -114,9 +116,14 @@ class Machine:
 
     def within(self, folder: str) -> Tuple[str, bool]:
         """Whether folder is one of the roots or inside one. Both are made absolute and links
-        resolved, so "..", links and case on Windows can't step outside."""
+        resolved, so "..", links and case on Windows can't step outside. Only folders that exist
+        count, a root included: a link can't be resolved otherwise (the Go one's EvalSymlinks)."""
+        if not os.path.exists(folder):
+            return "", False
         resolved = os.path.realpath(os.path.abspath(folder))
         for root in self.roots:
+            if not os.path.exists(root):
+                continue
             base = os.path.realpath(os.path.abspath(root))
             try:
                 if os.path.commonpath([fold(base), fold(resolved)]) == fold(base):

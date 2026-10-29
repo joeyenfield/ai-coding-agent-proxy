@@ -4,9 +4,9 @@ all), and the launches, tunnels and questions about its model servers the server
 
 Launches run a program here, so they're off until `agent-machine launches on`, only go to
 folders listed with `agent-machine roots add`, and are checked here again whatever the server
-says. Containers and starting Strata are the Go agent-machine's only: this one says so in its
-hello (so the console doesn't offer them) and refuses any such request. It starts and stops
-Ollama like the Go one (servers.py), once `agent-machine servers on`.
+says. Containers the server asks for (containers.py) are off the same way, until
+`agent-machine containers on`. It starts and stops Ollama (or its systemd service) and Strata's
+saved profiles like the Go one (servers.py), once `agent-machine servers on`.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ import websockets
 from websockets.asyncio.client import connect
 
 from .. import common
-from . import mcp, providers, servers, settings
+from . import containers, mcp, providers, servers, settings
 
 UPDATE_EVERY = 60
 PING_EVERY = 25
@@ -146,7 +146,8 @@ def list_folders(folder: str, machine: settings.Machine) -> Tuple[List[Dict[str,
     if not machine.within(folder)[1]:
         raise Refused(f"{folder} isn't inside one of this machine's launch folders")
     try:
-        entries = sorted(os.scandir(folder), key=lambda entry: entry.name.lower())
+        # In name order, as Go's ReadDir gives them, so the same 500 are kept; shown case-insensitively.
+        entries = sorted(os.scandir(folder), key=lambda entry: entry.name)
     except OSError as error:
         raise Refused(f"couldn't read {folder}: {error}")
     listed: List[Dict[str, str]] = []
@@ -168,6 +169,7 @@ def list_folders(folder: str, machine: settings.Machine) -> Tuple[List[Dict[str,
             truncated = True
             break
         listed.append({"name": entry.name, "path": path})
+    listed.sort(key=lambda item: item["name"].lower())
     # Up goes no further than a root.
     parent = None
     is_root = any(settings.fold(os.path.normpath(root)) == settings.fold(os.path.normpath(folder)) for root in machine.roots)
@@ -262,6 +264,8 @@ class Presence:
         self.on_server_version = on_server_version
         self.providers = providers.Manager()
         self.servers = servers.Manager()
+        # Runs the server's containers here, when the machine allows it.
+        self.containers = containers.Manager()
         self.detect: Callable[[], List[Dict[str, Any]]] = providers.detect
         self.launch: Callable[[Dict[str, Any], str], str] = launch_headless
         self.shell: Callable[[Dict[str, Any], str], str] = shell_headless
@@ -285,7 +289,13 @@ class Presence:
                              max_size=None, compression=None, user_agent_header=None, ping_interval=None)
 
     async def run(self, stop: asyncio.Event) -> None:
-        """Connects and reconnects until stop is set."""
+        """Connects and reconnects until stop is set; the MCP sessions it runs end with it."""
+        try:
+            await self.connect(stop)
+        finally:
+            self.mcp.close()
+
+    async def connect(self, stop: asyncio.Event) -> None:
         attempt = 0
         while not stop.is_set():
             loop = asyncio.get_running_loop()
@@ -384,10 +394,13 @@ class Presence:
             elif kind == "tunnel":
                 await self.tunnel(server, message)
             elif kind == "container":
-                await send({"type": "container_result", "request": message.get("request"), "ok": False,
-                            "error": "This machine runs the Python agent-machine, which doesn't run containers"})
+                # Starts answer at once (the job runs on); removes and logs can take a while.
+                await send(await asyncio.to_thread(self.containers.handle, message))
             elif kind == "server":
                 await send(await asyncio.to_thread(self.servers.handle, message))
+                # A model server started or stopped: the server sees it in the providers at once.
+                if message.get("op") != "status":
+                    await send(await asyncio.to_thread(self.describe, server, "update"))
             elif kind in ("launch", "shell"):
                 await self.launched(message, server, send)
             elif kind == "update":
@@ -440,14 +453,15 @@ class Presence:
                              stdout=output, stderr=output, close_fds=True, **detach_flags())
 
     async def launched(self, request: Dict[str, Any], server: str, send) -> None:
-        run = self.shell if request.get("type") == "shell" else self.launch
+        shell = request.get("type") == "shell"
+        run, what = (self.shell, "a shell") if shell else (self.launch, request.get("agent"))
         try:
             session_id = await asyncio.to_thread(run, request, server)
         except Exception as error:
-            log.info("fleet: launch %s of %s in %s failed: %s", request.get("launch"), request.get("agent"), request.get("project"), error)
+            log.info("fleet: launch %s of %s in %s failed: %s", request.get("launch"), what, request.get("project"), error)
             await send({"type": "launch_failed", "launch": request.get("launch"), "error": str(error)})
             return
-        log.info("fleet: launched %s in %s: session %s", request.get("agent"), request.get("project"), session_id)
+        log.info("fleet: launched %s in %s: session %s", what, request.get("project"), session_id)
         await send({"type": "launched", "launch": request.get("launch"), "session_id": session_id})
         # What's installed may have changed the server's view; send it again soon.
         await send(await asyncio.to_thread(self.describe, server, "update"))
@@ -457,7 +471,8 @@ class Presence:
         server can't send over the network: the machine dials a WebSocket back for it and passes its
         bytes to and from 127.0.0.1:<port>, so a machine behind NAT or in WSL serves without a port forward."""
         port, tunnel_id = request.get("port"), str(request.get("tunnel") or "")
-        if port not in self.tunnel_ports or not tunnel_id:
+        # The containers the server has asked about serve here too.
+        if (port not in self.tunnel_ports and port not in self.containers.ports()) or not tunnel_id:
             log.info("fleet: tunnel to port %s refused: not one of this machine's model servers", port)
             return
         async with await self.dial(server, f"/api/machines/tunnel/{tunnel_id}") as conn:
@@ -503,7 +518,8 @@ class Presence:
     def describe(self, server: str, kind: str) -> Dict[str, Any]:
         """The machine's hello or update: what it is, has and allows."""
         machine = settings.Machine.load()
-        found = self.detect()
+        serving = self.servers.describe()
+        found = providers.with_keys(providers.with_strata(self.detect(), serving))
         # The MCP servers it shares, by name; the server reaches them on the bridge's port, through the tunnel.
         shared = self.mcp.describe()
         self.tunnel_ports = {provider["port"] for provider in found} | ({shared["port"]} if shared else set())
@@ -514,9 +530,8 @@ class Presence:
             "launches": machine.launches, "roots": machine.roots, "commands": machine.commands, "updates": machine.updates,
             # It carries agents' requests to its model servers itself, so the server needn't reach them.
             "tunnel": 1, "launcher": True,
-            "containers": {"enabled": False, "cli": "docker", "found": False, "online": False, "version": "",
-                           "error": "the Python agent-machine doesn't run containers", "engines": []},
-            "servers": self.servers.describe(), "mcp": shared,
+            "containers": self.containers.describe(),
+            "servers": serving, "mcp": shared,
         }
 
     def installed_agents(self, server: str) -> List[str]:
@@ -535,6 +550,7 @@ class Presence:
 
 
 def version_notice(own: str, server: str) -> str:
-    if not own or own == "dev" or not server or server == own or own.startswith(f"{server}+"):
+    """The line to show when the server's version isn't this agent-machine's; a build without a version says nothing."""
+    if not own or own == "dev" or not server or server == own:
         return ""
-    return f"agent-server is {server}; this agent-machine is {own}."
+    return f"agent-server is {server}; this agent-machine is {own}. Update with: agent-machine update"
