@@ -46,7 +46,7 @@ The console can run as static files, independently of `agent-server`:
 | `console.aicontrolmesh.com` | Static console (`console`, loopback port 8081). No API forwarding. |
 | `api.aicontrolmesh.com` | `agent-server` (port 9999): API, WebSockets, live streams, documentation files, downloads and installers. |
 
-Set these variables for Compose, then run `docker compose --profile console up -d --build`:
+Set these variables for Compose (or put them in the root `.env`, which is ignored by git), then run `docker compose --profile console up -d --build`:
 
 ```dotenv
 VITE_API_URL=https://api.aicontrolmesh.com

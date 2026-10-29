@@ -1,6 +1,7 @@
 # The build context of both images: agent-server (server/Dockerfile: server/, ui/, config/,
 # benchmarks/tests) and agent-sandbox (sandbox/Dockerfile: client/, machine/, sandbox/).
 .git
+.env
 **/__pycache__
 **/*.py[cod]
 **/*.egg-info
