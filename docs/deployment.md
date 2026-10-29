@@ -13,7 +13,7 @@ docker build -f server/Dockerfile -t agent-server .   # server and console, or b
 
 The image builds the console with Node, then installs the server on `python:3.13-slim`. It runs as a non-root user (`agent`, uid 10001), listens on `0.0.0.0:9999`, and checks `/health` every 30 seconds. It sets `AI_PROXY_HOME=/app`, `AI_PROXY_HOST=0.0.0.0` and `AI_PROXY_UI_BUILD=0`.
 
-The `marketing-site` service serves `site/` on `127.0.0.1:8080` for the reverse proxy. The public website uses the apex and `www` hostnames; the application console and API use `console.<domain>`.
+The `marketing-site` service serves `site/` on `127.0.0.1:8080` for the reverse proxy. The public website uses the apex and `www` hostnames, the application console uses `console.<domain>`, and agent and machine clients can use `api.<domain>`.
 
 | Volume | What it holds |
 |---|---|
@@ -38,7 +38,7 @@ Put HTTPS in front of the server whenever it's reachable from outside your own n
 
 ### nginx and Let's Encrypt on Windows
 
-`scripts/https/setup-https.ps1` sets up nginx with a Let's Encrypt certificate that renews itself. It serves the brochure site on the apex and `www` hostnames and the application on `console.<domain>`. Point all three DNS names to this host, start the Compose services, then run it once from an elevated PowerShell; rerun it any time, and it picks up where things are:
+`scripts/https/setup-https.ps1` sets up nginx with a Let's Encrypt certificate that renews itself. It serves the brochure site on the apex and `www` hostnames, the application on `console.<domain>`, and agent/machine API requests on `api.<domain>`. Point all four DNS names to this host, start the Compose services, then run it once from an elevated PowerShell; rerun it any time, and it picks up where things are:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\https\setup-https.ps1 -HostName aicontrolmesh.com -AdditionalHostNames aiproxy.hopto.me -Email you@example.net
@@ -56,6 +56,7 @@ The name has to reach this computer from the internet on port 80 for Let's Encry
 |---|---|
 | `-HostName` | The primary DNS name to get a certificate for (default: `aicontrolmesh.com`). |
 | `-ConsoleHostName` | The application hostname (default: `console.<HostName>`). |
+| `-ApiHostName` | The agent and machine API hostname (default: `api.<HostName>`). Its `/` redirects to the console. |
 | `-AdditionalHostNames` | Comma-separated DNS aliases for the console, included in the certificate (default: `aiproxy.hopto.me`). HTTP requests keep their hostname when redirected to HTTPS. |
 | `-Email` | Your address, for Let's Encrypt. |
 | `-Root` | Where nginx, win-acme and the certificates go. |
@@ -66,7 +67,7 @@ The name has to reach this computer from the internet on port 80 for Let's Encry
 | `-CertFile`, `-KeyFile` | Use your own certificate instead of Let's Encrypt. |
 | `-NoTasks` | Skip the firewall rules and tasks, and the need to run as administrator. |
 
-nginx forwards the `Host` header to both services. The console route upgrades WebSockets, turns buffering off and allows hour-long reads, so live views, pulls and terminals stream. Requests for any other name get no TLS at all. The templates are `scripts/https/nginx.conf.template` and `nginx-https.conf.template`; on another system, use them as a starting point for your own nginx.
+nginx forwards the `Host` header to both services. The console and API routes upgrade WebSockets, turn buffering off and allow hour-long reads, so live views, pulls and terminals stream. Requests for any other name get no TLS at all. The templates are `scripts/https/nginx.conf.template` and `nginx-https.conf.template`; on another system, use them as a starting point for your own nginx.
 
 When it's done, set `proxy.public_url` in `config/backends.yaml` to `https://console.<domain>` so the console's links and pairing codes use it.
 

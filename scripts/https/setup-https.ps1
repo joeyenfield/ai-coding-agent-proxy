@@ -8,13 +8,14 @@
 # What it sets up, in -Root (default C:\ProgramData\agent-proxy-https):
 #   nginx\      nginx for Windows (the current stable release from nginx.org), serving
 #               HTTP on -HttpPort (9980) for Let's Encrypt's check and HTTPS on -HttpsPorts
-#               (9443, 9998), routing the apex and www to -SiteBackend and the console to -Backend
+#               (9443, 9998), routing the apex and www to -SiteBackend, and console and api
+#               to -Backend
 #   win-acme\   win-acme, the Let's Encrypt client: it proves the name by putting a file
 #               where nginx serves /.well-known/acme-challenge/, writes the certificate to
 #               certs\, and renews it from its own scheduled task, reloading nginx
 #   tasks       "agent-proxy-https nginx" starts nginx at boot; firewall rules open the ports
 #
-# The apex, www and console names have to reach this computer from the internet on port 80 for Let's Encrypt
+# The apex, www, console and api names have to reach this computer from the internet on port 80 for Let's Encrypt
 # (the router sends 80 to -HttpPort), and on 443 for people (to the first -HttpsPorts).
 #
 # Testing: -Staging uses Let's Encrypt's staging service (a certificate browsers don't
@@ -23,6 +24,7 @@
 param(
     [string]$HostName = "aicontrolmesh.com",
     [string]$ConsoleHostName = "",
+    [string]$ApiHostName = "",
     [string]$AdditionalHostNames = "aiproxy.hopto.me",
     [string]$Email = "",
     [string]$Root = (Join-Path $env:ProgramData "agent-proxy-https"),
@@ -43,6 +45,8 @@ if (-not $HttpsPorts) { throw "-HttpsPorts needs at least one port" }
 $HostNames = @($HostName, "www.$HostName") + @($AdditionalHostNames -split "[,\s]+" | Where-Object { $_ })
 if (-not $ConsoleHostName) { $ConsoleHostName = "console.$HostName" }
 $HostNames += $ConsoleHostName
+if (-not $ApiHostName) { $ApiHostName = "api.$HostName" }
+$HostNames += $ApiHostName
 $HostNames = @($HostNames | Select-Object -Unique)
 $wacsHostNames = $HostNames -join ","
 $siteHostNames = @($HostName, "www.$HostName") -join " "
@@ -128,6 +132,7 @@ function Write-Config([bool]$https) {
         $block = (Get-Content -Raw (Join-Path $here "nginx-https.conf.template")).Replace("`r`n", "`n")
         $block = $block.Replace("{{HTTPS_LISTEN_DEFAULT}}", $listenDefault).Replace("{{HTTPS_LISTEN}}", $listen)
         $block = $block.Replace("{{SITE_HOSTS}}", $siteHostNames).Replace("{{CONSOLE_HOSTS}}", $consoleHostNames)
+        $block = $block.Replace("{{API_HOST}}", $ApiHostName).Replace("{{CONSOLE_HOSTNAME}}", $ConsoleHostName)
         $block = $block.Replace("{{CERT}}", (Slash $cert)).Replace("{{KEY}}", (Slash $key))
         $block = $block.Replace("{{BACKEND}}", $Backend.TrimEnd("/")).Replace("{{SITE_BACKEND}}", $SiteBackend.TrimEnd("/"))
     }
@@ -224,6 +229,6 @@ if (-not $NoTasks) {
 }
 
 Write-Output ""
-Write-Output "HTTPS is up: https://$HostName and https://www.$HostName serve the website; https://$ConsoleHostName serves the console."
+Write-Output "HTTPS is up: https://$HostName and https://www.$HostName serve the website; https://$ConsoleHostName serves the console; https://$ApiHostName serves the API."
 Write-Output "The router's 443 goes to $($HttpsPorts[0]); nginx listens on $($HttpsPorts -join ', ') here."
 Write-Output "Set proxy.public_url in config/backends.yaml to https://$ConsoleHostName so the console's links use it."
