@@ -109,7 +109,7 @@ class ModelProfile:
 
 @dataclass
 class InterceptSettings:
-    """The HTTPS forward proxy that records traffic agents send to hosted services."""
+    """The HTTPS forward proxy that records traffic to public destinations."""
 
     enabled: bool = True
     # Agents reach it through the agent-proxy on their own machine, which tunnels here, so

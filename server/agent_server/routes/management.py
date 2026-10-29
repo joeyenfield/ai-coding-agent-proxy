@@ -352,6 +352,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         if chosen and not agent.mcp:
             raise HTTPException(status_code=400, detail=f"{agent.name} can't take MCP servers")
+        mcp_token, mcp_token_hash = mcp.issue_token() if chosen else (None, None)
         try:
             backend = DIRECT_BACKEND if agent.intercept else settings.backend_for(agent.backend_type, data.get("backend") or None, agent.protocol).name
             tags = {**access.client_tags(data.get("tags")), "prepared_by": "agent" if data.get("launcher") else "ui"}
@@ -363,13 +364,16 @@ def register(app: FastAPI, runtime: Runtime) -> None:
                 "trace": bool(data.get("trace")),
                 # The shared MCP servers it may reach: only these, whatever the agent asks for later.
                 "tags": {**_new_tags(data, tags, request), **({"mcp": [item["id"] for item in chosen]} if chosen else {})},
-            })
+            }, mcp_token_hash=mcp_token_hash)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         files_dir = str(data.get("files_dir") or "").strip() or None
         # Agents guess the context size from the model's name (Qwen Code takes any qwen3.x for 1M); tell them the real one.
         context_window = None if agent.intercept or not model else await _context_window(runtime, backend, model)
-        servers = [{**item, "name": mcp.entry_name(item, chosen), "url": mcp.url(proxy_url, session.session_id, item)} for item in chosen]
+        servers = [
+            {**item, "name": mcp.entry_name(item, chosen), "url": mcp.url(proxy_url, session.session_id, item, mcp_token)}
+            for item in chosen
+        ]
         launch = agent.render(
             proxy_url, session.session_id, model, project_path or ".", intercept=intercept, files_dir=files_dir,
             context_window=context_window, mcp_servers=servers,
@@ -541,4 +545,3 @@ def _timestamp(value: str) -> float:
         return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
     except ValueError:
         return 0.0
-

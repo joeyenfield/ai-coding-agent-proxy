@@ -7,9 +7,10 @@ run. Its hello names them, with the bridge's port and key; their commands, envir
 URLs stay on the machine.
 
 An agent gets the ones its launch chose (`agent ... --mcp`, or Start an agent), each at
-{proxy_url}/session/<id>/mcp/<machine>/<name> on its own machine's agent-proxy, as with model
-traffic: the session id is the credential. The server relays each request to the bridge through
-the machine's tunnel (tunnels.py) and records it in the session (routes/mcp.py).
+{proxy_url}/session/<id>/mcp/<machine>/<name> on its own machine's agent-proxy. The URL has a
+separate capability token that isn't exposed in the session record. The server relays each
+request to the bridge through the machine's tunnel (tunnels.py) and records it in the session
+(routes/mcp.py).
 
 Who may use a machine's MCP servers is the fleet's "mcp" feature: its owner, and the
 organizations and teams it grants it. Admins need a grant like anyone else, as a server often
@@ -18,7 +19,10 @@ holds its owner's tokens. It's checked when the launch chooses them and on every
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import re
+import secrets
 from typing import Any
 
 from .auth import Identity
@@ -99,8 +103,20 @@ def entry_name(item: dict[str, Any], chosen: list[dict[str, Any]]) -> str:
     return f"{machine}-{item['name']}"
 
 
-def url(proxy_url: str, session_id: str, item: dict[str, Any]) -> str:
-    return f"{proxy_url.rstrip('/')}/session/{session_id}/mcp/{item['id']}"
+def issue_token() -> tuple[str, str]:
+    token = secrets.token_urlsafe(32)
+    return token, hashlib.sha256(token.encode()).hexdigest()
+
+
+def valid_token(expected_hash: str | None, token: str | None) -> bool:
+    return bool(
+        isinstance(expected_hash, str) and expected_hash and isinstance(token, str) and token
+        and hmac.compare_digest(expected_hash, hashlib.sha256(token.encode()).hexdigest())
+    )
+
+
+def url(proxy_url: str, session_id: str, item: dict[str, Any], token: str) -> str:
+    return f"{proxy_url.rstrip('/')}/session/{session_id}/mcp/{item['id']}?key={token}"
 
 
 def rpc_label(message: Any) -> str:

@@ -19,7 +19,7 @@ With [separate hosting](deployment.md#separate-console-and-api-domains), all the
 | Label | Means |
 |---|---|
 | **Public** | Anyone, always. |
-| **Session** | An agent naming an open session: in the path (`/session/<id>/...`), or with `X-AI-Proxy-Session` on `/v1` and `/anthropic`. The session id is the credential. |
+| **Session** | Model traffic for an open session: in the path (`/session/<id>/...`), or with `X-AI-Proxy-Session` on `/v1` and `/anthropic`. The session id is the credential. MCP uses a separate, launch-only URL capability; a session id by itself cannot call MCP servers. |
 | **Signed in** | With accounts: a browser sign-in (the `ai_proxy_session` cookie) or a launcher token (`X-AI-Proxy-Token`). Without accounts: anyone who reaches the port. |
 | **Admin** | Signed in as an admin: the route is in `auth.ADMIN_ONLY`. Without accounts there are no admins and the label means nothing extra. |
 | **Trusted** | Without accounts: this computer (a loopback client with a loopback `Host`) or a request with the access key (the `ai_proxy_remote` cookie or `X-AI-Proxy-Token`). With accounts: signed in. |
@@ -45,9 +45,9 @@ What agents call. On an agent machine they call the same paths on their `agent-p
 | POST | `/anthropic/v1/messages/count_tokens`, `/session/{session_id}/anthropic/v1/messages/count_tokens` | Token counting: passed through where the backend has it, estimated for Ollama. |
 | GET, POST, PUT, PATCH, DELETE | `/anthropic/{path}`, `/session/{session_id}/anthropic/{path}` | Any other Anthropic path, forwarded only with a hosted `anthropic` backend. |
 | GET, POST, DELETE | `/api/{path}`, `/session/{session_id}/api/{path}` | Native Ollama, for what agents call only: `chat`, `generate`, `embed`, `embeddings`, `tags`, `show`, `ps`, `version`. Profiles apply to `chat` and `generate` on Ollama; Docker Model Runner's Ollama API gets them unchanged; Strata has none. Anything else (`pull`, `delete`, ...) answers `404`: models are managed through their machine. With accounts, the unscoped `/api/{path}` needs a sign-in, so agents use the session path. |
-| GET, POST, DELETE | `/session/{session_id}/mcp/{machine_id}/{name}` | A shared MCP server, as Streamable HTTP, relayed to its machine through its tunnel. Only the servers the session was started with; whoever started it must still hold the machine's `mcp` grant. Each POST is recorded in the session with its reply. See [MCP](mcp.md). |
+| GET, POST, DELETE | `/session/{session_id}/mcp/{machine_id}/{name}` | A shared MCP server, as Streamable HTTP, relayed to its machine through its tunnel. Requires the `key` query parameter in the URL returned only to the launcher; the public session record contains no such token. Only the servers the session was started with; whoever started it must still hold the machine's `mcp` grant. Each POST is recorded in the session with its reply. See [MCP](mcp.md). |
 
-Account agents don't use these. Their HTTPS goes to the `agent-proxy`'s HTTPS proxy (`HTTPS_PROXY=http://<session>:agent-proxy@127.0.0.1:8183`), which carries each connection to `WS /api/proxy/tunnel` (below).
+Account agents don't use these. Their HTTPS goes to the `agent-proxy`'s HTTPS proxy (`HTTPS_PROXY=http://<session>:agent-proxy@127.0.0.1:8183`), which carries each connection to `WS /api/proxy/tunnel` (below). The server refuses destinations that resolve to loopback, private, link-local or reserved IP addresses.
 
 The catch-alls here are registered after every console route, so `/api/{path}` never shadows one.
 

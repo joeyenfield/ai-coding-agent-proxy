@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import base64
 import json
 import ssl
 from pathlib import Path
@@ -9,7 +11,9 @@ import pytest
 
 from agent_server.agents import AgentDefinition
 from agent_server.config import InterceptSettings, Settings
-from agent_server.intercept import InterceptProxy, redact_headers
+from agent_server.intercept import (
+    DestinationDenied, InterceptProxy, InterceptTransport, PublicNetworkBackend, _public_addresses, redact_headers,
+)
 from agent_server.runtime import Runtime
 from agent_server.websocket_tap import WebSocketTap, frame
 
@@ -27,7 +31,9 @@ ANTHROPIC_STREAM = "".join(
 
 
 @pytest.fixture
-async def intercept(tmp_path: Path):
+async def intercept(tmp_path: Path, monkeypatch):
+    from agent_server import intercept as intercept_module
+
     seen: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -41,6 +47,15 @@ async def intercept(tmp_path: Path):
     settings = Settings(log_dir=tmp_path, intercept=InterceptSettings(listen_port=0, ca_dir=tmp_path / "certs"))
     runtime = Runtime(settings)
     runtime.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    runtime.intercept_client = runtime.client
+    resolve_public_addresses = intercept_module._public_addresses
+
+    async def public_test_address(host, port, _timeout=None):
+        if host in {"127.0.0.1", "::1"}:
+            return await resolve_public_addresses(host, port)
+        return ["8.8.8.8"]
+
+    monkeypatch.setattr("agent_server.intercept._public_addresses", public_test_address)
     proxy = InterceptProxy(runtime)
     await proxy.start()
     port = proxy.server.sockets[0].getsockname()[1]
@@ -103,6 +118,81 @@ async def test_token_endpoints_are_redacted_and_errors_pass_through(intercept):
     assert records["/nothing"]["status"] == 404
 
 
+async def test_connect_to_private_destination_is_refused_before_tls(intercept):
+    _, _, _, _, port = intercept
+    reader, writer = await asyncio.open_connection("127.0.0.1", port)
+    writer.write(b"CONNECT 127.0.0.1:443 HTTP/1.1\r\nHost: 127.0.0.1:443\r\n\r\n")
+    await writer.drain()
+    response = await reader.readuntil(b"\r\n\r\n")
+    assert response.startswith(b"HTTP/1.1 403 ")
+    writer.close()
+
+
+async def test_intercept_blocks_private_addresses_and_pins_public_dns(monkeypatch):
+    with pytest.raises(OSError, match="private or reserved"):
+        await _public_addresses("127.0.0.1", 443)
+    with pytest.raises(OSError, match="private or reserved"):
+        await _public_addresses("64:ff9b::7f00:1", 443)
+
+    backend = PublicNetworkBackend()
+    connected: list[tuple[str, int]] = []
+
+    async def connect(host, port, *_args, **_kwargs):
+        connected.append((host, port))
+        return object()
+
+    async def public_dns(_host, _port, _timeout):
+        return ["203.0.113.8"]
+
+    monkeypatch.setattr(backend.backend, "connect_tcp", connect)
+    monkeypatch.setattr("agent_server.intercept._resolve_host", public_dns)
+    with pytest.raises(OSError, match="private or reserved"):
+        await backend.connect_tcp("rebind.example", 443)
+    assert connected == []
+
+    async def valid_dns(_host, _port, _timeout):
+        return ["8.8.8.8", "8.8.4.4"]
+
+    monkeypatch.setattr("agent_server.intercept._resolve_host", valid_dns)
+    await backend.connect_tcp("api.example", 443)
+    assert connected == [("8.8.8.8", 443)]
+
+
+async def test_intercept_http_transport_refuses_private_destination():
+    client = httpx.AsyncClient(transport=InterceptTransport(), trust_env=False)
+    try:
+        with pytest.raises(DestinationDenied, match="private or reserved"):
+            await client.get("http://127.0.0.1:1/")
+    finally:
+        await client.aclose()
+
+
+async def test_plain_http_proxy_returns_bad_gateway_for_private_destination(tmp_path):
+    settings = Settings(log_dir=tmp_path, intercept=InterceptSettings(listen_port=0, ca_dir=tmp_path / "certs"))
+    runtime = Runtime(settings)
+    runtime.intercept_client = httpx.AsyncClient(transport=InterceptTransport(), trust_env=False)
+    proxy = InterceptProxy(runtime)
+    await proxy.start()
+    session = runtime.sessions.create({"client": "test", "backend": "direct"})
+    authorization = base64.b64encode(f"{session.session_id}:x".encode()).decode()
+    try:
+        reader, writer = await asyncio.open_connection("127.0.0.1", proxy.server.sockets[0].getsockname()[1])
+        writer.write(
+            b"GET http://127.0.0.1:1/ HTTP/1.1\r\nHost: 127.0.0.1:1\r\n"
+            + f"Proxy-Authorization: Basic {authorization}\r\nConnection: close\r\n\r\n".encode()
+        )
+        await writer.drain()
+        response = await reader.read()
+        assert b"HTTP/1.1 502 " in response
+        assert b"private or reserved" in response
+        [record] = runtime.records(session)
+        assert record["status"] == 502 and record["error_type"] == "DestinationDenied"
+        writer.close()
+    finally:
+        await proxy.stop()
+        await runtime.intercept_client.aclose()
+
+
 async def test_unknown_proxy_user_goes_to_unattributed_session(intercept):
     runtime, session, _, _, port = intercept
     verify = ssl.create_default_context(cafile=str(runtime.ca.cert_path))
@@ -149,9 +239,13 @@ def test_websocket_tap_reassembles_masked_fragmented_frames():
     assert tap.feed(data[50:]) == [(1, message)]
 
 
-async def test_websocket_responses_turns_are_recorded(tmp_path):
+async def test_websocket_responses_turns_are_recorded(tmp_path, monkeypatch):
     import asyncio
 
+    async def local_test_destination(_host, _port, _timeout=None):
+        return ["127.0.0.1"]
+
+    monkeypatch.setattr("agent_server.intercept._public_addresses", local_test_destination)
     events = [
         {"type": "response.created", "response": {"model": "gpt-x"}},
         {"type": "response.output_text.delta", "delta": "ok"},
@@ -224,7 +318,7 @@ async def test_with_accounts_only_open_sessions_may_use_the_listener(intercept, 
     async def connect(authorization: str | None) -> bytes:
         reader, writer = await asyncio.open_connection("127.0.0.1", port)
         header = f"Proxy-Authorization: {authorization}\r\n" if authorization else ""
-        writer.write(f"CONNECT api.anthropic.com:443 HTTP/1.1\r\nHost: api.anthropic.com:443\r\n{header}\r\n".encode())
+        writer.write(f"CONNECT 127.0.0.1:443 HTTP/1.1\r\nHost: 127.0.0.1:443\r\n{header}\r\n".encode())
         await writer.drain()
         line = await reader.readline()
         writer.close()
@@ -237,6 +331,6 @@ async def test_with_accounts_only_open_sessions_may_use_the_listener(intercept, 
 
     assert b" 407 " in await connect(None)
     assert b" 407 " in await connect(basic("not-a-session"))
-    assert b" 200 " in await connect(basic(session.session_id))
+    assert b" 403 " in await connect(basic(session.session_id))
     runtime.sessions.end(session)
     assert b" 407 " in await connect(basic(session.session_id))

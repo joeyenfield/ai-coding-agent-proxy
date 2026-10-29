@@ -64,6 +64,7 @@ class Runtime:
         # Containers the machines run for the server, asked for over the fleet's connections.
         self.containers = ContainerManager(settings, KeyStore(settings.container_keys_path), self.fleet)
         self.client: httpx.AsyncClient | None = None
+        self.intercept_client: httpx.AsyncClient | None = None
         self.recent: deque[dict[str, Any]] = deque(maxlen=100)
         self.active: dict[str, dict[str, Any]] = {}
         self.config_lock = asyncio.Lock()

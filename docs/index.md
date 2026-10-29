@@ -1,6 +1,6 @@
 # AI Control Mesh: documentation
 
-Run terminal coding agents (Claude Code, GitHub Copilot CLI, OpenAI Codex, Qwen Code, OpenCode, Aider, Goose) through one server and see everything they do. Every model call is recorded with its prompt, reply, tokens and timing. For agents signed in to their own accounts, every other request is recorded too: sign-in, settings, MCP, telemetry, update checks. The same server gives agents your own models on your own machines, shares MCP servers between machines, and lets you watch and type into running agents from a browser or a phone.
+Run terminal coding agents (Claude Code, GitHub Copilot CLI, OpenAI Codex, Qwen Code, OpenCode, Aider, Goose) through one server and see their requests. Every model call is recorded with its prompt, reply, tokens and timing. For agents signed in to their own accounts, allowed requests to public services are recorded too: sign-in, settings, MCP, telemetry, update checks. Private and reserved IP destinations are refused. The same server gives agents your own models on your own machines, shares MCP servers between machines, and lets you watch and type into running agents from a browser or a phone.
 
 ![The console's Overview](screenshots/overview.png)
 
@@ -19,7 +19,7 @@ flowchart TB
   subgraph SERVER["2 · The server"]
     direction LR
     route["agent-server<br/>routes, translates, captures"]
-    record[("Every request recorded,<br/>per session")]
+    record[("Allowed requests recorded,<br/>per session")]
     console["Console and API<br/>accounts and sharing"]
     route --> record
   end
@@ -40,7 +40,7 @@ flowchart TB
   style MACHINES fill:#d9770612,stroke:#d97706
 ```
 
-- **The server** (`agent-server`) is the hub. Every request an agent makes goes through it, and it records them: in a **session** per agent run, under `logs/sessions/<id>/`. It owns all configuration: the agents it knows, the providers it routes to, its users. It serves the **console**, the web app you manage everything from.
+- **The server** (`agent-server`) is the hub. Agent traffic goes through it, and allowed requests are recorded in a **session** per agent run, under `logs/sessions/<id>/`. It owns all configuration: the agents it knows, the providers it routes to, its users. It serves the **console**, the web app you manage everything from.
 - **Agents** run on any computer with the client installed (`agent`). `agent claude .` asks the server for a session, starts the agent pointed at that computer's **agent-proxy** (a small proxy on `127.0.0.1:8184`), and the agent-proxy carries the agent's traffic to the server. The agent needs nothing but the right environment, which the server renders for it.
 - **Machines** are computers in the server's **fleet**, kept there by `agent-machine`. They supply every local model: the Ollama, Strata and Docker Model Runner servers they run, and containers they run for the server. They can also share MCP servers, take agent launches from the console, open terminals, and update themselves to the server's build. A machine holds one WebSocket to the server, and the server reaches everything on it through that connection, so a machine behind NAT or in WSL needs no open port.
 
@@ -52,7 +52,7 @@ How an agent's request reaches a model depends on the agent:
 
 | Route | For | What happens |
 | --- | --- | --- |
-| **Your accounts** | Claude Code, Copilot CLI and Codex signed in to your own Claude, GitHub Copilot or ChatGPT plan | Nothing is redirected. The agent's HTTPS goes through its agent-proxy to the server, which decrypts and records it with its own certificate authority (trusted only by that agent's process tree) and sends it on to the vendor. You see every request, to any host. |
+| **Your accounts** | Claude Code, Copilot CLI and Codex signed in to your own Claude, GitHub Copilot or ChatGPT plan | Nothing is redirected. The agent's HTTPS goes through its agent-proxy to the server, which decrypts and records it with its own certificate authority (trusted only by that agent's process tree) and sends it to public destinations. Private and reserved IP addresses are refused. |
 | **Local models** | Qwen Code, OpenCode, Claude Code, Copilot CLI, Codex, Aider, Goose against your own models | The agent talks to the proxy's OpenAI, Anthropic or Ollama endpoint. For Ollama, the server translates the request to Ollama's native API and applies the context size and sampling settings from `models.yaml`. Strata and Docker Model Runner take the request as it is. |
 | **Hosted API** | Claude Code with your Anthropic login or key | The request is passed through to the hosted API unchanged, and recorded. |
 
@@ -101,7 +101,7 @@ Without accounts the server is a single-user tool: this computer is trusted, and
 | Tune Ollama per model | `config/models.yaml` | Aliases tab | [Providers](providers.md#tuning-with-modelsyaml) |
 | Hosted API pass-through | `agent claude-subscription` | Server settings › Add hosted API | [Providers](providers.md#backend-types) |
 | Watch model calls live | | Live | [Console](console.md#live) |
-| Every request, any host | | Traffic | [Console](console.md#traffic) |
+| Account-agent traffic to public destinations | | Traffic | [Console](console.md#traffic) |
 | Model-call history and payloads | | Requests | [Console](console.md#requests) |
 | Sessions, chats, telemetry export | | Sessions | [Console](console.md#sessions) |
 | Share and type into a terminal | `--control`, `--let-others-type` | Running agents | [Agents](agents.md#sharing-a-terminal-with---control) |

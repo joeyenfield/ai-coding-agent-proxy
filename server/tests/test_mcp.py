@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 from fastapi.testclient import TestClient
@@ -99,7 +100,14 @@ def test_a_launch_gives_the_agent_the_mcp_servers_it_chose_and_the_server_record
         assert prepared.status_code == 201, prepared.text
         launch = prepared.json()
         session_id = launch["session"]["session_id"]
-        url = f"http://127.0.0.1:8184/session/{session_id}/mcp/desk/github"
+        url = launch["mcp"][0]["url"]
+        parsed_url = urlsplit(url)
+        assert parsed_url.path == f"/session/{session_id}/mcp/desk/github"
+        assert parsed_url.query.startswith("key=")
+        token = parsed_url.query.removeprefix("key=")
+        assert token and "mcp_token_hash" not in launch["session"]
+        saved_session = json.loads((tmp_path / "logs" / "sessions" / session_id / "session.json").read_text())
+        assert saved_session["mcp_token_hash"] and token not in json.dumps(saved_session)
         assert launch["mcp"] == [{"id": "desk/github", "name": "github", "url": url}]
         assert launch["command"][:3] == ["claude", "--mcp-config", "/tmp/f/claude-mcp.json"]
         assert json.loads(launch["files"]["claude-mcp.json"]) == {"mcpServers": {"github": {"type": "http", "url": url}}}
@@ -116,7 +124,7 @@ def test_a_launch_gives_the_agent_the_mcp_servers_it_chose_and_the_server_record
         tagged = prepare(client, tags={"mcp": ["desk/docs"]}).json()["session"]["session_id"]
         assert client.post(f"/session/{tagged}/mcp/desk/docs", json={"jsonrpc": "2.0", "id": 1, "method": "initialize"}).status_code == 404
 
-        base = f"/session/{session_id}/mcp/desk/github"
+        base = f"{parsed_url.path}?{parsed_url.query}"
         accept = {"accept": "application/json, text/event-stream", "authorization": "Bearer agent-secret"}
         initialized = client.post(base, json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}, headers=accept)
         assert initialized.status_code == 200 and initialized.headers["mcp-session-id"] == "s1"
@@ -157,10 +165,15 @@ def test_only_those_a_machine_lets_use_its_mcp_servers_get_them(tmp_path):
 
         assert alice.put("/api/machines/desk/access", json={"access": {"mcp": {"teams": ["acme/core"]}}}).status_code == 200
         assert [item["id"] for item in bob.get("/api/mcp").json()] == ["desk/github", "desk/docs"]
-        prepared = prepare(bob, mcp=["desk/github"])
+        prepared = prepare(bob, mcp=["desk/github"], visibility="team", team="acme/core", access="view")
         assert prepared.status_code == 201, prepared.text
-        base = f"/session/{prepared.json()['session']['session_id']}/mcp/desk/github"
+        session_id = prepared.json()["session"]["session_id"]
+        assert alice.get(f"/api/sessions/{session_id}").status_code == 200
+        server_url = urlsplit(prepared.json()["mcp"][0]["url"])
+        base = f"{server_url.path}?{server_url.query}"
         message = {"jsonrpc": "2.0", "id": 1, "method": "initialize"}
+        # A view-only collaborator knows the public session id, not the launch-only MCP capability.
+        assert alice.post(f"/session/{session_id}/mcp/desk/github", json=message).status_code == 404
         # The session id is the credential, as for model traffic.
         with TestClient(app, base_url="http://127.0.0.1:8181") as agent:
             app.state.runtime.client = httpx.AsyncClient(transport=httpx.MockTransport(Bridge()))

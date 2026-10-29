@@ -49,11 +49,11 @@ flowchart LR
 
 | From | To | Transport | Opened by | Credential | Carries |
 | --- | --- | --- | --- | --- | --- |
-| Agent | `agent-proxy` `127.0.0.1:8184` | HTTP | the agent | the session id in the path | Model calls: `/session/<id>/v1/…`, `/session/<id>/anthropic/…`, `/session/<id>/api/…`, and MCP at `/session/<id>/mcp/<machine>/<name>` |
-| Account agent | `agent-proxy` `127.0.0.1:8183` | HTTP `CONNECT`, then TLS inside | the agent (`HTTPS_PROXY`) | the session id as the proxy user name | All the agent's HTTPS, to any host |
+| Agent | `agent-proxy` `127.0.0.1:8184` | HTTP | the agent | session id for model calls; launch-only URL capability for MCP | Model calls: `/session/<id>/v1/…`, `/session/<id>/anthropic/…`, `/session/<id>/api/…`; MCP at `/session/<id>/mcp/<machine>/<name>?key=…` |
+| Account agent | `agent-proxy` `127.0.0.1:8183` | HTTP `CONNECT`, then TLS inside | the agent (`HTTPS_PROXY`) | the session id as the proxy user name | HTTPS traffic to public hosts; private and reserved destinations are refused |
 | Launcher (`agent`) | `agent-proxy` `127.0.0.1:8184` | HTTP | the launcher | loopback Host and same origin | The launcher's short list of server calls (`LauncherAPI`) |
 | Launcher | `agent-proxy` `127.0.0.1:8184` | WebSocket `/api/terminals/<id>/host` | the launcher, with `--control` or `--headless` | loopback | The agent's terminal |
-| `agent-proxy` | server | HTTP, same path | per request | none: the session id is the credential | Agent traffic, streamed both ways |
+| `agent-proxy` | server | HTTP, same path | per request | session id for model traffic; MCP URL capability for MCP | Agent traffic, streamed both ways |
 | `agent-proxy` | server | HTTP | per request | `X-AI-Proxy-Token` from `agent login` | The launcher's calls, signed |
 | `agent-proxy` | server | WebSocket `/api/proxy/tunnel` | one per `CONNECT` | `X-AI-Proxy-Token` | One account-agent connection, as raw bytes |
 | `agent-proxy` | server | WebSocket `/api/terminals/<id>/host` | one per shared terminal | `X-AI-Proxy-Token` | The launcher's terminal socket, relayed |
@@ -178,7 +178,7 @@ sequenceDiagram
 
 - The `agent-proxy` doesn't read the `CONNECT` itself. It opens one WebSocket to the server per TCP connection and copies the bytes both ways as binary messages. The server reads the `CONNECT`, the session from `Proxy-Authorization`, and does the TLS.
 - **Refusals.** If the server won't take the tunnel (401 or 403, or a close `4401` or `4403`), the agent-proxy answers the agent's `CONNECT` with `407 Proxy Authentication Required`; any other failure is `502 Bad Gateway`. Both carry the reason in `X-Agent-Proxy-Error`. It reads the agent's request head first, because on Windows closing a socket with unread data resets it, and the agent would never see the answer.
-- Hosts under `intercept.passthrough` are tunnelled without being decrypted.
+- Hosts under `intercept.passthrough` are tunnelled without being decrypted. All intercepted destinations must resolve only to public IP addresses; private, loopback, link-local and reserved addresses are refused.
 - WebSockets inside the TLS (Codex sends its turns this way) are relayed byte for byte, and their messages decoded on the side for the record.
 
 More in [Architecture](architecture.md#https-interception).

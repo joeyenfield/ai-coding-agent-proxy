@@ -28,7 +28,7 @@ Each agent takes one of three routes to a model. The console colours requests, s
 | **Model** | The vendor's, on your plan | Ollama, Strata or Docker Model Runner on your machines | Anthropic's, through an `anthropic` backend |
 | **How the agent reaches the proxy** | `HTTPS_PROXY` pointing at the `agent-proxy` (`127.0.0.1:8183`) | Its API base URL points at the `agent-proxy` (`127.0.0.1:8184`) | `ANTHROPIC_BASE_URL` points at the `agent-proxy` |
 | **What the server does** | Decrypts, records and forwards unchanged | Ollama: translates to its native API and applies `models.yaml`. Strata and Docker Model Runner: forwards unchanged | Forwards unchanged |
-| **What you see** | Every request, to any host: model calls plus sign-in, settings, MCP, telemetry | Model calls, with the exact payload sent to Ollama | Model calls and other Anthropic API calls Claude Code makes |
+| **What you see** | Requests to public hosts: model calls plus sign-in, settings, MCP, telemetry | Model calls, with the exact payload sent to Ollama | Model calls and other Anthropic API calls Claude Code makes |
 | **Credentials** | The agent's own login | None needed | The agent's own login |
 
 ### Your accounts (HTTPS capture)
@@ -47,11 +47,12 @@ So that the account login is the one used, unset `ANTHROPIC_API_KEY`, `ANTHROPIC
 How the capture works:
 
 - The launcher asks the server for its CA, through the `agent-proxy`, and keeps a copy in `~/.cache/agent-proxy/<fingerprint>/` (`ca.pem`, and `bundle.pem`: your system roots plus that CA). A server with a new CA gets a new folder.
-- The agent starts with `HTTPS_PROXY` (and `HTTP_PROXY`, `https_proxy`, `http_proxy`) set to `http://<session id>:agent-proxy@127.0.0.1:8183`. The session id in the user name files every request under the right session. `NO_PROXY` keeps `localhost`, `127.0.0.1` and `::1` direct.
-- Only the launched process tree trusts the CA. It gets `NODE_EXTRA_CA_CERTS` (the CA, for Node agents), `NODE_USE_ENV_PROXY=1` (Node 24 and later only apply the proxy variables to `fetch()` with it), and `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE` and `GIT_SSL_CAINFO` pointing at the bundle. Codex gets `CODEX_CA_CERTIFICATE` set to the bundle. So the tools the agent runs (curl, git, pip, MCP servers) keep working and are captured too. Nothing is added to the system trust store.
+- The agent starts with `HTTPS_PROXY` (and `HTTP_PROXY`, `https_proxy`, `http_proxy`) set to `http://<session id>:agent-proxy@127.0.0.1:8183`. The session id in the user name files each permitted request under the right session. `NO_PROXY` keeps `localhost`, `127.0.0.1` and `::1` direct.
+- Only the launched process tree trusts the CA. It gets `NODE_EXTRA_CA_CERTS` (the CA, for Node agents), `NODE_USE_ENV_PROXY=1` (Node 24 and later only apply the proxy variables to `fetch()` with it), and `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE` and `GIT_SSL_CAINFO` pointing at the bundle. Codex gets `CODEX_CA_CERTIFICATE` set to the bundle. So the tools the agent runs (curl, git, pip, MCP servers) keep working and public-host requests are captured too. Nothing is added to the system trust store.
 - The `agent-proxy` carries each connection to the server over its own WebSocket (`/api/proxy/tunnel`, on the server's own port). The server terminates TLS with a certificate from its CA, forwards the request unchanged over a normally verified TLS connection, and streams the reply back. Model calls are parsed as they stream: tokens, prompt-cache reads and writes, time to first token, reasoning, text and tool calls.
 - WebSockets are relayed byte for byte and logged as a connection. Their messages are also decoded on the side: Codex sends its model turns over a WebSocket, and each `response.create` becomes its own model call record. The server drops `Sec-WebSocket-Extensions` from the upgrade so messages aren't compressed.
 - Hosts listed under `intercept.passthrough` in the server's `backends.yaml` are tunnelled without decryption and logged as connections only (see [Configuration](configuration.md)).
+- The server only connects to public IP addresses. It refuses loopback, private, link-local and reserved addresses, including when a hostname resolves to one and when the host uses `intercept.passthrough`.
 - On a server with accounts, HTTPS without an open session gets `407`. If the server refuses the tunnel (the machine isn't signed in), the `agent-proxy` answers the agent with `407` too, with the reason in an `X-Agent-Proxy-Error` header.
 
 Privacy and security:
@@ -229,7 +230,7 @@ Any program on the computer can reach the `agent-proxy`, and what it forwards to
   | `GET` | `/api/containers/<name>` |
   | `POST` | `/api/containers/<name>/start` |
 
-- **Agent traffic is forwarded without the token.** `/session/...`, `/v1/...` and `/anthropic/...` are streamed to the same path on the server; the open session's id is the credential. Cookies, `Origin`, `Proxy-Authorization` and `Proxy-Connection` are never forwarded.
+- **Agent traffic is forwarded without the computer's token.** Model traffic under `/session/...`, `/v1/...` and `/anthropic/...` uses the open session id. MCP URLs also carry a separate per-session capability that is only delivered in the launch settings. Cookies, `Origin`, `Proxy-Authorization` and `Proxy-Connection` are never forwarded.
 - **It never uses a proxy itself.** Every HTTP client and WebSocket dialer in the client ignores `HTTPS_PROXY`, which inside an account agent points back at the `agent-proxy` and would loop.
 - `/api/terminals/<id>/host` relays a `--control` terminal to the server, signed as this computer. `POST /shutdown` stops it (for `agent proxy stop` and `agent update`), with the same loopback and origin checks.
 
@@ -544,7 +545,7 @@ The `mcp` block says how the agent takes the MCP servers its launch chose (`--mc
 
 | Key | What it does |
 |---|---|
-| `entry` | One server as the agent's config wants it, using `{mcp_name}` and `{mcp_url}`. Default: `{url: "{mcp_url}"}`. `{mcp_url}` is `http://127.0.0.1:8184/session/<id>/mcp/<machine>/<name>`, Streamable HTTP. |
+| `entry` | One server as the agent's config wants it, using `{mcp_name}` and `{mcp_url}`. Default: `{url: "{mcp_url}"}`. `{mcp_url}` is a Streamable HTTP URL with a per-session capability token. Treat it as a secret; the session id alone does not grant MCP access. |
 | `env`, `files`, `args` | Added only when the launch has MCP servers. Use `{mcp_servers}` in them for every server's entry. |
 | `args_each` | Rendered once for each server, with `{mcp_name}` and `{mcp_url}`. |
 

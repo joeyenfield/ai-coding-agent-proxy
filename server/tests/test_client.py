@@ -143,6 +143,20 @@ def upstream(seen: list[httpx.Request]):
     return handler
 
 
+def allow_test_domains(monkeypatch) -> None:
+    """Resolve the integration suite's reserved .test hosts to a safe public test address."""
+    from agent_server import intercept
+
+    resolve = intercept._public_addresses
+
+    async def public_addresses(host: str, port: int, timeout: float | None = None) -> list[str]:
+        if host.endswith(".test"):
+            return ["8.8.8.8"]
+        return await resolve(host, port, timeout)
+
+    monkeypatch.setattr(intercept, "_public_addresses", public_addresses)
+
+
 # An agent for the launcher to run: it saves its arguments, the proxy's variables and the
 # settings file the launcher wrote for it, and exits 3. Its executable is this Python, so
 # it's found the same way on every platform.
@@ -189,6 +203,8 @@ def machine(tmp_path, agent_binary, accounts: bool = False, prepare=None):
     with serve(server_app) as server:
         runtime = server_app.state.runtime
         runtime.client = httpx.AsyncClient(transport=httpx.MockTransport(upstream(seen)))
+        # The integration server's providers are mocked; network filtering is tested separately.
+        runtime.intercept_client = runtime.client
         port, intercept_port = free_port(), free_port()
         env = {key: value for key, value in os.environ.items() if key not in CLEARED}
         env.update(AI_PROXY_CREDENTIALS=str(tmp_path / "machine" / "credentials.json"), AI_PROXY_URL=server,
@@ -249,7 +265,8 @@ def test_model_requests_stream_through_to_the_server(tmp_path, agent_binary):
         assert record["backend"] == "test"
 
 
-def test_account_agents_https_is_tunnelled_to_the_servers_intercept(tmp_path, agent_binary):
+def test_account_agents_https_is_tunnelled_to_the_servers_intercept(tmp_path, agent_binary, monkeypatch):
+    allow_test_domains(monkeypatch)
     with machine(tmp_path, agent_binary) as m:
         session_id = new_session(m.proxy, "claude-account", "direct")
         proxy_url = f"http://{session_id}:agent-proxy@127.0.0.1:{m.intercept_port}"
@@ -325,7 +342,8 @@ def test_the_launcher_runs_the_servers_agent_with_the_rendered_environment(tmp_p
         assert missing.returncode == 1 and "unknown agent 'nope'" in missing.stderr
 
 
-def test_with_accounts_the_machine_signs_in_once_for_everything(tmp_path, agent_binary):
+def test_with_accounts_the_machine_signs_in_once_for_everything(tmp_path, agent_binary, monkeypatch):
+    allow_test_domains(monkeypatch)
     with machine(tmp_path, agent_binary, accounts=True) as m:
         status = httpx.get(f"{m.proxy}/api/auth/status").json()
         assert status["required"] and status["identity"] is None

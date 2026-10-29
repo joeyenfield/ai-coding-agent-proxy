@@ -1,4 +1,4 @@
-"""HTTPS forward proxy that records everything an agent sends to hosted services.
+"""HTTPS forward proxy that records account-agent traffic to public destinations.
 
 Agents signed in to their own accounts (Claude Code with a claude.ai login,
 GitHub Copilot CLI with a GitHub login) talk to their vendors directly, so the
@@ -7,8 +7,8 @@ agent-proxy on its machine and NODE_EXTRA_CA_CERTS set to the server's CA, the
 agent opens a CONNECT tunnel per host. The agent-proxy carries each connection
 here over a WebSocket (serve_tunnel); the server terminates TLS with a
 certificate from that CA, forwards each request unchanged over a normally
-verified TLS connection, and records the exchange as a request in the agent's
-session.
+verified TLS connection to a pinned public IP address, and records the exchange
+as a request in the agent's session. Private and reserved destinations are refused.
 
 The session comes from the proxy URL's user name
 (http://<session_id>:x@127.0.0.1:8183), which clients send as
@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import ipaddress
 import json
 import re
 import logging
@@ -29,7 +30,9 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
 import h11
+import httpcore
 import httpx
+from httpcore._backends.auto import AutoBackend
 
 from .sessions import Session
 from .telemetry import RequestTelemetry, has_content, parse_json_line
@@ -52,6 +55,7 @@ HOP_HEADERS = {
 TURN_END_EVENTS = {"response.completed", "response.failed", "response.incomplete", "response.cancelled", "error"}
 # After one side of a relayed connection closes, how long the other side gets to finish.
 CLOSE_GRACE = 2.0
+DESTINATION_LOOKUP_TIMEOUT = 10.0
 RESPONSE_DROP = {"connection", "keep-alive", "transfer-encoding", "content-length", "content-encoding"}
 SECRET_HEADER_PARTS = ("auth", "cookie", "token", "secret", "api-key", "apikey", "session")
 SECRET_FIELDS = {
@@ -60,6 +64,78 @@ SECRET_FIELDS = {
 }
 SENSITIVE_PATH_PARTS = ("oauth", "token", "login", "auth", "device")
 REDACTED = "[redacted]"
+
+
+class DestinationDenied(OSError):
+    """The intercept proxy must not connect to a non-public address."""
+
+
+async def _resolve_host(host: str, port: int, timeout: float | None = None) -> list[str]:
+    loop = asyncio.get_running_loop()
+    lookup = loop.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    records = await asyncio.wait_for(lookup, timeout) if timeout else await lookup
+    return list(dict.fromkeys(str(record[4][0]).split("%", 1)[0] for record in records))
+
+
+async def _public_addresses(host: str, port: int, timeout: float | None = None) -> list[str]:
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        addresses = await _resolve_host(host, port, timeout)
+    else:
+        addresses = [str(address)]
+    if not addresses:
+        raise OSError(f"Couldn't resolve {host}")
+    for address in addresses:
+        ip = ipaddress.ip_address(address)
+        if not ip.is_global or ip.is_reserved:
+            raise DestinationDenied("The intercept proxy cannot connect to private or reserved addresses")
+    return addresses
+
+
+class PublicNetworkBackend:
+    """Resolve and pin intercepted HTTP connections to public IP addresses only."""
+
+    def __init__(self) -> None:
+        self.backend = AutoBackend()
+
+    async def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,
+        local_address: str | None = None,
+        socket_options: Any = None,
+    ) -> Any:
+        addresses = await _public_addresses(host, port, timeout)
+        last_error: OSError | None = None
+        for address in addresses:
+            try:
+                return await self.backend.connect_tcp(address, port, timeout, local_address, socket_options)
+            except OSError as exc:
+                last_error = exc
+        raise OSError(f"Couldn't connect to {host}:{port}") from last_error
+
+    async def connect_unix_socket(self, path: str, timeout: float | None = None, socket_options: Any = None) -> Any:
+        return await self.backend.connect_unix_socket(path, timeout, socket_options)
+
+    async def sleep(self, seconds: float) -> None:
+        await self.backend.sleep(seconds)
+
+
+class InterceptTransport(httpx.AsyncHTTPTransport):
+    """HTTP transport for intercepted requests, isolated from other upstream connections."""
+
+    def __init__(self) -> None:
+        super().__init__(trust_env=False)
+        # Keep HTTPX's verified TLS settings but replace DNS resolution with the pinned-IP backend.
+        self._pool = httpcore.AsyncConnectionPool(
+            ssl_context=self._pool._ssl_context,
+            max_connections=100,
+            max_keepalive_connections=20,
+            keepalive_expiry=5.0,
+            network_backend=PublicNetworkBackend(),
+        )
 
 
 class InterceptProxy:
@@ -183,10 +259,20 @@ class InterceptProxy:
             await self._serve(reader, writer, session, None, head)
             return
         host, port = _split_host(target)
+        try:
+            addresses = await _public_addresses(host, port, DESTINATION_LOOKUP_TIMEOUT)
+        except DestinationDenied:
+            writer.write(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            await writer.drain()
+            return
+        except OSError:
+            writer.write(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            await writer.drain()
+            return
         writer.write(b"HTTP/1.1 200 Connection Established\r\n\r\n")
         await writer.drain()
         if self.settings.tunnelled(host):
-            await self._tunnel(reader, writer, session, host, port)
+            await self._tunnel(reader, writer, session, host, port, addresses[0])
             return
         await writer.start_tls(self.runtime.ca.server_context(host))
         await self._serve(reader, writer, session, (host, port), b"")
@@ -272,13 +358,13 @@ class InterceptProxy:
         runtime.attach(telemetry, payload)
         runtime.live.http(_key(telemetry), http)
         upstream_headers = [(name, value) for name, value in headers if name.lower() not in HOP_HEADERS]
-        assert runtime.client
+        assert runtime.intercept_client
         try:
-            upstream = await runtime.client.send(
-                runtime.client.build_request(method, url, headers=upstream_headers, content=body or None),
+            upstream = await runtime.intercept_client.send(
+                runtime.intercept_client.build_request(method, url, headers=upstream_headers, content=body or None),
                 stream=True, follow_redirects=False,
             )
-        except httpx.HTTPError as exc:
+        except (httpx.HTTPError, OSError) as exc:
             telemetry.status = 502
             telemetry.error_type = type(exc).__name__
             message = f"Proxy couldn't reach {host}: {exc}".encode()
@@ -393,8 +479,9 @@ class InterceptProxy:
             [(name.decode("latin-1"), value.decode("latin-1")) for name, value in request.headers]
         )}
         try:
+            address = (await _public_addresses(host, port, DESTINATION_LOOKUP_TIMEOUT))[0]
             upstream_reader, upstream_writer = await asyncio.open_connection(
-                host, port, ssl=secure or None, server_hostname=host if secure else None, limit=MAX_HEAD,
+                address, port, ssl=secure or None, server_hostname=host if secure else None, limit=MAX_HEAD,
             )
         except OSError as exc:
             telemetry.status = 502
@@ -434,6 +521,7 @@ class InterceptProxy:
         session: Session,
         host: str,
         port: int,
+        address: str,
     ) -> None:
         """Pass encrypted bytes through for hosts listed under intercept.passthrough."""
         telemetry = RequestTelemetry(
@@ -442,7 +530,7 @@ class InterceptProxy:
             kind="tunnel", method="CONNECT", host=host,
         )
         try:
-            upstream_reader, upstream_writer = await asyncio.open_connection(host, port, limit=MAX_HEAD)
+            upstream_reader, upstream_writer = await asyncio.open_connection(address, port, limit=MAX_HEAD)
         except OSError as exc:
             telemetry.status = 502
             telemetry.error_type = type(exc).__name__

@@ -17,7 +17,8 @@ every improvement there shows up in the app, with no second UI to maintain.
   app says when a connection isn't encrypted. HTTPS with a certificate you installed on
   the phone works too.
 - **Back** goes through the console's own history (closing its menu first), then to your
-  servers. Links to other sites open in the browser.
+  servers. Links to other sites open in the browser. A redirect from HTTP to HTTPS on the
+  same server stays in the app.
 - **Updates.** Each server says its version (`/health`). When it isn't the app's own, its
   card says **Update available** and **Update** opens that server's **Downloads** page
   (`/get`), which offers the app built for it; tapping the APK hands it to Android to

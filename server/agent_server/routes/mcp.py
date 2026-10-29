@@ -1,9 +1,10 @@
-"""Shared MCP servers: the console's list, and agents' MCP traffic to the machines that share them.
+"""Shared MCP servers: the console's list, and launch-capability-protected agent traffic.
 
-See mcp.py. An agent reaches a shared server at /session/<id>/mcp/<machine>/<name>, which the
-server relays to the machine's bridge through its tunnel, as Streamable HTTP, unchanged. Every
-POST (a JSON-RPC message or a batch: initialize, tools/list, tools/call, ...) is recorded in
-the session with what came back; the GET stream and DELETE are passed on as they are.
+See mcp.py. An agent reaches a shared server at /session/<id>/mcp/<machine>/<name> with its
+launch-only URL token; the server relays it to the machine's bridge through its tunnel, as
+Streamable HTTP, unchanged. Every POST (a JSON-RPC message or a batch: initialize, tools/list,
+tools/call, ...) is recorded in the session with what came back; the GET stream and DELETE are
+passed on as they are.
 """
 
 from __future__ import annotations
@@ -51,6 +52,8 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         server_id = f"{machine_id}/{name}"
         if server_id not in (session.tags.get("mcp") or []):
             raise HTTPException(status_code=404, detail="This session wasn't given that MCP server: choose it when you start the agent (--mcp)")
+        if not mcp.valid_token(session.mcp_token_hash, request.query_params.get("key")):
+            raise HTTPException(status_code=404, detail="MCP access not found")
         machine = fleet.machines.get(machine_id)
         # Whoever started it (launched_by, for a launch from the console) has to be allowed still: grants change.
         user = session.tags.get("launched_by") or session.tags.get("owner")

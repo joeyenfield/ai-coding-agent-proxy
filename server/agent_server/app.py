@@ -21,7 +21,7 @@ from . import installer, openapi, remote, version
 from .auth import AuthMiddleware, UserStore
 from .config import Settings
 from .downloads import Downloads
-from .intercept import InterceptProxy
+from .intercept import InterceptProxy, InterceptTransport
 from .routes import auth, compat, containers, machines, management, mcp, proxy, terminals
 from .runtime import LOGGER, Runtime, upstream_client
 from .ui_build import ensure_built
@@ -48,6 +48,10 @@ def create_app(settings: Settings | None = None, restart: Any = None, address_pi
         settings.log_dir.joinpath("proxy").mkdir(parents=True, exist_ok=True)
         _configure_logging(settings.log_dir / "proxy" / "proxy.log")
         runtime.client = upstream_client(timeout=httpx.Timeout(600, connect=10))
+        if settings.intercept.enabled:
+            runtime.intercept_client = upstream_client(
+                timeout=httpx.Timeout(600, connect=10), transport=InterceptTransport(), trust_env=False,
+            )
         LOGGER.info("proxy started instance=%s", runtime.proxy_instance_id)
         if settings.intercept.enabled:
             runtime.intercept = InterceptProxy(runtime)
@@ -57,6 +61,8 @@ def create_app(settings: Settings | None = None, restart: Any = None, address_pi
             await runtime.intercept.stop()
         assert runtime.client
         await runtime.client.aclose()
+        if runtime.intercept_client:
+            await runtime.intercept_client.aclose()
         LOGGER.info("proxy stopped instance=%s", runtime.proxy_instance_id)
 
     # /docs (Swagger UI), /redoc and /openapi.json; openapi.install shapes the document.

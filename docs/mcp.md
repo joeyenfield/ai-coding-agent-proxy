@@ -96,7 +96,7 @@ In the console, **Start an agent** and starting an agent on a machine's page lis
 
 ## What each agent gets
 
-The server writes the chosen servers into the agent's own MCP settings for the session, from the agent's `mcp` block in `config/agents.yaml` (see [Adding a new agent](agents.md#the-mcp-block)). Each server's URL is on the agent's own `agent-proxy`, `http://127.0.0.1:8184/session/<id>/mcp/<machine>/<name>`, and speaks Streamable HTTP.
+The server writes the chosen servers into the agent's own MCP settings for the session, from the agent's `mcp` block in `config/agents.yaml` (see [Adding a new agent](agents.md#the-mcp-block)). Each server's URL is on the agent's own `agent-proxy`, `http://127.0.0.1:8184/session/<id>/mcp/<machine>/<name>?key=<token>`, and speaks Streamable HTTP. The token is unique to the session and is delivered to the agent in its launch settings; the server stores only its hash. Treat the URL as a secret. A session id alone, including one visible to a session viewer, cannot call its MCP servers.
 
 | Agent | How it gets them |
 |---|---|
@@ -120,8 +120,8 @@ sequenceDiagram
   participant M as agent-machine bridge
   participant X as MCP server process
   A->>P: POST /session/<id>/mcp/<machine>/github: initialize
-  P->>S: same path
-  S->>S: was the session given it? may its user still use the machine's MCP servers?
+  P->>S: same path and launch-only URL token
+  S->>S: valid token? was the session given it? may its user still use the machine's MCP servers?
   S->>M: through the machine's tunnel, with the bridge's key
   M->>X: starts the command for this MCP session
   M->>X: initialize (stdin, one JSON message per line)
@@ -138,7 +138,7 @@ sequenceDiagram
 
 - **They run on their machine**, as the user agent-machine runs as.
 - **The bridge.** When the machine shares at least one server, agent-machine starts its bridge: an HTTP server on a random loopback port that speaks MCP's Streamable HTTP at `/mcp/<name>`. It makes a new key each time it starts. Its hello to the server names the port, the key and the servers by name (with their description, transport and whether the command is installed), never their commands, environments, folders, URLs or headers. The server keeps the key in memory only.
-- **Agents reach it through the server.** The agent's `agent-proxy` forwards `/session/<id>/mcp/...` to the server without the machine's token, as with model traffic: the session id is the credential. The server relays each request through the machine's tunnel, like its model servers, so the machine needs no open port. It sends the bridge's key in `X-AI-Proxy-MCP-Key`, which the bridge checks and removes. A machine on the server's own computer is reached directly. The machine allows the tunnel only to its model servers, its containers and the bridge's port.
+- **Agents reach it through the server.** The agent's `agent-proxy` forwards `/session/<id>/mcp/...` to the server without the machine's token. The URL also carries a per-session capability token, which is not included in the public session record; the server stores only its hash. The server relays each request through the machine's tunnel, like its model servers, so the machine needs no open port. It sends the bridge's key in `X-AI-Proxy-MCP-Key`, which the bridge checks and removes. A machine on the server's own computer is reached directly. The machine allows the tunnel only to its model servers, its containers and the bridge's port.
 - **What's passed on.** Only `Content-Type`, `Accept`, `Mcp-Session-Id`, `Mcp-Protocol-Version` and `Last-Event-ID` go from the agent to the bridge; the agent's own credentials don't. `Mcp-Session-Id` and `Cache-Control` come back.
 - **A command** gets a process of its own for each MCP session. The agent's `initialize` starts it; a request without `Mcp-Session-Id` that isn't `initialize` is refused. Messages go to the process's stdin one JSON value per line, and its stdout is read the same way; its stderr goes to agent-machine's log.
   - A POST with requests is answered on an event stream (or as JSON, if the agent doesn't accept event streams) that ends with the last response. A POST with only notifications or responses gets `202`.
@@ -168,10 +168,10 @@ The GET stream and DELETE are passed on without being recorded.
 | Endpoint | What it does |
 |---|---|
 | `GET /api/mcp` | The MCP servers machines share that you may give agents: `id` (`<machine id>/<name>`), `machine`, `machine_name`, `connected`, `name`, `description`, `transport` (`stdio` or `http`) and `found`. |
-| `GET`, `POST`, `DELETE /session/{id}/mcp/{machine}/{name}` | An agent's Streamable HTTP to one shared server, relayed to the machine. |
+| `GET`, `POST`, `DELETE /session/{id}/mcp/{machine}/{name}` | An agent's Streamable HTTP to one shared server, relayed to the machine. The URL's `key` query parameter is a launch-only capability; the session id alone is insufficient. |
 | `mcp` in `POST /api/agents/{id}/sessions` and in a machine launch | The servers to give the agent, as `--mcp` takes them (a list, or a comma-separated string). The answer's `mcp` lists each one's `id`, `name` and `url`. |
 
-Errors on the relay: `404` for an ended session, a server the session wasn't given, or one the machine no longer shares; `403` when whoever started the session may no longer use the machine's servers; `503` when the machine isn't connected; `502` when the machine's agent-machine is too old to carry MCP traffic (run `agent-machine update` there) or the machine can't be reached. See [API](api.md).
+Errors on the relay: `404` for an ended session, a missing or invalid capability, a server the session wasn't given, or one the machine no longer shares; `403` when whoever started the session may no longer use the machine's servers; `503` when the machine isn't connected; `502` when the machine's agent-machine is too old to carry MCP traffic (run `agent-machine update` there) or the machine can't be reached. See [API](api.md).
 
 ## Limitations
 

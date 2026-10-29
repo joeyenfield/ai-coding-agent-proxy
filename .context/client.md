@@ -4,7 +4,7 @@ The Go module `ai-coding-agent-proxy/client`. It builds `agent` (the launcher, `
 
 ## Design in one paragraph
 
-The client is deliberately dumb. It knows the server only by URL, and gets everything else (the agent, its environment, its command, its files, the backend) from the API. The `agent-proxy` is a loopback-only gateway that holds the computer's sign-in. It signs the short list of launcher calls with the token, streams agents' model traffic through unsigned (the session id in the URL is the credential), tunnels account agents' HTTPS to the server over WebSockets, and relays shared terminals. The launcher starts the proxy if needed, opens a session, writes the session's files, and runs the agent: plainly, in a shared pseudo-terminal (`--control`), or headless for fleet launches.
+The client is deliberately dumb. It knows the server only by URL, and gets everything else (the agent, its environment, its command, its files, the backend) from the API. The `agent-proxy` is a loopback-only gateway that holds the computer's sign-in. It signs the short list of launcher calls with the token, streams agents' model traffic through unsigned (the session id in the URL is the credential), forwards shared MCP URLs with their per-session capability token, tunnels account agents' HTTPS to the server over WebSockets, and relays shared terminals. The launcher starts the proxy if needed, opens a session, writes the session's files, and runs the agent: plainly, in a shared pseudo-terminal (`--control`), or headless for fleet launches.
 
 ## Boundaries
 

@@ -21,7 +21,7 @@ A thin native shell, package `dev.agentproxy.app`: a list of agent-servers, and 
 
 - JavaScript and DOM storage on (the console keeps its theme and terminal settings in localStorage), `textZoom=100`, user agent with `AgentProxyAndroid/<version>` appended.
 - Cookies are accepted and flushed in `onPageFinished` and `onPause`, so the sign-in survives restarts.
-- Same-origin links stay in the WebView; other sites open in the browser. Downloads (the APK) go to `ACTION_VIEW`.
+- Same-origin links stay in the WebView; an HTTP-to-HTTPS upgrade for the same host also stays in the app. Other sites open in the browser. Downloads (the APK) go to `ACTION_VIEW`.
 - Back calls `web.goBack()`, else returns to the server list. This depends on the console pushing a history entry when its menu opens, and on the manifest not opting into `enableOnBackInvokedCallback`.
 - A main-frame error shows an offline panel (Retry, Servers). Content debugging is on in debug builds.
 - Not implemented: file chooser (`<input type=file>`), permissions, geolocation, fullscreen.

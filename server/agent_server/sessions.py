@@ -34,8 +34,14 @@ class Session:
     request_count: int = 0
     request_sequence: int = 0
     last_activity_at: str | None = None
+    mcp_token_hash: str | None = field(default=None, repr=False)
 
     def public(self) -> dict[str, Any]:
+        value = asdict(self)
+        value.pop("mcp_token_hash")
+        return value
+
+    def stored(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -59,7 +65,7 @@ class SessionStore:
             except (OSError, ValueError, TypeError):
                 continue
 
-    def create(self, data: dict[str, Any]) -> Session:
+    def create(self, data: dict[str, Any], *, mcp_token_hash: str | None = None) -> Session:
         session_id = data.get("session_id") or str(uuid.uuid4())
         if not isinstance(session_id, str) or not SESSION_ID.fullmatch(session_id):
             raise ValueError("A session id may only contain letters, numbers, '.', '_' and '-'")
@@ -73,6 +79,7 @@ class SessionStore:
             backend=data.get("backend", "laptop"),
             trace=bool(data.get("trace", False)),
             tags=data.get("tags") or {},
+            mcp_token_hash=mcp_token_hash,
         )
         self._sessions[session_id] = session
         self._locks[session_id] = asyncio.Lock()
@@ -176,7 +183,7 @@ class SessionStore:
         return directory
 
     def _write_session(self, session: Session) -> None:
-        _atomic_json(self._directory(session) / "session.json", session.public())
+        _atomic_json(self._directory(session) / "session.json", session.stored())
 
 
 def _last_timestamp(path: Path) -> str | None:
@@ -198,4 +205,3 @@ def _atomic_json(path: Path, data: dict[str, Any]) -> None:
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     temporary.replace(path)
-

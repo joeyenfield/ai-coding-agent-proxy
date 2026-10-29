@@ -39,7 +39,7 @@
 # mcp: how the agent takes the MCP servers machines share (agent-machine mcp add) that its
 # launch chose (agent ... --mcp, or Start an agent); without it, it can't have any.
 #   entry      one server as the agent's config wants it: {mcp_name}, {mcp_url}
-#              {mcp_url} is http://127.0.0.1:8184/session/<id>/mcp/<machine>/<name>: Streamable HTTP
+#              {mcp_url} is a Streamable HTTP URL with a per-session capability token
 #   {mcp_servers}  anywhere in env, files or args: every chosen server's name mapped to its entry,
 #              or nothing without any, so the key holding it is left out
 #   env, files, args  added only when the launch has MCP servers; args_each once for each server

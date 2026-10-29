@@ -64,7 +64,7 @@ The full list of commands is on [Configuration](configuration.md#users-organizat
 | An agent machine | `agent login <server>`, once | A launcher token, sent by its `agent-proxy` as `X-AI-Proxy-Token` |
 | A fleet machine | `agent-machine login <server>`, once | Its own launcher token, separate from `agent login`'s |
 | Scripts and Swagger UI | A token from **Server → Organizations** (`POST /api/auth/tokens`) | `X-AI-Proxy-Token` |
-| An agent | Nothing: it uses an open session's id, which the launcher gives it | The session id in the URL (`/session/<id>/...`), `X-AI-Proxy-Session`, or the HTTPS proxy's user name |
+| An agent | Nothing: it uses an open session's id, which the launcher gives it | Model traffic uses the session id in the URL (`/session/<id>/...`), `X-AI-Proxy-Session`, or the HTTPS proxy's user name. MCP uses a separate URL capability delivered only in the launch settings. |
 
 `agent login` and `agent-machine login` send your user name and password once (`POST /api/auth/token`) and keep the token they get back, labelled `agent-proxy on <host>` or `agent-machine on <host>`. Your password isn't stored on the machine. The tokens show on **Server → Organizations**, where you can revoke them. `agent login` takes effect at once: the `agent-proxy` reads its credentials on every request.
 

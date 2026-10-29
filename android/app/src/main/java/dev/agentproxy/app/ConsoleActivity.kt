@@ -71,7 +71,7 @@ class ConsoleActivity : Activity() {
         web.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val target = request.url
-                if (target.scheme == base.scheme && target.authority == base.authority) return false
+                if (isInternalUrl(target)) return false
                 try {
                     startActivity(Intent(Intent.ACTION_VIEW, target))
                 } catch (_: ActivityNotFoundException) {
@@ -119,6 +119,18 @@ class ConsoleActivity : Activity() {
         finish()
     }
 
+    private fun isInternalUrl(target: Uri): Boolean {
+        val targetHost = target.host ?: return false
+        if (!targetHost.equals(base.host ?: return false, ignoreCase = true)) return false
+        val sourceScheme = base.scheme?.lowercase() ?: return false
+        val targetScheme = target.scheme?.lowercase() ?: return false
+        val sourcePort = base.port.takeIf { it >= 0 } ?: if (sourceScheme == "https") 443 else 80
+        val targetPort = target.port.takeIf { it >= 0 } ?: if (targetScheme == "https") 443 else 80
+        if (sourceScheme == targetScheme) return sourcePort == targetPort
+        return sourceScheme == "http" && targetScheme == "https" &&
+            (sourcePort == targetPort || sourcePort == 80 && targetPort == 443)
+    }
+
     companion object {
         const val EXTRA_URL = "url"
         const val EXTRA_NAME = "name"
@@ -126,4 +138,3 @@ class ConsoleActivity : Activity() {
         const val EXTRA_PATH = "path"
     }
 }
-

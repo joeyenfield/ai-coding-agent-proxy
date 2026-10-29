@@ -83,6 +83,8 @@ HTTPS capture for agents signed in to their own accounts (Claude, Copilot, ChatG
 | `listen_host` | `127.0.0.1` | The address for `listen_port`. |
 | `ca_dir` | `certs/` | Where the capture CA lives. |
 
+The server connects only to public IP addresses for intercepted traffic. It refuses loopback, private, link-local and reserved addresses, even for hosts listed under `passthrough`.
+
 ### Saving from the console
 
 **Server settings** saves with `PUT /api/config`, which rewrites `backends.yaml` with `yaml.safe_dump`. **Its comments are lost.** It writes `proxy.listen_host`, `proxy.listen_port`, `proxy.url`, `default_backend` and `backends`, and keeps the other keys (`proxy.public_url`, `proxy.tls`, `intercept`).

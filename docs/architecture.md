@@ -4,7 +4,7 @@ This page explains how the system works: its parts, how a request travels throug
 
 ## The idea
 
-Every request a coding agent makes goes through one server. The server decides where the request goes, forwards it, and records it: tokens, timings, the full request and reply when you ask for them, and the text as it streams. Agents don't need to change. The launcher starts them pointed at a proxy on their own computer, and that proxy carries everything to the server.
+Allowed agent traffic goes through one server. The server routes it and records it: tokens, timings, the full request and reply when you ask for them, and the text as it streams. Private and reserved destinations in account-agent traffic are refused. Agents don't need to change. The launcher starts them pointed at a proxy on their own computer, and that proxy carries traffic to the server.
 
 There are three kinds of things around the server:
 
@@ -138,7 +138,7 @@ sequenceDiagram
   L->>A: starts it with OPENAI_BASE_URL=…/session/<id>/v1
   loop every request
     A->>P: POST /session/<id>/v1/chat/completions
-    P->>S: same path, no token: the session id is the credential
+    P->>S: model traffic: session id
     S->>B: translated for Ollama, else passed through
     B-->>S: streamed reply
     S-->>A: streamed reply, recorded in logs/sessions/<id>/
@@ -147,12 +147,12 @@ sequenceDiagram
   L->>S: PATCH /api/sessions/<id> (ended, exit status)
 ```
 
-A session is one agent run. Everything it does is filed under its id.
+A session groups the traffic the server handles for one agent run, filed under its id.
 
 1. **The proxy starts.** `agent` checks `127.0.0.1:8184/health`. If nothing answers, it starts `agent proxy` detached. If the proxy's server is on this computer and down, it starts `agent-server` from `PATH` too.
 2. **The agent is looked up.** The launcher gets the agent from `GET /api/agents`. For account agents it also fetches the server's CA and bundle and caches them in `~/.cache/agent-proxy/<fingerprint>/`.
 3. **The session opens.** The launcher calls `POST /api/agents/{id}/sessions` on the `agent-proxy` with the model, backend, trace setting, project, sharing, its own proxy URL and the CA paths. The `agent-proxy` forwards it signed with the computer's token. The server picks the backend, creates the session, and answers with the rendered environment and command (and the container to start first, when the backend is a container a machine runs). The console's **Start an agent** page uses the same endpoint.
-4. **The agent starts** with URLs on its own `agent-proxy` that contain the session id, rendered from the `agents.yaml` templates:
+4. **The agent starts** with model URLs on its own `agent-proxy` that contain the session id, rendered from the `agents.yaml` templates. MCP URLs use a separate launch-only capability; the session id alone does not grant MCP access:
 
    | Placeholder | Value |
    | --- | --- |
@@ -161,7 +161,7 @@ A session is one agent run. Everything it does is filed under its id.
    | `{ollama_url}` | `http://127.0.0.1:8184/session/<id>` (native `/api/...`) |
 
    Account agents get `HTTPS_PROXY=http://<id>:agent-proxy@127.0.0.1:8183` and the cached CA instead. Settings files an agent needs (`files` in `agents.yaml`) are written to a folder of their own for the session and removed when the agent exits.
-5. **Traffic flows.** The `agent-proxy` passes `/session/<id>/...` to the same path on the server. `routes/compat.py` finds the session's backend and translates or forwards. Every request gets a telemetry record; with tracing on, the full request and reply are saved too.
+5. **Traffic flows.** The `agent-proxy` passes `/session/<id>/...` to the same path on the server. `routes/compat.py` finds the session's backend and translates or forwards model requests. MCP POST requests are recorded separately; with tracing on, full request and reply bodies are saved too.
 6. **The session ends** when the agent exits. The launcher records its exit status.
 
 Bare `/v1`, `/anthropic` and `/api` also work, with the session in the `X-AI-Proxy-Session` header, for tools that can't put it in a URL.
@@ -227,7 +227,7 @@ It's plain TCP inside, so HTTP, streaming and keep-alive work unchanged, and the
 
 ## MCP relay
 
-A machine can share MCP servers with agents (`agent-machine mcp add`). `agent-machine` serves each of them as Streamable HTTP on a loopback bridge of its own, behind a key it makes for each run. An agent started with `--mcp` reaches one at `/session/<id>/mcp/<machine>/<name>` on its own `agent-proxy`; the server relays it through the machine's tunnel and records each call in the session. The commands, environments and URLs stay on the machine. See [MCP](mcp.md).
+A machine can share MCP servers with agents (`agent-machine mcp add`). `agent-machine` serves each of them as Streamable HTTP on a loopback bridge of its own, behind a key it makes for each run. An agent started with `--mcp` reaches one at `/session/<id>/mcp/<machine>/<name>` on its own `agent-proxy`, using a separate per-session capability delivered only in its launch settings; the server relays it through the machine's tunnel and records each call in the session. The commands, environments and URLs stay on the machine. See [MCP](mcp.md).
 
 ## Terminal sharing
 
@@ -302,7 +302,7 @@ Running agents keep going. Their terminals and the machines reconnect by themsel
 The proxy sees every prompt and can type into agents' terminals, so each entry point is narrow.
 
 - **`agent-proxy` is loopback only.** It binds `127.0.0.1`, checks for a loopback `Host` header and same origin on every route, and forwards the computer's token only for the launcher's API paths (`LauncherAPI`). It never forwards cookies or `Origin`. Its HTTP clients ignore proxy settings, so it can't loop through an intercepted agent's `HTTPS_PROXY`.
-- **The session id is the agent's credential.** Agent traffic (`/session/<id>/...`, `/v1`, `/anthropic`) is carried without the computer's token. With accounts, the server accepts it only when it names an open session, which a signed-in launcher created. That way the agent keeps its own `Authorization` for hosted APIs, and ended or unknown sessions are refused.
+- **The session id is the model agent's credential.** Model traffic (`/session/<id>/...`, `/v1`, `/anthropic`) is carried without the computer's token. With accounts, the server accepts it only when it names an open session, which a signed-in launcher created. MCP requires a separate capability that isn't included in session records. That way the agent keeps its own `Authorization` for hosted APIs, and ended or unknown sessions are refused.
 - **Terminals are a remote shell.** Every `/api/terminals*` and `/api/remote/*` route checks that the request is trusted and same-origin. Trusted means it comes from this computer and its `Host` names loopback (which rules out DNS rebinding), or it carries the access key (`certs/remote-access-key`), as a cookie from pairing a phone or a header from a launcher. Short pairing codes are single-use, expire, and are cancelled after a few wrong tries.
 - **Accounts mode.** Once `users.json` has a user, `AuthMiddleware` requires a sign-in for `/api/`, `/v1/`, `/anthropic/`, `/session/` and `/docs`. Launchers sign with `X-AI-Proxy-Token`; browsers with a SameSite cookie, and unsafe requests from another site's `Origin` are refused. Changes to the server itself are admin-only (`auth.ADMIN_ONLY`). When the server first listens beyond loopback with no users, it creates an `admin` so it's never open to the network by accident.
 - **Sessions are private by default.** Every endpoint that touches a session checks who may view or control it (`access.py`); a session you can't see answers 404.
