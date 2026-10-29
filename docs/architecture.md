@@ -81,7 +81,7 @@ flowchart TB
   style MC fill:#d9770612,stroke:#d97706
 ```
 
-Agents talk only to their own computer's `agent-proxy`. Machines open connections out to the server and never need a port open. The server needs only its own port: account agents' HTTPS, terminals, the fleet and the tunnels all arrive as WebSockets on it.
+Agents talk only to their own computer's `agent-proxy`. Machines open connections out to the server and never need a port open. The server needs only its own port: account agents' HTTPS, terminals, the fleet and the tunnels all arrive as WebSockets on it. [Networking and protocols](networking.md) has every connection, message and routing rule in detail.
 
 ## Routes and backends
 

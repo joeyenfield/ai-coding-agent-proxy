@@ -32,7 +32,7 @@ Podman builds and runs the same image; pass `--http-proxy=false` to `podman buil
 
 ## HTTPS
 
-Put HTTPS in front of the server whenever it's reachable from outside your own network. Without it, sign-in cookies, tokens and recorded traffic cross the network in the clear.
+Put HTTPS in front of the server whenever it's reachable from outside your own network. Without it, sign-in cookies, tokens and recorded traffic cross the network in the clear. What any reverse proxy in front needs to do (WebSockets, no buffering, long timeouts, `Host` and `X-Forwarded-For`) is in [Networking](networking.md#behind-a-reverse-proxy).
 
 ### nginx and Let's Encrypt on Windows
 

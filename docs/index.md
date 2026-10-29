@@ -74,6 +74,7 @@ Without accounts the server is a single-user tool: this computer is trusted, and
 | --- | --- |
 | [Getting started](getting-started.md) | From nothing to a first recorded agent session: install the server, sign in, install `agent`, run an agent on each route. |
 | [Architecture](architecture.md) | How it works inside: components, routes, a session step by step, HTTPS capture, tunnels, terminal sharing, what's recorded, versions, restarts, security. |
+| [Networking and protocols](networking.md) | Every connection and port, how a request is routed to a model, the fleet and terminal sockets message by message, headers, close codes, reverse proxies, troubleshooting. |
 | [Agents](agents.md) | The `agent` command and every option, the agent-proxy, every supported agent, what the requests are, sharing terminals, adding a new agent to `agents.yaml`. |
 | [MCP servers](mcp.md) | Sharing MCP servers from a machine with agents anywhere: `agent-machine mcp`, choosing them for a launch, how the bridge works, recording and access. |
 | [Machines](machines.md) | The fleet and `agent-machine`: every command, its files, launches, terminals, remote updates, tunnels, access grants, services, the sandbox machine, the Python version. |

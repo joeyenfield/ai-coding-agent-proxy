@@ -9,6 +9,7 @@ export const DOC_PAGES: { id: string; label: string }[] = [
   { id: "index", label: "Overview" },
   { id: "getting-started", label: "Getting started" },
   { id: "architecture", label: "Architecture" },
+  { id: "networking", label: "Networking and protocols" },
   { id: "agents", label: "Agents" },
   { id: "mcp", label: "MCP servers" },
   { id: "machines", label: "Machines" },
