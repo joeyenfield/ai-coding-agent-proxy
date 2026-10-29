@@ -1,4 +1,4 @@
-# AI Coding Agent Proxy
+# AI Control Mesh
 
 Run terminal coding agents (Claude Code, GitHub Copilot CLI, OpenAI Codex, Qwen Code, OpenCode, Aider, Goose) through one server and see everything they do. Every model call is recorded with its prompt, reply, tokens and timing. For agents signed in to their own accounts, every other request is recorded too: sign-in, settings, MCP, telemetry and update checks.
 

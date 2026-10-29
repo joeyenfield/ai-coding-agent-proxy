@@ -92,7 +92,7 @@ function Shell({ identity }: { identity: Identity | null }) {
         <rect width="32" height="32" rx="9" />
         <path d="M8 11h6l4 10h6" />
       </svg>
-      <span>AI Proxy</span>
+      <span>AI Control Mesh</span>
     </NavLink>
   );
   return (
@@ -290,7 +290,7 @@ function PublicDocs() {
             <rect width="32" height="32" rx="9" />
             <path d="M8 11h6l4 10h6" />
           </svg>
-          <span>AI Proxy</span>
+          <span>AI Control Mesh</span>
         </a>
         <a className="button" href="/">
           Sign in
@@ -316,7 +316,7 @@ function PublicDownloads() {
             <rect width="32" height="32" rx="9" />
             <path d="M8 11h6l4 10h6" />
           </svg>
-          <span>AI Proxy</span>
+          <span>AI Control Mesh</span>
         </a>
         <a className="button" href="/">
           Sign in

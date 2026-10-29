@@ -3,7 +3,7 @@
 # Run once from an elevated PowerShell (it opens firewall ports and registers startup and
 # renewal tasks); rerun it any time, it picks up where things are:
 #
-#   powershell -ExecutionPolicy Bypass -File scripts\https\setup-https.ps1 -HostName aiproxy.hopto.me
+#   powershell -ExecutionPolicy Bypass -File scripts\https\setup-https.ps1 -HostName aicontrolmesh.com
 #
 # What it sets up, in -Root (default C:\ProgramData\agent-proxy-https):
 #   nginx\      nginx for Windows (the current stable release from nginx.org), serving
@@ -21,7 +21,8 @@
 # trust, but no rate limits); -CertFile/-KeyFile use your own certificate instead;
 # -NoTasks skips the firewall and tasks (and the need for admin).
 param(
-    [string]$HostName = "aiproxy.hopto.me",
+    [string]$HostName = "aicontrolmesh.com",
+    [string]$AdditionalHostNames = "aiproxy.hopto.me",
     [string]$Email = "",
     [string]$Root = (Join-Path $env:ProgramData "agent-proxy-https"),
     [string]$Backend = "http://127.0.0.1:9999",
@@ -37,6 +38,10 @@ $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 [int[]]$HttpsPorts = @($HttpsPorts -split "[,\s]+" | Where-Object { $_ } | ForEach-Object { [int]$_ })
 if (-not $HttpsPorts) { throw "-HttpsPorts needs at least one port" }
+$HostNames = @($HostName) + @($AdditionalHostNames -split "[,\s]+" | Where-Object { $_ })
+$HostNames = @($HostNames | Select-Object -Unique)
+$nginxHostNames = $HostNames -join " "
+$wacsHostNames = $HostNames -join ","
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $here = $PSScriptRoot
@@ -57,7 +62,9 @@ $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 if (-not $admin -and -not $NoTasks) {
     throw "Run this from an elevated PowerShell (Run as administrator): it opens firewall ports and registers the startup and renewal tasks. -NoTasks skips those."
 }
-if ($HostName -notmatch '^[A-Za-z0-9.-]+$') { throw "-HostName is a DNS name, such as aiproxy.hopto.me" }
+foreach ($name in $HostNames) {
+    if ($name -notmatch '^[A-Za-z0-9.-]+$') { throw "Host names must be DNS names, such as aicontrolmesh.com" }
+}
 New-Item -ItemType Directory -Force $Root, $acmeDir, $certDir | Out-Null
 
 # Native programs' output, stderr included: PowerShell 5.1 turns redirected stderr into errors under Stop.
@@ -113,12 +120,13 @@ function Write-Config([bool]$https) {
     $block = ""
     if ($https) {
         $block = (Get-Content -Raw (Join-Path $here "nginx-https.conf.template")).Replace("`r`n", "`n")
-        $block = $block.Replace("{{HTTPS_LISTEN_DEFAULT}}", $listenDefault).Replace("{{HTTPS_LISTEN}}", $listen).Replace("{{HOST}}", $HostName)
+        $block = $block.Replace("{{HTTPS_LISTEN_DEFAULT}}", $listenDefault).Replace("{{HTTPS_LISTEN}}", $listen).Replace("{{HOST}}", $nginxHostNames)
         $block = $block.Replace("{{CERT}}", (Slash $cert)).Replace("{{KEY}}", (Slash $key)).Replace("{{BACKEND}}", $Backend.TrimEnd("/"))
     }
     $text = (Get-Content -Raw (Join-Path $here "nginx.conf.template")).Replace("`r`n", "`n")
     $text = $text.Replace("{{HTTPS_BLOCK}}", $block.TrimEnd()).Replace("{{HTTP_PORT}}", "$HttpPort").Replace("{{ACME_ROOT}}", (Slash $acmeDir))
-    $text = $text.Replace("{{HOST}}", $HostName).Replace("{{BACKEND}}", $Backend.TrimEnd("/")).Replace("{{HTTPS_LISTEN}}", ($HttpsPorts -join ", "))
+    $redirects = ($HostNames | ForEach-Object { "    $_    $_;" }) -join "`n"
+    $text = $text.Replace("{{HOST}}", $HostName).Replace("{{HOST_REDIRECTS}}", $redirects).Replace("{{BACKEND}}", $Backend.TrimEnd("/")).Replace("{{HTTPS_LISTEN}}", ($HttpsPorts -join ", "))
     [IO.File]::WriteAllText((Join-Path $nginxDir "conf\nginx.conf"), $text)
 }
 
@@ -173,7 +181,7 @@ if ($CertFile) {
     Remove-Item -Force -ErrorAction SilentlyContinue $probe
 
     $arguments = @(
-        "--source", "manual", "--host", $HostName,
+        "--source", "manual", "--host", $wacsHostNames,
         "--validation", "filesystem", "--webroot", $acmeDir,
         "--store", "pemfiles", "--pemfilespath", $certDir, "--pemfilesname", $HostName,
         "--installation", "script", "--script", $reload,

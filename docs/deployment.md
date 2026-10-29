@@ -39,7 +39,7 @@ Put HTTPS in front of the server whenever it's reachable from outside your own n
 `scripts/https/setup-https.ps1` sets up nginx with a Let's Encrypt certificate that renews itself. Run it once from an elevated PowerShell; rerun it any time, and it picks up where things are:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\https\setup-https.ps1 -HostName proxy.example.net -Email you@example.net
+powershell -ExecutionPolicy Bypass -File scripts\https\setup-https.ps1 -HostName aicontrolmesh.com -AdditionalHostNames aiproxy.hopto.me -Email you@example.net
 ```
 
 It installs, under `-Root` (default `C:\ProgramData\agent-proxy-https`):
@@ -52,7 +52,8 @@ The name has to reach this computer from the internet on port 80 for Let's Encry
 
 | Option | What it does |
 |---|---|
-| `-HostName` | The DNS name to get a certificate for. |
+| `-HostName` | The primary DNS name to get a certificate for (default: `aicontrolmesh.com`). |
+| `-AdditionalHostNames` | Comma-separated DNS aliases to include in the certificate and nginx site (default: `aiproxy.hopto.me`). HTTP requests keep their hostname when redirected to HTTPS. |
 | `-Email` | Your address, for Let's Encrypt. |
 | `-Root` | Where nginx, win-acme and the certificates go. |
 | `-Backend` | The server nginx forwards to. |

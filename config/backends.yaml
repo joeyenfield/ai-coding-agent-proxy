@@ -2,7 +2,7 @@ proxy:
   listen_host: 0.0.0.0
   listen_port: 9999
   url: http://127.0.0.1:9999
-  public_url: https://aiproxy.hopto.me
+  public_url: https://aicontrolmesh.com
 backends:
   anthropic:
     type: anthropic

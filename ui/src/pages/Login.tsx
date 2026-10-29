@@ -36,7 +36,7 @@ export function LoginPage({ secure }: { secure: boolean }) {
             <rect width="32" height="32" rx="7" />
             <path d="M8 11h6l4 10h6" />
           </svg>
-          <span>AI Proxy</span>
+          <span>AI Control Mesh</span>
         </div>
         <h1>Sign in</h1>
         <p className="subtle">This proxy is shared, so you need an account. Ask an admin of your organization for one.</p>

@@ -174,7 +174,7 @@ def _safe_name(value: str) -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Benchmark models through the AI proxy")
+    parser = argparse.ArgumentParser(description="Benchmark models through AI Control Mesh")
     parser.add_argument("test", nargs="?", help="Test directory name")
     parser.add_argument("--all", action="store_true", help="Run all benchmark tests")
     parser.add_argument("--model", help="Override configured models")

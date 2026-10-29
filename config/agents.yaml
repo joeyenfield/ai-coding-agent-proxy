@@ -95,7 +95,7 @@ agents:
         provider:
           agent-proxy:
             npm: "@ai-sdk/openai-compatible"
-            name: AI Proxy (Ollama)
+            name: AI Control Mesh (Ollama)
             options:
               baseURL: "{openai_url}"
               apiKey: local-ollama

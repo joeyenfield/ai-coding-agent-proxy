@@ -1,4 +1,4 @@
-# AI Proxy for Android
+# AI Control Mesh for Android
 
 Watch and drive your coding agents from your phone. The app keeps a list of your
 agent-servers and opens each one's console full screen, on **Running agents**: read an

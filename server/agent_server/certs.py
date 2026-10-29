@@ -21,7 +21,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 
-CA_NAME = "AI Coding Agent Proxy local CA"
+CA_NAME = "AI Control Mesh local CA"
 
 
 def system_roots() -> str:

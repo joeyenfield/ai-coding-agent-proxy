@@ -41,7 +41,7 @@ The architecture should allow additional agents and model backends to be added l
                                 │
                                 ▼
 ┌───────────────────────────────────────────────────────┐
-│                     AI Proxy                          │
+│                 AI Control Mesh                       │
 │                                                       │
 │  OpenAI-compatible API       Anthropic-compatible API │
 │                                                       │
@@ -446,7 +446,7 @@ Recent requests
 Example:
 
 ```text
-AI Proxy
+AI Control Mesh
 ─────────────────────────────────────
 
 Backend        Desktop Ollama
@@ -854,7 +854,7 @@ Codex
   ↓
 localhost:8181
   ↓
-AI Proxy
+AI Control Mesh
   ↓
 192.168.1.133:11434
 ```
@@ -983,7 +983,7 @@ All model traffic should pass through the proxy:
 ```text
 Benchmark ─────┐
                │
-Codex ─────────┼──► AI Proxy ───► Ollama
+Codex ─────────┼──► AI Control Mesh ───► Ollama
                │
 Claude Code ───┘
 ```

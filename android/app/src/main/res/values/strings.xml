@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">AI Proxy</string>
+    <string name="app_name">AI Control Mesh</string>
     <string name="servers_title">Your servers</string>
     <string name="servers_lede">Watch and drive your coding agents from anywhere. Add the agent-server you sign in to.</string>
     <string name="servers_empty">No servers yet. Add the address of your agent-server, such as http://192.168.1.10:9999 or its Tailscale name.</string>

@@ -27,10 +27,10 @@ from .runtime import LOGGER, Runtime, upstream_client
 from .ui_build import ensure_built
 
 
-UI_MISSING = """<!doctype html><html lang="en"><head><meta charset="utf-8"><title>AI Proxy</title>
+UI_MISSING = """<!doctype html><html lang="en"><head><meta charset="utf-8"><title>AI Control Mesh</title>
 <style>body{font-family:system-ui,sans-serif;max-width:640px;margin:80px auto;padding:0 24px;line-height:1.6}
 code{background:#eef2f1;padding:2px 6px;border-radius:4px}</style></head><body>
-<h1>AI Proxy is running</h1><p>The web UI has not been built yet. Build it once with</p>
+<h1>AI Control Mesh is running</h1><p>The web UI has not been built yet. Build it once with</p>
 <p><code>cd ui &amp;&amp; npm install &amp;&amp; npm run build</code></p>
 <p>or run the dev server with <code>npm run dev</code> and open <code>http://localhost:5173</code>.</p>
 <p>The API is available at <a href="/docs">/docs</a>.</p></body></html>"""
