@@ -172,7 +172,12 @@ func ollamaCommand() []string {
 		case "darwin":
 			candidates = []string{"/Applications/Ollama.app/Contents/Resources/ollama", "/usr/local/bin/ollama", "/opt/homebrew/bin/ollama"}
 		default:
-			candidates = []string{"/usr/local/bin/ollama", "/usr/bin/ollama"}
+			// The last is Termux's (pkg install ollama), for agent-machine started without its PATH.
+			prefix := os.Getenv("PREFIX")
+			if prefix == "" {
+				prefix = "/data/data/com.termux/files/usr"
+			}
+			candidates = []string{"/usr/local/bin/ollama", "/usr/bin/ollama", filepath.Join(prefix, "bin", "ollama")}
 		}
 		for _, candidate := range candidates {
 			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {

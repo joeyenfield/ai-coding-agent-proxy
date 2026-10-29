@@ -4,8 +4,9 @@ all), and the launches, tunnels and questions about its model servers the server
 
 Launches run a program here, so they're off until `agent-machine launches on`, only go to
 folders listed with `agent-machine roots add`, and are checked here again whatever the server
-says. Containers and starting model servers are the Go agent-machine's only: this one says so
-in its hello (so the console doesn't offer them) and refuses any such request.
+says. Containers and starting Strata are the Go agent-machine's only: this one says so in its
+hello (so the console doesn't offer them) and refuses any such request. It starts and stops
+Ollama like the Go one (servers.py), once `agent-machine servers on`.
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ import websockets
 from websockets.asyncio.client import connect
 
 from .. import common
-from . import mcp, providers, settings
+from . import mcp, providers, servers, settings
 
 UPDATE_EVERY = 60
 PING_EVERY = 25
@@ -260,6 +261,7 @@ class Presence:
         self.on_status = on_status
         self.on_server_version = on_server_version
         self.providers = providers.Manager()
+        self.servers = servers.Manager()
         self.detect: Callable[[], List[Dict[str, Any]]] = providers.detect
         self.launch: Callable[[Dict[str, Any], str], str] = launch_headless
         self.shell: Callable[[Dict[str, Any], str], str] = shell_headless
@@ -385,8 +387,7 @@ class Presence:
                 await send({"type": "container_result", "request": message.get("request"), "ok": False,
                             "error": "This machine runs the Python agent-machine, which doesn't run containers"})
             elif kind == "server":
-                await send({"type": "server_result", "request": message.get("request"), "ok": False,
-                            "error": "This machine runs the Python agent-machine, which doesn't start model servers", "servers": {"enabled": False}})
+                await send(await asyncio.to_thread(self.servers.handle, message))
             elif kind in ("launch", "shell"):
                 await self.launched(message, server, send)
             elif kind == "update":
@@ -515,7 +516,7 @@ class Presence:
             "tunnel": 1, "launcher": True,
             "containers": {"enabled": False, "cli": "docker", "found": False, "online": False, "version": "",
                            "error": "the Python agent-machine doesn't run containers", "engines": []},
-            "servers": {"enabled": False}, "mcp": shared,
+            "servers": self.servers.describe(), "mcp": shared,
         }
 
     def installed_agents(self, server: str) -> List[str]:

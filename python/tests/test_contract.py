@@ -1,16 +1,18 @@
 """The server's contract tests for agent and agent-machine (server/tests/test_client.py), run
 against the Python versions, plus the agent-machine tests whose Go versions need what only the
-Go one has (containers, starting model servers)."""
+Go one has (containers, starting Strata)."""
 
 from __future__ import annotations
 
 import json
 import os
+import sys
+from pathlib import Path
 
 import httpx
 
 from test_client import (  # noqa: F401  (the tests are collected from here, with this folder's fixtures)
-    fake_ollama_server, fleet_machine, machine, new_session,
+    fake_ollama_server, fleet_machine, free_port, machine, new_session,
     test_a_controlled_terminal_is_relayed_to_the_server,
     test_a_fleet_machine_lists_its_folders_and_opens_a_shell_when_commands_are_on,
     test_a_fleet_machine_runs_an_agent_the_console_starts,
@@ -25,17 +27,25 @@ from test_client import (  # noqa: F401  (the tests are collected from here, wit
 )
 
 
-def probing(tmp_path, port: int) -> dict:
-    """agent-machine's environment, with it looking for Ollama on port instead of 11434."""
+def probing(tmp_path, port: int, ollama_port: int = 0) -> dict:
+    """agent-machine's environment, with it looking for Ollama on port instead of 11434, and starting
+    a fake one (fake_ollama.py) on ollama_port when asked to."""
     folder = tmp_path / "site"
     folder.mkdir(exist_ok=True)
-    (folder / "sitecustomize.py").write_text(f"import agent_py.machine.providers as p\np.PROBES = (('ollama', '/api/version', {port}),)\n")
-    return {"PYTHONPATH": os.pathsep.join([str(folder), os.environ["PYTHONPATH"]])}
+    lines = f"import agent_py.machine.providers as p\np.PROBES = (('ollama', '/api/version', {port}),)\n"
+    env = {}
+    if ollama_port:
+        lines += f"import agent_py.machine.servers as s\ns.OLLAMA_PORT = {ollama_port}\n"
+        env["AI_PROXY_OLLAMA_COMMAND"] = json.dumps([sys.executable, str(Path(__file__).parents[2] / "server" / "tests" / "fake_ollama.py")])
+    (folder / "sitecustomize.py").write_text(lines)
+    return {**env, "PYTHONPATH": os.pathsep.join([str(folder), os.environ["PYTHONPATH"]])}
+
 
 
 def test_a_fleet_machine_manages_its_ollama_for_the_console(tmp_path, agent_binary, machine_binary):
+    ollama_port = free_port()
     with fake_ollama_server() as (port, seen), machine(tmp_path, agent_binary) as m, \
-            fleet_machine(m, machine_binary, tmp_path, ["servers", "on"], env=probing(tmp_path, port)) as fleet:
+            fleet_machine(m, machine_binary, tmp_path, ["servers", "on"], env=probing(tmp_path, port, ollama_port)) as fleet:
         base = f"{m.server}/api/machines/{fleet.box['id']}"
         [found] = fleet.box["providers"]
         assert (found["type"], found["port"], found["version"], found["models"]) == ("ollama", port, "0.12.3", 2)
@@ -51,8 +61,25 @@ def test_a_fleet_machine_manages_its_ollama_for_the_console(tmp_path, agent_bina
         assert any(method == "POST" and path == "/api/generate" and body.get("keep_alive") == 0 for method, path, body in seen)
         metrics = httpx.get(f"{base}/metrics", timeout=30).json()
         assert metrics["memory"]["total"] > 0 and "cpu" in metrics
-        # Starting model servers is the Go agent-machine's: the hello says so, and the server doesn't ask.
-        assert httpx.post(f"{base}/servers/ollama/start", json={}, timeout=30).status_code >= 400
+        # Its Ollama: installed, not running, then started and stopped from the console with the saved settings.
+        assert fleet.box["servers"]["enabled"] and fleet.box["servers"]["ollama"]["found"], fleet.box["servers"]
+        settings = httpx.get(f"{base}/servers/ollama", timeout=30).json()
+        assert "host" not in {setting["key"] for setting in settings["schema"]["settings"]}
+        saved = httpx.put(f"{base}/servers/ollama", json={**settings["config"], "num_parallel": 2}, timeout=30)
+        assert saved.status_code == 200 and saved.json()["env"]["OLLAMA_NUM_PARALLEL"] == "2"
+        assert json.loads((tmp_path / "machine-home" / "ollama.json").read_text())["num_parallel"] == 2
+        refused = httpx.put(f"{base}/servers/ollama", json={**settings["config"], "extra_env": "LD_PRELOAD=/tmp/x.so"}, timeout=30)
+        assert refused.status_code == 409 and "OLLAMA_" in refused.json()["detail"]
+        started = httpx.post(f"{base}/servers/ollama/start", json={}, timeout=60)
+        assert started.status_code == 200, started.text
+        assert httpx.get(f"http://127.0.0.1:{ollama_port}/api/version", timeout=5).json()["version"] == "0.0.0-fake"
+        state = m.runtime.fleet.machines[fleet.box["id"]].servers["ollama"]
+        assert state["running"] and state["managed"] and state["bind"] == "127.0.0.1", state
+        assert "OLLAMA_NUM_PARALLEL=2" in (tmp_path / "machine-home" / "ollama.log").read_text()
+        stopped = httpx.post(f"{base}/servers/ollama/stop", json={}, timeout=60)
+        assert stopped.status_code == 200, stopped.text
+        assert not m.runtime.fleet.machines[fleet.box["id"]].servers["ollama"]["running"]
+        assert httpx.post(f"{base}/servers/strata/start", json={"profile": "x"}, timeout=30).status_code >= 400
         fleet.command("servers", "off")
         refused = httpx.post(f"{base}/providers/ollama-{port}/models/delete", json={"name": "gemma3:4b"}, timeout=30)
         assert refused.status_code == 409 and "agent-machine servers on" in refused.json()["detail"]

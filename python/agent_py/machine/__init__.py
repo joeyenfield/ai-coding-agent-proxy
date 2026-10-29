@@ -20,7 +20,7 @@ from . import mcp, presence, providers, settings
 
 USAGE = """agent-machine puts this computer in an agent-server's fleet, so the server can use the
 model servers it runs (Ollama, Strata, Docker Model Runner) and start agents on it.
-This is the Python agent-machine; containers and starting model servers are the Go one's only.
+This is the Python agent-machine; containers and starting Strata are the Go one's only.
 
 Usage: agent-machine                           this machine as the fleet sees it
        agent-machine login [url] [--user name] [--key access-key]
@@ -28,7 +28,7 @@ Usage: agent-machine                           this machine as the fleet sees it
        agent-machine start                     join the fleet in the background
        agent-machine stop
        agent-machine run [--server url]        join the fleet in the foreground (Ctrl+C leaves)
-       agent-machine servers on|off            let the server pull, delete, load and unload models here (off by default)
+       agent-machine servers on|off            let the server pull, delete, load and unload models here, and start and stop Ollama (off by default)
        agent-machine launches on|off           let the server start agents here (off by default)
        agent-machine commands on|off           let you open a terminal here from the console, in a launch folder (off by default)
        agent-machine roots add <dir>           a folder agents may be started in (and any folder inside it)
@@ -414,7 +414,7 @@ def show(machine: settings.Machine) -> None:
     for index, provider in enumerate(found):
         print(f"{'Providers :' if index == 0 else '           '} {provider['type']} on port {provider['port']}")
     print("Containers: not in the Python agent-machine")
-    print("Servers   : on: the server can change the models here (pull, delete, load, unload)" if machine.servers else "Servers   : off (agent-machine servers on)")
+    print("Servers   : on: the server can change the models here (pull, delete, load, unload) and start and stop Ollama" if machine.servers else "Servers   : off (agent-machine servers on)")
     print("Launches  :", "on" if machine.launches else "off (agent-machine launches on)")
     print("Updates   : on: the console can update this here to the server's build" if machine.updates else "Updates   : off (agent-machine updates on)")
     print("Commands  : on: you can open a terminal here from the console" if machine.commands else "Commands  : off (agent-machine commands on)")

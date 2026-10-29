@@ -417,12 +417,12 @@ AI_PROXY_USER=joey AI_PROXY_PASSWORD=... docker compose --profile sandbox up -d
 
 ## The Python agent-machine
 
-The Python package (`python/`, `agent_py`) installs an `agent-machine` with the same name, protocol, files and ports, for computers without a Go build. It has `login`/`logout`, `run`/`start`/`stop`, the status display, `launches`, `roots`, `commands`, `name`, `address`, `servers`, `mcp`, `update` and `updates`. It sends the same hello, runs launches and terminals (checking the folder after resolving links), lists folders, carries tunnels, shares MCP servers, and answers the server's questions about Ollama (status, pull, delete, load, unload), Docker Model Runner (status and models), Strata (status) and the machine's load.
+The Python package (`python/`, `agent_py`) installs an `agent-machine` with the same name, protocol, files and ports, for computers without a Go build. It has `login`/`logout`, `run`/`start`/`stop`, the status display, `launches`, `roots`, `commands`, `name`, `address`, `servers`, `mcp`, `update` and `updates`. It sends the same hello, runs launches and terminals (checking the folder after resolving links), lists folders, carries tunnels, shares MCP servers, and answers the server's questions about Ollama (status, pull, delete, load, unload), Docker Model Runner (status and models), Strata (status) and the machine's load. With `servers on` it starts, stops and restarts the Ollama installed there with the settings saved from the console (`ollama.json`, its output in `ollama.log`), like the Go one. That includes Termux on Android (`pkg install ollama`).
 
 What it lacks:
 
 - **Containers.** Its hello says they're off, so the console doesn't offer them, and container requests are refused.
-- **Starting and stopping Ollama and Strata, and Ollama's settings.** Its `servers on` only lets the server change models.
+- **Starting and stopping Strata profiles, and Ollama's systemd service.** It starts and stops only an Ollama it runs itself.
 - **Strata's load, unload and logs, and catalogue searches.**
 
 Its `update` pip-installs the server's wheel, checked against its SHA-256. A launch runs `AI_PROXY_AGENT` if it's set, otherwise the Python `agent` with the same Python.

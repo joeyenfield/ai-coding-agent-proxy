@@ -186,7 +186,7 @@ class Manager:
             raise Refused("Only the Ollama agent-machine starts (on port 11434) has a log here")
         path = settings.home() / "ollama.log"
         if not path.exists():
-            return {"text": "No log here: the Python agent-machine doesn't start Ollama, so it has no log of it."}
+            return {"text": "No log here yet: agent-machine keeps a log only of the Ollama it starts (from the console, with agent-machine servers on)."}
         return {"text": tail(path, int(request.get("tail") or 0))}
 
     # Docker Model Runner

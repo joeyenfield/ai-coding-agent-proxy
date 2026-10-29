@@ -4,7 +4,7 @@ Drop-in Python versions (3.9+) of `agent`, `agent-proxy` and `agent-machine`, fo
 
 ## Design in one paragraph
 
-It mirrors the Go programs behaviour for behaviour, and the Go code is the reference. The proof is `server/tests/test_client.py`: `python/tests` runs the same contract tests against these programs. Unlike Go, the client and machine share code (`common.py`, `login.py`), but they keep separate credentials. The machine side deliberately leaves out containers and starting model servers, and says so in its hello, so the server and console adapt.
+It mirrors the Go programs behaviour for behaviour, and the Go code is the reference. The proof is `server/tests/test_client.py`: `python/tests` runs the same contract tests against these programs. Unlike Go, the client and machine share code (`common.py`, `login.py`), but they keep separate credentials. The machine side deliberately leaves out containers and starting Strata, and says so in its hello, so the server and console adapt.
 
 ## Map
 
@@ -18,12 +18,13 @@ It mirrors the Go programs behaviour for behaviour, and the Go code is the refer
 | `client/terminal.py` | `internal/terminal` | stdlib `pty` on POSIX, pywinpty ConPTY on Windows; the same Share protocol and timings |
 | `machine/__init__.py`, `settings.py` | `machine/internal/command`, `settings` | `run`/`start`/`stop`, toggles (launches, servers, commands, updates, roots, name, address); `containers` is refused |
 | `machine/presence.py` | `machine/internal/presence` | Fleet socket, hello and updates, tunnels, launches, shells, folders, remote update |
+| `machine/servers.py` | `machine/internal/servers` | Ollama only: start/stop/restart (`ollama serve` in its own session, reaped by a thread), `ollama.json` settings (the same table as `ollama_settings.go`), `servers.json`, `ollama.log`; finds `ollama` on PATH or the installers' and Termux's folders. No systemd service, no Strata |
 | `machine/providers.py` | `machine/internal/providers` | `PROBES` (ollama 11434, docker 12434, strata 18500), `Manager.handle` → `{kind}_{op}`, metrics (psutil optional) |
 | `machine/mcp.py` | `machine/internal/mcp` | `Bridge` on uvicorn at `127.0.0.1:0` with a per-run key, a stdio process per MCP session, 6 h idle reap |
 
 ## What's different
 
-- Hello: `containers.enabled=False`, `servers.enabled=False`. `container` and `server` requests get `ok:false`. No Strata load, unload or logs, no catalogue search.
+- Hello: `containers.enabled=False`; `servers` reports Ollama only (Strata is always `found: false`). `container` requests and Strata `server` requests get `ok:false`. No Strata load, unload or logs, no catalogue search.
 - `AI_PROXY_URL`/`AI_PROXY_TOKEN` apply to the client only (`Upstream(use_env=False)` for the machine).
 - The agent-traffic request body is buffered (the response still streams).
 - `look_path`'s WSL check drops `/mnt/`, `/c/`, `/d/` PATH entries rather than reading `/proc/mounts`.

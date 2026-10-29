@@ -159,7 +159,7 @@ sudo installer -pkg agent-<version>-darwin-arm64.pkg -target /   # macOS
 
 ### The Python wheel
 
-For computers without a Go build, `python/` is a drop-in `agent`, `agent-proxy` and `agent-machine` in Python, with the same protocol, files and ports. It has no containers and doesn't start model servers. The server hands it out as one wheel:
+For computers without a Go build, `python/` is a drop-in `agent`, `agent-proxy` and `agent-machine` in Python, with the same protocol, files and ports. It has no containers and doesn't start Strata. The server hands it out as one wheel:
 
 ```bash
 pip install http://server:9999/downloads/<version>/python/ai_proxy_agent_py-<version>-py3-none-any.whl
