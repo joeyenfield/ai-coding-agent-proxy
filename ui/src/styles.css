@@ -826,6 +826,32 @@ details.collapsible > summary::-webkit-details-marker { display: none; }
 .org-card.selected { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); background: var(--accent-soft); }
 .org-card .org-open { font-size: 15px; }
 .org-detail h4 { font-size: 14px; font-weight: 650; }
+.directory-workspace { display: grid; grid-template-columns: minmax(200px, 250px) minmax(0, 1fr); gap: 20px; align-items: start; }
+.directory-workspace > *, .org-detail > * { min-width: 0; }
+.org-list { list-style: none; display: grid; gap: 10px; padding: 0; }
+.org-detail, .team-detail, .directory-members, .directory-user-form { display: flex; flex-direction: column; gap: 16px; }
+.org-detail h2, .team-detail h3, .org-card strong { overflow-wrap: anywhere; }
+.team-detail > h3, .team-detail > p, .directory-members > h4, .directory-members > p { margin: 0; }
+.org-detail .team-list { list-style: none; padding: 0; grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr)); }
+.directory-create { margin: 12px 0; }
+.directory-create > summary { font-weight: 650; color: var(--accent); }
+.directory-create[open] > summary, .team-detail details[open] > summary { margin-bottom: 16px; }
+.directory-danger { border-top: 1px solid var(--line); padding-top: 20px; margin-top: 12px; }
+.directory-members select { min-width: 0; max-width: 100%; }
+.org-detail > [role="tabpanel"] > .inline-form { margin-top: 16px; }
+@media (max-width: 900px) {
+  .directory-workspace { grid-template-columns: minmax(0, 1fr); }
+  .org-list { grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr)); }
+}
+@media (max-width: 600px) {
+  .users-table, .users-table tbody { display: block; width: 100%; }
+  .users-table thead { display: none; }
+  .users-table .user-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; padding: 16px; border-bottom: 1px solid var(--line); }
+  .users-table .user-row td { display: block; padding: 0; border: 0; }
+  .users-table .user-row td:nth-child(n+3) { grid-column: 1 / -1; }
+  .users-table .user-edit-row, .users-table .user-edit-row td { display: block; }
+  .users-table .membership-edit { width: 100%; align-items: stretch; }
+}
 .member-list { list-style: none; display: flex; flex-direction: column; }
 .member-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 8px 0; border-bottom: 1px solid var(--line); }
 .member-list li:last-child { border-bottom: 0; }

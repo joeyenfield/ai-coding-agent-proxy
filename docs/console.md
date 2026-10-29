@@ -190,14 +190,16 @@ Saving rewrites `backends.yaml`, so comments in it are lost. **API reference** l
 
 ## Organizations
 
-![Organizations, on a server without accounts](screenshots/organization.png)
+![An organization and its teams](screenshots/organization.png)
 
-`/organization` is about you and the server's accounts:
+`/organization` separates the directory from your own account. Its tabs and selected organization and team stay in the URL, so you can link to them:
 
-- **You**: your user, role, organizations and teams, **Change your password**, and **Start agents from your own computer**: the `agent login` command for this server. **Make a token by hand, for scripts** creates a launcher token with a label. Your tokens are listed with when they were created and last used, and you can revoke each.
-- **Organizations** (admins create, rename and delete them): each with its members and teams. Members see only their own organizations.
-- **Users** (admins): add a user with a role (Admin or Member), organizations and teams; change a user's role, organizations, teams or password; remove them.
+- **Organizations**: search and select an organization. Its **Teams** tab lists its teams; open one to add or remove members, create a user in it, or rename or delete it in **Team settings**. **Members** manages everyone in the organization, including users not assigned to a team. Add existing users before placing them in teams, or create an account directly in either view. **Settings** renames or deletes the organization.
+- **User directory**: search accounts and filter by organization, including **No organization** for unassigned users. Admins can create accounts, **Edit user** to change their server role, memberships or password, and **Delete account**. Removing someone from a team or organization is separate from deleting their account.
+- **Your account**: your user, role, organizations and teams, **Change your password**, and **Start agents from your own computer**: the `agent login` command for this server. **Make a token by hand, for scripts** creates a launcher token with a label. Your tokens are listed with when they were created and last used, and you can revoke each.
 - Without accounts the page says **Accounts are off** and how to turn them on (`agent-server user add ...`).
+
+Members see only their organizations and the people in them; all management controls require a server admin. Removing an organization membership also removes that user's team memberships there. Deleting a team or organization keeps people's accounts. Destructive changes ask for confirmation.
 
 See [Accounts and sharing](accounts.md).
 

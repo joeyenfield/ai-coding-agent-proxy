@@ -45,6 +45,8 @@ flowchart LR
 | Distribution | `version.py`, `downloads.py`, `installer.py`, `openapi.py`, `ui_build.py` | `PROTOCOL`, `MIN_PROTOCOL`, `VersionMiddleware`; `Downloads` (only `SHA256SUMS` files); `SAFE_URL`; `TAGS` |
 | Routes | `routes/` | `compat` (agents), `management` (console), `machines` (fleet and provider relay), `terminals`, `mcp`, `proxy`, `containers`, `auth` |
 
+`routes/auth.py` exposes organization → team → member management, including scoped PUT/DELETE membership routes and team display-name changes. `UserStore` owns the hierarchy and applies scoped changes under its lock; combined account edits validate role, memberships and password before saving once. The existing user records and `<org>/<team>` sharing keys stay compatible.
+
 ## Core flows
 
 **Agent request** (`routes/compat.py`)

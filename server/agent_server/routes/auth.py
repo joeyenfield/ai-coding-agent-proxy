@@ -152,6 +152,21 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         data = await request.json()
         return change(request, lambda: accounts.store.add_team(org, str(data.get("id") or ""), data.get("name")), "No such organization")
 
+    @app.put("/api/orgs/{org}/members/{name}")
+    @app.delete("/api/orgs/{org}/members/{name}")
+    async def org_member(org: str, name: str, request: Request) -> dict[str, Any]:
+        return change(request, lambda: accounts.store.set_membership(org, name, request.method == "PUT"), "No such organization or user")
+
+    @app.put("/api/orgs/{org}/teams/{team}")
+    async def rename_team(org: str, team: str, request: Request) -> dict[str, Any]:
+        data = await request.json()
+        return change(request, lambda: accounts.store.rename_team(org, team, str(data.get("name") or "")), "No such team")
+
+    @app.put("/api/orgs/{org}/teams/{team}/members/{name}")
+    @app.delete("/api/orgs/{org}/teams/{team}/members/{name}")
+    async def team_member(org: str, team: str, name: str, request: Request) -> dict[str, Any]:
+        return change(request, lambda: accounts.store.set_membership(org, name, request.method == "PUT", team=team), "No such organization, team or user")
+
     @app.delete("/api/orgs/{org}/teams/{team}")
     async def remove_team(org: str, team: str, request: Request) -> dict[str, Any]:
         return change(request, lambda: accounts.store.remove_team(org, team), "No such team")
@@ -174,9 +189,10 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         data = await request.json()
 
         def update() -> None:
-            accounts.store.update_user(name, role=data.get("role"), teams=data.get("teams"), orgs=data.get("orgs"))
-            if data.get("password"):
-                accounts.store.set_password(name, str(data["password"]))
+            accounts.store.update_user(
+                name, role=data.get("role"), teams=data.get("teams"), orgs=data.get("orgs"),
+                password=str(data["password"]) if data.get("password") else None,
+            )
 
         return change(request, update, "No such user")
 

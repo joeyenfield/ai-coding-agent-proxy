@@ -178,7 +178,7 @@ agent logout                               # the server signed in to last
 agent logout http://server:9999
 ```
 
-`agent login [url]` signs this computer's `agent-proxy` in to a server. The URL defaults to the server it uses now; without a scheme, `http://` is added. On a server with accounts it asks for your username (or takes `--user`/`-u`) and password, and trades them for a launcher token. The password isn't stored. The token appears as `agent-proxy on <hostname>` under **Server → Organizations**. It warns when the connection isn't HTTPS and the server isn't this computer. For scripts, `AI_PROXY_PASSWORD_INPUT` supplies the password.
+`agent login [url]` signs this computer's `agent-proxy` in to a server. The URL defaults to the server it uses now; without a scheme, `http://` is added. On a server with accounts it asks for your username (or takes `--user`/`-u`) and password, and trades them for a launcher token. The password isn't stored. The token appears as `agent-proxy on <hostname>` under **Server → Organizations → Your account**. It warns when the connection isn't HTTPS and the server isn't this computer. For scripts, `AI_PROXY_PASSWORD_INPUT` supplies the password.
 
 On a server without accounts there's no sign-in, but the server is remembered as the one to use. `--key` stores that server's access key, so this computer can share terminals with it from another machine.
 

@@ -1132,6 +1132,12 @@ export const api = {
   addTeam: (org: string, id: string, name: string) =>
     request<Directory>(`/api/orgs/${encodeURIComponent(org)}/teams`, { method: "POST", body: JSON.stringify({ id, name }) }),
   removeTeam: (org: string, id: string) => request<Directory>(`/api/orgs/${encodeURIComponent(org)}/teams/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  renameTeam: (org: string, id: string, name: string) =>
+    request<Directory>(`/api/orgs/${encodeURIComponent(org)}/teams/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ name }) }),
+  setOrgMember: (org: string, user: string, member: boolean) =>
+    request<Directory>(`/api/orgs/${encodeURIComponent(org)}/members/${encodeURIComponent(user)}`, { method: member ? "PUT" : "DELETE" }),
+  setTeamMember: (org: string, team: string, user: string, member: boolean) =>
+    request<Directory>(`/api/orgs/${encodeURIComponent(org)}/teams/${encodeURIComponent(team)}/members/${encodeURIComponent(user)}`, { method: member ? "PUT" : "DELETE" }),
   users: () => request<{ users: User[] }>("/api/users"),
   addUser: (body: { name: string; password: string; role: string; orgs: string[]; teams: string[] }) =>
     request<Directory>("/api/users", { method: "POST", body: JSON.stringify(body) }),

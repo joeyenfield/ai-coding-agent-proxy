@@ -29,6 +29,19 @@ It happens only while `users.json` doesn't exist. If you remove every user later
 
 Members see their own organizations and the people in them. Admins see and change everything.
 
+```mermaid
+flowchart TD
+  Organization --> Teams
+  Organization --> Members["Users in the organization"]
+  Teams --> TeamMembers["Users in each team"]
+```
+
+In **Server → Organizations**, choose an organization, then open a team to manage its members. **Members** manages everyone in that organization, including people not yet in a team. Add an existing user or **Create user** directly in the organization or team. A user can belong to multiple teams and organizations; they still have one account.
+
+Removing a team member keeps their organization membership. Removing an organization member also removes their memberships in that organization's teams. Neither deletes the account or memberships elsewhere. Membership changes apply to subsequent session and machine access checks. Deleting a team keeps its people in the organization; renaming its display name keeps its sharing key.
+
+**User directory** manages accounts, server roles, passwords and all memberships. **Your account** contains your own password and launcher tokens. An Admin role is server-wide, not a team role. Only server admins can change organizations, teams or other users.
+
 Manage them from the console (**Server → Organizations**), the API (`/api/orgs`, `/api/users`; see [API](api.md)), or the server's shell:
 
 ```bash

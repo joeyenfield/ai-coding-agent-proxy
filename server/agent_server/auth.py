@@ -251,6 +251,39 @@ class UserStore:
                 record["teams"] = [item for item in record.get("teams", []) if item != team_key(org, team)]
             self._save()
 
+    def rename_team(self, org: str, team: str, name: str) -> None:
+        """Change a team's display name without changing its sharing key."""
+        with self._lock:
+            record = self._load()["orgs"].get(org, {}).get("teams", {}).get(team)
+            if record is None:
+                raise KeyError(team)
+            record["name"] = name.strip()[:80] or team
+            self._save()
+
+    def set_membership(self, org: str, name: str, member: bool, *, team: str | None = None) -> None:
+        """Change one membership under the lock, preserving memberships outside this scope."""
+        with self._lock:
+            data = self._load()
+            organization = data["orgs"].get(org)
+            if organization is None or name not in data["users"]:
+                raise KeyError(org if organization is None else name)
+            if team is not None and team not in organization.get("teams", {}):
+                raise KeyError(team)
+            record = data["users"][name]
+            orgs, teams = set(record.get("orgs", [])), set(record.get("teams", []))
+            if team is None:
+                if member:
+                    orgs.add(org)
+                else:
+                    orgs.discard(org)
+                    teams = {key for key in teams if team_org(key) != org}
+            elif member:
+                orgs.add(org)
+                teams.add(team_key(org, team))
+            else:
+                teams.discard(team_key(org, team))
+            self.update_user(name, orgs=sorted(orgs), teams=sorted(teams))
+
     def _team_keys(self) -> set[str]:
         return {team_key(org, team) for org, record in self._load()["orgs"].items() for team in record.get("teams", {})}
 
@@ -314,7 +347,7 @@ class UserStore:
             self._save()
             return self._user_public(name)
 
-    def update_user(self, name: str, *, role: str | None = None, teams: list[str] | None = None, orgs: list[str] | None = None) -> dict[str, Any]:
+    def update_user(self, name: str, *, role: str | None = None, teams: list[str] | None = None, orgs: list[str] | None = None, password: str | None = None) -> dict[str, Any]:
         with self._lock:
             data = self._load()
             record = data["users"].get(name)
@@ -326,9 +359,13 @@ class UserStore:
                 if record.get("role") == "admin" and role != "admin" and self._admins() == [name]:
                     raise ValueError("That's the last admin; make someone else an admin first")
             member_of, in_teams = self._membership(orgs, teams, record)
+            encoded = hash_password(_checked_password(password)) if password is not None else None
             if role is not None:
                 record["role"] = role
             record["orgs"], record["teams"] = member_of, in_teams
+            if encoded is not None:
+                record["password"] = encoded
+                data["sessions"] = {key: value for key, value in data["sessions"].items() if value.get("user") != name}
             self._save()
             return self._user_public(name)
 
@@ -336,14 +373,7 @@ class UserStore:
         return [name for name, record in self._load()["users"].items() if record.get("role") == "admin"]
 
     def set_password(self, name: str, password: str) -> None:
-        with self._lock:
-            data = self._load()
-            if name not in data["users"]:
-                raise KeyError(name)
-            data["users"][name]["password"] = hash_password(_checked_password(password))
-            # A new password signs the user out everywhere.
-            data["sessions"] = {key: value for key, value in data["sessions"].items() if value.get("user") != name}
-            self._save()
+        self.update_user(name, password=password)
 
     def remove_user(self, name: str) -> bool:
         with self._lock:

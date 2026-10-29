@@ -175,11 +175,14 @@ See [Accounts](accounts.md). Changes answer with the whole directory (`orgs` and
 | POST | `/api/orgs` | Admin | `{"id", "name"}`: adds one. |
 | PUT | `/api/orgs/{org}` | Admin | `{"name"}`: renames it. |
 | DELETE | `/api/orgs/{org}` | Admin | Removes it and its teams; members keep their accounts. |
+| PUT / DELETE | `/api/orgs/{org}/members/{name}` | Admin | Adds/removes one user's organization membership. Removal also leaves its teams, without changing memberships elsewhere. No body needed. |
 | POST | `/api/orgs/{org}/teams` | Admin | `{"id", "name"}`: adds a team. |
+| PUT | `/api/orgs/{org}/teams/{team}` | Admin | `{"name"}`: changes the display name, keeping its id and sharing key. |
 | DELETE | `/api/orgs/{org}/teams/{team}` | Admin | Removes a team. |
+| PUT / DELETE | `/api/orgs/{org}/teams/{team}/members/{name}` | Admin | Adds/removes one team membership. Adding also joins its organization; removal keeps organization membership. No body needed. |
 | GET | `/api/users` | Signed in | Users with their roles, organizations and teams. Members see themselves and the people in their organizations. |
 | POST | `/api/users` | Admin | `{"name", "password", "role", "orgs", "teams"}`: adds one. |
-| PUT | `/api/users/{name}` | Admin | Changes `role`, `orgs`, `teams` or `password`. The last admin can't be made a member. |
+| PUT | `/api/users/{name}` | Admin | Changes `role`, `orgs`, `teams` or `password` together, only if all changes are valid. The last admin can't be made a member. |
 | DELETE | `/api/users/{name}` | Admin | Removes a user. You can't remove yourself. |
 
 ## Downloads and installers

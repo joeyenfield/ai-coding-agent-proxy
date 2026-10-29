@@ -49,6 +49,14 @@ The design rule: **everything about a model server is on its machine's page**, o
 - `ProviderView` renders `ProviderHead` (with **Add as a provider** for admins when there's no backend yet), then switches on kind: `OllamaProvider` (`Models.tsx`), `StrataProvider` (`Strata.tsx`), `DockerProvider` (`Docker.tsx`). Each takes `{target: ProviderRef, label, backend, manageable}`. `manageable` is a reason string when changes aren't possible (machine offline, `servers` off). Other tabs: `MachineOllama` (`OllamaServer.tsx`), `MachineContainers({machine})` (`Containers.tsx`), `MachineLoad({machine, ollama})` (`Hosts.tsx`), `MachineMcp.tsx`.
 - Show controls according to `machine.you` (`owner`, `manage`, and one flag per feature: view, launch, terminal, models, servers, update, mcp), never according to role.
 
+## Organization workspace (`pages/Organization.tsx`)
+
+- `/organization` has URL-backed tabs (`tab`): Organizations (default), User directory (`users`), Your account (`account`). Personal password and token controls are separate from directory management.
+- Organizations uses a responsive master/detail layout. `org` selects the organization; `orgTab` selects Teams (default), Members or Settings; `team` opens a team's members and settings. Switching organizations clears the nested selection.
+- `Members` is shared by organization and team views. Its mutations use the scoped `setOrgMember`/`setTeamMember` API calls, not replacement membership arrays. Removing a member or deleting a team/organization asks for confirmation; none deletes the user's account.
+- `CreateUser` supports a scoped organization/team creation form and the global directory form. `UserRow` edits role, memberships and optional password together, without browser prompts. `useDirectoryChange` replaces the org/user query caches and invalidates auth, machines and sessions.
+- All mutations require a server admin; members get read-only views filtered by the server. Existing many-to-many memberships and `<org>/<team>` keys are unchanged.
+
 ## Module map (where things go)
 
 - `src/`: `api.ts` (calls and types), `hooks.tsx` (shared queries, theme, toasts, clipboard), `live.ts`, `traffic.ts` (host and path classification), `format.ts`, `routes.ts` (`ROUTES`, `PROVIDERS`, `providerLabel()`), `navigation.ts`.

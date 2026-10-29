@@ -134,6 +134,117 @@ def test_leaving_or_deleting_an_organization_leaves_its_teams(tmp_path):
         store.remove_team("acme", "core")
 
 
+def test_scoped_memberships_preserve_other_organizations_and_persist(tmp_path):
+    settings = org_settings(tmp_path)
+    app = create_app(settings)
+    with TestClient(app, base_url=BASE):
+        admin = signed_in(app, "dave")
+        assert admin.post("/api/orgs/globex/teams", json={"id": "core"}).status_code == 201
+        path = "/api/orgs/globex/teams/core/members/alice"
+        assert admin.put(path).status_code == 200
+        assert admin.put(path).status_code == 200
+        store = app.state.runtime.auth.store
+        assert store.user("alice")["teams"] == ["acme/core", "globex/core"]
+        assert admin.delete("/api/orgs/acme/teams/core/members/alice").status_code == 200
+        assert store.user("alice")["orgs"] == ["acme", "globex"]
+        assert store.user("alice")["teams"] == ["globex/core"]
+        assert admin.put("/api/orgs/acme/teams/ops/members/alice").status_code == 200
+        assert admin.delete("/api/orgs/acme/members/alice").status_code == 200
+        assert admin.delete("/api/orgs/acme/members/alice").status_code == 200
+        assert store.user("alice")["orgs"] == ["globex"]
+        assert store.user("alice")["teams"] == ["globex/core"]
+        directory = admin.put("/api/orgs/acme/members/alice").json()
+        alice = next(user for user in directory["users"] if user["name"] == "alice")
+        assert alice["orgs"] == ["acme", "globex"]
+        assert alice["teams"] == ["globex/core"]
+    reloaded = UserStore(settings.users_path)
+    assert reloaded.user("alice")["orgs"] == ["acme", "globex"]
+    assert reloaded.user("alice")["teams"] == ["globex/core"]
+
+
+def test_team_rename_keeps_memberships_and_sharing_key(tmp_path):
+    settings = org_settings(tmp_path)
+    app = create_app(settings)
+    with TestClient(app, base_url=BASE):
+        admin = signed_in(app, "dave")
+        response = admin.put("/api/orgs/acme/teams/core", json={"name": "Engineering"})
+        assert response.status_code == 200
+        team = response.json()["orgs"][0]["teams"][0]
+        assert team == {"id": "core", "key": "acme/core", "name": "Engineering", "members": ["alice", "bob"]}
+        assert admin.delete("/api/orgs/acme/teams/core").status_code == 200
+    store = UserStore(settings.users_path)
+    assert store.user("alice")["orgs"] == ["acme"]
+    assert store.user("alice")["teams"] == []
+
+
+@pytest.mark.parametrize(("method", "path", "body"), [
+    ("PUT", "/api/orgs/acme/members/bob", None),
+    ("DELETE", "/api/orgs/acme/members/bob", None),
+    ("PUT", "/api/orgs/acme/teams/core", {"name": "Engineering"}),
+    ("PUT", "/api/orgs/acme/teams/core/members/bob", None),
+    ("DELETE", "/api/orgs/acme/teams/core/members/bob", None),
+])
+def test_hierarchy_changes_are_admin_only(tmp_path, method, path, body):
+    app = create_app(org_settings(tmp_path))
+    with TestClient(app, base_url=BASE) as anonymous:
+        alice, frank, admin = signed_in(app, "alice"), signed_in(app, "frank"), signed_in(app, "dave")
+        assert anonymous.request(method, path, json=body).status_code == 401
+        for member in (alice, frank):
+            assert member.request(method, path, json=body).status_code == 403
+        assert admin.request(method, path, json=body, headers={"origin": "http://evil.example"}).status_code == 403
+
+
+def test_missing_hierarchy_targets_do_not_change_memberships(tmp_path):
+    app = create_app(org_settings(tmp_path))
+    with TestClient(app, base_url=BASE):
+        admin = signed_in(app, "dave")
+        before = admin.get("/api/users").json()
+        for path in (
+            "/api/orgs/missing/members/alice", "/api/orgs/acme/members/missing",
+            "/api/orgs/globex/teams/core/members/alice", "/api/orgs/acme/teams/core/members/missing",
+        ):
+            assert admin.put(path).status_code == 404
+            assert admin.delete(path).status_code == 404
+        assert admin.put("/api/orgs/globex/teams/core", json={"name": "No"}).status_code == 404
+        assert admin.get("/api/users").json() == before
+
+
+def test_combined_user_edit_is_atomic_and_password_reset_ends_browser_sessions(tmp_path):
+    settings = org_settings(tmp_path)
+    app = create_app(settings)
+    with TestClient(app, base_url=BASE):
+        admin, alice = signed_in(app, "dave"), signed_in(app, "alice")
+        before = admin.get("/api/users").json()
+        response = admin.put("/api/users/alice", json={"role": "admin", "orgs": ["globex"], "password": "short"})
+        assert response.status_code == 400
+        assert admin.get("/api/users").json() == before
+        assert alice.get("/api/auth/status").json()["identity"]["orgs"] == ["acme"]
+        response = admin.put("/api/users/alice", json={"role": "admin", "orgs": ["globex"], "password": "new password"})
+        assert response.status_code == 200
+        assert alice.get("/api/users").status_code == 401
+    store = UserStore(settings.users_path)
+    assert store.verify("alice", "new password")
+    assert not store.verify("alice", PASSWORD)
+    assert store.user("alice")["role"] == "admin"
+    assert store.user("alice")["orgs"] == ["globex"]
+    assert store.user("alice")["teams"] == []
+
+
+def test_scoped_removal_revokes_shared_session_access(tmp_path):
+    app = create_app(org_settings(tmp_path))
+    with TestClient(app, base_url=BASE):
+        admin, alice, bob = signed_in(app, "dave"), signed_in(app, "alice"), signed_in(app, "bob")
+        session = alice.post("/api/sessions", json={"client": "x", "backend": "test", "visibility": "team"}).json()["session_id"]
+        path = f"/api/sessions/{session}"
+        assert bob.get(path).status_code == 200
+        assert admin.delete("/api/orgs/acme/teams/core/members/bob").status_code == 200
+        assert bob.get(path).status_code == 404
+        assert alice.patch(path, json={"visibility": "org"}).status_code == 200
+        assert bob.get(path).status_code == 200
+        assert admin.delete("/api/orgs/acme/members/bob").status_code == 200
+        assert bob.get(path).status_code == 404
+
+
 def test_a_users_file_from_before_organizations_becomes_one_organization(tmp_path):
     path = tmp_path / "users.json"
     path.write_text(json.dumps({
