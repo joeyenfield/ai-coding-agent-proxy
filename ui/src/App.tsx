@@ -17,8 +17,7 @@ import { SettingsPage } from "./pages/Settings";
 import { TerminalsPage } from "./pages/Terminals";
 import { PairPage } from "./pages/Pair";
 import { MachinesPage } from "./pages/Machines";
-import { MachinePage, machinePath } from "./pages/Machine";
-import { StateDot } from "./components/ProviderState";
+import { MachinePage } from "./pages/Machine";
 import { DownloadsPage } from "./pages/Downloads";
 import { DocsPage } from "./pages/Docs";
 import { Icon } from "./components/Icon";
@@ -137,14 +136,6 @@ function Shell({ identity }: { identity: Identity | null }) {
                   <RailLink key={item.to} item={item} counts={counts} waiting={item.to === "/terminals" ? waiting : 0} />
                 ),
               )}
-              {part.id === "machines" &&
-                (machines.data?.machines ?? []).map((machine) => (
-                  <NavLink key={machine.id} to={machinePath(machine.id)} className="nav-machine">
-                    <StateDot tone={machine.connected ? "good" : "idle"} />
-                    <span className="nav-label">{machine.name}</span>
-                    {machine.update?.available && <span className="nav-count" title="Update available">↑</span>}
-                  </NavLink>
-                ))}
               {part.id === "machines" && (
                 <Link to="/machines#add" className="nav-add">
                   <Icon name="plus" />

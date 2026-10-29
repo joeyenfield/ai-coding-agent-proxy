@@ -7,7 +7,7 @@
  *
  * Everything about a model server (its models, settings, logs, the containers that run it,
  * the machine's load) is on its machine's page (/machines/<id>), because the machine does
- * it. The rail lists the machines themselves under Machines (App.tsx).
+ * it. All machines opens the searchable fleet list; individual machines aren't listed in the rail.
  */
 import type { IconName } from "./components/Icon";
 
@@ -75,7 +75,7 @@ export const PARTS: Part[] = [
     summary: "Computers signed in to the server. Each runs model servers agents use (Ollama, Strata, Docker, containers), managed on its page.",
     home: "/machines",
     items: [
-      { to: "/machines", label: "All machines", icon: "monitor", end: true },
+      { to: "/machines", label: "All machines", icon: "monitor" },
     ],
   },
 ];

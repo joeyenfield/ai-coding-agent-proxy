@@ -27,10 +27,12 @@ flowchart TB
 
 - `main.tsx`: queries retry once, never on a 401; any 401 invalidates `["auth"]`, which drops back to sign-in.
 - `App.tsx`: the auth gate reads `window.location.pathname`, not the router. `/pair` is a Shell route, so it needs a sign-in when accounts are on.
-- `Shell`: the rail is built from `PARTS` plus one entry per connected machine (`["machines"]`). It shows counts (in-flight requests, terminals, machines, agents waiting for their user), the version, the user and the theme picker. Below 900 px it becomes a top bar with a slide-in menu. Opening the menu pushes a history entry, so Back (Android's included) closes it.
+- `Shell`: the rail is built from `PARTS`, with All machines and Add a machine rather than individual machine entries. It shows counts (in-flight requests, terminals, machines, agents waiting for their user), the version, the user and the theme picker. Below 900 px it becomes a top bar with a slide-in menu. Opening the menu pushes a history entry, so Back (Android's included) closes it.
 - Old addresses (`/models`, `/strata`, `/docker`, `/containers`, ...) redirect to `/machines`.
 
-`navigation.ts` `PARTS`: **Agents** (`/agents` Start an agent, `/terminals` Running agents), **Server** (`/live`, `/traffic`, `/requests`, `/sessions`, `/settings`, `/organization`, `/get`), **Machines** (`/machines`, then the machines themselves). `partFor()` drives `PartTag`, the breadcrumb above each `<h1>`.
+`navigation.ts` `PARTS`: **Agents** (`/agents` Start an agent, `/terminals` Running agents), **Server** (`/live`, `/traffic`, `/requests`, `/sessions`, `/settings`, `/organization`, `/get`), **Machines** (`/machines`, active on individual machine pages too). `partFor()` drives `PartTag`, the breadcrumb above each `<h1>`.
+
+`MachinesPage` lists machines with a case-insensitive search over name, id, hostname, address and owner. Searching only filters the cards; fleet totals and the add/removed-machine controls stay unchanged.
 
 ## Data layer
 

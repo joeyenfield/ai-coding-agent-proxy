@@ -16,7 +16,12 @@ export function MachinesPage() {
   const machines = useMachines();
   const status = useStatus();
   const { hash } = useLocation();
+  const [search, setSearch] = useState("");
   const list = machines.data?.machines ?? [];
+  const query = search.trim().toLowerCase();
+  const shown = list.filter((machine) =>
+    [machine.name, machine.id, machine.hostname, machine.address, machine.owner].some((value) => value?.toLowerCase().includes(query)),
+  );
   const online = list.filter((machine) => machine.connected);
   const server = serverAddress(status.data?.proxy_url);
 
@@ -66,8 +71,16 @@ export function MachinesPage() {
         </div>
       )}
 
+      {machines.data && list.length > 0 && (
+        <div className="filters">
+          <input type="search" value={search} onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search by name, hostname, address or owner" aria-label="Search machines" />
+          <span className="subtle" role="status">{shown.length} of {list.length} machines</span>
+        </div>
+      )}
+      {machines.data && list.length > 0 && shown.length === 0 && <p className="subtle">No machines match your search.</p>}
       <div className="machine-list">
-        {list.map((machine) => (
+        {shown.map((machine) => (
           <MachineSummary key={machine.id} machine={machine} />
         ))}
       </div>
