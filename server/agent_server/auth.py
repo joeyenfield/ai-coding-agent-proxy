@@ -41,9 +41,10 @@ from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 
 from starlette.requests import HTTPConnection
+
+from .remote import same_origin
 
 
 COOKIE = "ai_proxy_session"
@@ -572,16 +573,19 @@ class AuthMiddleware:
             return
         path = scope["path"]
         connection = HTTPConnection(scope)
-        if path in PUBLIC_PATHS or not path.startswith(PROTECTED_PREFIXES) or self._session_capability(path, connection):
+        if not path.startswith(PROTECTED_PREFIXES) or self._session_capability(path, connection):
+            await self.app(scope, receive, send)
+            return
+        method = scope.get("method", "GET")
+        if scope["type"] == "http" and method in UNSAFE_METHODS and not same_origin(connection):
+            await _deny(scope, receive, send, 403, "Requests from other sites aren't allowed.")
+            return
+        if path in PUBLIC_PATHS:
             await self.app(scope, receive, send)
             return
         identity = self.runtime.auth.identify(connection)
         if identity is None:
             await _deny(scope, receive, send, 401, "Sign in first.")
-            return
-        method = scope.get("method", "GET")
-        if scope["type"] == "http" and method in UNSAFE_METHODS and not _same_origin(connection):
-            await _deny(scope, receive, send, 403, "Requests from other sites aren't allowed.")
             return
         if scope["type"] == "http" and admin_only(method, path) and not identity.admin:
             await _deny(scope, receive, send, 403, "Only an admin can change this.")
@@ -600,13 +604,6 @@ class AuthMiddleware:
             return False
         session = self.runtime.sessions.get(session_id)
         return session is not None and session.ended_at is None
-
-
-def _same_origin(connection: HTTPConnection) -> bool:
-    origin = connection.headers.get("origin")
-    if not origin:
-        return True
-    return urlparse(origin).netloc.lower() == connection.headers.get("host", "").lower()
 
 
 async def _deny(scope: dict[str, Any], receive: Any, send: Any, status: int, message: str) -> None:

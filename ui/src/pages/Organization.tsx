@@ -1,7 +1,7 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type Directory, type Identity, type Org, type Team, type User } from "../api";
+import { API_ORIGIN, api, type Directory, type Identity, type Org, type Team, type User } from "../api";
 import { CodeLine } from "../components/CodeLine";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { PartTag } from "../components/PartTag";
@@ -110,7 +110,7 @@ function YourAccount({ identity }: { identity: Identity }) {
   });
   // The address this browser reached the server on works from other machines; the configured URL may be loopback.
   const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname);
-  const server = loopback ? status.data?.proxy_url ?? window.location.origin : window.location.origin;
+  const server = API_ORIGIN || (loopback ? status.data?.proxy_url ?? window.location.origin : window.location.origin);
   return (
     <section className="panel" aria-labelledby="you-heading">
       <div className="panel-head">

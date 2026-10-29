@@ -987,8 +987,19 @@ export class ApiError extends Error {
   }
 }
 
+/** Empty keeps local, bundled and Android deployments on the page's own origin. */
+export const API_ORIGIN = (import.meta.env.VITE_API_URL ?? "").replace(/\/+$/, "");
+
+export function apiUrl(path: string): string {
+  return `${API_ORIGIN}${path}`;
+}
+
+function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+  return fetch(apiUrl(path), { ...init, credentials: "include" });
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
+  const response = await apiFetch(url, {
     ...init,
     headers: init?.body ? { "content-type": "application/json", ...init.headers } : init?.headers,
   });
@@ -1007,7 +1018,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 
 /** One page of the documentation (docs/<name>.md on the server), as Markdown. Public. */
 async function helpPage(name: string): Promise<string> {
-  const response = await fetch(`/help-files/${encodeURIComponent(name)}.md`);
+  const response = await apiFetch(`/help-files/${encodeURIComponent(name)}.md`);
   if (!response.ok) throw new ApiError(`not found (${response.status})`, response.status);
   return response.text();
 }
@@ -1016,7 +1027,7 @@ const sessionUrl = (id: string) => `/api/sessions/${encodeURIComponent(id)}`;
 
 export const api = {
   status: () => request<Status>("/api/status"),
-  health: () => request<Health>("/health"),
+  health: () => request<Health>("/health", { cache: "no-store" }),
   helpPage,
   // Served outside /api (public, for machines that aren't signed in yet); the console's page is /get.
   downloads: () => request<DownloadIndex>("/downloads/index.json"),
@@ -1147,15 +1158,18 @@ export const api = {
   shareSession: (sessionId: string, sharing: { visibility: Visibility; team?: string | null; org?: string | null; access: Sharing["access"] }) =>
     request<Session>(sessionUrl(sessionId), { method: "PATCH", body: JSON.stringify(sharing) }),
   containerLog: async (name: string) => {
-    const response = await fetch(`/api/containers/${encodeURIComponent(name)}/log?tail=1000`);
+    const response = await apiFetch(`/api/containers/${encodeURIComponent(name)}/log?tail=1000`);
     if (!response.ok) throw new ApiError(`Couldn't read the log (${response.status})`, response.status);
     return response.text();
   },
 };
 
-/** The viewer WebSocket for a shared terminal, on the same host as the page. */
-export const terminalSocketUrl = (sessionId: string) =>
-  `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/terminals/${encodeURIComponent(sessionId)}/view`;
+/** The browser sends the API host's session cookie on the viewer WebSocket. */
+export function terminalSocketUrl(sessionId: string): string {
+  const url = new URL(apiUrl(`/api/terminals/${encodeURIComponent(sessionId)}/view`), location.origin);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  return url.href;
+}
 
 function searchCatalog<T>(machine: string, catalog: Catalog, params: Record<string, string>): Promise<T> {
   return request<T>(`${machineUrl(machine)}/catalog/${catalog}?${new URLSearchParams(params)}`);
@@ -1213,7 +1227,7 @@ export async function addBackend(type: string, url: string, name?: string): Prom
 
 /** A provider's log as its machine reads it: Strata's server or engine log, or the Ollama agent-machine started. */
 export const fetchProviderLog = async (ref: ProviderRef, source?: StrataLog) => {
-  const response = await fetch(`${providerUrl(ref)}/log${source ? `?source=${source}` : ""}`);
+  const response = await apiFetch(`${providerUrl(ref)}/log${source ? `?source=${source}` : ""}`);
   if (!response.ok) {
     const body = await response.json().catch(() => null);
     throw new ApiError(typeof body?.detail === "string" ? body.detail : `Request failed (${response.status})`, response.status);
@@ -1228,7 +1242,7 @@ export async function pullModel(
   onProgress: (progress: PullProgress) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const response = await fetch(`${providerUrl(ref)}/models/pull`, {
+  const response = await apiFetch(`${providerUrl(ref)}/models/pull`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ name }),
@@ -1335,7 +1349,7 @@ export interface LiveDetails {
 }
 
 export const fetchLiveDetails = (sessionId: string, requestId: string) =>
-  fetch(`/api/live/${encodeURIComponent(sessionId)}/${encodeURIComponent(requestId)}`).then(async (response) => {
+  apiFetch(`/api/live/${encodeURIComponent(sessionId)}/${encodeURIComponent(requestId)}`).then(async (response) => {
     if (!response.ok) {
       let message = `Request failed (${response.status})`;
       try {

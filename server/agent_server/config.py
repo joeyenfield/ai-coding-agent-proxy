@@ -166,6 +166,8 @@ class Settings:
     # Where other devices reach the console (proxy.public_url), such as a DNS name the
     # router forwards here. Pairing links use it ahead of this computer's own addresses.
     public_url: str | None = None
+    console_origins: list[str] = field(default_factory=list)
+    serve_ui: bool = True
     default_backend: str = "laptop"
     backends: dict[str, Backend] = field(default_factory=dict)
     models: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -173,6 +175,12 @@ class Settings:
     model_profiles: list[dict[str, Any]] = field(default_factory=list)
     # Off unless loaded from backends.yaml, so Settings() built in code never opens a port.
     intercept: "InterceptSettings" = field(default_factory=lambda: InterceptSettings(enabled=False))
+
+    def __post_init__(self) -> None:
+        for origin in self.console_origins:
+            parsed = urlparse(origin)
+            if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password or parsed.path or parsed.query or parsed.fragment or "*" in origin:
+                raise ValueError(f"Console origins must be exact HTTP(S) origins without a path: {origin!r}")
 
     @classmethod
     def load(cls) -> "Settings":
@@ -210,6 +218,8 @@ class Settings:
             dist_dir=Path(os.getenv("AI_PROXY_DIST_DIR", str(ROOT / "dist"))).resolve(),
             docs_dir=Path(os.getenv("AI_PROXY_DOCS_DIR", str(ROOT / "docs"))).resolve(),
             remote_key_file=Path(os.getenv("AI_PROXY_REMOTE_KEY_FILE", str(ROOT / "certs" / "remote-access-key"))).resolve(),
+            console_origins=[origin.strip() for origin in os.getenv("AI_PROXY_CONSOLE_ORIGINS", "").split(",") if origin.strip()],
+            serve_ui=os.getenv("AI_PROXY_SERVE_UI", "1") != "0",
         )
         settings.default_backend = os.getenv(
             "AI_PROXY_DEFAULT_BACKEND", backend_data.get("default_backend", "laptop")

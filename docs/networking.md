@@ -301,7 +301,7 @@ Everything arrives on one port as plain HTTP/1.1, long-lived streams and WebSock
 - **Not buffer**, in either direction. Live text, pulls, model replies and terminals stream.
 - **Allow long reads and writes.** A model can be silent for a while before it answers, and terminals and the fleet socket stay open for days. An hour is enough: the server sends keep-alives in streams, machines ping every 25 seconds, and everything reconnects.
 - **Allow big bodies.** Traces and agents' requests can be several megabytes; the server sets its own limits.
-- **Forward the original `Host`.** The server checks same-origin by comparing `Origin` with `Host`. It also only treats a request as this computer's when its Host is a loopback name, so a request through the proxy must keep the public name.
+- **Forward the original `Host`.** The server compares `Origin` with `Host`, or with the explicit `AI_PROXY_CONSOLE_ORIGINS` allowlist for a separately hosted console. It also only treats a request as this computer's when its Host is a loopback name, so a request through the proxy must keep the public name.
 - **Send `X-Forwarded-For`.** The server uses the client's address to decide whether a machine is on its own computer (tunnel or not, which address Ollama listens on). It takes `X-Forwarded-For` only from a proxy on loopback (`127.0.0.1` or `::1`). For a proxy on another host or in another container, set `FORWARDED_ALLOW_IPS` to its address where `agent-server` runs. Otherwise every machine looks like it's at the proxy's address.
 
 `scripts/https/nginx-https.conf.template`, used by `setup-https.ps1`, does all of this; see [Deployment](deployment.md#https).

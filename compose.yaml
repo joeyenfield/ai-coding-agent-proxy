@@ -5,6 +5,18 @@
 # saved as certs/first-user-password in the agent-server-certs volume. Sign each agent
 # machine in with the Go client: agent login http://<this host>:9999
 services:
+  console:
+    profiles: [console]
+    build:
+      context: .
+      dockerfile: ui/Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:9999}
+    image: ai-control-mesh-console
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8081:80"
+
   marketing-site:
     build:
       context: .
@@ -22,6 +34,9 @@ services:
         AI_PROXY_VERSION: ${AI_PROXY_VERSION:-}
     image: agent-server
     restart: unless-stopped
+    environment:
+      AI_PROXY_SERVE_UI: ${AI_PROXY_SERVE_UI:-1}
+      AI_PROXY_CONSOLE_ORIGINS: ${AI_PROXY_CONSOLE_ORIGINS:-}
     ports:
       - "9999:9999"
     extra_hosts:

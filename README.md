@@ -66,8 +66,8 @@ Then open the console, add its model server with **Add as a provider**, and star
 
 | Part | Folder | What it is |
 | --- | --- | --- |
-| Server | `server/` | `agent-server` (Python): the API, recording, routing, accounts; serves the console |
-| Console | `ui/` | The web console (React) |
+| Server | `server/` | `agent-server` (Python): the API, recording, routing, accounts; optionally serves the console |
+| Console | `ui/` | The web console (React), bundled or [hosted separately](docs/deployment.md#separate-console-and-api-domains) |
 | Public site | `site/` | The brochure website, separate from the application console |
 | Client | `client/` | `agent` (Go): the launcher and each computer's `agent-proxy` |
 | Machine | `machine/` | `agent-machine` (Go): keeps a computer in the server's fleet |

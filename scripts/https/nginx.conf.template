@@ -5,7 +5,7 @@
 #   {{HTTP_PORT}}   plain HTTP, only for Let's Encrypt's challenge files (the router sends 80 here);
 #                   everything else is sent to HTTPS
 #   {{HTTPS_LISTEN}}   HTTPS (the router sends 443 to the first), serving the brochure site
-#                      on the apex and www, and the console through {{BACKEND}}
+#                      on the apex and www, the static console separately, and the API through {{BACKEND}}
 #
 # agent-server checks a browser's Origin against Host, so Host goes through as the
 # browser sent it. X-Forwarded-For carries the client's own address, so nobody reaching

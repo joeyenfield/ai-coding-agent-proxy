@@ -15,6 +15,12 @@ export default defineConfig({
       // The API reference (Swagger UI) and the document it reads.
       "/docs": proxyTarget,
       "/openapi.json": proxyTarget,
+      "/redoc": proxyTarget,
+      "/help-files": proxyTarget,
+      "/downloads": proxyTarget,
+      "/install.sh": proxyTarget,
+      "/install.ps1": proxyTarget,
+      "/android": proxyTarget,
     },
   },
   build: { outDir: "dist", emptyOutDir: true },

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from agent_server.agents import load_agents
 from agent_server.benchmark import summarize
 from agent_server.config import ROOT, Settings
@@ -75,6 +77,18 @@ backends:
     assert settings.proxy_url == "http://10.0.0.5:9191"
     assert settings.default_backend == "desktop"
     assert settings.backend(None).url == "http://10.0.0.6:11434"
+
+
+def test_separate_console_settings_require_exact_origins(monkeypatch):
+    monkeypatch.setenv("AI_PROXY_CONSOLE_ORIGINS", " https://console.example.com, http://localhost:5173 ")
+    monkeypatch.setenv("AI_PROXY_SERVE_UI", "0")
+    settings = Settings.load()
+    assert settings.console_origins == ["https://console.example.com", "http://localhost:5173"]
+    assert not settings.serve_ui
+    for origin in ("*", "null", "https://*.example.com", "https://console.example.com/path", "https://user:pass@console.example.com"):
+        monkeypatch.setenv("AI_PROXY_CONSOLE_ORIGINS", origin)
+        with pytest.raises(ValueError, match="exact HTTP"):
+            Settings.load()
 
 
 QWEN_SETTINGS = dict(

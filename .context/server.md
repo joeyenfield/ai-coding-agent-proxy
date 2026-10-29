@@ -1,6 +1,6 @@
 # Server (`server/agent_server/`)
 
-`agent-server`: Python, FastAPI and uvicorn. The hub. It owns the API, accounts, all configuration (`config/`), agent definitions and template rendering, backend choice, recording, HTTPS interception of account agents, and the fleet registry. It serves the console's build.
+`agent-server`: Python, FastAPI and uvicorn. The hub. It owns the API, accounts, all configuration (`config/`), agent definitions and template rendering, backend choice, recording, HTTPS interception of account agents, and the fleet registry. It optionally serves the console's build; `AI_PROXY_SERVE_UI=0` disables UI routes and automatic UI builds for separate hosting.
 
 ## Design in one paragraph
 
@@ -26,6 +26,7 @@ flowchart LR
 
 - **Router order is load-bearing.** `compat` has catch-alls (`/api/{path}`, `/v1/{path}`, `/anthropic/{path}`), so every console route registers before it, and the UI fallback comes last. Within a router, literal paths come before parameterised ones.
 - **Middleware order** puts the version check before auth, so old programs get 426 (WebSocket close 4426) before a 401.
+- **Split console/API**: `Settings.console_origins` (`AI_PROXY_CONSOLE_ORIGINS`) is the exact origin allowlist for credentialed CORS and `remote.same_origin`, shared by auth mutations and route/WebSocket gates. Cookies stay host-only on the API; no parent-domain cookie or wildcard origin.
 - **Restart** (`POST /api/server/restart` → `Runtime.request_restart`): waits up to 30 s for in-flight requests (`Runtime.active`; container jobs run on machines and aren't waited for), then `_restart_when_idle` closes live streams, terminals, fleet sockets, tunnels and intercept tunnels, and the Supervisor serves again with a fresh `Settings.load()`. **A new long-lived connection must be closed there.** There's no Supervisor with `--reload` or in tests.
 - `ensure_first_user` runs in `main()`/`Supervisor`, never in `create_app`, so tests stay in local mode.
 

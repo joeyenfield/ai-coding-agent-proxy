@@ -40,8 +40,8 @@ flowchart LR
 ## Containers
 
 - `server/Dockerfile` (built from the repo root, because it needs `ui/`): builds the console with Node, then a python:3.13-slim image running as uid 10001. Volumes `/app/config`, `/app/logs`, `/app/certs`; port 9999. The entrypoint seeds `config/` from `/app/defaults/config` without overwriting. Pass `--build-arg AI_PROXY_VERSION` to match a `dist/` folder (no git in the image).
-- `compose.yaml`: `marketing-site` on host loopback port 8080, `agent-server` with named volumes and `./dist:/app/dist:ro`, and `agent-sandbox` under `--profile sandbox`.
-- `site/`: static public brochure site (`index.html`, `styles.css`), served by its own small nginx image. The apex and `www` hostnames serve this site; `console.<domain>` serves the console and API; `api.<domain>` routes agent and machine requests to `agent-server` and redirects its root to the console.
+- `compose.yaml`: `marketing-site` on host loopback port 8080, the standalone static `console` on loopback 8081 under `--profile console`, `agent-server` with named volumes and `./dist:/app/dist:ro`, and `agent-sandbox` under `--profile sandbox`. Split deployments build the console with `VITE_API_URL`, run the API with `AI_PROXY_SERVE_UI=0` and trust the console through `AI_PROXY_CONSOLE_ORIGINS`.
+- `site/`: static public brochure site (`index.html`, `styles.css`), served by its own small nginx image. The apex and `www` hostnames serve this site; `console.<domain>` serves only the static console (`ui/Dockerfile`, `ui/nginx.conf`); `api.<domain>` routes console, agent and machine requests to `agent-server` and redirects its root to the console.
 - `sandbox/`: an image with `agent`, `agent-machine` and the npm coding agents. Its entrypoint signs both in from the environment, sets launches on for `/workspace` only (containers and servers off), and runs `agent-machine run`.
 
 ## Scripts (`.sh`/`.ps1` pairs; change both)

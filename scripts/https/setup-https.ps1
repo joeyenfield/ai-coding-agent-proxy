@@ -8,8 +8,8 @@
 # What it sets up, in -Root (default C:\ProgramData\agent-proxy-https):
 #   nginx\      nginx for Windows (the current stable release from nginx.org), serving
 #               HTTP on -HttpPort (9980) for Let's Encrypt's check and HTTPS on -HttpsPorts
-#               (9443, 9998), routing the apex and www to -SiteBackend, and console and api
-#               to -Backend
+#               (9443, 9998), routing the apex/www to -SiteBackend, console to
+#               -ConsoleBackend, and api to -Backend
 #   win-acme\   win-acme, the Let's Encrypt client: it proves the name by putting a file
 #               where nginx serves /.well-known/acme-challenge/, writes the certificate to
 #               certs\, and renews it from its own scheduled task, reloading nginx
@@ -29,6 +29,7 @@ param(
     [string]$Email = "",
     [string]$Root = (Join-Path $env:ProgramData "agent-proxy-https"),
     [string]$Backend = "http://127.0.0.1:9999",
+    [string]$ConsoleBackend = "http://127.0.0.1:8081",
     [string]$SiteBackend = "http://127.0.0.1:8080",
     [int]$HttpPort = 9980,
     # Comma-separated: powershell -File passes "9443,9998" as one string.
@@ -50,8 +51,9 @@ $HostNames += $ApiHostName
 $HostNames = @($HostNames | Select-Object -Unique)
 $wacsHostNames = $HostNames -join ","
 $siteHostNames = @($HostName, "www.$HostName") -join " "
-$consoleHostNames = @($ConsoleHostName) + @($AdditionalHostNames -split "[,\s]+" | Where-Object { $_ })
-$consoleHostNames = @($consoleHostNames | Select-Object -Unique) -join " "
+$consoleHostNames = $ConsoleHostName
+$apiHostNames = @($ApiHostName) + @($AdditionalHostNames -split "[,\s]+" | Where-Object { $_ })
+$apiHostNames = @($apiHostNames | Select-Object -Unique) -join " "
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $here = $PSScriptRoot
@@ -132,9 +134,9 @@ function Write-Config([bool]$https) {
         $block = (Get-Content -Raw (Join-Path $here "nginx-https.conf.template")).Replace("`r`n", "`n")
         $block = $block.Replace("{{HTTPS_LISTEN_DEFAULT}}", $listenDefault).Replace("{{HTTPS_LISTEN}}", $listen)
         $block = $block.Replace("{{SITE_HOSTS}}", $siteHostNames).Replace("{{CONSOLE_HOSTS}}", $consoleHostNames)
-        $block = $block.Replace("{{API_HOST}}", $ApiHostName).Replace("{{CONSOLE_HOSTNAME}}", $ConsoleHostName)
+        $block = $block.Replace("{{API_HOSTS}}", $apiHostNames).Replace("{{CONSOLE_HOSTNAME}}", $ConsoleHostName)
         $block = $block.Replace("{{CERT}}", (Slash $cert)).Replace("{{KEY}}", (Slash $key))
-        $block = $block.Replace("{{BACKEND}}", $Backend.TrimEnd("/")).Replace("{{SITE_BACKEND}}", $SiteBackend.TrimEnd("/"))
+        $block = $block.Replace("{{BACKEND}}", $Backend.TrimEnd("/")).Replace("{{SITE_BACKEND}}", $SiteBackend.TrimEnd("/")).Replace("{{CONSOLE_BACKEND}}", $ConsoleBackend.TrimEnd("/"))
     }
     $text = (Get-Content -Raw (Join-Path $here "nginx.conf.template")).Replace("`r`n", "`n")
     $text = $text.Replace("{{HTTPS_BLOCK}}", $block.TrimEnd()).Replace("{{HTTP_PORT}}", "$HttpPort").Replace("{{ACME_ROOT}}", (Slash $acmeDir))
@@ -231,4 +233,5 @@ if (-not $NoTasks) {
 Write-Output ""
 Write-Output "HTTPS is up: https://$HostName and https://www.$HostName serve the website; https://$ConsoleHostName serves the console; https://$ApiHostName serves the API."
 Write-Output "The router's 443 goes to $($HttpsPorts[0]); nginx listens on $($HttpsPorts -join ', ') here."
-Write-Output "Set proxy.public_url in config/backends.yaml to https://$ConsoleHostName so the console's links use it."
+Write-Output "Set proxy.public_url to https://$ConsoleHostName, AI_PROXY_SERVE_UI=0 and AI_PROXY_CONSOLE_ORIGINS=https://$ConsoleHostName on agent-server."
+Write-Output "Build the standalone console with VITE_API_URL=https://$ApiHostName and serve it at $ConsoleBackend."

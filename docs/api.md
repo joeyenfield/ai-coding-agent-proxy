@@ -12,6 +12,8 @@ The server also describes its HTTP routes in OpenAPI:
 
 With accounts, these need a sign-in like the rest of the API.
 
+With [separate hosting](deployment.md#separate-console-and-api-domains), all these paths live on the API domain, not the static console. The console sends credentials on HTTP and live-stream requests; terminal WebSockets use the API host's cookie. `AI_PROXY_CONSOLE_ORIGINS` explicitly trusts the console origin for CORS, mutations and WebSockets.
+
 ## Who may call what
 
 | Label | Means |
@@ -22,7 +24,7 @@ With accounts, these need a sign-in like the rest of the API.
 | **Admin** | Signed in as an admin: the route is in `auth.ADMIN_ONLY`. Without accounts there are no admins and the label means nothing extra. |
 | **Trusted** | Without accounts: this computer (a loopback client with a loopback `Host`) or a request with the access key (the `ai_proxy_remote` cookie or `X-AI-Proxy-Token`). With accounts: signed in. |
 | **Local** | Without accounts, this computer only. With accounts, refused. |
-| **Same origin** | Unsafe methods and WebSockets from another site's page (a different `Origin`) are refused. |
+| **Same origin** | Unsafe methods and WebSockets require the request's host or an exact console origin in `AI_PROXY_CONSOLE_ORIGINS`. Other origins are refused. |
 | **Machine feature** | The fleet's grants, `fleet.allowed(identity, machine, feature)`: the machine's owner always; admins for `view`, `models` and `update`; organizations and teams the owner granted the feature. Without accounts, everyone. See [Machines](machines.md). |
 | **Machine owner** | The machine's owner, or an admin where it says so. |
 

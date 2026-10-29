@@ -36,6 +36,32 @@ Podman builds and runs the same image; pass `--http-proxy=false` to `podman buil
 
 Put HTTPS in front of the server whenever it's reachable from outside your own network. Without it, sign-in cookies, tokens and recorded traffic cross the network in the clear. What any reverse proxy in front needs to do (WebSockets, no buffering, long timeouts, `Host` and `X-Forwarded-For`) is in [Networking](networking.md#behind-a-reverse-proxy).
 
+### Separate console and API domains
+
+The console can run as static files, independently of `agent-server`:
+
+| Hostname | Service |
+|---|---|
+| `aicontrolmesh.com`, `www.aicontrolmesh.com` | Brochure (`marketing-site`, loopback port 8080). |
+| `console.aicontrolmesh.com` | Static console (`console`, loopback port 8081). No API forwarding. |
+| `api.aicontrolmesh.com` | `agent-server` (port 9999): API, WebSockets, live streams, documentation files, downloads and installers. |
+
+Set these variables for Compose, then run `docker compose --profile console up -d --build`:
+
+```dotenv
+VITE_API_URL=https://api.aicontrolmesh.com
+AI_PROXY_SERVE_UI=0
+AI_PROXY_CONSOLE_ORIGINS=https://console.aicontrolmesh.com
+```
+
+`VITE_API_URL` is a **build-time** setting. Rebuild the console when its API address changes. `ui/Dockerfile` builds it; `ui/nginx.conf` serves its assets and SPA routes, returns 404 for API paths and never forwards requests to the server. With no `VITE_API_URL`, a normal `npm run build` still uses the page's origin for bundled/local installs.
+
+On the API server, `AI_PROXY_SERVE_UI=0` disables console routes, static assets and automatic UI rebuilding. `AI_PROXY_CONSOLE_ORIGINS` is a comma-separated list of exact trusted origins, including the scheme and any port, without paths or wildcards. The same list controls credentialed CORS, mutation origin checks and WebSocket origin checks. Leave it empty for same-origin-only installs.
+
+Keep the console and API on HTTPS subdomains of the **same site**. Sign-in sets an HttpOnly, host-only cookie on the API domain; the console includes credentials on requests and live streams, and browsers send that cookie on API WebSockets. The cookie is not shared with the brochure or console hosts. Unrelated registrable domains are not supported by this SameSite=Lax cookie setup. Moving an existing console to the API host's cookie requires signing in again.
+
+Set `proxy.public_url` to `https://console.aicontrolmesh.com` for pairing links. Agent and machine login and installation commands use `https://api.aicontrolmesh.com`. Point DNS at the reverse proxy and include every hostname in its origin certificate. With Cloudflare, use Full (strict) TLS and leave API responses uncached.
+
 ### nginx and Let's Encrypt on Windows
 
 `scripts/https/setup-https.ps1` sets up nginx with a Let's Encrypt certificate that renews itself. It serves the brochure site on the apex and `www` hostnames, the application on `console.<domain>`, and agent/machine API requests on `api.<domain>`. Point all four DNS names to this host, start the Compose services, then run it once from an elevated PowerShell; rerun it any time, and it picks up where things are:
@@ -46,7 +72,7 @@ powershell -ExecutionPolicy Bypass -File scripts\https\setup-https.ps1 -HostName
 
 It installs, under `-Root` (default `C:\ProgramData\agent-proxy-https`):
 
-- **nginx** for Windows, serving plain HTTP on `-HttpPort` (9980) for Let's Encrypt's check, and HTTPS on `-HttpsPorts` (9443 and 9998). The apex and `www` proxy to `-SiteBackend` (`http://127.0.0.1:8080`); the console hostname proxies to `-Backend` (`http://127.0.0.1:9999`);
+- **nginx** for Windows, serving plain HTTP on `-HttpPort` (9980) for Let's Encrypt's check, and HTTPS on `-HttpsPorts` (9443 and 9998). The apex and `www` proxy to `-SiteBackend` (`http://127.0.0.1:8080`), the console to `-ConsoleBackend` (`http://127.0.0.1:8081`), and the API to `-Backend` (`http://127.0.0.1:9999`);
 - **win-acme**, the Let's Encrypt client, which proves the name with a file nginx serves under `/.well-known/acme-challenge/`, writes the certificate, and renews it from its own scheduled task, reloading nginx;
 - a scheduled task, `agent-proxy-https nginx`, that starts nginx at boot, and firewall rules for the ports.
 
@@ -57,17 +83,18 @@ The name has to reach this computer from the internet on port 80 for Let's Encry
 | `-HostName` | The primary DNS name to get a certificate for (default: `aicontrolmesh.com`). |
 | `-ConsoleHostName` | The application hostname (default: `console.<HostName>`). |
 | `-ApiHostName` | The agent and machine API hostname (default: `api.<HostName>`). Its `/` redirects to the console. |
-| `-AdditionalHostNames` | Comma-separated DNS aliases for the console, included in the certificate (default: `aiproxy.hopto.me`). HTTP requests keep their hostname when redirected to HTTPS. |
+| `-AdditionalHostNames` | Comma-separated DNS aliases for the API, included in the certificate (default: `aiproxy.hopto.me`). Their `/` redirects to the console. HTTP requests keep their hostname when redirected to HTTPS. |
 | `-Email` | Your address, for Let's Encrypt. |
 | `-Root` | Where nginx, win-acme and the certificates go. |
 | `-Backend` | The server nginx forwards to. |
+| `-ConsoleBackend` | The static console nginx forwards to (default: `http://127.0.0.1:8081`). |
 | `-SiteBackend` | The static brochure site nginx forwards to. |
 | `-HttpPort`, `-HttpsPorts` | The ports nginx listens on. `-HttpsPorts` is comma-separated. |
 | `-Staging` | Let's Encrypt's staging service: a certificate browsers don't trust, but no rate limits. For testing. |
 | `-CertFile`, `-KeyFile` | Use your own certificate instead of Let's Encrypt. |
 | `-NoTasks` | Skip the firewall rules and tasks, and the need to run as administrator. |
 
-nginx forwards the `Host` header to both services. The console and API routes upgrade WebSockets, turn buffering off and allow hour-long reads, so live views, pulls and terminals stream. Requests for any other name get no TLS at all. The templates are `scripts/https/nginx.conf.template` and `nginx-https.conf.template`; on another system, use them as a starting point for your own nginx.
+nginx forwards the `Host` header to each service. The API routes upgrade WebSockets, turn buffering off and allow hour-long reads, so live views, pulls and terminals stream. Requests for any other name get no TLS at all. The templates are `scripts/https/nginx.conf.template` and `nginx-https.conf.template`; on another system, use them as a starting point for your own nginx.
 
 When it's done, set `proxy.public_url` in `config/backends.yaml` to `https://console.<domain>` so the console's links and pairing codes use it.
 

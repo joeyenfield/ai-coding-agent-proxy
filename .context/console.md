@@ -4,14 +4,15 @@ The web console: React 19, TypeScript (strict), Vite, TanStack Query, react-rout
 
 ## Design in one paragraph
 
-Every byte the console shows comes from the server over same-origin HTTP, server-sent events (`/api/live`) or WebSockets (`/api/terminals/{id}/view`). All calls and response types live in one file (`api.ts`); all server state is TanStack Query cache, keyed by short arrays and refreshed by polling or invalidation. Navigation is data (`navigation.ts`), and the layout is one stylesheet (`styles.css`) with CSS variables for light and dark themes. Anything about a model server lives on its machine's page. The console never works out routing decisions itself: which backends an agent can use comes from `/api/agents`.
+Every byte the console shows comes from the server over HTTP, server-sent events (`/api/live`) or WebSockets (`/api/terminals/{id}/view`). `VITE_API_URL` chooses the API origin at build time; unset means same-origin. `api.ts` owns `API_ORIGIN`, `apiUrl`, credentialed fetches and the socket URL; SSE uses `withCredentials`. Documentation, downloads and installer/login commands use the API origin too. All server state is TanStack Query cache, keyed by short arrays and refreshed by polling or invalidation. Navigation is data (`navigation.ts`), and the layout is one stylesheet (`styles.css`) with CSS variables for light and dark themes. Anything about a model server lives on its machine's page. The console never works out routing decisions itself: which backends an agent can use comes from `/api/agents`.
 
 ## Boundaries
 
 - Only the server's API. No imports from other components, and no logic the server owns (backend choice, agent templates).
 - The server's SPA fallback returns `index.html` for unknown paths but 404 under `api/`, `v1/`, `session/`, `anthropic/`, `downloads/`, `help-files/`. So the SPA must not use `/downloads/`, `/android` (files) or `/docs` (OpenAPI). That's why Downloads is `/get` and docs are `/help`.
 - Every build replaces the lazy chunks (`mermaid.js`, the terminal, containers). So the server sends `index.html` and the docs with `Cache-Control: no-cache` and `/assets/` as immutable, `main.tsx` reloads the page once on `vite:preloadError` (a console from before an update), and the Docs page says so on each diagram if `mermaid.js` still won't load, trying again next time.
-- Dev: `npm run dev` on :5173 proxies `/api` (with `ws: true`), `/health`, `/docs`, `/openapi.json` to `AI_PROXY_URL` (default `http://127.0.0.1:9999`). `/help-files` and `/downloads` aren't proxied, so Docs and Downloads don't work under Vite.
+- Standalone: `ui/Dockerfile` builds a static nginx image; `ui/nginx.conf` caches hashed assets, revalidates the SPA and refuses API paths. Compose's `console` profile exposes it on loopback :8081. The API must trust its exact origin through `AI_PROXY_CONSOLE_ORIGINS`; both hosts must be HTTPS subdomains of the same site for SameSite=Lax cookies.
+- Dev: `npm run dev` on :5173 proxies `/api` (with `ws: true`), `/health`, API reference, documentation files, downloads and installers to `AI_PROXY_URL` (default `http://127.0.0.1:9999`). With `VITE_API_URL`, it calls that origin directly instead.
 
 ## Shell and routing
 

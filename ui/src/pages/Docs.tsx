@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, type MouseEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
 import { Marked, type Tokens } from "marked";
-import { api } from "../api";
+import { api, apiUrl } from "../api";
 
 /** The documentation's pages (docs/*.md), in the order the index lists them. */
 export const DOC_PAGES: { id: string; label: string }[] = [
@@ -69,7 +69,7 @@ const markdown = new Marked({
       return `<a href="${escapeHtml(target)}"${title ? ` title="${escapeHtml(title)}"` : ""}${outside ? ' target="_blank" rel="noreferrer"' : ""}>${inner}</a>`;
     },
     image({ href, title, text }: Tokens.Image) {
-      const source = /^https?:/.test(href) ? href : `/help-files/${href.replace(/^\.\//, "")}`;
+      const source = /^https?:/.test(href) ? href : apiUrl(`/help-files/${href.replace(/^\.\//, "")}`);
       return `<img src="${escapeHtml(source)}" alt="${escapeHtml(text)}"${title ? ` title="${escapeHtml(title)}"` : ""} loading="lazy">`;
     },
   },
@@ -176,7 +176,7 @@ export function DocsPage() {
               {item.label}
             </NavLink>
           ))}
-          <a href="/docs" target="_blank" rel="noreferrer" className="docs-nav-api">
+          <a href={apiUrl("/docs")} target="_blank" rel="noreferrer" className="docs-nav-api">
             API reference (OpenAPI)
           </a>
         </nav>

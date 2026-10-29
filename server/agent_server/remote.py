@@ -105,10 +105,14 @@ class RemoteAccess:
 def same_origin(connection: HTTPConnection) -> bool:
     """Browsers send Origin with WebSockets and cross-site POSTs; refuse other sites' pages.
 
-    The Vite dev server forwards the browser's own Host, so its pages pass as same-origin too.
+    A separately hosted console must be explicitly trusted for both HTTP and WebSockets.
     """
     origin = connection.headers.get("origin")
     if not origin:
+        return True
+    app = connection.scope.get("app")
+    runtime = getattr(app.state, "runtime", None) if app else None
+    if runtime and origin in runtime.settings.console_origins:
         return True
     return urlparse(origin).netloc.lower() == connection.headers.get("host", "").lower()
 

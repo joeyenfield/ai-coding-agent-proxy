@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { api, type DownloadFile, type DownloadKind } from "../api";
+import { API_ORIGIN, api, apiUrl, type DownloadFile, type DownloadKind } from "../api";
 import { CodeLine } from "../components/CodeLine";
 import { Icon } from "../components/Icon";
 import { PartTag } from "../components/PartTag";
@@ -103,7 +103,7 @@ export function DownloadsPage({ standalone = false }: { standalone?: boolean }) 
           <div className="quick-download-list">
             {android.length > 0 && (
               // /android always answers with this server's app, so it's a link to keep.
-              <a className={`quick-download ${onAndroid ? "is-first" : ""}`} href="/android" download>
+              <a className={`quick-download ${onAndroid ? "is-first" : ""}`} href={apiUrl("/android")} download>
                 <Icon name="download" size={18} />
                 <span>
                   <strong>Android app</strong>
@@ -114,7 +114,7 @@ export function DownloadsPage({ standalone = false }: { standalone?: boolean }) 
               </a>
             )}
             {mine.map((file) => (
-              <a key={file.path} className="quick-download" href={file.url} download>
+              <a key={file.path} className="quick-download" href={apiUrl(file.url)} download>
                 <Icon name="download" size={18} />
                 <span>
                   <strong>
@@ -239,7 +239,7 @@ function ComponentDownloads({ label, summary, component, files, server, onCopy }
       <p className="subtle">{summary}</p>
       {archive && (
         <div className="row wrap">
-          <a className="button primary" href={archive.url} download>
+          <a className="button primary" href={apiUrl(archive.url)} download>
             <Icon name="download" size={14} />
             {archive.name}
           </a>
@@ -281,7 +281,7 @@ function FileTable({ files, server, onCopy }: { files: DownloadFile[]; server: s
           {files.map((file) => (
             <tr key={file.path}>
               <td>
-                <a href={file.url} download className="mono">
+                <a href={apiUrl(file.url)} download className="mono">
                   {file.name}
                 </a>
                 {packageCommand(file, server) && <div className="subtle mono downloads-command">{packageCommand(file, server)}</div>}
@@ -366,6 +366,7 @@ export function OneLineInstall({ server, only, service }: { server: string; only
 }
 
 export function serverAddress(proxyUrl: string | undefined): string {
+  if (API_ORIGIN) return API_ORIGIN;
   const origin = window.location.origin;
   if (!proxyUrl) return origin;
   try {

@@ -83,6 +83,53 @@ def test_failed_sign_ins_are_limited(tmp_path):
         assert client.post("/api/auth/login", json={"username": "alice", "password": PASSWORD}).status_code == 429
 
 
+def test_separate_console_origin_sign_in_mutations_and_logout(tmp_path):
+    origin = "https://console.example.com"
+    settings = org_settings(tmp_path)
+    settings.console_origins = [origin]
+    with TestClient(create_app(settings), base_url="https://api.example.com") as client:
+        preflight = client.options("/api/auth/login", headers={
+            "origin": origin, "access-control-request-method": "POST",
+            "access-control-request-headers": "content-type",
+        })
+        assert preflight.status_code == 200
+        assert preflight.headers["access-control-allow-origin"] == origin
+        assert preflight.headers["access-control-allow-credentials"] == "true"
+        login = client.post("/api/auth/login", json={"username": "alice", "password": PASSWORD}, headers={"origin": origin})
+        assert login.status_code == 200
+        cookie = login.headers["set-cookie"].lower()
+        assert "httponly" in cookie and "secure" in cookie and "samesite=lax" in cookie and "domain=" not in cookie
+        assert client.get("/api/auth/status", headers={"origin": origin}).json()["identity"]["user"] == "alice"
+        created = client.post("/api/sessions", json={"client": "x", "backend": "test"}, headers={"origin": origin})
+        assert created.status_code == 201
+        assert created.headers["access-control-allow-origin"] == origin
+        for foreign in ("https://evil.example.com", "http://console.example.com", "https://console.example.com.evil.test", "null"):
+            refused = client.post("/api/sessions", json={"client": "x", "backend": "test"}, headers={"origin": foreign})
+            assert refused.status_code == 403
+            assert "access-control-allow-origin" not in refused.headers
+            assert client.post("/api/auth/logout", headers={"origin": foreign}).status_code == 403
+        assert client.post("/api/auth/logout", headers={"origin": origin}).status_code == 200
+        assert client.get("/api/sessions", headers={"origin": origin}).status_code == 401
+        assert client.post("/api/auth/login", json={"username": "alice", "password": PASSWORD}, headers={"origin": "https://evil.example.com"}).status_code == 403
+        assert client.options("/api/sessions", headers={"origin": "https://evil.example.com", "access-control-request-method": "POST"}).status_code == 400
+
+
+def test_separate_console_origin_terminal_websocket(tmp_path):
+    origin = "https://console.example.com"
+    settings = org_settings(tmp_path)
+    settings.console_origins = [origin]
+    with TestClient(create_app(settings), base_url="https://api.example.com") as client:
+        assert client.post("/api/auth/login", json={"username": "alice", "password": PASSWORD}).status_code == 200
+        session_id = client.post("/api/sessions", json={"client": "x", "backend": "test"}).json()["session_id"]
+        headers = {"host": "api.example.com", "cookie": f"ai_proxy_session={client.cookies.get('ai_proxy_session')}"}
+        # A trusted console reaches the session lookup; other origins fail the terminal's own gate.
+        for candidate, code in ((origin, 4404), ("https://evil.example.com", 4401)):
+            with pytest.raises(WebSocketDisconnect) as closed:
+                with client.websocket_connect(f"/api/terminals/{session_id}/view", headers={**headers, "origin": candidate}) as ws:
+                    ws.receive_json()
+            assert closed.value.code == code
+
+
 def test_only_admins_change_the_server_organizations_and_users(tmp_path):
     app = create_app(org_settings(tmp_path))
     with TestClient(app, base_url=BASE):

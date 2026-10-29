@@ -70,10 +70,10 @@ def create_app(settings: Settings | None = None, restart: Any = None, address_pi
     app.add_middleware(AuthMiddleware, runtime=runtime)
     # Before sign-in: an agent or agent-machine too old (or new) for this server hears how to update.
     app.add_middleware(version.VersionMiddleware)
-    # The Vite dev server proxies /api itself; this only matters for a UI served elsewhere.
+    # Cross-origin consoles keep their session cookie on the API host, not on the parent domain.
     app.add_middleware(
-        CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
-        allow_methods=["*"], allow_headers=["*"],
+        CORSMiddleware, allow_origins=settings.console_origins,
+        allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
     )
     auth.register(app, runtime)
     # Every console route before compat: its /api/{path} catch-all forwards agents' native Ollama calls.
@@ -86,7 +86,8 @@ def create_app(settings: Settings | None = None, restart: Any = None, address_pi
     compat.register(app, runtime)
     _register_downloads(app, Downloads(settings.dist_dir))
     _register_help(app, settings.docs_dir)
-    _register_ui(app, settings.ui_dir)
+    if settings.serve_ui:
+        _register_ui(app, settings.ui_dir)
     return app
 
 
@@ -201,7 +202,7 @@ def main() -> None:
         # Development: uvicorn restarts on code changes, so the console's restart is off.
         settings = Settings.load()
         settings.host = args.host or settings.host
-        if build:
+        if build and settings.serve_ui:
             ensure_built(settings.ui_dir)
         ensure_first_user(settings)
         uvicorn.run(
@@ -272,7 +273,7 @@ class Supervisor:
     def serve(self, load: Any, build: bool = True, host: str | None = None, port: int | None = None) -> None:
         while not self.stopped:
             settings = load()
-            if build:
+            if build and settings.serve_ui:
                 ensure_built(settings.ui_dir)
             settings.host = host or settings.host
             settings.port = port or settings.port

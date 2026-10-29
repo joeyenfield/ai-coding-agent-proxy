@@ -59,3 +59,19 @@ def test_the_docs_need_no_sign_in(tmp_path):
     with TestClient(help_app(tmp_path, accounts=True)) as client:
         assert client.get("/api/status").status_code == 401
         assert client.get("/help-files/index.md").status_code == 200
+
+
+def test_api_only_mode_never_serves_console_files_or_spa_routes(tmp_path):
+    ui = tmp_path / "ui"
+    (ui / "assets").mkdir(parents=True)
+    (ui / "index.html").write_text("<html>console</html>", encoding="utf-8")
+    (ui / "assets" / "app.js").write_text("console()", encoding="utf-8")
+    app = help_app(tmp_path, ui_dir=ui)
+    settings = app.state.runtime.settings
+    settings.serve_ui = False
+    with TestClient(create_app(settings)) as client:
+        for path in ("/", "/machines", "/index.html", "/assets/app.js"):
+            assert client.get(path).status_code == 404, path
+        assert client.get("/health").status_code == 200
+        assert client.get("/downloads/index.json").status_code == 200
+        assert client.get("/help-files/index.md").status_code == 200

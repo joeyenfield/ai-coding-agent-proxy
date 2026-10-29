@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { RequestRecord, TrafficKind } from "./api";
+import { apiUrl, type RequestRecord, type TrafficKind } from "./api";
 
 export type DeltaKind = "reasoning" | "content" | "tool";
 
@@ -73,7 +73,7 @@ export function useLive(sessionId?: string): LiveState {
   const frame = useRef<number | null>(null);
 
   useEffect(() => {
-    const source = new EventSource(sessionId ? `/api/live?session_id=${encodeURIComponent(sessionId)}` : "/api/live");
+    const source = new EventSource(apiUrl(sessionId ? `/api/live?session_id=${encodeURIComponent(sessionId)}` : "/api/live"), { withCredentials: true });
     const publish = (connected = true) => {
       if (frame.current != null) return;
       frame.current = requestAnimationFrame(() => {

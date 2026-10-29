@@ -150,6 +150,8 @@ See [Agents](agents.md) for the format and how to add one, and [MCP](mcp.md) for
 | `AI_PROXY_LOG_DIR` | Where sessions, traces, the proxy log and `machines.json` go (default `logs/`). |
 | `AI_PROXY_UI_DIR` | The built console (default `ui/dist`). |
 | `AI_PROXY_UI_BUILD=0` | Don't rebuild the console on start when its sources are newer (the same as `--no-build`). |
+| `AI_PROXY_SERVE_UI=0` | API-only server: don't serve or rebuild the console. Host the console separately; see [Deployment](deployment.md#separate-console-and-api-domains). |
+| `AI_PROXY_CONSOLE_ORIGINS` | Comma-separated trusted console origins for credentialed CORS, HTTP mutations and WebSockets (default: none). Exact HTTP(S) origins only, no trailing slash, path or wildcard. |
 | `AI_PROXY_DIST_DIR` | The builds the server hands out (default `dist/`). |
 | `AI_PROXY_DOCS_DIR` | The documentation the console shows under **Docs** (`/help`), served at `/help-files/` (default `docs/`). |
 | `AI_PROXY_VERSION` | The version the server says it is, instead of the one worked out from `VERSION` and git. |
@@ -168,6 +170,8 @@ See [Agents](agents.md) for the format and how to add one, and [MCP](mcp.md) for
 The root is the folder holding `config/`, `logs/`, `certs/`, `ui/dist`, `dist/` and `benchmarks/`. The server uses `AI_PROXY_HOME` when it's set. Otherwise it takes the first of these that has `config/backends.yaml`: the checkout the package was installed from, the current folder, then each folder above it. If none has one, it uses the current folder.
 
 The Docker image sets `AI_PROXY_HOME=/app`.
+
+The standalone console uses `VITE_API_URL` at build time (for example `https://api.example.net`). It routes HTTP calls, live streams, terminals, documentation and download links there. Leave it unset for same-origin bundled installs. Rebuild after changing it; this value contains no secret.
 
 ## Secrets and state
 

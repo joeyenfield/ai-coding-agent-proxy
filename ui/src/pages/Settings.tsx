@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, MACHINE_TYPES, type NetworkConfig } from "../api";
+import { api, apiUrl, MACHINE_TYPES, type NetworkConfig } from "../api";
 import { Icon } from "../components/Icon";
 import { PartTag } from "../components/PartTag";
 import { RestartButton } from "../components/Restart";
@@ -109,7 +109,7 @@ export function SettingsPage() {
         <p className="lede">
           The hub's address, and which provider agents use by default. Saved to <code>config/backends.yaml</code>; provider
           changes apply right away. To script the server, see its{" "}
-          <a href="/docs" target="_blank" rel="noreferrer">API reference</a> (<code>/openapi.json</code>).
+          <a href={apiUrl("/docs")} target="_blank" rel="noreferrer">API reference</a> (<code>/openapi.json</code>).
         </p>
       </header>
       {config.isError && <p className="bad">{config.error.message}</p>}

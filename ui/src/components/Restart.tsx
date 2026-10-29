@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import { api, type Status } from "../api";
+import { API_ORIGIN, api, type Status } from "../api";
 import { ConfirmDialog } from "./ConfirmDialog";
 
 interface Restarting {
@@ -14,6 +14,7 @@ const RestartContext = createContext<(status: Status) => Promise<void>>(async ()
 
 /** Where the restarted proxy will answer, if that's not the port this page came from. */
 function newAddress(port: number): string | null {
+  if (API_ORIGIN) return null;
   if (String(port) === (window.location.port || (window.location.protocol === "https:" ? "443" : "80"))) return null;
   // The Vite dev server proxies to the proxy; it keeps its own port.
   if (window.location.port === "5173") return null;
@@ -36,8 +37,7 @@ export function RestartProvider({ children }: { children: ReactNode }) {
       while (!cancelled) {
         await new Promise((resolve) => setTimeout(resolve, 1000));
         try {
-          const response = await fetch("/health", { cache: "no-store" });
-          const body = await response.json();
+          const body = await api.health();
           if (body.proxy_instance_id && body.proxy_instance_id !== state.before) {
             window.location.reload();
             return;
