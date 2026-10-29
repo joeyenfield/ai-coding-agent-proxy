@@ -28,6 +28,7 @@
       <nav aria-label="Main navigation">
         <a href="#platform">Platform</a>
         <a href="#how-it-works">How it works</a>
+        <a href="#use-cases">For teams</a>
         <a href="#open-source">Open source</a>
       </nav>
       <a class="button button-small button-outline" href="https://console.aicontrolmesh.com">Open the console <span aria-hidden="true">↗</span></a>
@@ -50,17 +51,17 @@
               Go to the console <span aria-hidden="true">→</span>
             </a>
           </div>
-          <p class="hero-note">Self-hosted. Open source. Built for teams.</p>
+          <p class="hero-note">Self-hosted. MIT licensed. Built for teams.</p>
         </div>
 
         <div class="mesh-visual" aria-label="AI Control Mesh connects agent computers, a central control plane, and your model machines">
           <div class="visual-glow"></div>
-          <div class="visual-label"><span class="status-pulse"></span> YOUR AI WORKSPACE</div>
+          <div class="visual-label">ILLUSTRATIVE WORKSPACE</div>
           <div class="mesh-grid">
             <div class="mesh-node node-agents">
               <span class="node-icon icon-agent" aria-hidden="true">⌘</span>
               <span><strong>Agents</strong><small>Claude · Codex · Copilot</small></span>
-              <span class="node-count">12</span>
+              <span class="node-count">RUN</span>
             </div>
             <div class="mesh-link link-one" aria-hidden="true"><i></i></div>
             <div class="mesh-node node-control">
@@ -72,7 +73,7 @@
             <div class="mesh-node node-machines">
               <span class="node-icon icon-machine" aria-hidden="true">▦</span>
               <span><strong>Machines &amp; models</strong><small>Ollama · Strata · Docker</small></span>
-              <span class="node-count">04</span>
+              <span class="node-count">HOST</span>
             </div>
           </div>
           <div class="visual-footer">
@@ -89,6 +90,21 @@
         <i></i><span>YOUR MACHINES</span>
         <i></i><span>YOUR MODELS</span>
         <i></i><span>YOUR ORGANIZATION</span>
+      </section>
+
+      <section class="section introduction" aria-labelledby="what-is-it">
+        <div class="section-heading">
+          <p class="eyebrow eyebrow-dark">What is AI Control Mesh?</p>
+          <h2 id="what-is-it">The layer between your<br>coding agents and your AI.</h2>
+          <p>AI Control Mesh is a self-hosted server, a web console, and lightweight programs for the computers in your organization. Together, they connect the tools people use to the models, machines, and shared tools your team provides.</p>
+        </div>
+        <div class="intro-grid">
+          <p>Keep using coding agents such as Claude Code, Codex, GitHub Copilot CLI, Qwen Code, OpenCode, Aider, and Goose. Launch supported agents through the mesh to record their model traffic, choose a compatible provider, and optionally share their terminal.</p>
+          <div class="definition-note">
+            <h3>A control plane, not another model</h3>
+            <p>It does not train a model or replace your coding agent. It gives you a shared place to route requests, inspect activity, manage model infrastructure, and decide who can use it.</p>
+          </div>
+        </div>
       </section>
 
       <section class="section platform-section" id="platform">
@@ -123,6 +139,20 @@
             <p>Organize people into teams, share sessions intentionally, and grant access to the machines each group needs.</p>
           </article>
         </div>
+        <div class="capability-details">
+          <article>
+            <h3>From a request to a conversation</h3>
+            <p>Follow live model output, token usage, and response timings. Enable full traces to inspect prompts, replies, and tool calls, then revisit the recorded conversation when you need to understand an agent’s work.</p>
+          </article>
+          <article>
+            <h3>More than a list of machines</h3>
+            <p>Inspect CPU and GPU load, manage models on supported providers, start model-serving containers, and read logs. Machines can also share MCP servers: tools and context that selected agents can use across the fleet.</p>
+          </article>
+          <article>
+            <h3>Stay close to long-running work</h3>
+            <p>With terminal sharing enabled, watch an agent from a browser or phone and respond when it needs input. Launch agents remotely on machines that have explicitly enabled it, inside their configured project folders.</p>
+          </article>
+        </div>
       </section>
 
       <section class="flow-section" id="how-it-works">
@@ -147,6 +177,117 @@
         </div>
       </section>
 
+      <section class="section architecture-section" aria-labelledby="architecture-title">
+        <div class="section-heading">
+          <p class="eyebrow eyebrow-dark">Inside the mesh</p>
+          <h2 id="architecture-title">One hub.<br>Three distinct roles.</h2>
+          <p>A developer’s laptop runs the client. A model host joins the fleet. Your server coordinates both. A single computer can fill more than one role.</p>
+        </div>
+        <figure class="architecture-figure">
+          <div class="architecture-diagram" role="group" aria-label="System architecture: agent computers send traffic through a central server, which routes to fleet machines or hosted providers. The console connects to the server API.">
+            <div class="architecture-source">
+              <article class="diagram-card">
+                <span class="diagram-tag">01 / Agent computers</span>
+                <h3>Your existing coding agents</h3>
+                <p>Developers keep their familiar terminal tools.</p>
+                <div class="diagram-component"><code>agent</code> launches the tool</div>
+                <div class="diagram-component"><code>agent-proxy</code> carries its traffic</div>
+              </article>
+            </div>
+            <div class="diagram-connector" aria-hidden="true"><span>Agent traffic</span><b>→</b></div>
+            <div class="architecture-hub">
+              <article class="diagram-card diagram-console">
+                <span class="diagram-tag">Your browser or phone</span>
+                <h3>Web console</h3>
+                <p>Connects to the server API for activity, sessions, machines, and access.</p>
+              </article>
+              <div class="diagram-vertical" aria-hidden="true">↕ <span>HTTP API · live streams · WebSockets</span></div>
+              <article class="diagram-card diagram-server">
+                <span class="diagram-tag">02 / Central server</span>
+                <h3>AI Control Mesh</h3>
+                <p>Routes and records agent traffic. Owns configuration, accounts, and session sharing.</p>
+                <div class="diagram-component"><code>agent-server</code></div>
+              </article>
+            </div>
+            <div class="diagram-connector" aria-hidden="true"><span>Model requests</span><b>→</b></div>
+            <div class="architecture-targets">
+              <article class="diagram-card">
+                <span class="diagram-tag">03 / Fleet machines</span>
+                <h3>Your models and tools</h3>
+                <p><code>agent-machine</code> connects the host to your server.</p>
+                <ul>
+                  <li>Ollama, Strata, Docker Model Runner</li>
+                  <li>Model-serving containers</li>
+                  <li>Shared MCP servers</li>
+                </ul>
+              </article>
+              <article class="diagram-card diagram-hosted">
+                <span class="diagram-tag">Or a hosted service</span>
+                <h3>Vendor APIs and accounts</h3>
+                <p>Supported hosted APIs or an agent’s own account service.</p>
+              </article>
+            </div>
+          </div>
+          <figcaption>Fleet machines open an outbound connection to the server. Model requests can travel back through a tunnel, so model servers do not need to be exposed publicly. Hosted traffic goes to the vendor instead.</figcaption>
+        </figure>
+        <div class="architecture-notes">
+          <p><strong>The server coordinates.</strong> It asks a fleet machine to manage its models, containers, and tools; it does not run those workloads itself.</p>
+          <p><strong>The machine executes.</strong> Model management and remote launches happen on the selected machine, subject to its enabled features and access grants.</p>
+        </div>
+      </section>
+
+      <section class="section request-section" aria-labelledby="request-title">
+        <div class="section-heading">
+          <p class="eyebrow eyebrow-dark">Follow one request</p>
+          <h2 id="request-title">From a coding task<br>to a visible session.</h2>
+          <p>Here is the path for an agent using a local model. Replies stream back along the same route while the server records the request.</p>
+        </div>
+        <figure class="request-figure">
+          <ol class="request-diagram" aria-label="A local-model request in four steps">
+            <li><span class="step-number">1</span><h3>Launch an agent</h3><p>The client asks the server for a session, then starts your coding agent with the right connection settings.</p></li>
+            <li><span class="step-number">2</span><h3>Carry the request</h3><p>The agent calls its computer’s loopback proxy. That proxy sends the request to your central server.</p></li>
+            <li><span class="step-number">3</span><h3>Reach the model</h3><p>The server selects the session’s backend and uses the fleet machine’s tunnel to reach its local model server.</p></li>
+            <li><span class="step-number">4</span><h3>Stream and record</h3><p>The reply returns to the agent. The console shows activity and timings; full traces are available when enabled.</p></li>
+          </ol>
+          <figcaption>A session groups an agent run’s recorded requests, optional full traces, and shared terminal history. It can stay private or be shared with a team or organization.</figcaption>
+        </figure>
+        <div class="route-grid">
+          <article>
+            <span class="diagram-tag">Local models</span>
+            <h3>Use infrastructure you own</h3>
+            <p>Send supported agents to compatible Ollama, Strata, or Docker Model Runner backends. Ollama requests are translated and tuned; native-compatible backends receive pass-through traffic.</p>
+          </article>
+          <article>
+            <span class="diagram-tag">Hosted APIs</span>
+            <h3>Keep a hosted provider</h3>
+            <p>Route supported hosted API traffic through the server and record it alongside your local-model sessions. The provider still receives and processes those requests.</p>
+          </article>
+          <article>
+            <span class="diagram-tag">Agent accounts</span>
+            <h3>Keep the agent’s own service</h3>
+            <p>Supported account agents continue talking to their vendor. Their HTTPS is captured using a server-managed certificate authority trusted by the launched process tree—not redirected to a local model.</p>
+          </article>
+        </div>
+        <p class="section-footnote">Provider compatibility depends on the agent and protocol. Local routing does not make an agent offline, and hosted or account traffic still leaves your infrastructure.</p>
+      </section>
+
+      <section class="section teams-section" id="use-cases">
+        <div class="section-heading">
+          <p class="eyebrow eyebrow-dark">Built around your organization</p>
+          <h2>Start with one team.<br>Connect the rest when ready.</h2>
+          <p>Bring scattered agent sessions and model machines into a shared operating model, without making every developer use the same agent or provider.</p>
+        </div>
+        <div class="use-case-grid">
+          <article><span class="feature-number">01</span><h3>Share a model machine</h3><p>Connect a GPU workstation, manage its supported model servers, and grant the right teams access. Developers can use it without running a model on every laptop.</p></article>
+          <article><span class="feature-number">02</span><h3>Understand agent behavior</h3><p>Inspect requests, timings, token counts, and captured conversations to investigate a failed task or compare how agents use a model.</p></article>
+          <article><span class="feature-number">03</span><h3>Check on remote work</h3><p>Launch an agent on an enabled fleet machine, follow its shared terminal from your phone, and respond to a prompt without sitting at that computer.</p></article>
+        </div>
+        <div class="trust-panel">
+          <div><h3>Share access deliberately</h3><p>Accounts belong to organizations and teams. Session visibility and permission to type are separate choices. Machine grants control features such as launches, terminals, model management, and MCP access.</p></div>
+          <div><h3>Your infrastructure, your responsibility</h3><p>Remote launches and terminals can run commands. Machines must opt in and restrict project roots. Captured prompts and replies can contain sensitive data: protect the server, use HTTPS, and choose what you record and share.</p></div>
+        </div>
+      </section>
+
       <section class="open-source-section" id="open-source">
         <div class="open-source-mark" aria-hidden="true">
           <span></span><span></span><span></span><span></span>
@@ -154,12 +295,25 @@
         <div>
           <p class="eyebrow">Open source by design</p>
           <h2>Your AI infrastructure<br>should be yours.</h2>
-          <p>Run AI Control Mesh on infrastructure you control. Explore the code, understand how it works, and shape it around your organization.</p>
+          <p>Run AI Control Mesh on infrastructure you control. The permissive MIT license lets you use, modify, and redistribute it, including commercially, subject to its terms. Inspect the code and adapt it to your organization.</p>
         </div>
         <div class="open-source-actions">
           <a class="button button-light" href="https://github.com/joeyenfield/ai-coding-agent-proxy">View on GitHub <span aria-hidden="true">↗</span></a>
-          <a class="button button-outline-light" href="https://github.com/joeyenfield/ai-coding-agent-proxy/tree/main/docs">Read the docs <span aria-hidden="true">→</span></a>
+          <a class="button button-outline-light" href="https://console.aicontrolmesh.com/help">Read the docs <span aria-hidden="true">→</span></a>
+          <a class="license-link" href="https://github.com/joeyenfield/ai-coding-agent-proxy/blob/master/LICENSE">Read the MIT license</a>
         </div>
+      </section>
+
+      <section class="section getting-started" aria-labelledby="getting-started-title">
+        <div class="section-heading">
+          <p class="eyebrow eyebrow-dark">Make it your own</p>
+          <h2 id="getting-started-title">A practical path<br>from checkout to mesh.</h2>
+        </div>
+        <ol class="setup-steps">
+          <li><h3>Run your server</h3><p>Deploy with Docker or Python, put HTTPS in front of it, and create the accounts your team needs.</p><a href="https://console.aicontrolmesh.com/help/deployment">Deployment guide <span aria-hidden="true">→</span></a></li>
+          <li><h3>Connect your computers</h3><p>Install the client where developers run agents. Add fleet machines where you want to host models, shared tools, or remote agent work.</p><a href="https://console.aicontrolmesh.com/help/getting-started">Getting started <span aria-hidden="true">→</span></a></li>
+          <li><h3>Launch, inspect, and share</h3><p>Choose an agent and compatible provider. Start a session, review activity, and enable tracing or terminal sharing when you need them.</p><a href="https://console.aicontrolmesh.com/help/agents">Supported agents <span aria-hidden="true">→</span></a></li>
+        </ol>
       </section>
 
       <section class="closing">
@@ -175,7 +329,7 @@
         <span>AI Control Mesh</span>
       </a>
       <span>Open source AI operations for organizations.</span>
-      <div><a href="https://github.com/joeyenfield/ai-coding-agent-proxy">GitHub</a><a href="https://github.com/joeyenfield/ai-coding-agent-proxy/tree/main/docs">Documentation</a><a href="https://console.aicontrolmesh.com">Console</a></div>
+      <div><a href="https://github.com/joeyenfield/ai-coding-agent-proxy">GitHub</a><a href="https://console.aicontrolmesh.com/help">Documentation</a><a href="https://console.aicontrolmesh.com">Console</a></div>
       <small>© <span id="year">2026</span> AI Control Mesh</small>
     </footer>
   </body>
