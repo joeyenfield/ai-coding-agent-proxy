@@ -18,6 +18,7 @@ The screenshots come from the demo (`python scripts/screenshots/demo.py`), which
 - [Server: Organizations](#organizations)
 - [Server: Downloads](#downloads)
 - [Machines](#machines)
+- [Machines: Approve a device](#approve-a-device)
 - [A machine's page](#a-machines-page)
 - [Pairing a phone](#pairing-a-phone)
 - [Documentation](#documentation)
@@ -241,6 +242,16 @@ Each row marks **Agents**, **Terminals**, **Model servers**, **Server management
 - **Add a machine**: the commands to install and sign in agent-machine on Linux or macOS and on Windows (PowerShell). **Add another machine** shows them again when the fleet isn't empty.
 - **Or run a sandbox machine in a container**: the Docker or Podman command for the sandbox image, which runs agents in a container (see [Machines](machines.md#a-sandbox-machine-in-docker)).
 - **Removed**: machines taken off the server, which you (their owner or an admin) can allow back.
+
+## Approve a device
+
+`/approve-device` signs `agent login` or `agent-machine login` on another computer in as you, from the console you're already signed in to, without typing your password there.
+
+1. Run the login command on that computer. It prints a link and an eight-letter code.
+2. Enter the code here and press **Continue**. The page shows what asked (agent or agent-machine), when, which account it signs in as, and when the code expires. Nothing is decided yet.
+3. **Approve**, and the command finishes signing in by itself within a few seconds. **Deny** refuses it for good.
+
+Only approve a code from a sign-in you started yourself: approving lets that computer use your account. The code is always typed by hand (the page never takes one from a link), and a code is decided once. The link the command prints works too: it's the sign-in service's own page, which asks for your password. See [OIDC authentication](oidc.md#cli-sign-in).
 
 ## A machine's page
 

@@ -114,7 +114,7 @@ server/agent_server/        Python package (FastAPI)
   routes/mcp.py             GET /api/mcp (the servers you may use) and /session/<id>/mcp/<machine>/<name>: agents' MCP traffic, relayed to the machine's bridge and recorded
   routes/proxy.py           WS /api/proxy/tunnel: one account-agent connection from an agent-proxy, into InterceptProxy.serve_tunnel
   routes/containers.py      /api/containers: create on a machine, edit, delete, start/stop/restart (switch), logs; trusted devices, the machine's owner for changes
-  routes/auth.py            /api/auth/* (status, OIDC login/callback, refresh, logout; the old token and password routes answer 410), /api/orgs/* (organizations, their teams) and /api/users/*
+  routes/auth.py            /api/auth/* (status, OIDC login/callback, refresh, logout, device approval from the console; the old token and password routes answer 410), /api/orgs/* (organizations, their teams) and /api/users/*
 server/tests/               pytest; one file per area (test_proxy, test_units, test_intercept, test_providers, test_strata, test_model_runner, test_terminals, test_containers, test_auth,
                             test_fleet, test_mcp, test_chat, test_help, test_installer, test_restart, test_upstream_cookies, test_versions,
                             test_oidc_issuer, test_oidc_api, test_oidc_browser, test_quickstart)
@@ -164,7 +164,8 @@ ui/src/                     THE CONSOLE: React 19 + TypeScript + Vite + TanStack
   pages/                    One file per page; Docs.tsx (/help: docs/*.md rendered with marked, public), Machine.tsx (a machine and its model servers), Downloads.tsx (/get, public),
                             Terminals.tsx (list, sign-in), Terminal.tsx (xterm.js viewer, lazy-loaded), Pair.tsx (legacy-link redirect),
                             Login.tsx (shown instead of the console until signed in), Organization.tsx (organizations, user directory, your account),
-                            ServerStats.tsx (/server-stats, admins: the server computer's load and disks)
+                            ServerStats.tsx (/server-stats, admins: the server computer's load and disks),
+                            ApproveDevice.tsx (/approve-device: sign in another computer's agent login with a code, no password)
   components/               Shared pieces (Tabs, CodeLine, ConfirmDialog, ModelSearch/usePull, AddBackendForm, ProviderState, PartTag, LogPanel, ...)
   styles.css                The only stylesheet: CSS variables, light and dark themes, no CSS framework
 config/                     backends.yaml, models.yaml, agents.yaml

@@ -174,6 +174,7 @@ See [Accounts](accounts.md). Changes answer with the directory (`orgs` and `user
 | GET | `/api/auth/callback` | Public | Validates OIDC state, code exchange and nonce; sets access/refresh cookies. |
 | POST | `/api/auth/refresh` | Public, Same origin | Rotates browser refresh token and renews access cookie. |
 | POST | `/api/auth/logout` | Public, Same origin | Revokes browser credential family and clears cookies. |
+| POST | `/api/auth/device` | Signed in (console), Same origin | Approve an `agent login`/`agent-machine login` code as yourself, without a password: `{user_code, action}`. `check` answers what asked (`client`, `requested_at`, `expires_at`, `user`) and decides nothing; `approve` or `deny` answers `{approved}`. `404` wrong or expired code, `409` already decided, `403` not a console sign-in, `429` too many tries. |
 | POST | `/api/auth/login` | Public | 410; password sign-in moved to the issuer. |
 | POST | `/api/auth/token`, `/api/auth/password` | Signed in | 410; legacy password grants and account password changes removed. |
 | GET, POST, DELETE | `/api/auth/tokens`, `/api/auth/tokens/{token_id}` | Signed in | 410; launcher keys replaced by OAuth grants. |
@@ -238,7 +239,7 @@ OpenAPI can't describe these. All need **Trusted** (a sign-in; machines send the
 
 ## Check
 
-This page lists all 114 routes the app registers, from `app.routes` of a server built in a temporary folder: 109 HTTP routes, the 5 WebSockets above, plus the `/assets` static mount.
+This page lists all 115 routes the app registers, from `app.routes` of a server built in a temporary folder: 110 HTTP routes, the 5 WebSockets above, plus the `/assets` static mount.
 
 | Area | Routes |
 |---|---|
@@ -251,10 +252,10 @@ This page lists all 114 routes the app registers, from `app.routes` of a server 
 | Machines and providers | 18, plus 2 WebSockets |
 | Containers | 7 |
 | Terminals and pairing | 6, plus 2 WebSockets |
-| Accounts | 26 |
+| Accounts | 27 |
 | Downloads | 6 |
 | Console | 3 (with the documentation's files) |
 | OpenAPI | 4 |
 | Proxy tunnel | 1 WebSocket |
 
-That is 10 + 1 + 6 + 13 + 2 + 4 + 3 + 20 + 7 + 8 + 26 + 6 + 3 + 4 + 1 = 114. Each is in a table above.
+That is 10 + 1 + 6 + 13 + 2 + 4 + 3 + 20 + 7 + 8 + 27 + 6 + 3 + 4 + 1 = 115. Each is in a table above.

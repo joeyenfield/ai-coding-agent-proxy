@@ -225,6 +225,9 @@ function JoinSteps({ server }: { server: string }) {
             Or get its build, an installer or a package from <Link to="/get">Downloads</Link>, and sign it in yourself:
           </p>
           <CodeLine text={`agent-machine login ${server}`} onCopy={() => copy(`agent-machine login ${server}`, "Command copied")} />
+          <p className="subtle">
+            It shows a code: enter it on <Link to="/approve-device">Approve a device</Link> to sign it in as you, without your password.
+          </p>
         </li>
         {steps.map((step) => (
           <li key={step.command} className={step.text ? "" : "continued"}>

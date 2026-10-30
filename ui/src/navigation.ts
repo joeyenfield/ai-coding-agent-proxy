@@ -77,6 +77,8 @@ export const PARTS: Part[] = [
     home: "/machines",
     items: [
       { to: "/machines", label: "All machines", icon: "monitor" },
+      // Signing in agent login or agent-machine login elsewhere, from here.
+      { to: "/approve-device", label: "Approve a device", icon: "key" },
     ],
   },
 ];

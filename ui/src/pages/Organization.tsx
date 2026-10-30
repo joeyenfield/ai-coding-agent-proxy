@@ -1,5 +1,5 @@
 import { useMemo, useState, type FormEvent } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { API_ORIGIN, api, type Directory, type Identity, type Org, type Team, type User } from "../api";
 import { CodeLine } from "../components/CodeLine";
@@ -73,7 +73,10 @@ function YourAccount({ identity }: { identity: Identity }) {
         </p>
       </div>
       <h3>Start agents from your own computer</h3>
-      <p className="subtle">Run this command, then approve the device code at the authentication service. The launcher renews its short-lived access tokens automatically.</p>
+      <p className="subtle">
+        Run this command, then enter the code it shows on <Link to="/approve-device">Approve a device</Link> (or at the sign-in page it
+        links to). The launcher renews its short-lived access tokens automatically.
+      </p>
       <CodeLine text={`agent login ${server}`} onCopy={() => copy(`agent login ${server}`, "Command copied")} />
       <p className="subtle">For automation, an administrator provisions a service account at the issuer. API requests use a Bearer access token, never an ID token. Ask an administrator to reset your account password.</p>
     </section>

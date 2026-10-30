@@ -58,9 +58,9 @@ Settings changes reach the server within a minute, with the machine's next updat
 
 ### login and logout
 
-`agent-machine login` signs this machine in. The URL defaults to the server signed in to last, or `http://127.0.0.1:9999`. A URL without a scheme gets `http://`.
+`agent-machine login` signs this machine in. The URL defaults to the server signed in to last, or `http://127.0.0.1:9999`. A URL without a scheme gets `https://`.
 
-Open the printed OIDC verification URL in your browser, sign in and approve the displayed device code. The CLI never collects your password. Access tokens refresh automatically using rotating credentials. Authentication is mandatory; old password and access-key options are removed. See [OIDC authentication](oidc.md).
+Open the printed OIDC verification URL in your browser, sign in and approve the displayed device code. If you're already signed in to the console, you can instead enter the code on **Machines › Approve a device**, without typing your password again ([Console](console.md#approve-a-device)). The CLI never collects your password. Access tokens refresh automatically using rotating credentials. Authentication is mandatory; old password and access-key options are removed. See [OIDC authentication](oidc.md).
 
 The machine belongs to whoever signed it in: that user is its **owner**. A machine id already registered to another user is refused, so one user can't take over another's machine.
 

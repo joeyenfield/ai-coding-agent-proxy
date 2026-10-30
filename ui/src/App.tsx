@@ -18,6 +18,7 @@ import { SettingsPage } from "./pages/Settings";
 import { TerminalsPage } from "./pages/Terminals";
 import { PairPage } from "./pages/Pair";
 import { MachinesPage } from "./pages/Machines";
+import { ApproveDevicePage } from "./pages/ApproveDevice";
 import { MachinePage } from "./pages/Machine";
 import { DownloadsPage } from "./pages/Downloads";
 import { DocsPage } from "./pages/Docs";
@@ -217,6 +218,7 @@ function Shell({ identity }: { identity: Identity | null }) {
           <Route path="/agents" element={<AgentsPage />} />
           <Route path="/terminals" element={<TerminalsPage />} />
           <Route path="/machines" element={<MachinesPage />} />
+          <Route path="/approve-device" element={<ApproveDevicePage />} />
           <Route path="/machines/:id" element={<MachinePage />} />
           <Route path="/machines/:id/:section" element={<MachinePage />} />
           <Route

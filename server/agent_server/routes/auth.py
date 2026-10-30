@@ -134,6 +134,40 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             return back_to_console(request, "failed")
         return response
 
+    # What the issuer's refusals of a console device approval mean for the person in the console.
+    DEVICE_REFUSALS = {
+        "invalid_user_code": (404, "That code isn't right, or it has expired. Check it, or run the login command again for a new one."),
+        "code_already_used": (409, "That code has already been approved or denied."),
+        "invalid_token": (403, "Approving a device needs a console sign-in. Sign in to the console again."),
+        "rate_limit_exceeded": (429, "Too many tries. Wait a few minutes, then try again."),
+    }
+
+    @app.post("/api/auth/device")
+    async def approve_device(request: Request) -> dict[str, Any]:
+        """Approve or deny an `agent login`/`agent-machine login` code from the console, already signed in."""
+        data = await request.json()
+        if not isinstance(data, dict) or data.get("action") not in {"check", "approve", "deny"}:
+            raise HTTPException(status_code=400, detail="action is check, approve or deny")
+        code = str(data.get("user_code") or "").strip()
+        if not code or len(code) > 32:
+            raise HTTPException(status_code=400, detail="Enter the code the login command shows")
+        try:
+            response = await asyncio.to_thread(accounts.device_decision, request, code, data["action"])
+        except auth.AuthUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        try:
+            answer = response.json()
+        except ValueError:
+            answer = {}
+        if response.status_code == 200 and isinstance(answer, dict):
+            if "client_id" in answer:
+                # Which program asked, in words: the CLI client is agent and agent-machine.
+                answer["client"] = "agent or agent-machine" if answer["client_id"] == settings.oidc_cli_client else answer["client_id"]
+            return answer
+        status, detail = DEVICE_REFUSALS.get(answer.get("error") if isinstance(answer, dict) else None,
+                                             (503, "The authentication service couldn't decide that code. Try again."))
+        raise HTTPException(status_code=status, detail=detail)
+
     @app.post("/api/auth/refresh")
     async def refresh(request: Request) -> Response:
         refresh_token = request.cookies.get("mesh_refresh")

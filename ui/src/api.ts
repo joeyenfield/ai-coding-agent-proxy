@@ -1130,6 +1130,14 @@ export const api = {
   },
   login: () => window.location.assign(apiUrl(`/api/auth/login?return_to=${encodeURIComponent(window.location.origin)}`)),
   logout: () => request<{ identity: null }>("/api/auth/logout", { method: "POST", body: "{}" }),
+  /** What an `agent login`/`agent-machine login` code is (check), or decide it, as whoever is signed in. */
+  checkDevice: (userCode: string) =>
+    request<DeviceRequest>("/api/auth/device", { method: "POST", body: JSON.stringify({ user_code: userCode, action: "check" }) }),
+  decideDevice: (userCode: string, approve: boolean) =>
+    request<{ approved: boolean }>("/api/auth/device", {
+      method: "POST",
+      body: JSON.stringify({ user_code: userCode, action: approve ? "approve" : "deny" }),
+    }),
   orgs: () => request<{ orgs: Org[] }>("/api/orgs"),
   addOrg: (id: string, name: string) => request<Directory>("/api/orgs", { method: "POST", body: JSON.stringify({ id, name }) }),
   renameOrg: (id: string, name: string) => request<Directory>(`/api/orgs/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ name }) }),
@@ -1300,6 +1308,18 @@ export interface GpuSample {
 }
 
 /** CPU, memory and GPU use of a machine, sampled by its agent-machine. */
+/** POST /api/auth/device with action "check": a device code waiting for approval, decided by nobody yet. */
+export interface DeviceRequest {
+  client_id: string;
+  /** In words: "agent or agent-machine" for the command-line client. */
+  client: string;
+  /** Unix times. requested_at is null for codes from before it was recorded. */
+  requested_at: number | null;
+  expires_at: number;
+  /** Who would be signed in: the person asking. */
+  user: string;
+}
+
 /** GET /api/server/stats: the computer agent-server runs on, sampled when asked (stats.py). */
 export interface ServerStats {
   timestamp: number;

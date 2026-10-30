@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from agent_server.app import create_app
 from agent_server.auth import COOKIE, UserStore
 from agent_server.config import Settings
-from agent_server.issuer import create_auth_app
+from agent_server.issuer import create_auth_app, digest
 
 
 @pytest.fixture
@@ -98,3 +98,34 @@ def test_callback_rejects_unbound_state_and_refresh_rejects_cross_origin(browser
     assert refused.status_code == 303 and refused.headers["location"].endswith("/?sign_in=failed")
     assert api.get("/api/auth/status").json()["identity"] is None
     assert api.post("/api/auth/refresh", headers={"Origin": "https://evil.test"}).status_code == 403
+
+
+def test_a_signed_in_console_approves_a_device_code_without_a_password(browser):
+    api, issuer, settings = browser
+    assert api.get(authorize(api, issuer, settings)).status_code == 307
+    asked = issuer.post("/device_authorization", data={"client_id": settings.oidc_cli_client, "scope": "mesh-api offline_access"}).json()
+    poll = {"client_id": settings.oidc_cli_client, "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+            "device_code": asked["device_code"]}
+    device = lambda code, action: api.post("/api/auth/device", json={"user_code": code, "action": action})
+    assert device("BBBB-CCCC", "check").status_code == 404
+    # Check says what asked, and decides nothing.
+    checked = device(asked["user_code"].lower(), "check")
+    assert checked.status_code == 200, checked.text
+    assert checked.json()["client"] == "agent or agent-machine" and checked.json()["user"] == "alice"
+    assert issuer.post("/token", data=poll).json()["error"] == "authorization_pending"
+    assert device(asked["user_code"], "approve").json() == {"approved": True}
+    service = issuer.app.state.issuer
+    with service.state.transaction():  # the next poll comes as if after the interval
+        record = service.state.get("device", digest(asked["device_code"]))
+        service.state.put("device", digest(asked["device_code"]), {**record, "last_poll": 0})
+    tokens = issuer.post("/token", data=poll)
+    assert tokens.status_code == 200 and tokens.json()["refresh_token"], tokens.text
+    # A code is decided once, and a command-line token can't approve devices.
+    assert device(asked["user_code"], "deny").status_code == 409
+    another = issuer.post("/device_authorization", data={"client_id": settings.oidc_cli_client, "scope": "mesh-api offline_access"}).json()
+    cli = api.post("/api/auth/device", json={"user_code": another["user_code"], "action": "approve"},
+                   headers={"Authorization": "Bearer " + tokens.json()["access_token"]})
+    assert cli.status_code == 403
+    # Without any sign-in the API refuses before the issuer is asked.
+    api.cookies.clear()
+    assert device(another["user_code"], "approve").status_code == 401

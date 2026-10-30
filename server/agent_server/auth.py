@@ -422,17 +422,38 @@ class Auth:
             return Identity(user, via, "admin", ())
         return None
 
-    def identify(self, connection: HTTPConnection) -> Identity | None:
+    @staticmethod
+    def request_token(connection: HTTPConnection) -> tuple[str, str]:
+        """The access token a request carries and how: X-AI-Proxy-Token, then Bearer ("token"), then the cookie."""
         token = connection.headers.get(HEADER, "")
         authorization = connection.headers.get("authorization", "")
         if not token and authorization:
             scheme, _, value = authorization.partition(" ")
             if scheme.lower() == "bearer":
                 token = value
-        via = "token"
-        if not token:
-            token = connection.cookies.get(COOKIE, "")
-            via = "cookie"
+        if token:
+            return token, "token"
+        return connection.cookies.get(COOKIE, ""), "cookie"
+
+    def device_decision(self, connection: HTTPConnection, user_code: str, action: str) -> httpx.Response:
+        """Ask the issuer to check, approve or deny a device code for whoever is signed in here.
+
+        The person's own access token goes to the issuer, which accepts only console sign-ins;
+        the API authenticates as the introspection client, so nothing else can make this call.
+        """
+        token, _ = self.request_token(connection)
+        if not self.settings or not self.settings.oidc_introspection_secret:
+            raise AuthUnavailable("OIDC introspection credentials are not configured")
+        try:
+            return self.client.post(
+                self.settings.oidc_issuer + "/device/console", data={"token": token, "user_code": user_code, "action": action},
+                auth=(self.settings.oidc_introspection_client, self.settings.oidc_introspection_secret),
+            )
+        except httpx.HTTPError as exc:
+            raise AuthUnavailable("The authentication service is unavailable") from exc
+
+    def identify(self, connection: HTTPConnection) -> Identity | None:
+        token, via = self.request_token(connection)
         if not token or len(token) > 8192:
             return None
         if not self.settings or not self.settings.oidc_introspection_secret:

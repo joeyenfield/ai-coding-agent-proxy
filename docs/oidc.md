@@ -72,7 +72,7 @@ agent login https://api.aicontrolmesh.com
 agent-machine login https://api.aicontrolmesh.com
 ```
 
-The command prints the issuer's verification address and a short user code. Open it in your browser, sign in, check the code and approve **only a sign-in you started**. To reject a code, sign in on that page and choose **Deny device sign-in**. Denial is final for that code; the CLI receives `access_denied` and no tokens are issued. Start a new CLI sign-in if needed. The command polls the token endpoint until approved, denied or expired. No password is read by the CLI or sent to the API.
+The command prints the issuer's verification address and a short user code. Open it in your browser, sign in, check the code and approve **only a sign-in you started**. To reject a code, sign in on that page and choose **Deny device sign-in**. Denial is final for that code; the CLI receives `access_denied` and no tokens are issued. Start a new CLI sign-in if needed. Already signed in to the console? Enter the code on **Machines › Approve a device** instead: the console shows what asked and when, and you approve or deny without your password. The API passes your console access token to the issuer (`POST /device/console`, authenticated as `mesh-api`), which accepts only console sign-ins, so a CLI or service token can't approve devices. The command polls the token endpoint until approved, denied or expired. No password is read by the CLI or sent to the API.
 
 Each program keeps its own credentials file, including its access token, rotating refresh token and expiry. Refreshes are serialized across processes before atomically saving new credentials. `agent logout` and `agent-machine logout` revoke their credentials. Expired or revoked credentials fail closed.
 
@@ -110,6 +110,7 @@ On the **auth host**:
 | POST | `/token` | Code exchange, refresh, device grant or client credentials. No password or implicit grants. |
 | POST | `/device_authorization` | Begin a CLI device authorization. |
 | GET, POST | `/device` | Sign in and explicitly approve or deny a device code. |
+| POST | `/device/console` | The API only (`mesh-api` client authentication), with a signed-in person's console access token: `action=check` describes a device code (`client_id`, `requested_at`, `expires_at`, `user`); `approve` or `deny` decides it as that person. `invalid_user_code` (400), `code_already_used` (409), `invalid_token` for anything but a console token (401), 20 a person per 10 minutes. |
 | GET | `/userinfo` | OIDC identity associated with an access token. |
 | POST | `/introspect` | Active access-token metadata, requiring the API's confidential client. |
 | POST | `/revoke` | Revoke a client's token or refresh family. |

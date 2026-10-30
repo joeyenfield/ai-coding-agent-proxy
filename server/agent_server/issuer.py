@@ -741,7 +741,7 @@ def create_auth_app(settings: Settings | None = None) -> FastAPI:
             alphabet = "BCDFGHJKLMNPQRSTVWXZ"
             user_code = "".join(secrets.choice(alphabet) for _ in range(8))
             code_hash = digest(user_code)
-            service.state.put("device", digest(device_code), {"client_id": client.client_id, "scope": scope,
+            service.state.put("device", digest(device_code), {"client_id": client.client_id, "scope": scope, "requested_at": time.time(),
                               "exp": time.time() + DEVICE_TTL, "user_code_hash": code_hash, "interval": 5, "last_poll": 0, "used": False})
             service.state.put("user_code", code_hash, {"device": digest(device_code), "exp": time.time() + DEVICE_TTL})
             return {"device_code": device_code, "user_code": user_code[:4] + "-" + user_code[4:],
@@ -780,6 +780,44 @@ def create_auth_app(settings: Settings | None = None) -> FastAPI:
             service.state.put("approval", code_hash, {"user": name, "version": user.version,
                                                      "approved": approved, "exp": record["exp"]})
             return service.finish(pages.device_done(approved), key)
+
+    @app.post("/device/console")
+    async def device_from_console(request: Request):
+        """A device code approved by someone already signed in to the console, without their password.
+
+        Only the API calls this, authenticated as the introspection client, passing the person's
+        console access token: the API never sees a password, and a CLI or service token can't
+        approve devices. action "check" says what is asking; "approve" or "deny" decides, exactly
+        as the /device form would.
+        """
+        data = await parameters(request)
+        with service.state.transaction():
+            service.authenticate(request, data, introspect=True)
+            record = service.active(data.get("token", ""))
+            if not record or record["client_id"] != service.settings.oidc_console_client:
+                raise IssuerError("invalid_token", 401)
+            user = service.bound_user(record["user"], record["version"])
+            if not user:
+                raise IssuerError("invalid_token", 401)
+            action = data.get("action")
+            if action not in {"check", "approve", "deny"}:
+                raise IssuerError("invalid_request")
+            # Per person, not per address: every request comes from the API.
+            service.rate(("device_console", user.name), 20)
+            code_hash = digest(data.get("user_code", "").strip().upper().replace("-", "").replace(" ", ""))
+            code = service.state.get("user_code", code_hash)
+            credential = service.state.get("device", code["device"]) if code and code["exp"] > time.time() else None
+            if not credential:
+                raise IssuerError("invalid_user_code")
+            if credential["used"] or service.state.get("approval", code_hash):
+                raise IssuerError("code_already_used", 409)
+            if action == "check":
+                return {"client_id": credential["client_id"], "requested_at": credential.get("requested_at"),
+                        "expires_at": code["exp"], "user": user.name}
+            approved = action == "approve"
+            service.state.put("approval", code_hash, {"user": user.name, "version": user.version,
+                                                     "approved": approved, "exp": code["exp"]})
+            return {"approved": approved}
 
     @app.post("/token")
     async def token(request: Request):
