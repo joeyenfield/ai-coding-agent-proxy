@@ -51,6 +51,11 @@ Account agents don't use these. Their HTTPS goes to the `agent-proxy`'s HTTPS pr
 
 The catch-alls here are registered after every console route, so `/api/{path}` never shadows one.
 
+If a nonstreaming upstream reply is interrupted after its headers arrive, the proxy
+returns `502` and records the failure. The connection and in-flight entry are released,
+so the session can be cleared or deleted. Cancelling a buffered request also releases
+its in-flight entry and records `client_closed`.
+
 ## Health and the server
 
 | Method | Path | Who | What it does |
@@ -112,7 +117,7 @@ Every machine route needs **Trusted**. A machine you may not see answers `404`. 
 | Method | Path | Who | What it does |
 |---|---|---|---|
 | GET | `/api/machines` | Trusted | The machines you can see (connected first), the ones you removed, and the list of `features`. |
-| GET | `/api/machines/{machine_id}` | Trusted, `view` | One machine: what it runs and reports, its backends, launch history, and what `you` may do. |
+| GET | `/api/machines/{machine_id}` | Trusted, `view` | One machine: what it runs and reports, its backends, launch history filtered by session access (plus your own pending/failed launches), and what `you` may do. |
 | DELETE | `/api/machines/{machine_id}` | Owner or admin, Same origin | Removes it from the fleet, connected or not. It's refused when it connects again until restored. |
 | POST | `/api/machines/{machine_id}/restore` | Owner or admin, Same origin | Lets a removed machine join again. |
 | PUT | `/api/machines/{machine_id}/access` | Owner or admin, Same origin | Sets which organizations and teams may use each feature: `{"access": {feature: {"orgs": [...], "teams": [...]}}}`. Members grant only their own organizations and teams. |
@@ -120,7 +125,7 @@ Every machine route needs **Trusted**. A machine you may not see answers `404`. 
 | POST | `/api/machines/{machine_id}/shell` | `terminal`, Same origin | Opens a shell there in a private terminal: `project` (a folder in its roots; default the first root). Needs `agent-machine commands on`. |
 | POST | `/api/machines/{machine_id}/update` | `update`, Same origin | Has the machine update `agent-machine` (and with `"agent": true`, `agent`) to the server's build, then restart. Needs `agent-machine updates on`. |
 | GET | `/api/machines/{machine_id}/folders` | `launch` or `terminal` | Folder names inside one of its launch folders, `?path=`. Without a path, its roots. |
-| POST | `/api/machines/{machine_id}/providers/adopt` | Admin | Adds a model server the machine runs as a backend: `{"type": "ollama"}`. `409` if a backend already uses it. |
+| POST | `/api/machines/{machine_id}/providers/adopt` | Admin | Adds a model server the machine runs as a backend: `{"type": "ollama"}`. A matching legacy backend without a machine is linked in place, retaining its name and settings. `409` if a backend already assigned to a machine uses it. |
 | GET | `/api/machines/{machine_id}/providers/{provider_id}` | `view` | The model server as the machine sees it now (models, what's loaded, status), its backend, and the traffic agents sent it. |
 | POST | `/api/machines/{machine_id}/providers/{provider_id}/models/{action}` | `models`, Same origin | `pull`, `delete`, `load` or `unload` a model: `{"name": ...}`. Strata only loads and unloads. `pull` streams the machine's progress as NDJSON lines, ending with `{"status": "success"}` or `{"status": "error"}`. |
 | GET | `/api/machines/{machine_id}/providers/{provider_id}/log` | `view` | The end of its log on the machine: `?source=server` or `engine` (Strata), `?tail=` bytes. |

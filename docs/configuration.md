@@ -67,7 +67,7 @@ Each entry is a name (letters, numbers, `_` and `-`, starting with a letter or n
 | `machine` | The id of the fleet machine that runs it. Local types (`ollama`, `strata`, `docker`) come from machines; only hosted APIs have none. |
 | `container` | The container spec, when the machine runs this backend as a container (engine, image, port, gpus, env, volume). Written by the containers API; see [Machines](machines.md). |
 
-Local backends are never added by URL. You add them from their machine: **Add as a provider** on the machine's page (`POST /api/machines/{id}/providers/adopt`, admins), or a container (`POST /api/containers`). Backends from before this have no `machine`; they keep working, and the server links them to a machine once it reports a model server at the same address.
+Local backends are never added by URL. You add them from their machine: **Add as a provider** on the machine's page (`POST /api/machines/{id}/providers/adopt`, admins), or a container (`POST /api/containers`). Backends from before this have no `machine`; they keep working. With accounts, an admin links a matching backend with **Add as a provider**, preserving its name and settings. Without accounts, matching legacy backends are linked automatically.
 
 Older keys such as `metrics_url` are ignored.
 

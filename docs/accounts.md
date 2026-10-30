@@ -118,6 +118,10 @@ Rules worth knowing:
 
 ## Machine access
 
+Terminal viewers use their current sign-in and memberships. Removing a user's access,
+revoking their token, signing them out or resetting their browser sign-in stops further
+terminal input and output. An idle viewer is disconnected within about one second.
+
 A machine belongs to whoever signed it in with `agent-machine login`. Its owner (or an admin) can let organizations and teams use each of its features: `view`, `launch`, `terminal`, `models`, `servers`, `update` and `mcp`. Any grant includes `view`. Admins can always `view`, manage `models` and `update` a machine; starting agents, terminals and MCP servers there needs a grant even for them. Members can grant only organizations and teams they're in.
 
 Containers stay the owner's (and admins'). See [Machines](machines.md) for the details and the **Access** tab.

@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import signal
 import sys
 import threading
 from contextlib import contextmanager
@@ -25,6 +26,15 @@ from agent_py.machine import mcp, presence
 from agent_py.machine import settings as machine_settings
 
 Seen = List[Tuple[str, str, Dict[str, str], bytes]]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX signal inheritance")
+def test_plain_agents_keep_ctrl_c_and_restore_the_launchers_handler(tmp_path):
+    previous = signal.getsignal(signal.SIGINT)
+    # With inherited SIG_IGN the child survives this signal and exits with 99 instead.
+    child = "import os, signal; os.kill(os.getpid(), signal.SIGINT); os._exit(99)"
+    assert launcher.run_plain([sys.executable, "-c", child], str(tmp_path), dict(os.environ)) == 1
+    assert signal.getsignal(signal.SIGINT) == previous
 
 
 @contextmanager

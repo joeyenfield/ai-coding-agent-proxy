@@ -40,6 +40,14 @@ def machine(client: TestClient, message: dict | None = None):
         yield socket
 
 
+def session_for_launch(app, request: dict, session_id: str | None = None):
+    """The session the real launcher opens before reporting a successful launch."""
+    return app.state.runtime.sessions.create({
+        "session_id": session_id, "client": request.get("agent", "shell"), "backend": "test",
+        "tags": {"owner": "alice", "machine": "m1", "launch": request["launch"]},
+    })
+
+
 def test_project_folders_must_be_inside_a_root():
     assert within_roots("C:\\work\\api", ["C:\\work"]) and within_roots("c:\\WORK", ["C:\\work"])
     assert within_roots("/home/me/code/x", ["/home/me/code"])
@@ -97,6 +105,7 @@ def test_the_owner_starts_an_agent_on_a_machine_and_it_is_recorded(tmp_path):
         request = json.loads(socket.receive_text())
         assert request["type"] == "launch" and request["agent"] == "qwen" and request["project"] == ROOT + "\\api"
         assert (request["model"], request["visibility"], request["team"], request["access"]) == ("qwen3.6:35b", "team", "core", "view")
+        session_for_launch(app, request, "s-123")
         socket.send_text(json.dumps({"type": "launched", "launch": request["launch"], "session_id": "s-123"}))
         thread.join(timeout=10)
         response = answer["response"]
@@ -146,17 +155,41 @@ def test_an_admin_adds_a_machines_model_server_as_a_backend(tmp_path):
         assert dave.post("/api/machines/m1/providers/adopt", json={"type": "strata"}).status_code == 404
 
 
-def test_backends_from_before_machines_join_the_machine_that_runs_them(tmp_path):
+def test_legacy_backends_need_explicit_admin_adoption_with_accounts(tmp_path):
     settings = org_settings(tmp_path)
     settings.backends = {**settings.backends, "old": Backend("old", "http://localhost:11434/")}
     settings.backends_file.write_text(yaml.safe_dump({"default_backend": "test", "backends": {name: backend.public() for name, backend in settings.backends.items()}}))
     app = create_app(settings)
-    alice = signed_in(app, "alice")
+    alice, dave = signed_in(app, "alice"), signed_in(app, "dave")
     # The machine is this computer, so its Ollama is http://127.0.0.1:11434: the same server.
-    with alice, machine(alice, hello(address="127.0.0.1")):
+    with alice, dave, machine(alice, hello(address="127.0.0.1")) as socket:
+        assert settings.backends["old"].machine is None
+        assert dave.get("/api/machines/m1").json()["providers"][0]["backend"] is None
+        socket.send_json({"type": "update", "address": "192.0.2.25"})
+        assert alice.get("/api/machines/m1").status_code == 200
+        assert settings.backends["old"].url == "http://localhost:11434/" and settings.backends["old"].machine is None
+        socket.send_json({"type": "update", "address": "127.0.0.1"})
+        assert alice.get("/api/machines/m1").status_code == 200
+        assert alice.post("/api/machines/m1/providers/adopt", json={"type": "ollama"}).status_code == 403
+        adopted = dave.post("/api/machines/m1/providers/adopt", json={"type": "ollama"})
+        assert adopted.status_code == 201 and adopted.json()["backend"] == "old", adopted.text
         assert settings.backends["old"].machine == "m1" and settings.backends["test"].machine is None
         assert yaml.safe_load(settings.backends_file.read_text())["backends"]["old"]["machine"] == "m1"
         assert alice.get("/api/machines/m1").json()["backends"] == ["old"]
+
+
+def test_legacy_backends_still_join_automatically_without_accounts(tmp_path):
+    from agent_server.config import Settings
+
+    settings = Settings(log_dir=tmp_path / "logs", backends_file=tmp_path / "backends.yaml",
+                        default_backend="old", backends={"old": Backend("old", "http://localhost:11434/")})
+    app = create_app(settings)
+    with TestClient(app, base_url=BASE) as client:
+        headers = {**HOST, "x-ai-proxy-token": app.state.runtime.remote.token}
+        with client.websocket_connect("/api/machines/connect", headers=headers) as socket:
+            socket.send_json(hello(address="127.0.0.1"))
+            assert socket.receive_json()["type"] == "welcome"
+            assert settings.backends["old"].machine == "m1"
 
 
 def test_container_requests_go_to_the_machine_and_its_answer_comes_back(tmp_path):
@@ -341,6 +374,7 @@ def test_the_owner_opens_a_shell_only_on_a_machine_that_takes_commands(tmp_path)
         request = json.loads(socket.receive_text())
         # No folder named: the first launch folder.
         assert request == {"type": "shell", "launch": request["launch"], "project": ROOT}
+        session_for_launch(app, request, "s-shell")
         socket.send_text(json.dumps({"type": "launched", "launch": request["launch"], "session_id": "s-shell"}))
         thread.join(timeout=10)
         assert answer["response"].status_code == 201, answer["response"].text
@@ -412,14 +446,14 @@ def test_the_owner_lets_teams_use_each_feature_of_a_machine(tmp_path):
         # Bob's launch runs under the machine's sign-in (alice's), so the session it opens is hers; he gets it too.
         # (His request goes through alice's test client with his cookie: each client runs the app on its own
         # loop, and the machine's socket is on hers.)
-        session = app.state.runtime.sessions.create({"client": "qwen", "backend": "test", "tags": {"owner": "alice"}})
-        assert session.session_id not in ids(bob)
         as_bob = {"cookie": f"ai_proxy_session={bob.cookies.get('ai_proxy_session')}"}
         alice.cookies.clear()
         answer: dict = {}
         thread = threading.Thread(target=lambda: answer.update(response=alice.post("/api/machines/m1/launch", json={"agent": "qwen", "project": ROOT, "model": "m"}, headers=as_bob)))
         thread.start()
         request = json.loads(socket.receive_text())
+        session = session_for_launch(app, request)
+        assert session.session_id not in ids(bob)
         socket.send_text(json.dumps({"type": "launched", "launch": request["launch"], "session_id": session.session_id}))
         thread.join(timeout=10)
         assert answer["response"].status_code == 201, answer["response"].text
@@ -440,6 +474,72 @@ def test_an_admin_grants_any_team_but_starts_nothing_without_a_grant(tmp_path):
         assert saved.status_code == 200, saved.text
         assert frank.get("/api/machines/m1").json()["you"]["models"] is True
         assert frank.post("/api/machines/m1/servers/ollama/start").status_code == 403
+
+
+@pytest.mark.parametrize("wrong", ["owner", "machine", "launch", "client", "missing"])
+def test_a_launch_result_cannot_grant_an_unrelated_session(tmp_path, wrong):
+    app = create_app(org_settings(tmp_path))
+    alice, bob = signed_in(app, "alice"), signed_in(app, "bob")
+    with alice, bob, machine(alice) as socket:
+        alice.put("/api/machines/m1/access", json={"access": {"launch": {"teams": ["acme/core"]}}})
+        as_bob = {"cookie": f"ai_proxy_session={bob.cookies.get('ai_proxy_session')}"}
+        answer: dict = {}
+        thread = threading.Thread(target=lambda: answer.update(response=alice.post(
+            "/api/machines/m1/launch", headers=as_bob, json={"agent": "qwen", "model": "m", "project": ROOT},
+        )))
+        thread.start()
+        request = socket.receive_json()
+        session = session_for_launch(app, request)
+        if wrong == "client":
+            session.client = "shell"
+        elif wrong != "missing":
+            session.tags[wrong] = "carol" if wrong == "owner" else "unrelated"
+        socket.send_json({"type": "launched", "launch": request["launch"],
+                          "session_id": "missing" if wrong == "missing" else session.session_id})
+        thread.join(timeout=10)
+        assert not thread.is_alive()
+        assert answer["response"].status_code == 502, answer["response"].text
+        assert "launched_by" not in session.tags
+        assert bob.get(f"/api/sessions/{session.session_id}").status_code == 404
+        [record] = app.state.runtime.fleet.machines["m1"].history
+        assert record["session_id"] is None and record["error"]
+
+
+def test_launch_replies_only_resolve_requests_sent_to_that_machine(tmp_path):
+    app = create_app(org_settings(tmp_path))
+    alice = signed_in(app, "alice")
+    with alice, machine(alice) as socket, machine(alice, hello("m2")):
+        answer: dict = {}
+        thread = threading.Thread(target=lambda: answer.update(response=alice.post(
+            "/api/machines/m1/launch", json={"agent": "qwen", "model": "m", "project": ROOT},
+        )))
+        thread.start()
+        request = socket.receive_json()
+        fleet = app.state.runtime.fleet
+        # A different machine must not consume the pending request, even with its id.
+        fleet.message(fleet.machines["m2"], {"type": "launch_failed", "launch": request["launch"], "error": "forged"}, "")
+        assert request["launch"] in fleet._waiting and not fleet._waiting[request["launch"]].done()
+        session = session_for_launch(app, request)
+        socket.send_json({"type": "launched", "launch": request["launch"], "session_id": session.session_id})
+        thread.join(timeout=10)
+        assert not thread.is_alive() and answer["response"].status_code == 201
+
+
+def test_machine_history_respects_private_session_access(tmp_path):
+    app = create_app(org_settings(tmp_path))
+    alice, bob, admin = (signed_in(app, name) for name in ("alice", "bob", "dave"))
+    with alice, bob, admin, machine(alice):
+        alice.put("/api/machines/m1/access", json={"access": {"view": {"orgs": ["acme"]}}})
+        private = alice.post("/api/sessions", json={"client": "qwen", "backend": "test"}).json()["session_id"]
+        target = app.state.runtime.fleet.machines["m1"]
+        target.history = [{"session_id": private, "project": "private-project", "by": "alice"},
+                          {"session_id": None, "project": "failed-project", "by": "alice", "error": "failed"}]
+        assert len(alice.get("/api/machines/m1").json()["history"]) == 2
+        for viewer in (bob, admin):
+            assert viewer.get(f"/api/sessions/{private}").status_code == 404
+            assert viewer.get("/api/machines/m1").json()["history"] == []
+        alice.patch(f"/api/sessions/{private}", json={"visibility": "team", "team": "core"})
+        assert [record["session_id"] for record in bob.get("/api/machines/m1").json()["history"]] == [private]
 
 
 def test_a_removed_machine_is_disconnected_and_refused_until_allowed_back(tmp_path):

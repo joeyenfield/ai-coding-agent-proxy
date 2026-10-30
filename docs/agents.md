@@ -112,6 +112,9 @@ What a launch does:
 
 It prints the session id, agent, model, backend, the server's Live page, whether the terminal is shared, and the MCP servers the agent got.
 
+Ctrl+C goes to the agent while the launcher waits to record its exit status. This also
+applies to Python launches without terminal sharing on Linux and other POSIX systems.
+
 ### Options
 
 | Option | What it does |

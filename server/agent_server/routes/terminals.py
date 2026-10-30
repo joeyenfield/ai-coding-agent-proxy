@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -26,6 +26,8 @@ CLOSE_UNAUTHORIZED = 4401
 CLOSE_NOT_FOUND = 4404
 CLOSE_BEHIND = 4408
 REPLAY_CHUNK = 256 * 1024
+# Also revoke an idle viewer after a credential or membership changes outside this process.
+ACCESS_POLL_SECONDS = 1.0
 
 
 def register(app: FastAPI, runtime: Runtime) -> None:
@@ -172,8 +174,21 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         if terminal is None:
             await websocket.close(code=CLOSE_NOT_FOUND, reason="This session has no shared terminal")
             return
+        accounts_required = identity is not None
+
+        def permitted(control: bool = False) -> bool:
+            # Re-read the credential and memberships, not the middleware's connection-time snapshot.
+            if accounts_required or runtime.auth.enabled:
+                current = runtime.auth.identify(websocket)
+                trusted = current is not None
+            else:
+                current = None
+                trusted = access.trusted(websocket)
+            check = sharing.can_control if control else sharing.can_view
+            return trusted and runtime.sessions.get(session_id) is session and check(current, session)
+
         history, queue = hub.subscribe(terminal, identity)
-        sender = asyncio.create_task(_send_to_viewer(websocket, terminal, history, queue))
+        sender = asyncio.create_task(_send_to_viewer(websocket, terminal, history, queue, permitted))
         try:
             while True:
                 try:
@@ -181,8 +196,11 @@ def register(app: FastAPI, runtime: Runtime) -> None:
                 except ValueError:
                     continue
                 if isinstance(message, dict) and message.get("type") == "input":
+                    if not permitted():
+                        await websocket.close(code=4403, reason="Terminal access revoked")
+                        return
                     # Sharing can change while someone watches, so check on every keystroke.
-                    allowed = session is not None and sharing.can_control(identity, session)
+                    allowed = permitted(control=True)
                     error = await hub.send_input(terminal, message) if allowed else "This session is shared with you to watch, not to type into."
                     if error:
                         try:
@@ -222,15 +240,36 @@ def _control(hub: Any, terminal: Terminal, text: str) -> None:
         hub.exited(terminal, message.get("status"))
 
 
-async def _send_to_viewer(websocket: WebSocket, terminal: Terminal, history: bytes, queue: asyncio.Queue) -> None:
+async def _send_to_viewer(
+    websocket: WebSocket, terminal: Terminal, history: bytes, queue: asyncio.Queue, still_allowed: Callable[[], bool],
+) -> None:
     """The only task that writes to a viewer's socket, so messages never interleave."""
+    async def authorized() -> bool:
+        if still_allowed():
+            return True
+        await websocket.close(code=4403, reason="Terminal access revoked")
+        return False
+
     try:
+        if not await authorized():
+            return
         await websocket.send_text(json.dumps({"type": "state", "terminal": terminal.public()}))
         for start in range(0, len(history), REPLAY_CHUNK):
+            if not await authorized():
+                return
             await websocket.send_bytes(history[start:start + REPLAY_CHUNK])
+        if not await authorized():
+            return
         await websocket.send_text(json.dumps({"type": "replayed"}))
         while True:
-            item = await queue.get()
+            try:
+                item = await asyncio.wait_for(queue.get(), timeout=ACCESS_POLL_SECONDS)
+            except asyncio.TimeoutError:
+                if not await authorized():
+                    return
+                continue
+            if not await authorized():
+                return
             if item is None:
                 await websocket.close(code=CLOSE_BEHIND, reason="Fell behind; reconnect to catch up")
                 return

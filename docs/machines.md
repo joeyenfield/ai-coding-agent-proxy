@@ -238,6 +238,11 @@ sequenceDiagram
 
 A launch starts an agent on the machine, from **Start an agent** or the machine's **Agents** tab. It runs in a shared terminal, and the console takes you to it.
 
+The server accepts a successful launch only when the reported session belongs to the
+machine's owner and matches that machine, launch id and agent. An unrelated session is
+refused with `502`; it never grants the requester access to that session. Machine launch
+history only includes sessions you may view, plus your own pending or failed launches.
+
 The server checks that:
 
 - the person asking may launch there (see [Who may use a machine](#who-may-use-a-machine));

@@ -41,8 +41,9 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 from urllib.parse import urlsplit
 from typing import Any
 
-from . import strata, version
+from . import access, strata, version
 from .auth import Identity
+from .sessions import SessionStore
 
 
 # Launch records kept per machine, newest last.
@@ -218,8 +219,9 @@ def within_roots(project: str, roots: list[str]) -> bool:
 class Fleet:
     """The machines: those connected now, and the rest from machines.json."""
 
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, sessions: SessionStore | None = None):
         self.path = path
+        self.sessions = sessions
         self.machines: dict[str, Machine] = {}
         self.sockets: dict[str, Any] = {}
         self._waiting: dict[str, asyncio.Future[dict[str, Any]]] = {}
@@ -300,7 +302,10 @@ class Fleet:
             self._update(machine, data, client_host)
             self._save()
         elif kind in {"launched", "launch_failed"}:
-            future = self._waiting.pop(str(data.get("launch") or ""), None)
+            launch_id = str(data.get("launch") or "")
+            if self._asked.get(launch_id) != machine.id:
+                return
+            future = self._waiting.pop(launch_id, None)
             if future and not future.done():
                 future.set_result(data)
         elif kind in {"container_result", "server_result", "provider_result", "folders_result", "update_result"}:
@@ -512,7 +517,8 @@ class Fleet:
         by_target: dict[tuple[str, str], str] = {}
         for name, backend in backends.items():
             # A container can share a model server's address; the first backend is the server's own.
-            by_target.setdefault((backend.type, normal_url(backend.url)), name)
+            if backend.machine == machine.id:
+                by_target.setdefault((backend.type, normal_url(backend.url)), name)
         providers = []
         for provider in machine.providers:
             url = self.provider_url(machine, provider)
@@ -523,7 +529,7 @@ class Fleet:
             "providers": providers,
             # The backends it supplies: model servers added from it and containers it runs.
             "backends": sorted(name for name, backend in backends.items() if backend.machine == machine.id),
-            "history": machine.history[-10:],
+            "history": [record for record in machine.history if self._visible_launch(record, identity)][-10:],
             # What the console may offer this user here: each feature, and managing the machine itself.
             "you": {"owner": owns(identity, machine), "manage": can_manage(identity, machine), **{feature: allowed(identity, machine, feature) for feature in FEATURES}},
             # Who else may use what: only for those who set it.
@@ -538,6 +544,15 @@ class Fleet:
         if ":" in host and not host.startswith("["):
             host = f"[{host}]"
         return f"http://{host}:{int(provider['port'])}"
+
+    def _visible_launch(self, record: dict[str, Any], identity: Identity | None) -> bool:
+        if identity is None:
+            return True
+        session_id = record.get("session_id")
+        if session_id:
+            session = self.sessions.get(str(session_id)) if self.sessions else None
+            return session is not None and access.can_view(identity, session)
+        return record.get("by") == identity.user
 
     @staticmethod
     def loopback(machine: Machine) -> bool:
@@ -601,6 +616,7 @@ class Fleet:
         machine.history = [*machine.history, record][-LAUNCH_HISTORY:]
         future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
         self._waiting[launch_id] = future
+        self._asked[launch_id] = machine.id
         try:
             await socket.send_text(json.dumps(message))
             answer = await asyncio.wait_for(future, LAUNCH_TIMEOUT)
@@ -610,8 +626,20 @@ class Fleet:
             answer = {"type": "launch_failed", "error": f"lost the connection to {machine.name} ({exc})"}
         finally:
             self._waiting.pop(launch_id, None)
+            self._asked.pop(launch_id, None)
         if answer.get("type") == "launched" and answer.get("session_id"):
-            record["session_id"] = str(answer["session_id"])
+            session = self.sessions.get(str(answer["session_id"])) if self.sessions else None
+            if (
+                session is None or session.client != agent
+                or session.tags.get("owner") != machine.owner
+                or session.tags.get("machine") != machine.id
+                or session.tags.get("launch") != launch_id
+            ):
+                record["error"] = "The machine returned a session that doesn't belong to this launch"
+            else:
+                record["session_id"] = session.session_id
+                if identity is not None and session.tags.get("owner") != identity.user:
+                    self.sessions.update_tags(session, {"launched_by": identity.user})
         else:
             record["error"] = str(answer.get("error") or "the launch failed")
         self._save()

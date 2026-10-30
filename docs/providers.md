@@ -21,7 +21,7 @@ You can't add a local provider by URL. The **Server settings** page, and `PUT /a
 
 **Hosted APIs are the exception.** Add an `anthropic` backend (`https://api.anthropic.com`) on **Server settings**. It needs no machine.
 
-Backends set up by URL before machines did this keep working. When a machine reports a model server at the same address and of the same type, the server links the backend to that machine. When a machine's address changes, its backends move with it, on the same ports.
+Backends set up by URL before machines did this keep working. With accounts enabled, an admin links one to a machine with **Add as a provider** on that machine's model server tab. A matching address and type reuse the existing backend's name and settings. Without accounts, matching legacy backends are linked automatically. Once linked, a backend follows its machine's address changes, on the same port.
 
 ### The server never manages a model server
 

@@ -53,7 +53,7 @@ class Runtime:
         self.chats = Chats(self.sessions)
         self.terminals = TerminalHub(self.sessions)
         # Machines signed in to this server: their agents, model servers and launches.
-        self.fleet = Fleet(settings.log_dir / "machines.json")
+        self.fleet = Fleet(settings.log_dir / "machines.json", self.sessions)
         # Strata traffic is sent with the key its machine reported.
         strata.fleet = self.fleet
         # Agents' requests to machines the server can't reach go through the machines themselves.

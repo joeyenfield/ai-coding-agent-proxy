@@ -172,17 +172,22 @@ async def _native_chat(
         )
     except httpx.HTTPError as exc:
         return runtime.proxy_error(session, telemetry, original, exc, backend)
+    except asyncio.CancelledError:
+        _cancel_request(runtime, session, telemetry, original, ollama_payload)
+        raise
     telemetry.status = upstream.status_code
+    if upstream.status_code >= 400 or not original.get("stream", False):
+        response_body = await _read_upstream(runtime, session, telemetry, original, upstream, backend, ollama_payload)
+        if isinstance(response_body, JSONResponse):
+            return response_body
     if upstream.status_code >= 400:
-        body = _json(await upstream.aread())
-        await upstream.aclose()
+        body = _json(response_body)
         telemetry.response_bytes = len(json.dumps(body))
         telemetry.error_type = "upstream_error"
         record = runtime.complete(session, telemetry, original, body, ollama_payload)
         return JSONResponse(error(body, upstream.status_code), status_code=upstream.status_code, headers=telemetry_headers(record))
     if not original.get("stream", False):
-        data = _json(await upstream.aread())
-        await upstream.aclose()
+        data = _json(response_body)
         telemetry.apply_ollama_stats(data)
         if (data.get("message") or {}).get("content") or (data.get("message") or {}).get("tool_calls"):
             telemetry.saw_content()
@@ -324,6 +329,9 @@ async def _forward(
         )
     except httpx.HTTPError as exc:
         return runtime.proxy_error(session, telemetry, original_payload, exc, backend)
+    except asyncio.CancelledError:
+        _cancel_request(runtime, session, telemetry, original_payload, payload if payload != original_payload else None)
+        raise
     upstream_request = payload if payload != original_payload else None
     telemetry.status = upstream.status_code
     content_type = upstream.headers.get("content-type", "application/json")
@@ -336,8 +344,9 @@ async def _forward(
         # Native Ollama streams by default when "stream" is omitted.
         is_stream = is_stream or ("stream" not in payload and "ndjson" in content_type)
     if not is_stream:
-        response_body = await upstream.aread()
-        await upstream.aclose()
+        response_body = await _read_upstream(runtime, session, telemetry, original_payload, upstream, backend, upstream_request)
+        if isinstance(response_body, JSONResponse):
+            return response_body
         telemetry.response_bytes = len(response_body)
         obj = _json(response_body)
         telemetry.apply_ollama_stats(obj)
@@ -355,6 +364,28 @@ async def _forward(
         media_type=content_type,
         headers={**response_headers, "X-Request-ID": request_id, "X-Session-ID": session.session_id},
     )
+
+
+async def _read_upstream(
+    runtime: Runtime, session: Session, telemetry: RequestTelemetry, payload: Any,
+    upstream: httpx.Response, backend: Any, upstream_request: Any = None,
+) -> bytes | JSONResponse:
+    """Buffer a reply, releasing its connection and completing failures even after headers arrived."""
+    try:
+        try:
+            return await upstream.aread()
+        finally:
+            await upstream.aclose()
+    except httpx.HTTPError as exc:
+        return runtime.proxy_error(session, telemetry, payload, exc, backend)
+    except asyncio.CancelledError:
+        _cancel_request(runtime, session, telemetry, payload, upstream_request)
+        raise
+
+
+def _cancel_request(runtime: Runtime, session: Session, telemetry: RequestTelemetry, payload: Any, upstream_request: Any = None) -> None:
+    telemetry.error_type = "client_closed"
+    runtime.complete(session, telemetry, payload, {"error": "Client closed the request"}, upstream_request)
 
 
 async def _stream_upstream(

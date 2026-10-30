@@ -96,6 +96,18 @@ sequenceDiagram
 
 ## State
 
+- `Fleet` receives the session store from `Runtime`. Launch replies must come from the
+  requested machine; before granting `launched_by`, it checks the returned session's
+  owner, machine, launch id and client. Machine history is filtered by session access.
+- With accounts, legacy backends are linked only by explicit admin adoption. Automatic
+  `unclaimed` migration is limited to local mode; already-linked backends still move.
+- Buffered compat replies use `_read_upstream` to close the response and complete
+  telemetry on read failure or cancellation. `_cancel_request` also handles a
+  cancellation while awaiting upstream headers.
+- Terminal viewers re-identify their original credential for input and each output
+  frame, and poll permissions every second while idle. A missing identity on an
+  originally authenticated connection never becomes local-mode access.
+
 | In memory | On disk |
 | --- | --- |
 | `Runtime.active`/`recent`, `LiveHub`, fleet sockets and pending asks, `Machine.keys`/`mcp_key`, tunnel listeners, terminal viewers, pairing code, sign-in failure counters | `logs/sessions/<id>/` (`session.json`, `requests.jsonl`, `traces/NNNNNN.json`, `terminal.log`, `terminal.json`), `logs/chat-index.json`, `logs/machines.json`, `logs/proxy/proxy.log` |

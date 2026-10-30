@@ -82,6 +82,15 @@ flowchart TD
 
 ## The client and machine side
 
+Connected terminal viewers revalidate their credential and current memberships before
+input and output; idle connections are checked every second. This also picks up CLI
+edits to users.json. Revoked credentials are denied, never passed as the local-mode
+`None` identity. Machine launch history respects session visibility. `Fleet` binds
+each launch reply to its requested machine, then verifies the returned session's
+owner, machine, launch id and client before granting `launched_by`. Legacy backend
+adoption requires an explicit admin action in accounts mode; a reported address alone
+does not establish ownership.
+
 - `agent login` and `agent-machine login` (separate files, separate tokens, same code shape): `GET /api/auth/status`; with accounts, `POST /api/auth/token` with the username and password (read from the terminal, or `AI_PROXY_PASSWORD_INPUT` for tests), then save `{url, user, token, token_id}`. Without accounts, `--key` stores the access key instead. `logout` revokes the token on a best-effort basis.
 - The agent-proxy reads `credentials.json` on every request, so login and logout apply at once. It adds `X-AI-Proxy-Token` only to `LauncherAPI` paths and its own WebSocket dials (the HTTPS tunnel, the terminal host), never to agent traffic, and never forwards cookies or `Origin`. It binds loopback only and checks a loopback `Host` and same origin on every route, because it signs as the user.
 - agent-machine sends its token, version and protocol on everything (`settings.ServerClient`, `Identify`), including `WS /api/machines/connect` and each tunnel dial.

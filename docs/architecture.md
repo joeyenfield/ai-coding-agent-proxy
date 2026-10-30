@@ -112,7 +112,7 @@ Which backends an agent can use is `config.serves()`. Agents with `backend_type:
 
 ### Where local backends come from
 
-A local backend (`ollama`, `strata`, `docker`) always belongs to a machine: `Backend.machine` names it. It's added in one of two ways: an admin adopts a model server the machine reported (**Add as a provider**), or the machine runs a container for the server. The server refuses new or moved local backends by URL (`Settings.update_network_config`). This keeps a single path from an agent to a model server, through the machine that runs it, and means the server learns what's there from the machine rather than by probing addresses. Backends from before this rule have no `machine`; they keep working, and `Fleet.unclaimed` links them once a machine reports the same model server.
+A local backend (`ollama`, `strata`, `docker`) always belongs to a machine: `Backend.machine` names it. It's added in one of two ways: an admin adopts a model server the machine reported (**Add as a provider**), or the machine runs a container for the server. The server refuses new or moved local backends by URL (`Settings.update_network_config`). This keeps a single path from an agent to a model server, through the machine that runs it, and means the server learns what's there from the machine rather than by probing addresses. Backends from before this rule have no `machine`; they keep working. With accounts, an admin explicitly adopts a matching provider to link the existing backend without changing its name or settings. Without accounts, `Fleet.unclaimed` links matches automatically.
 
 ## A session, step by step
 

@@ -30,7 +30,7 @@ from .sessions import Session
 VISIBILITY = ("private", "team", "org")
 ACCESS = ("view", "control")
 SHARING_TAGS = ("owner", "visibility", "team", "org", "access")
-# Set by the server (routes/machines.py) on a launch or terminal someone a machine lets in started there:
+# Set by the server (fleet.py) on a launch or terminal someone a machine lets in started there:
 # the session is the machine's, its owner's, so this is how they get what they started. Clients can't set it,
 # nor mcp: the shared MCP servers the launch was given (mcp.py), which is all the session may reach.
 SERVER_TAGS = (*SHARING_TAGS, "launched_by", "mcp")

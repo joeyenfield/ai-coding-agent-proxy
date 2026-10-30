@@ -41,4 +41,8 @@ Only how, never what:
 
 ## Tests
 
+Plain launches catch SIGINT in the parent while the agent runs, then restore the old
+handler. Do not set SIG_IGN: POSIX children inherit it and lose default Ctrl+C handling.
+`test_units.py` verifies the child still exits on SIGINT.
+
 `cd python && python -m pytest -q`. `tests/conftest.py` puts `server/tests` on the path and makes real console scripts for the `agent_binary`/`machine_binary` fixtures. `test_contract.py` imports the shared tests from `server/tests/test_client.py` and adds Python-specific variants (the Ollama probe redirected through a generated `sitecustomize.py`). `test_update.py` covers the wheel update; its programs run on a throwaway virtualenv's Python (`AI_PROXY_AGENT` too), never the one running the tests. `test_units.py`, `test_catalog.py`, `test_providers.py`, `test_containers.py` and `test_servers.py` mirror the Go unit tests. `conftest.py` defaults `AI_PROXY_STRATA_COMMAND` and `AI_PROXY_SYSTEMCTL_COMMAND` to `[]`, so a real Strata or `ollama.service` on the computer is never used.

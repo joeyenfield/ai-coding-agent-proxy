@@ -59,7 +59,8 @@ def register(app: FastAPI, runtime: Runtime) -> None:
     async def claim(machine: Any) -> None:
         """The machine's backends follow its address; older backends at one of its model servers become its."""
         moved = fleet.moved(machine, runtime.settings.backends)
-        names = fleet.unclaimed(machine, runtime.settings.backends)
+        # A self-reported address isn't proof that a signed-in machine owns a legacy backend.
+        names = [] if runtime.auth.enabled else fleet.unclaimed(machine, runtime.settings.backends)
         if not moved and not names:
             return
         async with runtime.config_lock:
@@ -152,7 +153,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             raise HTTPException(status_code=400, detail=f"{agent.name} can't take MCP servers")
         data = {**data, "mcp": [item["id"] for item in chosen]}
         try:
-            return started(await fleet.launch(target, auth.request_identity(request), data), request)
+            return await fleet.launch(target, auth.request_identity(request), data)
         except FleetError as exc:
             raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
 
@@ -167,18 +168,9 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         if not isinstance(data, dict):
             raise HTTPException(status_code=400, detail="Send a JSON object")
         try:
-            return started(await fleet.shell(target, auth.request_identity(request), data), request)
+            return await fleet.shell(target, auth.request_identity(request), data)
         except FleetError as exc:
             raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
-
-    def started(record: dict[str, Any], request: Request) -> dict[str, Any]:
-        """A launch or shell runs under the machine's own sign-in, its owner's: when someone it lets in started
-        it, their name goes on the session too, so they can watch and use what they started (access.py)."""
-        identity = auth.request_identity(request)
-        session = runtime.sessions.get(str(record.get("session_id") or ""))
-        if identity is not None and session is not None and session.tags.get("owner") != identity.user:
-            runtime.sessions.update_tags(session, {"launched_by": identity.user})
-        return record
 
     @app.put("/api/machines/{machine_id}/access")
     async def set_access(machine_id: str, request: Request) -> dict[str, Any]:
@@ -240,8 +232,14 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         if kind not in PROVIDER_TYPES or provider is None:
             raise HTTPException(status_code=404, detail=f"{target.name} doesn't run that model server")
         url = fleet.provider_url(target, provider)
-        if any(backend.type == kind and normal_url(backend.url) == normal_url(url) for backend in runtime.settings.backends.values()):
-            raise HTTPException(status_code=409, detail="A backend already uses it")
+        async with runtime.config_lock:
+            existing = next((backend for backend in runtime.settings.backends.values() if backend.type == kind and normal_url(backend.url) == normal_url(url)), None)
+            if existing is not None:
+                if existing.machine:
+                    raise HTTPException(status_code=409, detail="A backend already uses it")
+                # Explicit, admin-authorized adoption keeps the legacy backend's name and settings.
+                runtime.settings.save_backend(existing.name, {**existing.public(), "machine": target.id})
+                return {"backend": existing.name, "url": existing.url}
         base = NAME.sub("-", target.name.lower()).strip("-") or "machine"
         name = f"{base}-{kind}" if kind != "ollama" else base
         taken = set(runtime.settings.backends)

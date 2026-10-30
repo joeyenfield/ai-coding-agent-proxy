@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -28,6 +29,78 @@ def close_app(app, client, old_client):
     asyncio.run(app.state.runtime.client.aclose())
     app.state.runtime.client = old_client
     client.__exit__(None, None, None)
+
+
+@pytest.mark.parametrize("path, status, streaming", [
+    ("v1/chat/completions", 200, False), ("anthropic/v1/messages", 200, False),
+    ("api/chat", 200, False), ("v1/chat/completions", 503, True), ("api/chat", 503, True),
+])
+def test_a_broken_nonstreaming_body_releases_the_request(tmp_path, path, status, streaming):
+    class BrokenBody(httpx.AsyncByteStream):
+        closed = False
+
+        async def __aiter__(self):
+            yield b'{"message":'
+            raise httpx.RemoteProtocolError("upstream closed before the reply finished")
+
+        async def aclose(self):
+            self.closed = True
+
+    body = BrokenBody()
+    app, client, old = make_app(tmp_path, lambda request: httpx.Response(status, headers={"content-type": "application/json"}, stream=body))
+    try:
+        session = client.post("/api/sessions", json={"client": "review", "backend": "test", "trace": True}).json()["session_id"]
+        response = client.post(f"/session/{session}/{path}", json={"model": "m", "messages": [], "max_tokens": 20, "stream": streaming})
+        assert response.status_code == 502, response.text
+        assert body.closed and app.state.runtime.active == {}
+        [record] = client.get("/api/requests").json()
+        assert record["status"] == 502 and record["error_type"] == "RemoteProtocolError"
+        assert client.get(f"/api/sessions/{session}/traces/000001").status_code == 200
+        assert client.delete(f"/api/sessions/{session}").status_code == 200
+    finally:
+        close_app(app, client, old)
+
+
+@pytest.mark.parametrize("path", ["v1/chat/completions", "api/chat"])
+@pytest.mark.parametrize("phase", ["send", "body"])
+async def test_cancelling_a_buffered_request_completes_telemetry(tmp_path, path, phase):
+    started = asyncio.Event()
+    blocked = asyncio.Event()
+
+    class WaitingBody(httpx.AsyncByteStream):
+        closed = False
+
+        async def __aiter__(self):
+            started.set()
+            await blocked.wait()
+            yield b"{}"
+
+        async def aclose(self):
+            self.closed = True
+
+    body = WaitingBody()
+
+    async def upstream(request):
+        if phase == "send":
+            started.set()
+            await blocked.wait()
+        return httpx.Response(200, headers={"content-type": "application/json"}, stream=body)
+
+    app = create_app(Settings(log_dir=tmp_path, default_backend="test", backends={"test": Backend("test", "http://ollama.test")}))
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as backend:
+        app.state.runtime.client = backend
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://testserver") as client:
+            session = (await client.post("/api/sessions", json={"client": "review", "backend": "test"})).json()["session_id"]
+            task = asyncio.create_task(client.post(f"/session/{session}/{path}", json={"model": "m", "messages": [], "stream": False}))
+            await asyncio.wait_for(started.wait(), timeout=5)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            assert app.state.runtime.active == {}
+            assert phase == "send" or body.closed
+            [record] = (await client.get("/api/requests")).json()
+            assert record["error_type"] == "client_closed"
+            assert (await client.delete(f"/api/sessions/{session}")).status_code == 200
 
 
 def test_openai_passthrough_stream_records_telemetry_and_trace(tmp_path):

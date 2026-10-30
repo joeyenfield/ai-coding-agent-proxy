@@ -427,7 +427,8 @@ def duration(seconds: float) -> str:
 
 def run_plain(command: List[str], cwd: str, env: Dict[str, str]) -> int:
     # Ctrl+C belongs to the agent; the launcher stays to close the session afterwards.
-    previous = signal.signal(signal.SIGINT, signal.SIG_IGN)
+    # A caught handler is reset on exec; SIG_IGN would also disable Ctrl+C in the child.
+    previous = signal.signal(signal.SIGINT, lambda _signum, _frame: None)
     try:
         code = subprocess.call(command, cwd=cwd, env=env)
         # Ended by a signal (POSIX gives -signal): 1, as the Go launcher says.

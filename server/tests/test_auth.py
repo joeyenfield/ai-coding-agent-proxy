@@ -433,6 +433,63 @@ def test_shared_terminals_follow_the_session_sharing(tmp_path):
                 assert closed.value.code == 4404
 
 
+@pytest.mark.parametrize("change, activity", [
+    ("team", "input"), ("team", "output"), ("team", "idle"), ("org", "idle"),
+    ("user", "idle"), ("password", "idle"), ("logout", "idle"), ("token", "idle"), ("external", "idle"),
+])
+def test_connected_terminal_viewers_lose_revoked_access(tmp_path, monkeypatch, change, activity):
+    from agent_server.routes import terminals
+
+    monkeypatch.setattr(terminals, "ACCESS_POLL_SECONDS", 0.02)
+    settings = org_settings(tmp_path)
+    app = create_app(settings)
+    with TestClient(app, base_url=BASE) as client:
+        alice, bob, admin = (signed_in(app, name) for name in ("alice", "bob", "dave"))
+        sid = client.post("/api/sessions", headers=ws_headers(alice), json={
+            "client": "review", "backend": "test", "visibility": "team", "team": "core", "access": "control",
+        }).json()["session_id"]
+        headers = ws_headers(bob)
+        if change == "token":
+            issued = client.post("/api/auth/token", json={"username": "bob", "password": PASSWORD}).json()
+            headers = {**HOST, "x-ai-proxy-token": issued["token"]}
+        with client.websocket_connect(f"/api/terminals/{sid}/host", headers=ws_headers(alice)) as host:
+            host.send_json({"type": "hello", "cols": 80, "rows": 24})
+            assert host.receive_json()["type"] == "resume"
+            with client.websocket_connect(f"/api/terminals/{sid}/view", headers=headers) as viewer:
+                assert viewer.receive_json()["type"] == "state"
+                assert viewer.receive_json()["type"] == "replayed"
+                sent = []
+
+                async def input_spy(*args):
+                    sent.append(args)
+
+                monkeypatch.setattr(app.state.runtime.terminals, "send_input", input_spy)
+                if change in {"team", "org"}:
+                    path = "/api/orgs/acme/teams/core/members/bob" if change == "team" else "/api/orgs/acme/members/bob"
+                    response = client.delete(path, headers=ws_headers(admin))
+                elif change == "user":
+                    response = client.delete("/api/users/bob", headers=ws_headers(admin))
+                elif change == "password":
+                    response = client.put("/api/users/bob", headers=ws_headers(admin), json={"password": "changed password"})
+                elif change == "logout":
+                    response = client.post("/api/auth/logout", headers=headers)
+                elif change == "token":
+                    response = client.delete(f"/api/auth/tokens/{issued['id']}", headers=ws_headers(bob))
+                else:
+                    # A CLI edit uses a different UserStore instance; live checks must reload it too.
+                    UserStore(settings.users_path).set_membership("acme", "bob", False, team="core")
+                    response = None
+                assert response is None or response.status_code == 200
+                assert client.get(f"/api/sessions/{sid}", headers=headers).status_code in {401, 404}
+                if activity == "input":
+                    viewer.send_json({"type": "input", "text": "must not reach the host"})
+                elif activity == "output":
+                    host.send_bytes(b"private output after revocation")
+                message = viewer.receive()
+                assert message["type"] == "websocket.close" and message["code"] == 4403
+                assert sent == []
+
+
 def test_account_commands_create_the_first_admin(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("AI_PROXY_REMOTE_KEY_FILE", str(tmp_path / "remote-access-key"))
     monkeypatch.setenv("AI_PROXY_NEW_PASSWORD", PASSWORD)
