@@ -32,13 +32,14 @@ from typing import Any
 
 import httpx
 import uvicorn
-import yaml
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from agent_server.sessions import SessionStore
 from agent_server.auth import UserStore
+from agent_server import config_io, defaults
 from agent_server.config import Settings
+from agent_server.db import Database
 from agent_server.issuer import Issuer
 from agent_server.version import PROTOCOL, build_version
 from agent_server.telemetry import RequestTelemetry
@@ -349,8 +350,8 @@ def iso(when: datetime) -> str:
 
 
 class Seeder:
-    def __init__(self, log_dir: Path):
-        self.store = SessionStore(log_dir)
+    def __init__(self, db: Database):
+        self.store = SessionStore(db)
         self.clock = datetime.now(timezone.utc) - timedelta(minutes=50)
 
     def session(self, client: str, project: str, minutes_ago: float, ended: bool = True):
@@ -429,8 +430,8 @@ def anthropic_events(model: str) -> list[dict]:
     return events
 
 
-def seed_accounts(log_dir: Path) -> None:
-    seed = Seeder(log_dir)
+def seed_accounts(db: Database) -> None:
+    seed = Seeder(db)
     org = "3f6c2a1e-9b7d-4c55-8e21-0a4d5f6b7c8d"
     claude_headers = [["accept", "application/json"], ["authorization", "Bearer [redacted]"], ["content-type", "application/json"],
                       ["user-agent", "claude-cli/2.1.289 (external, sdk-cli)"], ["anthropic-beta", "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14"],
@@ -1032,7 +1033,9 @@ def main() -> None:
                         oidc_issuer=AUTH, oidc_audience=PROXY, oidc_state_dir=work / "oidc",
                         oidc_redirect_uris=[PROXY + "/api/auth/callback"], oidc_browser_origins=[PROXY],
                         oidc_introspection_secret=secrets.token_urlsafe(48))
-    users = UserStore(settings.users_path)
+    # The demo's own database (a SQLite file in its logs/), which the server below opens too.
+    db = settings.open_database()
+    users = UserStore(db)
     users.add_user("demo-admin", secrets.token_urlsafe(32), role="admin")
     users.add_user(DEMO_USER, DEMO_PASSWORD, role="member")
     issuer = Issuer(settings)
@@ -1042,7 +1045,7 @@ def main() -> None:
     finally:
         issuer.auth.client.close()
         issuer.state.db.close()
-    seed_accounts(logs)
+    seed_accounts(db)
     backends = {
         # A made-up public name, so Running agents shows how a phone pairs from anywhere.
         "proxy": {"listen_host": "127.0.0.1", "listen_port": PROXY_PORT, "url": PROXY, "public_url": "https://agents.example.net"},
@@ -1059,7 +1062,9 @@ def main() -> None:
         },
         "intercept": {"enabled": True, "listen_host": "127.0.0.1", "listen_port": INTERCEPT_PORT},
     }
-    (work / "backends.yaml").write_text(yaml.safe_dump(backends, sort_keys=False))
+    # The shipped Ollama tuning, as a new server has it.
+    config_io.apply(settings, {**backends, "models": defaults.models()})
+    db.close()
     serve(ollama_app([("qwen3.6:35b", 21.1, "qwen35moe", "35.5B"), ("qwen3.6:9b", 6.1, "qwen35", "9.0B")],
                      {"qwen3.6:35b": 1.0}, delay=0.07), LAPTOP)
     serve(ollama_app([("qwen3.8:latest", 19.4, "qwen38", "32.8B"), ("qwen3.6:27b-coding", 17.2, "qwen35", "27.4B"),
@@ -1068,7 +1073,7 @@ def main() -> None:
     serve(anthropic_app(), ANTHROPIC)
     serve(model_runner_app(), DOCKER)
     env = {**{key: value for key, value in os.environ.items() if not key.startswith("AI_PROXY_")},
-           "AI_PROXY_BACKENDS": str(work / "backends.yaml"), "AI_PROXY_LOG_DIR": str(logs),
+           "AI_PROXY_LOG_DIR": str(logs),
            "AI_PROXY_CA_DIR": str(work / "certs"), "AI_PROXY_REMOTE_KEY_FILE": str(work / "remote-access-key"),
            "AI_PROXY_OIDC_ISSUER": AUTH, "AI_PROXY_OIDC_AUDIENCE": PROXY,
            "AI_PROXY_OIDC_REDIRECT_URIS": PROXY + "/api/auth/callback", "AI_PROXY_OIDC_BROWSER_ORIGINS": PROXY,

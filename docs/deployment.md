@@ -38,7 +38,7 @@ Compose controls the Ollama process itself.
 
 Use `podman compose -f quickstart/compose.yaml logs -f machine-1 machine-2` to inspect the
 machines and `podman compose -f quickstart/compose.yaml stop` to stop the demo. Volumes
-preserve configuration, auth state, recordings, workspaces and models. To delete all of
+preserve the database (configuration, accounts, auth state, recordings), workspaces and models. To delete all of
 that demo state, run `podman compose -f quickstart/compose.yaml down -v`. Reset or sign the
 machines in again after changing the admin password, which invalidates their tokens.
 
@@ -76,16 +76,68 @@ The image builds the console with Node, then installs the server on `python:3.13
 
 The `marketing-site` service serves `site/` on `127.0.0.1:8080` for the reverse proxy. The public website uses the apex and `www` hostnames, the application console uses `console.<domain>`, and agent and machine clients can use `api.<domain>`.
 
+Everything the server keeps is in PostgreSQL ([below](#postgresql)), so its own volumes hold little:
+
 | Volume | What it holds |
 |---|---|
-| `/app/config` | `backends.yaml`, `models.yaml`, `agents.yaml`. On the first start the entrypoint copies in the image's defaults, never overwriting what's there. |
-| `/app/logs` | Sessions, traces, terminal history, the proxy log, `machines.json`. |
-| `/app/certs` | The capture CA, `users.json`, `container-keys.json`, `oidc-browser-key` and `first-user-password`. |
+| `postgres-data` | The `postgres` service's database: settings, agents, accounts, the fleet, every session's records, payloads and terminals, and agent-auth's state. |
+| `/app/logs` | The server's own log (`proxy/proxy.log`) and the capture CA's certificate files for agents. |
+| `/app/certs` | `first-user-password`, once. |
+| `/app/config`, `/app/auth-state` | Only for an install from before the database: read once, on the first start, to import its files. A new install doesn't need them. |
 | `/app/dist` | The builds to hand out (mount `dist/` read-only; `compose.yaml` does). |
 
-The default `backends.yaml` in the image (`server/docker/backends.yaml`) has an Ollama backend at `http://host.docker.internal:11434` and the hosted Anthropic API. Inside the container `127.0.0.1` is the container itself, so `compose.yaml` maps `host.docker.internal` to the Docker host on Linux too. Local providers normally come from machines in the fleet, so in practice you run `agent-machine` where the models are and add them from the console ([Machines](machines.md)).
+A new server starts with the hosted Anthropic API as its one provider. Local providers come from machines in the fleet: run `agent-machine` where the models are and add them from the console ([Machines](machines.md)).
 
-Authentication is always required. The first start creates an `admin` user with a random password if no accounts file exists. `docker compose logs agent-server` shows it, and it's saved as `first-user-password` in the certs volume. See [Accounts](accounts.md).
+Authentication is always required. The first start on a new database creates an `admin` user with a random password. `docker compose logs agent-server` shows it, and it's saved as `first-user-password` in the certs volume. See [Accounts](accounts.md).
+
+## PostgreSQL
+
+`compose.yaml` runs PostgreSQL 17 as the `postgres` service, with no published port: only `agent-server` and `agent-auth` reach it. Set three passwords in `.env` beside `compose.yaml` before the first start, using letters and digits:
+
+```bash
+AI_PROXY_POSTGRES_PASSWORD=...   # PostgreSQL's administrator, postgres
+AI_PROXY_DB_API_PASSWORD=...     # agent-server's role, mesh_api
+AI_PROXY_DB_AUTH_PASSWORD=...    # agent-auth's role, mesh_auth
+```
+
+On its first start the service runs `server/docker/postgres-init.sh`, which makes a role for each program and a schema each owns:
+
+| Role | Schema | What it can do |
+|---|---|---|
+| `mesh_api` | `mesh` | Everything the server keeps. It can't read agent-auth's schema. |
+| `mesh_auth` | `mesh_auth` | agent-auth's OAuth state and signing key. In `mesh` it may only read the accounts (`users`, `orgs`, `meta`); the server grants that itself each time it migrates. |
+
+`agent-server` gets `AI_PROXY_DATABASE_URL=postgresql+psycopg://mesh_api:...@postgres:5432/mesh` and `agent-auth` gets `AI_PROXY_AUTH_DATABASE_URL=postgresql+psycopg://mesh_auth:...@postgres:5432/mesh`. Both wait for the database to be healthy, and the server brings its tables up to date on every start.
+
+### A PostgreSQL of your own
+
+Run the same statements as its administrator, with your own passwords, then give the two programs their URLs:
+
+```sql
+CREATE ROLE mesh_api LOGIN PASSWORD '...';
+CREATE ROLE mesh_auth LOGIN PASSWORD '...';
+CREATE SCHEMA mesh AUTHORIZATION mesh_api;
+CREATE SCHEMA mesh_auth AUTHORIZATION mesh_auth;
+REVOKE ALL ON SCHEMA public FROM PUBLIC;
+GRANT CONNECT ON DATABASE mesh TO mesh_api, mesh_auth;
+```
+
+Start `agent-server` once before `agent-auth`'s first sign-in: until the server has made its tables and granted `mesh_auth` read access, agent-auth finds no accounts.
+
+### Backups
+
+One dump holds everything, including the secrets (the capture CA's key, agent-auth's signing key and hashed tokens). Keep it as private as the server:
+
+```bash
+docker compose exec -T postgres pg_dump -U postgres -Fc mesh > mesh.dump                          # back up
+docker compose exec -T postgres pg_restore -U postgres -d mesh --clean --if-exists < mesh.dump    # restore
+```
+
+To copy only the settings (no accounts or recordings), use `agent-server config export` and `import` ([Configuration](configuration.md#all-settings-as-one-document)).
+
+### Upgrading from files
+
+An install from before the database keeps its old volumes (`agent-server-config`, `agent-server-logs`, `agent-server-certs`, `agent-auth-state`), and `compose.yaml` still mounts them. On the first start with PostgreSQL, the server imports `backends.yaml`, `models.yaml`, `agents.yaml`, `users.json`, the keys, the capture CA, `machines.json` and every recorded session, and agent-auth imports its `issuer.sqlite3` and signing key, so everyone stays signed in. A large `logs/` takes a while; the server logs its progress and carries on after an interruption. Nothing is deleted. Once it runs from the database you can drop the old files, and the `/app/config` and `/app/auth-state` mounts. See [Upgrading from files](configuration.md#upgrading-from-files).
 
 **Versions in Docker.** There's no git inside the image, so pass the version as a build argument: `AI_PROXY_VERSION=1.2.0+abc1234 docker compose build`. The server hands out the `dist/<version>/` of its own version, or the newest of the same `X.Y.Z` when that wasn't built, so match it to the builds you mount.
 
@@ -168,7 +220,7 @@ Set `proxy.public_url` to `https://console.<domain>`. The HTTPS script also conf
 
 ### HTTPS from the server itself
 
-The server can also serve HTTPS directly: set `proxy.tls.cert` and `proxy.tls.key` in `backends.yaml` to a certificate and key (paths relative to that file's folder). See [Configuration](configuration.md).
+The server can also serve HTTPS directly: set `AI_PROXY_TLS_CERT` and `AI_PROXY_TLS_KEY` (or `proxy.tls` in its settings) to a certificate and key file. See [Configuration](configuration.md).
 
 ## What the server hands out
 
@@ -270,7 +322,7 @@ The **Downloads** page has its exact address. Its `update` pip-installs the serv
 
 ## Versions and updates
 
-The whole project has one version, in `VERSION` at the root. The server, `agent`, `agent-machine`, the Android app and the Python wheel are all stamped with it: `X.Y.Z` for a build of its `vX.Y.Z` tag, otherwise `X.Y.Z+<commit>`, with `.dirty` for uncommitted changes outside `config/`. `AI_PROXY_VERSION` names another. `/health` shows the server's; `agent version` and `agent-machine version` print theirs.
+The whole project has one version, in `VERSION` at the root. The server, `agent`, `agent-machine`, the Android app and the Python wheel are all stamped with it: `X.Y.Z` for a build of its `vX.Y.Z` tag, otherwise `X.Y.Z+<commit>`, with `.dirty` for uncommitted changes to tracked files. `AI_PROXY_VERSION` names another. `/health` shows the server's; `agent version` and `agent-machine version` print theirs.
 
 **Compatibility is a protocol level, not the version.** `agent` and `agent-machine` send their protocol with every request. The server accepts a range (`MIN_PROTOCOL` to `PROTOCOL`) and answers anything outside it with `426 Upgrade Required`, saying how to update. Inside the range, a different version just works. Machines on another build show **Update available** on **Machines**.
 
@@ -289,7 +341,7 @@ So to roll out a new version: build it on the server's computer (`scripts/build-
 
 | Port | What listens | Where |
 |---|---|---|
-| 9999 | `agent-server`: the API, the console, and everything machines and agents send | All interfaces, from `config/backends.yaml` (`8181` without a config) |
+| 9999 | `agent-server`: the API, the console, and everything machines and agents send | All interfaces, from the stored `proxy` setting (`AI_PROXY_HOST`, `AI_PROXY_PORT`) |
 | 8184 | Each agent machine's `agent-proxy`: its launcher API and agents' model endpoints | Loopback only (`AI_PROXY_LOCAL_PORT`) |
 | 8183 | Each agent machine's `agent-proxy`: the HTTPS proxy for account agents | Loopback only (`AI_PROXY_LOCAL_INTERCEPT_PORT`) |
 | 9980, 9443, 9998 | nginx from `setup-https.ps1`: HTTP for Let's Encrypt, HTTPS | All interfaces |

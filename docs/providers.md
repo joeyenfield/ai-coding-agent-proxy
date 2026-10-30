@@ -1,12 +1,12 @@
 # LLM providers
 
-A **provider** (a backend, in `config/backends.yaml`) is where the server sends an agent's model requests. Agents never talk to a provider directly: their requests go to the server, which records them and forwards them.
+A **provider** (a backend, one of the server's stored settings) is where the server sends an agent's model requests. Agents never talk to a provider directly: their requests go to the server, which records them and forwards them.
 
 ## Backend types
 
 | Type | Provider | What the server does with agents' requests |
 |---|---|---|
-| `ollama` | Ollama | Translates OpenAI Chat and Anthropic Messages requests to Ollama's native `/api/chat`, with the tuning from `config/models.yaml`. Native `/api/*` calls pass through. |
+| `ollama` | Ollama | Translates OpenAI Chat and Anthropic Messages requests to Ollama's native `/api/chat`, with the server's Ollama model tuning. Native `/api/*` calls pass through. |
 | `strata` | Strata | Passes them through, with Strata's API key put in. |
 | `docker` | Docker Model Runner | Passes them through, with Model Runner's path prefixes. |
 | `anthropic` | Anthropic API (hosted) | Passes them through unchanged, with the agent's own credentials. |
@@ -75,13 +75,13 @@ applies the model's settings, and translates the reply back, streaming included,
 
 Native `/api/chat` and `/api/generate` get the same settings. Other paths, such as Codex's `/v1/responses`, pass through with only the model alias resolved, so the settings don't apply: set the context on the machine's Ollama instead (`OLLAMA_CONTEXT_LENGTH`, see [Ollama's server settings](#ollamas-server-settings)).
 
-### Tuning with models.yaml
+### Model tuning
 
-`config/models.yaml` holds the settings for Ollama, in three layers, applied in order:
+The server's Ollama model tuning holds the settings for Ollama, in three layers, applied in order. Admins edit it on **Server settings** → **Ollama model tuning**, as one YAML document; `GET` and `PUT /api/config/models` read and replace it, and it's the `models` part of a settings document for `agent-server config export` and `import` (see [Configuration](configuration.md)). New requests use a change at once.
 
 1. `defaults`, for every model.
 2. The first entry under `profiles` whose `match` (shell-style patterns) matches the Ollama model name, case-insensitively.
-3. The exact alias under `models`, where the key is the name agents use and `ollama_model` the Ollama tag.
+3. The exact alias under `aliases`, where the key is the name agents use and `ollama_model` the Ollama tag.
 
 Each layer can set `options` (Ollama runtime options such as `num_ctx`, `temperature`, `top_p`, `top_k`), `keep_alive`, `think` (force thinking on or off for hybrid models) and `translate_openai`. Values a client sends explicitly in a request always win.
 
@@ -89,7 +89,7 @@ It only applies to Ollama. Strata and Docker Model Runner get requests as the ag
 
 ### Tuning for Qwen
 
-The bundled `config/models.yaml` is set up for Qwen:
+The tuning a new server starts with is set up for Qwen:
 
 ```yaml
 defaults:
@@ -106,7 +106,7 @@ profiles:                  # first match wins, matched against the Ollama tag
     match: ["qwen3*"]      # qwen3, qwen3.5, qwen3.6, qwen3.8 ...
     options: {temperature: 0.6, top_p: 0.95, top_k: 20, min_p: 0}
 
-models:                    # aliases agents can use
+aliases:                   # aliases agents can use
   qwen-fast:
     ollama_model: qwen3.6:35b
     think: false           # skip reasoning for quick edit loops
@@ -131,7 +131,7 @@ Each Ollama's tab on its machine's page has:
 
 - **Models**: the models it has, with the settings the server applies to each, what's loaded and how much of it is on the GPU, with **load**, **unload** and **delete**.
 - **Find and pull**: search the Ollama library (ollama.com) or Hugging Face (GGUF repositories; pick a quantization to pull `hf.co/<user>/<repo>:<quant>`), or pull a tag by name. The machine does the search and the download. Progress streams to the console.
-- **Aliases** (for a provider): the short names from `config/models.yaml`.
+- **Aliases** (for a provider): the short names from the model tuning's `aliases`.
 
 Loading asks Ollama to generate with no prompt; unloading sends `keep_alive: 0`.
 
@@ -172,17 +172,17 @@ agent-machine runs `ollama serve` (from PATH, or Ollama's usual install folder o
 
 ## Strata
 
-Strata serves one local model over OpenAI Chat Completions, OpenAI Responses and Anthropic Messages, and asks for an API key on `/v1`. The server passes agents' requests through unchanged, apart from the key: no translation, and `config/models.yaml` doesn't apply. It records them like any other request, using Strata's own prompt and generation timings for the speeds.
+Strata serves one local model over OpenAI Chat Completions, OpenAI Responses and Anthropic Messages, and asks for an API key on `/v1`. The server passes agents' requests through unchanged, apart from the key: no translation, and the Ollama model tuning doesn't apply. It records them like any other request, using Strata's own prompt and generation timings for the speeds.
 
 ### Keys
 
-The agent sends a placeholder key. The server swaps it for Strata's own (`strata.py`), so no secret goes in `config/`. It uses the first of:
+The agent sends a placeholder key. The server swaps it for Strata's own (`strata.py`), so no secret goes in the server's settings. It uses the first of:
 
 1. the key the server generated for a Strata container it had a machine run;
 2. `STRATA_API_KEY` on the server;
 3. the key the machine reported for the Strata on that port.
 
-The machine reads that last key from the Strata profile serving on the port (the run config its profile names) and sends it in its hello. The server keeps it in memory only, never in `machines.json` or the console. Without any key, the agent's own headers go through, so a key set in the agent still works. On the machine, agent-machine uses `STRATA_API_KEY` there before the profile's key for its own requests.
+The machine reads that last key from the Strata profile serving on the port (the run config its profile names) and sends it in its hello. The server keeps it in memory only, never in its database or the console. Without any key, the agent's own headers go through, so a key set in the agent still works. On the machine, agent-machine uses `STRATA_API_KEY` there before the profile's key for its own requests.
 
 ### Profiles
 
@@ -215,7 +215,7 @@ The server passes requests through unchanged, apart from the path prefix (`model
 | other `/v1/*` | `/engines/v1/*` |
 | `/api/*` | unchanged |
 
-`config/models.yaml` doesn't apply. agent-machine finds it on port 12434. On Docker Desktop, turn that port on first:
+The Ollama model tuning doesn't apply. agent-machine finds it on port 12434. On Docker Desktop, turn that port on first:
 
 ```bash
 docker desktop enable model-runner --tcp 12434
@@ -263,7 +263,7 @@ Every container of an engine on a machine shares its volume, so a model is downl
 
 ### The backend
 
-A container is stored in `config/backends.yaml` as a backend with `machine` and `container`:
+A container is stored in the server's settings as a backend with `machine` and `container`. This is how it looks in a settings document (`agent-server config export`):
 
 ```yaml
 backends:
@@ -280,7 +280,7 @@ backends:
       # volume: D:\models\strata    # optional: its own storage
 ```
 
-Without a port, the server picks the engine's default, or the next one free on that machine. The **Server settings** page keeps container blocks as they are and ignores new ones: only the containers API (the console's **Containers** tab) or a hand edit changes them.
+Without a port, the server picks the engine's default, or the next one free on that machine. The **Server settings** page keeps container blocks as they are and ignores new ones: only the containers API (the console's **Containers** tab) or `agent-server config import` changes them.
 
 On the machine, the container is named `ai-proxy-<backend>`. It listens on `127.0.0.1` when the machine is the server's own computer, else on every address.
 
@@ -309,7 +309,7 @@ With Docker, GPUs go to `docker run --gpus`. Podman gets them as CDI devices (`-
 
 ### Strata containers' keys
 
-Each Strata container gets `PRESET=<its name>`, so its settings, tuning and key in the shared `/data` don't clash with the others', and `API_KEY=<key>`. The server generates the key, keeps it in `container-keys.json` beside the access key (`certs/` normally), sends it to the machine with each request, and adds it to agents' requests. Agents need none.
+Each Strata container gets `PRESET=<its name>`, so its settings, tuning and key in the shared `/data` don't clash with the others', and `API_KEY=<key>`. The server generates the key, keeps it in its database, sends it to the machine with each request, and adds it to agents' requests. Agents need none.
 
 ### Phases
 

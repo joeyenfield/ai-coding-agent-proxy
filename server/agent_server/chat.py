@@ -6,7 +6,7 @@ a call continues the thread whose last call its messages start with. The main
 chat, sub-agents and one-off calls (titles, classifiers) each end up in their own.
 
 Traces can be large (hundreds of MB for a long session), so each session keeps a
-small index (chat-index.json in its folder): per thread, the calls in it and the
+small index (its chat_index row): per thread, the calls in it and the
 hashes of its last call's messages. Only traces added since are read on a visit,
 and a view reads just the one trace that ends its thread.
 """
@@ -18,13 +18,14 @@ import json
 import re
 import threading
 from collections import OrderedDict
-from pathlib import Path
 from typing import Any
 
+from sqlalchemy import select
+
+from .db import Database, kv, schema
 from .sessions import Session, SessionStore
 
 
-INDEX_FILE = "chat-index.json"
 INDEX_VERSION = 3
 # Endpoints that carry a conversation: Anthropic Messages, OpenAI Chat and Responses, native Ollama.
 MODEL_PATH = re.compile(r"/(?:v1/messages|chat/completions|responses|api/chat|api/generate)$")
@@ -88,13 +89,16 @@ class Chats:
         return {**turns[position], "index": position}
 
     def forget(self, session: Session) -> None:
-        self._indexes.pop(session.session_id, None)
-        for key in [key for key in self._cache if key[0] == session.session_id]:
+        self.forget_id(session.session_id)
+
+    def forget_id(self, session_id: str) -> None:
+        self._indexes.pop(session_id, None)
+        for key in [key for key in self._cache if key[0] == session_id]:
             del self._cache[key]
 
     def _update(self, session: Session, records: list[dict[str, Any]]) -> dict[str, Any]:
-        directory = self.sessions.directory(session)
-        index = self._indexes.get(session.session_id) or _load_index(directory / INDEX_FILE)
+        db = self.sessions.db
+        index = self._indexes.get(session.session_id) or _load_index(db, session.session_id)
         seen = set(index["seen"])
         changed = False
         for record in sorted(records, key=lambda item: str(item.get("request_id", ""))):
@@ -125,7 +129,7 @@ class Chats:
             if reply:
                 index["replies"][_reply_key(reply["blocks"])] = request_id
         if changed:
-            _save_index(directory / INDEX_FILE, index)
+            _save_index(db, session.session_id, index)
         self._indexes[session.session_id] = index
         return index
 
@@ -273,20 +277,18 @@ def _common_prefix(left: list[str], right: list[str]) -> int:
     return length
 
 
-def _load_index(path: Path) -> dict[str, Any]:
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        if data.get("version") == INDEX_VERSION:
-            return data
-    except (OSError, ValueError, AttributeError):
-        pass
+def _load_index(db: Database, session_id: str) -> dict[str, Any]:
+    with db.read() as connection:
+        data = connection.execute(select(schema.chat_index.c.data).where(schema.chat_index.c.session_id == session_id)).scalar()
+    if isinstance(data, dict) and data.get("version") == INDEX_VERSION:
+        return data
     return {"version": INDEX_VERSION, "seen": [], "threads": [], "replies": {}, "owners": {}}
 
 
-def _save_index(path: Path, index: dict[str, Any]) -> None:
-    temporary = path.with_suffix(".tmp")
-    temporary.write_text(json.dumps(index, separators=(",", ":")), encoding="utf-8")
-    temporary.replace(path)
+def _save_index(db: Database, session_id: str, index: dict[str, Any]) -> None:
+    # A copy: the index in memory goes on changing while the write waits its turn.
+    row = {"session_id": session_id, "data": json.loads(json.dumps(index))}
+    db.writer.submit(lambda connection: kv.upsert(connection, schema.chat_index, row))
 
 
 def _is_model_call(record: dict[str, Any]) -> bool:

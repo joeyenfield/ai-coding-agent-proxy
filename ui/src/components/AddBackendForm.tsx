@@ -12,7 +12,7 @@ interface FormProps {
   onAdded?: (name: string) => void;
 }
 
-/** The name and URL of one new backend of a type, added to config/backends.yaml. */
+/** The name and URL of one new backend of a type, added to the server's providers. */
 export function BackendForm({ type, url: initialUrl = "", placeholder, taken, onAdded }: FormProps) {
   const client = useQueryClient();
   const notify = useToast();

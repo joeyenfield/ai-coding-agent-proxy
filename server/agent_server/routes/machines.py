@@ -11,7 +11,7 @@ searches, for whoever sees the machine (its owner and admins); starting, stoppin
 configuring the Ollama and Strata installed there, for its owner only. The machine
 refuses changes unless it allows them (agent-machine servers on).
 The server itself never calls a model server except to forward agents' traffic. Local backends only come from machines this way, or as containers a
-machine runs (routes/containers.py); backends.yaml entries from before that are linked
+machine runs (routes/containers.py); backends from before that are linked
 to their machine when it reports the same model server.
 """
 

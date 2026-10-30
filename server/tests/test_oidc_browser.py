@@ -18,11 +18,11 @@ from agent_server.issuer import create_auth_app, digest
 @pytest.fixture
 def browser(tmp_path, monkeypatch):
     settings = Settings(
-        log_dir=tmp_path / "logs", backends_file=tmp_path / "backends.yaml",
+        log_dir=tmp_path / "logs", 
         oidc_state_dir=tmp_path / "issuer", oidc_introspection_secret="browser-introspection-secret",
         console_origins=["https://console.aicontrolmesh.com"],
     )
-    store = UserStore(settings.users_path)
+    store = UserStore(settings.open_database())
     store.add_user("admin", "admin-password")
     store.add_user("alice", "alice-password", role="member")
     issuer_app = create_auth_app(settings)

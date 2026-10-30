@@ -67,7 +67,7 @@ def _version() -> str:
 
 
 def checkout_version(root: Path) -> str:
-    """X.Y.Z on its tag with a clean tree, else X.Y.Z+<commit>[.dirty] (changes outside config/ only),
+    """X.Y.Z on its tag with a clean tree, else X.Y.Z+<commit>[.dirty] (uncommitted changes to tracked files),
     X.Y.Z+unknown without git: the same as server/agent_server/version.py and tools/dist/version.go."""
     try:
         base = (root / "VERSION").read_text(encoding="utf-8").strip()
@@ -89,7 +89,7 @@ def checkout_version(root: Path) -> str:
     describe = git("describe", "--tags", "--always", "--abbrev=7")
     if describe is None:
         return f"{base}+unknown"
-    dirty = git("status", "--porcelain", "--untracked-files=no", "--", ".", ":(exclude)config") is not None
+    dirty = git("status", "--porcelain", "--untracked-files=no", "--", ".") is not None
     if describe == f"v{base}" and not dirty:
         return base
     commit = git("rev-parse", "--short=7", "HEAD") or "unknown"

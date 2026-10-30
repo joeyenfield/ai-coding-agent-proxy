@@ -14,7 +14,9 @@ from urllib.parse import urlparse
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
-from .. import access, auth, mcp, remote, strata, version
+from .. import access, auth, config_io, mcp, remote, strata, version
+from ..agents import stored_agents
+from ..db import redacted
 from ..config import DIRECT_BACKEND, LOCAL_PROXY_URL, ModelProfile, serves
 from ..fleet import PROVIDER_TYPES, SHELL_CLIENT, FleetError, parse_provider, provider_id, provider_request
 from ..runtime import Runtime
@@ -98,6 +100,105 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         LOGGER.info("network configuration updated")
         return {"config": config, "restart_required": runtime.status()["restart_required"]}
 
+    # The stored settings beyond the network ones (admins only, auth.ADMIN_ONLY).
+
+    @app.get("/api/config/export")
+    async def export_config(format: str = "yaml") -> Any:
+        """Every setting as one document (YAML, or JSON with format=json): agents, model tuning, backends, the rest."""
+        document = await asyncio.to_thread(config_io.export, settings)
+        if format == "json":
+            return document
+        return PlainTextResponse(
+            config_io.dump(document), media_type="application/yaml",
+            headers={"Content-Disposition": 'attachment; filename="agent-server-settings.yaml"'},
+        )
+
+    @app.post("/api/config/import")
+    async def import_config(request: Request, replace: bool = False) -> dict[str, Any]:
+        """Store a settings document (YAML or JSON). Only the parts it has, unless replace."""
+        try:
+            document = config_io.parse((await request.body()).decode("utf-8"))
+            async with runtime.config_lock:
+                changed = await asyncio.to_thread(config_io.apply, settings, document, replace=replace)
+        except (ValueError, TypeError, UnicodeError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        LOGGER.info("settings imported: %s", ", ".join(changed))
+        return {"changed": changed, "restart_required": runtime.status()["restart_required"]}
+
+    @app.get("/api/config/agents")
+    async def config_agents() -> list[dict[str, Any]]:
+        """The agents as stored: each definition (and as YAML, to edit), whether it ships with the server and whether it was changed."""
+        agents = await asyncio.to_thread(stored_agents, runtime.db)
+        return [{**agent, "yaml": config_io.dump(agent["definition"])} for agent in agents]
+
+    @app.put("/api/config/agents/{agent_id}")
+    async def put_config_agent(agent_id: str, request: Request) -> dict[str, Any]:
+        """Add or change an agent; the body is its definition (YAML or JSON)."""
+        try:
+            body = await request.body()
+            definition = config_io.parse(body.decode("utf-8")) if body else None
+            async with runtime.config_lock:
+                return await asyncio.to_thread(config_io.put_agent, settings, agent_id, definition)
+        except (ValueError, TypeError, UnicodeError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.delete("/api/config/agents/{agent_id}", status_code=204)
+    async def delete_config_agent(agent_id: str) -> None:
+        async with runtime.config_lock:
+            if not await asyncio.to_thread(config_io.delete_agent, settings, agent_id):
+                raise HTTPException(status_code=404, detail="No such agent")
+
+    @app.post("/api/config/agents/{agent_id}/reset")
+    async def reset_config_agent(agent_id: str) -> dict[str, Any]:
+        """A shipped agent back to this version's definition."""
+        try:
+            async with runtime.config_lock:
+                return await asyncio.to_thread(config_io.reset_agent, settings, agent_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Only an agent that ships with the server can be reset") from exc
+
+    @app.get("/api/config/models")
+    async def config_models(format: str = "json") -> Any:
+        """Ollama model tuning: defaults, profiles (the first whose match fits the model applies) and aliases (YAML with format=yaml)."""
+        if format == "yaml":
+            return PlainTextResponse(config_io.dump(settings.models_document()), media_type="application/yaml")
+        return settings.models_document()
+
+    @app.put("/api/config/models")
+    async def put_config_models(request: Request) -> dict[str, Any]:
+        try:
+            body = await request.body()
+            document = config_io.parse(body.decode("utf-8"))
+            async with runtime.config_lock:
+                return await asyncio.to_thread(settings.update_models, document)
+        except (ValueError, TypeError, UnicodeError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/config/storage")
+    async def config_storage() -> dict[str, Any]:
+        """Where the server keeps everything, and for how long it keeps recordings."""
+        return await asyncio.to_thread(storage)
+
+    @app.put("/api/config/storage")
+    async def put_config_storage(request: Request) -> dict[str, Any]:
+        """Set retention_days: how long traces and terminal recordings are kept (null: forever)."""
+        try:
+            data = await request.json()
+            if not isinstance(data, dict):
+                raise ValueError("Send an object with retention_days: a number of days, or null")
+            async with runtime.config_lock:
+                await asyncio.to_thread(settings.set_retention, data.get("retention_days"))
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        await asyncio.to_thread(runtime.prune)
+        return await asyncio.to_thread(storage)
+
+    def storage() -> dict[str, Any]:
+        return {
+            "database": {"kind": "sqlite" if runtime.db.sqlite else "postgresql", "url": redacted(runtime.db.url), "size": runtime.db.size()},
+            "retention_days": settings.retention_days,
+        }
+
     @app.post("/api/sessions", status_code=201)
     async def create_session(request: Request) -> dict[str, Any]:
         data = await request.json()
@@ -114,19 +215,22 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         return [described(item, request) for item in runtime.sessions.list() if access.can_view(identity, item)]
 
     @app.get("/api/requests")
-    async def list_requests(request: Request, session_id: str | None = None) -> list[dict[str, Any]]:
+    async def list_requests(
+        request: Request, session_id: str | None = None, limit: int | None = None, before: str | None = None,
+        model: str | None = None, kind: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Request records, newest first. limit and before (the oldest timestamp of the last page) page through them."""
         identity = auth.request_identity(request)
         sessions = [viewable(session_id, request)] if session_id else [item for item in runtime.sessions.list() if access.can_view(identity, item)]
-        records = []
-        for session in sessions:
-            traces = set(runtime.sessions.traces(session))
-            for record in runtime.records(session):
-                records.append({
-                    **record,
-                    "session_id": session.session_id,
-                    "trace_available": f"{record.get('request_id')}.json" in traces,
-                })
-        return sorted(records, key=lambda item: item.get("timestamp", ""), reverse=True)
+        if limit is not None and not 1 <= limit <= 5000:
+            raise HTTPException(status_code=400, detail="limit is between 1 and 5000")
+
+        def query() -> list[dict[str, Any]]:
+            records = runtime.sessions.query_requests([item.session_id for item in sessions], limit=limit, before=before, model=model, kind=kind)
+            traced = runtime.sessions.traced((record["session_id"], str(record.get("request_id"))) for record in records)
+            return [{**record, "trace_available": (record["session_id"], str(record.get("request_id"))) in traced} for record in records]
+
+        return await asyncio.to_thread(query)
 
     @app.get("/api/sessions/{session_id}")
     async def get_session(session_id: str, request: Request) -> dict[str, Any]:

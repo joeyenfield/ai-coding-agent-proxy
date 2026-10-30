@@ -11,7 +11,7 @@ import { providerLabel, ROUTE_ORDER, ROUTES, type RouteKind } from "../routes";
 
 const ROUTE_INTROS: Record<RouteKind, string> = {
   account: "Use the agent's own sign-in and plan. Nothing is translated: the proxy records every request on its way to the vendor.",
-  ollama: "Run the agent against your own Ollama machines, Docker Model Runner or Strata, on your machines. For Ollama the proxy translates requests and applies the context size and sampling from models.yaml; Docker and Strata take them as they are.",
+  ollama: "Run the agent against your own Ollama machines, Docker Model Runner or Strata, on your machines. For Ollama the proxy translates requests and applies the context size and sampling from the server's model tuning; Docker and Strata take them as they are.",
   hosted: "Point the agent's API endpoint at the proxy and pass requests through unchanged to a hosted API backend.",
 };
 

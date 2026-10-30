@@ -70,10 +70,10 @@ If the console can't reach the server, the page says so (**Can't reach the proxy
 
 ![Start an agent, for an account agent](screenshots/agents.png)
 
-`/agents` lists every agent the server knows (from `config/agents.yaml`), grouped by route: **Your accounts**, **Local models** and **Hosted API**. Each shows whether it's installed on the server's computer and which API it speaks. Pick one to see its launch panel:
+`/agents` lists every agent the server knows (its stored agent definitions, which admins change on [Server settings](#server-settings)), grouped by route: **Your accounts**, **Local models** and **Hosted API**. Each shows whether it's installed on the server's computer and which API it speaks. Pick one to see its launch panel:
 
 - **Install**: the install command for Linux, macOS, Windows or WSL. The console remembers your choice.
-- **Provider and model** (local and hosted agents): the backends this agent can use, with the one the server picks by default, and the models on that backend (aliases from `models.yaml` included). An offline backend says why.
+- **Provider and model** (local and hosted agents): the backends this agent can use, with the one the server picks by default, and the models on that backend (aliases from the Ollama model tuning included). An offline backend says why.
 - **Capture full request and response payloads**: saves every request and reply in full (`--trace`). Account agents redact credentials.
 - **Watch and type into it from Running agents** (`--control`): shares the agent's terminal with the server.
 - **MCP servers**: the MCP servers your machines share that you may use. Ticking one adds `--mcp` to the command. Agents that can't take MCP servers (Aider) say so. See [MCP servers](mcp.md).
@@ -152,6 +152,7 @@ Account agents' other calls (sign-in, telemetry, MCP) aren't shown here; they're
 
 - **Search** by model, agent, endpoint or ID; filter by **session**, **route** (accounts, local models, hosted) and **With payload**, **Without payload** or **Failed**.
 - **Include non-model requests from account agents** adds their sign-in, telemetry and MCP calls, which are hidden by default (Traffic shows them too).
+- It loads the newest 2,000 requests. **Load 2,000 older** fetches the next ones; search and filters cover the requests loaded so far.
 - Selecting a row shows the same inspector as Traffic. Each request also has its own page (`/requests/<session>/<request>`):
 
 ![One request](screenshots/request.png)
@@ -189,19 +190,22 @@ Account agents' other calls (sign-in, telemetry, MCP) aren't shown here; they're
 - **The computer**: its name, system, how long it's been up and how long the server has been running.
 - **CPU and memory**: charts of the computer's CPU (with the load average outside Windows) and memory, and of the server's own share of the CPU. Bars show the server's own memory and, when there is one, swap.
 - **Disks**: each disk the server keeps its files on, with how much is used and free and which of its folders are there.
-- **What the server keeps**: the size of the recorded traffic and logs (`logs/`) and the builds it hands out (`dist/`), measured every five minutes. Deleting sessions on the [Sessions](#sessions) page removes recorded traffic; old builds (folders named like `1.2.0+abc1234`) can be deleted by hand, since the server only hands out its own version's.
+- **What the server keeps**: the size of its database (SQLite or PostgreSQL: settings, accounts, machines and every session's requests, payloads and terminals), its log folder (`logs/`, where the SQLite file is too) and the builds it hands out (`dist/`), measured every five minutes. Deleting sessions on the [Sessions](#sessions) page, or fewer days under **Storage** on [Server settings](#server-settings), removes recorded traffic; old builds (folders named like `1.2.0+abc1234`) can be deleted by hand, since the server only hands out its own version's.
 
 ## Server settings
 
 ![Server settings](screenshots/settings.png)
 
-`/settings` changes `config/backends.yaml` (admins only, with accounts):
+`/settings` changes the server's stored settings (admins only). They're kept in its database, and most changes apply right away:
 
-- **Server**: **Listen host**, **Listen port**, and **Address agent machines use** (`public_url`). A changed address needs a restart.
-- **Providers**: every backend, with its type, address and machine. Choose the **Default**, or remove one. **Add hosted API** adds an Anthropic API backend (name, type, URL). Local providers can't be added here: they come from machines (see [Providers](providers.md)).
-- **Restart the server**: restarts it with the settings on disk once requests in flight finish, and says where it comes back.
+- **Server**: **Listen host**, **Listen port**, **Address agent machines use** (shown for `agent login`) and **Public console address** (`public_url`, optional: where people open the console from anywhere, shown ahead of the addresses the server finds itself). A changed listen address needs a restart.
+- **Providers**: every backend, with its type, address and machine. Choose the **Default**, or remove one. **Add hosted API** adds an Anthropic API backend (name, type, URL). Local providers can't be added here: they come from machines (see [Providers](providers.md)). **Save changes** saves this section and the one above.
+- **Agents**: every agent launchers can start, each marked **Shipped**, **Shipped, changed** or **Added here**. **Edit** opens its definition as YAML; **Add an agent** takes an id and a definition; **Remove** stops launchers offering it. **Reset to the shipped one** undoes changes to an agent that ships with the server. Shipped agents follow the server's upgrades until you change them. See [Adding a new agent](agents.md#adding-a-new-agent).
+- **Ollama model tuning**: the `defaults`, `profiles` and `aliases` the server applies to requests it sends to Ollama, as one YAML document. **Save tuning** applies it to new requests. See [Model tuning](providers.md#model-tuning).
+- **Storage**: which database the server uses (SQLite or PostgreSQL, its address without the password, and its size), and **Keep payloads and terminals for** a number of days since a session's last request. Older sessions lose their payloads and terminal recordings; their requests and token counts stay. Empty keeps everything.
+- **Restart the server**: restarts it once requests in flight finish, and says where it comes back. It picks up a new listen address, and settings changed from the command line (`agent-server config import`).
 
-Saving rewrites `backends.yaml`, so comments in it are lost. **API reference** links to the server's OpenAPI pages (`/docs`).
+To copy the settings to another server or keep them in version control, use `agent-server config export` and `import` (see [Configuration](configuration.md)). **API reference** links to the server's OpenAPI pages (`/docs`).
 
 ## Organizations
 
@@ -289,7 +293,7 @@ The model servers it runs (Ollama, Strata, Docker Model Runner, and the containe
 
 Each model server has its own tab, named after its provider (or `Ollama :11434` until it is one). Everything here is done by the machine:
 
-- **Ollama**: **Models** (each model's size, whether it's loaded and where, the agent requests it served, and load, unload and delete), **Aliases** (the `models.yaml` aliases that point at it, with their settings) and **Find and pull** (search the Ollama library and Hugging Face, or pull by name, with progress).
+- **Ollama**: **Models** (each model's size, whether it's loaded and where, the agent requests it served, and load, unload and delete), **Aliases** (the model tuning's aliases that point at it, with their settings; change them on [Server settings](#server-settings)) and **Find and pull** (search the Ollama library and Hugging Face, or pull by name, with progress).
 - **Strata**: **Overview** (state, profile, engine, uptime, model, context, prompt and generation speed, speculative decoding), **Hardware**, **Models** (load and unload), **Connect agents** (the agent commands for it) and **Log** (server and engine logs, key blanked).
 - **Docker Model Runner**: **Models**, **Get models** (search Docker Hub's `ai/` models and their tags, or pull by name) and **Connect agents**.
 

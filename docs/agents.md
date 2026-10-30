@@ -24,10 +24,10 @@ Each agent takes one of three routes to a model. The console colours requests, s
 | | Your accounts | Local models | Hosted API |
 |---|---|---|---|
 | **Agents** | `claude-account`, `copilot-account`, `codex-account` | `qwen`, `opencode`, `copilot`, `claude`, `codex`, `aider`, `goose` | `claude-subscription` |
-| **Set in agents.yaml by** | `intercept: true` | `backend_type: ollama` (the default) | `backend_type: anthropic` |
+| **Set in its definition by** | `intercept: true` | `backend_type: ollama` (the default) | `backend_type: anthropic` |
 | **Model** | The vendor's, on your plan | Ollama, Strata or Docker Model Runner on your machines | Anthropic's, through an `anthropic` backend |
 | **How the agent reaches the proxy** | `HTTPS_PROXY` pointing at the `agent-proxy` (`127.0.0.1:8183`) | Its API base URL points at the `agent-proxy` (`127.0.0.1:8184`) | `ANTHROPIC_BASE_URL` points at the `agent-proxy` |
-| **What the server does** | Decrypts, records and forwards unchanged | Ollama: translates to its native API and applies `models.yaml`. Strata and Docker Model Runner: forwards unchanged | Forwards unchanged |
+| **What the server does** | Decrypts, records and forwards unchanged | Ollama: translates to its native API and applies the model tuning. Strata and Docker Model Runner: forwards unchanged | Forwards unchanged |
 | **What you see** | Requests to public hosts: model calls plus sign-in, settings, MCP, telemetry | Model calls, with the exact payload sent to Ollama | Model calls and other Anthropic API calls Claude Code makes |
 | **Credentials** | The agent's own login | None needed | The agent's own login |
 
@@ -51,7 +51,7 @@ How the capture works:
 - Only the launched process tree trusts the CA. It gets `NODE_EXTRA_CA_CERTS` (the CA, for Node agents), `NODE_USE_ENV_PROXY=1` (Node 24 and later only apply the proxy variables to `fetch()` with it), and `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE` and `GIT_SSL_CAINFO` pointing at the bundle. Codex gets `CODEX_CA_CERTIFICATE` set to the bundle. So the tools the agent runs (curl, git, pip, MCP servers) keep working and public-host requests are captured too. Nothing is added to the system trust store.
 - The `agent-proxy` carries each connection to the server over its own WebSocket (`/api/proxy/tunnel`, on the server's own port). The server terminates TLS with a certificate from its CA, forwards the request unchanged over a normally verified TLS connection, and streams the reply back. Model calls are parsed as they stream: tokens, prompt-cache reads and writes, time to first token, reasoning, text and tool calls.
 - WebSockets are relayed byte for byte and logged as a connection. Their messages are also decoded on the side: Codex sends its model turns over a WebSocket, and each `response.create` becomes its own model call record. The server drops `Sec-WebSocket-Extensions` from the upgrade so messages aren't compressed.
-- Hosts listed under `intercept.passthrough` in the server's `backends.yaml` are tunnelled without decryption and logged as connections only (see [Configuration](configuration.md)).
+- Hosts listed under `intercept.passthrough` in the server's settings are tunnelled without decryption and logged as connections only (see [Configuration](configuration.md)).
 - The server only connects to public IP addresses. It refuses loopback, private, link-local and reserved addresses, including when a hostname resolves to one and when the host uses `intercept.passthrough`.
 - HTTPS without an open session gets `407`. If the server refuses the tunnel (the machine isn't signed in), the `agent-proxy` answers the agent with `407` too, with the reason in an `X-Agent-Proxy-Error` header.
 
@@ -65,7 +65,7 @@ Privacy and security:
 
 ### Local models
 
-Local-model agents get API base URLs on the `agent-proxy` that contain the session id. The server sends each request to the session's backend. For an Ollama backend it translates OpenAI Chat and Anthropic Messages requests to Ollama's native `/api/chat` and applies the model settings from `models.yaml`. Strata and Docker Model Runner speak the agents' APIs themselves and get requests unchanged. See [Providers](providers.md).
+Local-model agents get API base URLs on the `agent-proxy` that contain the session id. The server sends each request to the session's backend. For an Ollama backend it translates OpenAI Chat and Anthropic Messages requests to Ollama's native `/api/chat` and applies the server's Ollama model tuning. Strata and Docker Model Runner speak the agents' APIs themselves and get requests unchanged. See [Providers](providers.md).
 
 ```bash
 agent qwen . --model qwen3.6:35b                          # the server's default backend for the agent
@@ -119,7 +119,7 @@ applies to Python launches without terminal sharing on Linux and other POSIX sys
 
 | Option | What it does |
 |---|---|
-| `-m`, `--model NAME` | Model name or alias from the server's `models.yaml`. Required for agents whose templates use `{model}`; optional for account agents. |
+| `-m`, `--model NAME` | Model name, or an alias from the server's Ollama model tuning. Required for agents whose templates use `{model}`; optional for account agents. |
 | `--backend NAME` | One of the server's backends. Default: the one the server picks for the agent. |
 | `--trace` | Save full request and response bodies for the session. |
 | `--mcp NAMES` | MCP servers that machines share, for the agent: `machine/name`, a machine for all of its servers, or `all`. Comma-separated or repeated. See [MCP servers](mcp.md). |
@@ -268,7 +268,7 @@ Every session is also tagged with the computer's hostname, so the server can lis
 
 ## Supported agents
 
-The server defines every agent in its `config/agents.yaml` and renders it for each launch, so an agent added there is available on every computer at once; only its program has to be installed there. The console's **Start an agent** page shows each agent's install state and install command, builds its launch command, and can open a session and print the environment to run the agent by hand in bash or PowerShell.
+The server keeps every agent's definition in its database and renders it for each launch, so an agent an admin adds or changes on **Server settings** is available on every computer at once; only its program has to be installed there. The console's **Start an agent** page shows each agent's install state and install command, builds its launch command, and can open a session and print the environment to run the agent by hand in bash or PowerShell.
 
 | Agent | Command | Route | Protocol | MCP |
 |---|---|---|---|---|
@@ -448,7 +448,7 @@ With `--control`, the launcher runs the agent in a pseudo-terminal (ConPTY on Wi
 - **It's off unless you ask.** Without `--control`, the agent runs directly and only its traffic is recorded. `AI_PROXY_CONTROL=1` makes `--control` a computer's default.
 - **It needs an interactive terminal.** On Windows that's Windows Terminal, PowerShell or cmd, not Git Bash's mintty. Otherwise the launcher prints why sharing is off and runs the agent directly.
 - **Your window stays the main one.** Its size sets the terminal's size, and closing it ends the agent.
-- **History is saved** on the server, in `logs/sessions/<id>/terminal.log` (up to 64 MB), so finished sessions stay readable. If the launcher loses the server, it keeps trying and resends what the server missed when it reconnects; if this computer's `agent-proxy` has stopped (`agent update` stops it), the launcher starts it again.
+- **History is saved** in the server's database (up to 64 MB per terminal), so finished sessions stay readable. If the launcher loses the server, it keeps trying and resends what the server missed when it reconnects; if this computer's `agent-proxy` has stopped (`agent update` stops it), the launcher starts it again.
 - **Agents on other computers** can be shared once signed in with `agent login <server>`. `AI_PROXY_TOKEN` accepts a pre-issued OAuth access token, not a legacy key.
 
 Typing into an agent's terminal is as good as a shell on that computer. Viewers need an active OIDC sign-in and session permission. See [Console](console.md) and [Accounts](accounts.md).
@@ -467,9 +467,19 @@ Shared sessions are watch-only unless you add `--let-others-type`: then the peop
 
 ## Adding a new agent
 
-An agent is an entry in the server's `config/agents.yaml`. The server reads the file when it needs it and renders the entry for each launch, so a new agent needs no code change and no client update: only its program installed where it runs.
+An agent is a definition stored in the server's database. The server reads the definitions on every launch and renders the one asked for, so a new or changed agent needs no code change, no restart and no client update: only its program installed where it runs.
+
+An admin adds one in any of these ways:
+
+- **On the console:** **Server settings** → **Agents** → **Add an agent**. Give it an id (what launchers call it: `agent my-agent`) and its definition as YAML. **Edit** changes an existing one, **Remove** takes it away.
+- **With the API:** `PUT /api/config/agents/<id>` with the definition as YAML or JSON. `DELETE` removes it. See [API](api.md).
+- **In a settings document:** under `agents:` in a file for `agent-server config import` (see [Configuration](configuration.md)).
+
+The agents that ship with the server are in `server/agent_server/defaults.py`. They're added to the database on the first start and follow the server's upgrades until someone changes them; the console marks each one **Shipped**, **Shipped, changed** or **Added here**. **Reset to the shipped one** (or `POST /api/config/agents/<id>/reset`) undoes a change. A shipped agent that was removed stays removed through upgrades until it's added again or reset. To ship a new agent with the server itself, add it to `defaults.py` (see [Development](development.md)).
 
 ### The entry
+
+On the console and with the API, the definition is the part under the id (from `name:` on). In a settings document it sits under `agents:` and its id, like this:
 
 ```yaml
 agents:
@@ -526,7 +536,7 @@ Strings in `env`, `args`, `files` and `mcp` are templates.
 | `{session_id}` | The session id. |
 | `{proxy_url}` | The `agent-proxy`'s address, `http://127.0.0.1:8184`. |
 | `{project}` | The project folder's full path (`.` when the console opens the session). |
-| `{context_window}` | The model's context size on the session's backend: Ollama's `num_ctx` from `models.yaml`, or what Strata or Docker Model Runner reports. Unknown for account agents. |
+| `{context_window}` | The model's context size on the session's backend: Ollama's `num_ctx` from the model tuning, or what Strata or Docker Model Runner reports. Unknown for account agents. |
 | `{files_dir}` | The folder the launcher writes this session's files to. |
 | `{intercept_url}` | Only with `intercept`: the `HTTPS_PROXY` value, with the session id in it. |
 | `{ca_cert}` | Only with `intercept`: the launcher's copy of the server's CA. |
@@ -557,13 +567,13 @@ The MCP arguments (`args` then `args_each`) go where the agent's `args` contain 
 
 `{mcp_name}` is the server's own name, or `<machine>-<name>` when two machines share a server of the same name in one launch.
 
-The block may only have the keys `entry`, `env`, `files`, `args` and `args_each`; the server refuses others when it loads the file.
+The block may only have the keys `entry`, `env`, `files`, `args` and `args_each`; the server refuses others when the definition is saved.
 
 ### Checklist
 
-1. Add the entry to `config/agents.yaml` (`executable`, `protocol`, `env` and `args` templates, `install`, `homepage`, and `backend_type` or `intercept`; an `mcp` block if the agent takes MCP servers over Streamable HTTP).
+1. Add the definition on **Server settings** → **Agents** (`executable`, `protocol`, `env` and `args` templates, `install`, `homepage`, and `backend_type` or `intercept`; an `mcp` block if the agent takes MCP servers over Streamable HTTP).
 2. Run `agent --list` to check it's found.
 3. Launch it once with `--trace` and read the recorded traces on **Traffic**.
-4. Add it to this page's [Supported agents](#supported-agents).
+4. If it ships with the server, add it to `defaults.py` and to this page's [Supported agents](#supported-agents).
 
-Saving settings from the console rewrites `backends.yaml`, not `agents.yaml`, so comments in `agents.yaml` stay.
+The server stores a definition's contents, not its YAML text, so comments in a definition you save aren't kept. The comments on the shipped agents are in `defaults.py`.

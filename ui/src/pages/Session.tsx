@@ -18,7 +18,7 @@ export function SessionPage() {
   const { sessionId = "" } = useParams();
   const session = useQuery({ queryKey: ["session", sessionId], queryFn: () => api.session(sessionId), refetchInterval: 3000 });
   const live = useLive(sessionId);
-  const requests = useRequests();
+  const requests = useRequests(sessionId);
   const status = useStatus();
   const client = useQueryClient();
   const notify = useToast();

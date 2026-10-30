@@ -615,9 +615,51 @@ export interface ModelsResponse {
 }
 
 export interface NetworkConfig {
-  proxy: { listen_host: string; listen_port: number; url: string };
+  /** public_url: the console's address people use (null for none); left as it is when not sent. */
+  proxy: { listen_host: string; listen_port: number; url: string; public_url?: string | null };
   default_backend: string;
   backends: Record<string, Backend>;
+}
+
+/** GET /api/requests's filters. */
+export interface RequestQuery {
+  session_id?: string;
+  limit?: number;
+  before?: string;
+  model?: string;
+  kind?: string;
+}
+
+function queryString(query: object): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query) as [string, unknown][]) {
+    if (value !== undefined && value !== "") params.set(key, String(value));
+  }
+  const text = params.toString();
+  return text ? `?${text}` : "";
+}
+
+/** GET /api/config/agents: an agent as stored. builtin ones ship with the server and follow its releases until edited. */
+export interface StoredAgent {
+  id: string;
+  definition: Record<string, unknown>;
+  /** The definition as YAML, to edit (GET only). */
+  yaml?: string;
+  builtin: boolean;
+  edited: boolean;
+}
+
+/** GET /api/config/models: Ollama model tuning, layered defaults, then the first matching profile, then the alias. */
+export interface ModelTuning {
+  defaults: Record<string, unknown>;
+  profiles: Record<string, unknown>[];
+  aliases: Record<string, Record<string, unknown>>;
+}
+
+/** GET /api/config/storage: where the server keeps everything, and how long it keeps recordings. */
+export interface StorageInfo {
+  database: { kind: "sqlite" | "postgresql"; url: string; size: number | null };
+  retention_days: number | null;
 }
 
 export interface ConfigResponse {
@@ -998,17 +1040,27 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: init?.body ? { "content-type": "application/json", ...init.headers } : init?.headers,
   });
-  if (!response.ok) {
-    let message = `Request failed (${response.status})`;
-    try {
-      const body = await response.json();
-      if (body?.detail) message = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
-    } catch {
-      // Keep the status-based message.
-    }
-    throw new ApiError(message, response.status);
+  if (!response.ok) throw await failure(response);
+  // 204: nothing to read (a delete).
+  return (response.status === 204 ? undefined : response.json()) as Promise<T>;
+}
+
+/** A plain-text answer, such as a YAML document. */
+async function text(url: string): Promise<string> {
+  const response = await apiFetch(url);
+  if (!response.ok) throw await failure(response);
+  return response.text();
+}
+
+async function failure(response: Response): Promise<ApiError> {
+  let message = `Request failed (${response.status})`;
+  try {
+    const body = await response.json();
+    if (body?.detail) message = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
+  } catch {
+    // Keep the status-based message.
   }
-  return response.json() as Promise<T>;
+  return new ApiError(message, response.status);
 }
 
 /** One page of the documentation (docs/<name>.md on the server), as Markdown. Public. */
@@ -1030,7 +1082,8 @@ export const api = {
   downloads: () => request<DownloadIndex>("/downloads/index.json"),
   sessions: () => request<Session[]>("/api/sessions"),
   session: (sessionId: string) => request<Session>(sessionUrl(sessionId)),
-  requests: () => request<RequestRecord[]>("/api/requests"),
+  /** Request records, newest first: limit and before (the oldest timestamp so far) page back through them. */
+  requests: (query: RequestQuery = {}) => request<RequestRecord[]>(`/api/requests${queryString(query)}`),
   chat: (sessionId: string, page: { thread?: string | null; before?: number; limit?: number } = {}) => {
     const query = new URLSearchParams();
     if (page.thread) query.set("thread", page.thread);
@@ -1064,6 +1117,21 @@ export const api = {
   config: () => request<ConfigResponse>("/api/config"),
   saveConfig: (config: NetworkConfig) =>
     request<ConfigResponse>("/api/config", { method: "PUT", body: JSON.stringify(config) }),
+  // The stored settings beyond the network ones (admins). Definitions travel as YAML text (JSON is YAML too).
+  storedAgents: () => request<StoredAgent[]>("/api/config/agents"),
+  saveAgent: (id: string, yaml: string) =>
+    request<StoredAgent>(`/api/config/agents/${encodeURIComponent(id)}`, { method: "PUT", body: yaml, headers: { "content-type": "application/yaml" } }),
+  deleteAgent: (id: string) => request<void>(`/api/config/agents/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  resetAgent: (id: string) => request<StoredAgent>(`/api/config/agents/${encodeURIComponent(id)}/reset`, { method: "POST" }),
+  modelTuning: () => request<ModelTuning>("/api/config/models"),
+  modelTuningYaml: () => text("/api/config/models?format=yaml"),
+  saveModelTuning: (yaml: string) =>
+    request<ModelTuning>("/api/config/models", { method: "PUT", body: yaml, headers: { "content-type": "application/yaml" } }),
+  storage: () => request<StorageInfo>("/api/config/storage"),
+  saveRetention: (days: number | null) =>
+    request<StorageInfo>("/api/config/storage", { method: "PUT", body: JSON.stringify({ retention_days: days }) }),
+  importSettings: (yaml: string) =>
+    request<{ changed: string[]; restart_required: boolean }>("/api/config/import", { method: "POST", body: yaml, headers: { "content-type": "application/yaml" } }),
   // LLM providers: everything goes through the machine that runs the model server.
   machineMetrics: (machine: string) => request<MachineSample>(`${machineUrl(machine)}/metrics`),
   ollamaSettings: (machine: string) => request<OllamaSettings>(`${machineUrl(machine)}/servers/ollama`),
@@ -1181,7 +1249,7 @@ function searchCatalog<T>(machine: string, catalog: Catalog, params: Record<stri
 export type PullProvider = "ollama" | "docker";
 
 /**
- * The models to offer for a provider: the ones it has, then the aliases from models.yaml
+ * The models to offer for a provider: the ones it has, then the aliases from the server's model tuning
  * whose Ollama tag it has (an alias for a model it hasn't pulled would fail). Aliases only
  * name Ollama tags, so other providers get just their own models.
  */
@@ -1215,7 +1283,7 @@ export function freeBackendName(type: string, taken: string[]): string {
 }
 
 /**
- * Add a hosted API (such as Anthropic's) to config/backends.yaml, keeping the others, and
+ * Add a hosted API (such as Anthropic's) to the server's providers, keeping the others, and
  * return its name. Local model servers aren't added this way: they come from machines
  * (api.adoptProvider, api.createContainer), and the server refuses them here.
  */
@@ -1336,6 +1404,8 @@ export interface ServerStats {
   folders: { name: string; path: string; bytes: number | null }[];
   folders_measured_at: number | null;
   folders_measuring: boolean;
+  /** Settings, accounts and every session's records live here; bytes is null until measured. */
+  database: { kind: "sqlite" | "postgresql" | null; bytes: number | null };
 }
 
 export interface MachineSample {

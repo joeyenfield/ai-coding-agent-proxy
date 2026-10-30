@@ -7,8 +7,11 @@ from pathlib import Path
 import httpx
 import pytest
 import yaml
-from oidc_helpers import access_token, authenticated_client as TestClient
+from oidc_helpers import database, stored_backends, access_token, authenticated_client as TestClient
 
+from agent_server import config_io
+from agent_server.db import legacy
+from agent_server.sessions import SessionStore
 from agent_server.config import Backend, Settings
 from agent_server.app import create_app
 
@@ -338,14 +341,14 @@ def test_anthropic_backend_rejects_ollama_protocol_and_skips_discovery(tmp_path)
 
 
 def test_anthropic_backend_config_round_trip_and_subscription_launcher(tmp_path):
-    settings = Settings(backends_file=tmp_path / "backends.yaml")
+    settings = Settings(log_dir=tmp_path / "logs")
     settings.update_network_config({
         "proxy": {"listen_host": "127.0.0.1", "listen_port": 8181, "url": "http://127.0.0.1:8181"},
         "default_backend": "anthropic",
         "backends": {"anthropic": {"type": "anthropic", "url": "https://api.anthropic.com"}},
     })
     assert settings.backend(None).type == "anthropic"
-    assert yaml.safe_load(settings.backends_file.read_text())["backends"]["anthropic"]["type"] == "anthropic"
+    assert stored_backends(settings)["anthropic"]["type"] == "anthropic"
     app = create_app(settings)
     launch = app.state.runtime.agents()["claude-subscription"].render("http://proxy", "session", "sonnet")
     assert launch["env"] == {"AI_PROXY_SESSION": "session", "ANTHROPIC_BASE_URL": "http://proxy/session/session/anthropic"}
@@ -363,8 +366,6 @@ def test_request_history_includes_all_sessions_and_saved_traces(tmp_path):
     payload = {"request": {"messages": [{"role": "user", "content": "complete payload " * 1000}]}, "response": [{"message": {"content": "complete response"}}]}
     store.write_trace(traced, "000104", payload)
     store.append_request(other, {"request_id": "000001", "timestamp": "2026-10-04T00:00:00Z"})
-    with (store.root / traced.session_id / "requests.jsonl").open("a") as handle:
-        handle.write('invalid json\n[]\n')
     with TestClient(app) as client:
         records = client.get("/api/requests").json()
         assert len(records) == 106
@@ -452,11 +453,8 @@ def test_dashboard_rejects_cleanup_during_non_streaming_requests(tmp_path):
 
 
 def test_dashboard_updates_and_persists_network_config(tmp_path):
-    config_path = tmp_path / "backends.yaml"
-    config_path.write_text("extra_setting: preserved\n", encoding="utf-8")
     settings = Settings(
         log_dir=tmp_path / "logs",
-        backends_file=config_path,
         default_backend="test",
         backends={
             "test": Backend("test", "http://ollama.test"),
@@ -495,15 +493,14 @@ def test_dashboard_updates_and_persists_network_config(tmp_path):
         assert client.put("/api/config", json={"proxy": proxy, "default_backend": "laptop"}).status_code == 200
         assert set(client.get("/api/config").json()["config"]["backends"]) == {"laptop", "desktop", "anthropic"}
 
-    saved = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    assert saved["extra_setting"] == "preserved"
-    assert saved["proxy"]["listen_port"] == 9191
+    saved = config_io.export(settings)
+    assert saved["proxy"]["listen_port"] == 9191 and saved["default_backend"] == "laptop"
 
 
 def test_dashboard_rejects_invalid_network_config(tmp_path):
     settings = Settings(
         log_dir=tmp_path / "logs",
-        backends_file=tmp_path / "backends.yaml",
+        
         default_backend="test",
         backends={"test": Backend("test", "http://ollama.test")},
     )
@@ -568,14 +565,21 @@ def test_sessions_record_last_activity_and_backfill_from_history(tmp_path):
     finally:
         close_app(app, client, old)
 
-    # A session saved before activity tracking takes its time from the newest request record.
-    store_dir = tmp_path / "sessions" / session["session_id"]
-    data = json.loads((store_dir / "session.json").read_text())
+    # A session an older version saved before activity tracking takes its time from the newest request record.
+    store = app.state.runtime.sessions
+    stored = store.get(session["session_id"])
+    record = store.records(stored)[-1]
+    folder = tmp_path / "old" / session["session_id"]
+    folder.mkdir(parents=True)
+    data = stored.stored()
     data.pop("last_activity_at")
-    (store_dir / "session.json").write_text(json.dumps(data))
-    record = json.loads((store_dir / "requests.jsonl").read_text().splitlines()[-1])
-    reloaded = create_app(app.state.runtime.settings).state.runtime.sessions.get(session["session_id"])
+    (folder / "session.json").write_text(json.dumps(data))
+    (folder / "requests.jsonl").write_text("invalid json\n" + store.telemetry(stored) + "[]\n")
+    fresh = database(tmp_path / "fresh", separate=True)
+    assert legacy.import_sessions(fresh, tmp_path / "old") == 1
+    reloaded = SessionStore(fresh).get(session["session_id"])
     assert reloaded.last_activity_at == record["timestamp"]
+    assert SessionStore(fresh).records(reloaded) == [record]
 
 
 def test_live_snapshot_filters_by_session(tmp_path):

@@ -6,9 +6,9 @@ import time
 from pathlib import Path
 
 import httpx
-import yaml
 from fastapi.testclient import TestClient
 
+from agent_server import config_io
 from agent_server.app import Supervisor, create_app
 from agent_server.config import Backend, Settings
 from oidc_helpers import authenticated_client, access_token
@@ -18,7 +18,7 @@ LOCAL = {"base_url": "http://127.0.0.1:8181", "client": ("127.0.0.1", 50000)}
 
 
 def settings(tmp_path: Path) -> Settings:
-    return Settings(log_dir=tmp_path / "logs", backends_file=tmp_path / "backends.yaml", default_backend="test", backends={"test": Backend("test", "http://ollama.test")})
+    return Settings(log_dir=tmp_path / "logs", default_backend="test", backends={"test": Backend("test", "http://ollama.test")})
 
 
 def test_restart_needs_the_supervisor_and_this_computer(tmp_path):
@@ -44,7 +44,7 @@ def free_port() -> int:
         return probe.getsockname()[1]
 
 
-def test_supervisor_serves_again_with_the_configuration_on_disk(tmp_path, monkeypatch):
+def test_supervisor_serves_again_with_the_stored_configuration(tmp_path, monkeypatch):
     headers = {}
 
     def app_with_issuer(*args, **kwargs):
@@ -54,18 +54,19 @@ def test_supervisor_serves_again_with_the_configuration_on_disk(tmp_path, monkey
 
     monkeypatch.setattr("agent_server.app.create_app", app_with_issuer)
     first, second = free_port(), free_port()
-    config = tmp_path / "backends.yaml"
+    for name, value in {"AI_PROXY_LOG_DIR": tmp_path / "logs", "AI_PROXY_REMOTE_KEY_FILE": tmp_path / "key"}.items():
+        monkeypatch.setenv(name, str(value))
 
     def write(port: int, backends: dict) -> None:
-        config.write_text(yaml.safe_dump({
+        # As the console's Settings page (or agent-server config import) would.
+        stored = Settings.load()
+        config_io.apply(stored, {
             "proxy": {"listen_host": "127.0.0.1", "listen_port": port, "url": f"http://127.0.0.1:{port}"},
             "default_backend": "laptop", "backends": backends, "intercept": {"enabled": False},
-        }))
+        })
+        stored.db.close()
 
     write(first, {"laptop": {"type": "ollama", "url": "http://127.0.0.1:9"}})
-    for name, value in {"AI_PROXY_BACKENDS": config, "AI_PROXY_LOG_DIR": tmp_path / "logs", "AI_PROXY_REMOTE_KEY_FILE": tmp_path / "key",
-                        "AI_PROXY_MODELS": tmp_path / "models.yaml"}.items():
-        monkeypatch.setenv(name, str(value))
     supervisor = Supervisor()
     thread = threading.Thread(target=supervisor.serve, args=(Settings.load,), kwargs={"build": False}, daemon=True)
     thread.start()
@@ -81,7 +82,7 @@ def test_supervisor_serves_again_with_the_configuration_on_disk(tmp_path, monkey
         while time.monotonic() < deadline and not health(first):
             time.sleep(0.05)
         before = health(first)["proxy_instance_id"]
-        # Change the config on disk, as an editor (or the Settings page) would, then restart from the console.
+        # Change the stored settings, then restart from the console.
         write(second, {"laptop": {"type": "ollama", "url": "http://127.0.0.1:9"}, "fresh": {"type": "ollama", "url": "http://127.0.0.1:10"}})
         accepted = httpx.post(f"http://127.0.0.1:{first}/api/server/restart", json={}, headers=headers)
         # It says where it comes back, so the console can follow it to a new port.

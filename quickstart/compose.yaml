@@ -27,6 +27,24 @@ x-machine: &machine
       condition: service_healthy
 
 services:
+  # Everything the server and agent-auth keep, each in its own schema and role.
+  postgres:
+    image: docker.io/library/postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mesh
+      POSTGRES_PASSWORD: quickstart-postgres
+      AI_PROXY_DB_API_PASSWORD: quickstartapi
+      AI_PROXY_DB_AUTH_PASSWORD: quickstartauth
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ../server/docker/postgres-init.sh:/docker-entrypoint-initdb.d/10-mesh.sh:ro,z
+    healthcheck:
+      test: [CMD, pg_isready, -U, postgres, -d, mesh]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+
   server:
     build:
       context: ..
@@ -34,17 +52,20 @@ services:
     image: localhost/ai-control-mesh-quickstart-server
     restart: unless-stopped
     entrypoint: [python, /quickstart/start.py, server]
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
       <<: *auth
       AI_PROXY_URL: http://localhost:19999
+      # Local providers are adopted from the fleet: machine-1's Ollama.
+      AI_PROXY_DEFAULT_BACKEND: machine-1
+      AI_PROXY_DATABASE_URL: postgresql+psycopg://mesh_api:quickstartapi@postgres:5432/mesh
     ports:
       - "127.0.0.1:19999:9999"
     volumes:
       - ./start.py:/quickstart/start.py:ro,z
-      - ./backends.yaml:/quickstart/backends.yaml:ro,z
-      - server-config:/app/config
       - server-logs:/app/logs
-      - server-certs:/app/certs
 
   auth:
     build:
@@ -53,17 +74,16 @@ services:
     image: localhost/ai-control-mesh-quickstart-server
     restart: unless-stopped
     entrypoint: [agent-auth]
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
       <<: *auth
       AI_PROXY_AUTH_HOST: 0.0.0.0
       AI_PROXY_AUTH_PORT: "10000"
-      AI_PROXY_OIDC_STATE_DIR: /app/auth-state
+      AI_PROXY_AUTH_DATABASE_URL: postgresql+psycopg://mesh_auth:quickstartauth@postgres:5432/mesh
     ports:
       - "127.0.0.1:20000:10000"
-    volumes:
-      - server-config:/app/config:ro
-      - server-certs:/app/certs:ro
-      - auth-state:/app/auth-state
     healthcheck:
       test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:10000/health', timeout=3)"]
       interval: 5s
@@ -114,10 +134,8 @@ services:
       retries: 20
 
 volumes:
-  server-config:
+  postgres-data:
   server-logs:
-  server-certs:
-  auth-state:
   machine-1-home:
   machine-1-workspace:
   machine-2-home:

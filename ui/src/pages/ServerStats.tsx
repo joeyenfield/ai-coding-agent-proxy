@@ -178,12 +178,30 @@ export function ServerStatsPage() {
               <table className="table">
                 <thead>
                   <tr>
-                    <th scope="col">Folder</th>
+                    <th scope="col">Where</th>
                     <th scope="col" className="num">Size</th>
                     <th scope="col">Making room</th>
                   </tr>
                 </thead>
                 <tbody>
+                  {sample.database && (
+                    <tr>
+                      <td>
+                        <strong>The database</strong>
+                        <small>
+                          {sample.database.kind === "postgresql" ? "PostgreSQL" : "SQLite"}: settings, accounts, machines, and every session's
+                          requests, payloads and terminals
+                        </small>
+                      </td>
+                      <td className="num nowrap">
+                        {sample.database.bytes != null ? formatBytes(sample.database.bytes) : sample.folders_measuring || sample.folders_measured_at == null ? "Measuring…" : "Unknown"}
+                      </td>
+                      <td>
+                        <Link to="/sessions">Delete sessions</Link>, or keep payloads and terminals for fewer days in{" "}
+                        <Link to="/settings">Server settings</Link>.
+                      </td>
+                    </tr>
+                  )}
                   {sample.folders.map((folder, index) => (
                     <tr key={folder.path}>
                       <td>
@@ -195,9 +213,7 @@ export function ServerStatsPage() {
                       </td>
                       <td>
                         {index === 0 ? (
-                          <>
-                            <Link to="/sessions">Delete sessions</Link> to remove their recorded traffic.
-                          </>
+                          <>The server's own log. Without PostgreSQL, the database file (above) is in this folder too.</>
                         ) : (
                           <>Old builds (folders named like 1.2.0+abc1234) can be deleted by hand; the server hands out only its own version's.</>
                         )}

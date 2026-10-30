@@ -19,7 +19,8 @@ from fastapi.testclient import TestClient
 from agent_server.app import create_app
 from agent_server.config import Backend, Settings
 from test_auth import org_settings, signed_in
-from oidc_helpers import authenticated_client, access_token
+from agent_server.db import schema
+from oidc_helpers import authenticated_client, access_token, stored_rows
 
 
 LOCAL = {"base_url": "http://127.0.0.1:8181", "client": ("127.0.0.1", 50000)}
@@ -76,7 +77,7 @@ def join(app: Any, owner: str | None = None, machine_id: str = "desk") -> None:
 
 def local_app(tmp_path: Path) -> Any:
     return create_app(Settings(
-        log_dir=tmp_path / "logs", backends_file=tmp_path / "backends.yaml", default_backend="test",
+        log_dir=tmp_path / "logs", default_backend="test",
         backends={"test": Backend("test", "http://ollama.test")},
     ))
 
@@ -95,7 +96,7 @@ def test_a_launch_gives_the_agent_the_mcp_servers_it_chose_and_the_server_record
         assert [(item["id"], item["transport"], item["connected"]) for item in listed] == [("desk/github", "stdio", True), ("desk/docs", "http", True)]
         # The key is the machine's and the server's only.
         assert KEY not in json.dumps(client.get("/api/machines/desk").json())
-        assert KEY not in (tmp_path / "logs" / "machines.json").read_text()
+        assert KEY not in json.dumps(stored_rows(app.state.runtime.db, schema.machines))
 
         prepared = prepare(client, mcp=["desk/github"])
         assert prepared.status_code == 201, prepared.text
@@ -107,7 +108,7 @@ def test_a_launch_gives_the_agent_the_mcp_servers_it_chose_and_the_server_record
         assert parsed_url.query.startswith("key=")
         token = parsed_url.query.removeprefix("key=")
         assert token and "mcp_token_hash" not in launch["session"]
-        saved_session = json.loads((tmp_path / "logs" / "sessions" / session_id / "session.json").read_text())
+        [saved_session] = [row["data"] for row in stored_rows(app.state.runtime.db, schema.sessions) if row["id"] == session_id]
         assert saved_session["mcp_token_hash"] and token not in json.dumps(saved_session)
         assert launch["mcp"] == [{"id": "desk/github", "name": "github", "url": url}]
         assert launch["command"][:3] == ["claude", "--mcp-config", "/tmp/f/claude-mcp.json"]

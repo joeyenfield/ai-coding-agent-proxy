@@ -11,10 +11,18 @@ export function useSessions() {
 }
 
 /** Full request history, refetched only when the proxy reports new or in-flight requests. */
-export function useRequests() {
+/** The newest requests the console holds at once; older ones are a page further back (Request history's Load older). */
+export const REQUEST_WINDOW = 2000;
+
+/** Saved requests, newest first: one session's all, or everyone's newest REQUEST_WINDOW. Refetched as traffic comes in. */
+export function useRequests(sessionId?: string) {
   const status = useStatus();
   const revision = `${status.data?.total_requests ?? 0}:${status.data?.current_requests.length ?? 0}`;
-  return useQuery({ queryKey: ["requests", revision], queryFn: api.requests, placeholderData: (previous) => previous });
+  return useQuery({
+    queryKey: ["requests", sessionId ?? "", revision],
+    queryFn: () => api.requests(sessionId ? { session_id: sessionId } : { limit: REQUEST_WINDOW }),
+    placeholderData: (previous) => previous,
+  });
 }
 
 export function useModels() {

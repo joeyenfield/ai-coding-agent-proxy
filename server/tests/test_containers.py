@@ -16,7 +16,8 @@ import httpx
 import pytest
 import yaml
 from fastapi.testclient import TestClient
-from oidc_helpers import authenticated_client
+from oidc_helpers import stored_backends, stored_rows, authenticated_client
+from agent_server.db import schema
 
 from agent_server import containers, strata
 from agent_server.app import create_app
@@ -78,11 +79,8 @@ class FakeMachine:
 
 
 def make_settings(tmp_path: Path, **backends: Backend) -> Settings:
-    backends_file = tmp_path / "backends.yaml"
     laptop = {"laptop": Backend("laptop", "http://ollama.test")}
-    data = {"default_backend": "laptop", "backends": {name: backend.public() for name, backend in {**laptop, **backends}.items()}}
-    backends_file.write_text(yaml.safe_dump(data))
-    return Settings(log_dir=tmp_path / "logs", backends_file=backends_file, default_backend="laptop", backends={**laptop, **backends})
+    return Settings(log_dir=tmp_path / "logs", default_backend="laptop", backends={**laptop, **backends})
 
 
 def join(app: Any, machine_id: str = "m1", address: str = "127.0.0.1", enabled: bool = True) -> FakeMachine:
@@ -126,7 +124,7 @@ def test_create_start_switch_and_delete_containers_on_a_machine(tmp_path):
 
         created = client.post("/api/containers", json={"name": "strata-iq3", "machine": "m1", "engine": "strata", "port": 18080, "env": {"MODEL": "IQ3_XXS", "KV": "q4_0"}})
         assert created.status_code == 201, created.text
-        saved = yaml.safe_load((tmp_path / "backends.yaml").read_text())["backends"]["strata-iq3"]
+        saved = stored_backends(app.state.runtime.settings)["strata-iq3"]
         assert saved == {"type": "strata", "url": "http://127.0.0.1:18080", "machine": "m1", "container": created.json()["spec"]}
         assert client.post("/api/containers", json={"name": "laptop", "machine": "m1", "engine": "ollama"}).status_code == 409
         assert client.post("/api/containers", json={"name": "x", "machine": "m1", "engine": "vllm"}).status_code == 400
@@ -166,8 +164,8 @@ def test_create_start_switch_and_delete_containers_on_a_machine(tmp_path):
 
         assert client.delete("/api/containers/strata-iq3").status_code == 200
         assert machine.calls[-1]["op"] == "remove" and "strata-iq3" not in machine.running
-        assert "strata-iq3" not in yaml.safe_load((tmp_path / "backends.yaml").read_text())["backends"]
-        assert "strata-iq3" not in json.loads((tmp_path / "logs" / "remote" / "container-keys.json").read_text())
+        assert "strata-iq3" not in stored_backends(app.state.runtime.settings)
+        assert "container-key:strata-iq3" not in [row["name"] for row in stored_rows(app.state.runtime.db, schema.secrets)]
 
 
 def test_containers_on_another_machine_listen_where_the_server_reaches_them(tmp_path):
@@ -210,7 +208,7 @@ def test_containers_need_a_trusted_device_and_settings_saves_keep_them(tmp_path)
         config["backends"]["box"]["container"] = {"engine": "ollama", "image": "evil/image"}
         config["backends"]["box"]["machine"] = "m2"
         assert client.put("/api/config", json=config).status_code == 200
-        saved = yaml.safe_load((tmp_path / "backends.yaml").read_text())["backends"]
+        saved = stored_backends(app.state.runtime.settings)
         assert "container" not in saved["laptop"] and saved["box"]["container"] == spec and saved["box"]["machine"] == "m1"
 
 

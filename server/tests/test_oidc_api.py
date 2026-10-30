@@ -22,11 +22,11 @@ from oidc_helpers import plant_legacy_credentials
 @pytest.fixture
 def api_app(tmp_path):
     settings = Settings(
-        log_dir=tmp_path / "logs", backends_file=tmp_path / "backends.yaml",
+        log_dir=tmp_path / "logs", 
         oidc_introspection_secret="test-resource-secret",
         default_backend="hosted", backends={"hosted": Backend("hosted", "https://provider.test", type="anthropic")},
     )
-    store = UserStore(settings.users_path)
+    store = UserStore(settings.open_database())
     store.add_user("admin", "test password")
     store.add_user("alice", "test password")
     app = create_app(settings)
@@ -74,7 +74,7 @@ def test_unsafe_oidc_configuration_is_rejected(settings):
 
 def test_legacy_credentials_and_id_tokens_are_not_access_tokens(api_app):
     client, runtime, _ = api_app
-    old, launcher = plant_legacy_credentials(runtime.settings.users_path, "alice")
+    old, launcher = plant_legacy_credentials("alice")
     for token in (old, launcher, "id-token"):
         assert client.get("/api/status", headers={"authorization": "Bearer " + token}).status_code == 401
         client.cookies.set("ai_proxy_session", token)

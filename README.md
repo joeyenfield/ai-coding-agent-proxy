@@ -64,7 +64,7 @@ Then open the console, add its model server with **Add as a provider**, and star
 | [Providers](docs/providers.md) | Ollama, Strata, Docker Model Runner, containers, hosted APIs |
 | [The console](docs/console.md) | Every page of the web console |
 | [Accounts and sharing](docs/accounts.md) | Users, organizations, teams, sharing, phones |
-| [Configuration](docs/configuration.md) | Config files, environment variables, server commands |
+| [Configuration](docs/configuration.md) | The database and stored settings, environment variables, server commands |
 | [API](docs/api.md) | Every endpoint and WebSocket |
 | [Deployment](docs/deployment.md) | Docker, HTTPS, installers, packages, updates |
 | [Development](docs/development.md) | Building, testing, releasing |

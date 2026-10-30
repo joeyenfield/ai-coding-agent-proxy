@@ -13,21 +13,13 @@ import httpx
 from fastapi.testclient import TestClient
 
 
-def plant_legacy_credentials(users_path, user: str) -> tuple[str, str]:
-    """Write a browser sign-in and a launcher token into users.json as versions before OIDC did,
-    and return their secrets: (browser cookie, launcher token). They must authenticate nothing."""
-    data = json.loads(users_path.read_text(encoding="utf-8"))
-    browser, launcher = secrets.token_urlsafe(32), "aip_" + secrets.token_urlsafe(32)
-    now = time.time()
-    data.setdefault("sessions", {})[hashlib.sha256(browser.encode()).hexdigest()] = {
-        "user": user, "created_at": now, "expires_at": now + 30 * 86400, "agent": "old browser",
-    }
-    data.setdefault("tokens", {})[secrets.token_hex(4)] = {
-        "user": user, "label": "old launcher", "hash": hashlib.sha256(launcher.encode()).hexdigest(),
-        "created_at": now, "last_used_at": None,
-    }
-    users_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    return browser, launcher
+def plant_legacy_credentials(user: str) -> tuple[str, str]:
+    """A browser sign-in and a launcher token as versions before OIDC made them: (cookie, launcher token).
+
+    Those versions kept them in users.json; the import into the database leaves them behind,
+    so they exist nowhere the server looks. They must authenticate nothing.
+    """
+    return secrets.token_urlsafe(32), "aip_" + secrets.token_urlsafe(32)
 
 
 class Issuer:
@@ -91,3 +83,32 @@ def authenticated_client(app, **kwargs) -> TestClient:
     """Explicit fixture for tests unrelated to signing in, using a real OAuth identity."""
     headers = {"x-ai-proxy-token": access_token(app), **kwargs.pop("headers", {})}
     return OAuthTestClient(app, headers=headers, **kwargs)
+
+
+def stored_backends(settings) -> dict:
+    """The backends as the database holds them now (what backends.yaml showed once)."""
+    from agent_server import config_io
+
+    settings.open_database().writer.flush()
+    return config_io.export(settings)["backends"]
+
+
+def database(tmp_path, separate: bool = False):
+    """The test's database, set up as the server's (stores built directly use it).
+
+    separate: another one beside it (a SQLite file), even when the tests run on PostgreSQL.
+    """
+    from agent_server.config import Settings
+    from agent_server.db import sqlite_url
+
+    url = sqlite_url(tmp_path / "logs" / "agent-server.sqlite3") if separate else None
+    return Settings(log_dir=tmp_path / "logs", database_url=url).open_database()
+
+
+def stored_rows(db, table) -> list:
+    """Every row of a table as it's stored, after the queued writes."""
+    from sqlalchemy import select
+
+    db.writer.flush()
+    with db.read() as connection:
+        return [dict(row) for row in connection.execute(select(table)).mappings()]

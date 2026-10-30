@@ -20,14 +20,17 @@ import re
 import secrets
 import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 import httpx
 import anyio
+from sqlalchemy import select
+from sqlalchemy.exc import DBAPIError
 from starlette.requests import HTTPConnection
 
+from .db import Database, kv, schema
 from .remote import same_origin
 
 
@@ -95,6 +98,21 @@ class Identity:
         return {"user": self.user, "via": self.via, "role": self.role, "orgs": list(self.orgs), "teams": list(self.teams)}
 
 
+def write_directory(connection: Any, users: dict[str, Any], orgs: dict[str, Any]) -> None:
+    """Replace the stored users and organizations with these (UserStore's and the legacy import's)."""
+    connection.execute(schema.users.delete())
+    connection.execute(schema.orgs.delete())
+    for name, record in users.items():
+        connection.execute(schema.users.insert().values(
+            name=name, password=str(record.get("password") or ""), role=record.get("role", "member"),
+            created_at=record.get("created_at"), orgs=list(record.get("orgs", [])), teams=list(record.get("teams", [])),
+        ))
+    for org, record in orgs.items():
+        connection.execute(schema.orgs.insert().values(
+            id=org, name=record.get("name") or org, created_at=record.get("created_at"), teams=dict(record.get("teams") or {}),
+        ))
+
+
 def _migrated(data: dict[str, Any]) -> dict[str, Any]:
     """A users.json from before organizations: its one organization (the server) and teams become one organization."""
     old = data.pop("org", None)
@@ -113,56 +131,96 @@ def _migrated(data: dict[str, Any]) -> dict[str, Any]:
 
 
 class UserStore:
-    """users.json: users, organizations and their teams (plus older versions' sign-ins and tokens, never read)."""
+    """Users, organizations and their teams, in the database's users and orgs tables.
 
-    def __init__(self, path: Path):
-        self.path = path
+    The whole directory is small, so it's kept in memory and re-read when meta's accounts_version
+    says another process (`agent-server user`, a second server) changed it: once per call, on its
+    outermost entry. Each change rewrites the directory in one transaction and bumps the version.
+    The issuer opens it read-only (readonly=True): it never writes accounts.
+    """
+
+    def __init__(self, db: Database, readonly: bool = False):
+        self.db = db
+        self.readonly = readonly
         self._lock = threading.RLock()
+        self._depth = 0
         self._data: dict[str, Any] | None = None
-        self._loaded_mtime = 0.0
+        self._version: Any = None
 
     # Storage
 
-    def _load(self) -> dict[str, Any]:
-        try:
-            mtime = self.path.stat().st_mtime
-        except OSError:
-            mtime = 0.0
-        # Reload when `agent-server user` changed the file while the proxy runs.
-        if self._data is None or mtime != self._loaded_mtime:
+    @contextmanager
+    def _locked(self) -> Iterator[None]:
+        with self._lock:
+            if self._depth == 0:
+                self._refresh()
+            self._depth += 1
             try:
-                data = json.loads(self.path.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                data = {}
-            data = data if isinstance(data, dict) else {}
-            if "orgs" not in data:
-                data = _migrated(data)
-            for key in ("users", "orgs", "sessions", "tokens"):
-                data.setdefault(key, {})
-            self._data, self._loaded_mtime = data, mtime
+                yield
+            finally:
+                self._depth -= 1
+
+    def _refresh(self) -> None:
+        try:
+            self._read()
+        except DBAPIError:
+            if not self.readonly:
+                raise
+            # The issuer, started before the API ever made its tables: no accounts yet.
+            self._data, self._version = {"users": {}, "orgs": {}, "sessions": {}, "tokens": {}}, None
+
+    def _read(self) -> None:
+        with self.db.read() as connection:
+            current = kv.get_meta(connection, "accounts_version", 0)
+            if self._data is not None and current == self._version:
+                return
+            users = {
+                row["name"]: {
+                    "password": row["password"], "role": row["role"], "orgs": list(row["orgs"] or []),
+                    "teams": list(row["teams"] or []), "created_at": row["created_at"],
+                }
+                for row in connection.execute(select(schema.users)).mappings()
+            }
+            orgs = {
+                row["id"]: {"name": row["name"], "created_at": row["created_at"], "teams": dict(row["teams"] or {})}
+                for row in connection.execute(select(schema.orgs)).mappings()
+            }
+        # sessions and tokens: older versions' sign-ins, never stored here (they can't authenticate).
+        self._data, self._version = {"users": users, "orgs": orgs, "sessions": {}, "tokens": {}}, current
+
+    def _load(self) -> dict[str, Any]:
+        if self._data is None:
+            self._refresh()
+        assert self._data is not None
         return self._data
 
     def _save(self) -> None:
         assert self._data is not None
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = self.path.with_suffix(".tmp")
-        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            json.dump(self._data, handle, indent=2)
-        temporary.replace(self.path)
-        self._loaded_mtime = self.path.stat().st_mtime
+        if self.readonly:
+            raise PermissionError("This account directory is read-only")
+        data = self._data
+        with self.db.write() as connection:
+            write_directory(connection, data["users"], data["orgs"])
+            self._version = int(kv.get_meta(connection, "accounts_version", 0) or 0) + 1
+            kv.put_meta(connection, "accounts_version", self._version)
+            kv.put_meta(connection, "accounts_initialized", True)
+
+    def initialized(self) -> bool:
+        """Whether accounts were ever set up here (the first start makes an admin only once)."""
+        with self.db.read() as connection:
+            return bool(kv.get_meta(connection, "accounts_initialized"))
 
     # Organizations and their teams
 
     def orgs(self, viewer: Identity | None = None) -> list[dict[str, Any]]:
         """Every organization, or with a member's identity only theirs (admins see them all)."""
-        with self._lock:
+        with self._locked():
             data = self._load()
             mine = None if viewer is None or viewer.admin else set(viewer.orgs)
             return [self._org_public(org) for org in sorted(data["orgs"]) if mine is None or org in mine]
 
     def org(self, org: str) -> dict[str, Any] | None:
-        with self._lock:
+        with self._locked():
             return self._org_public(org) if org in self._load()["orgs"] else None
 
     def _org_public(self, org: str) -> dict[str, Any]:
@@ -182,7 +240,7 @@ class UserStore:
 
     def add_org(self, org: str, name: str | None = None) -> str:
         org = valid_name(org, "organization")
-        with self._lock:
+        with self._locked():
             orgs = self._load()["orgs"]
             if org in orgs:
                 raise ValueError(f"There's already an organization called {org}")
@@ -191,7 +249,7 @@ class UserStore:
         return org
 
     def rename_org(self, org: str, name: str) -> None:
-        with self._lock:
+        with self._locked():
             record = self._load()["orgs"].get(org)
             if record is None:
                 raise KeyError(org)
@@ -200,7 +258,7 @@ class UserStore:
 
     def remove_org(self, org: str) -> None:
         """Delete an organization: its teams go, and its members leave it (their accounts stay)."""
-        with self._lock:
+        with self._locked():
             data = self._load()
             if data["orgs"].pop(org, None) is None:
                 raise KeyError(org)
@@ -212,7 +270,7 @@ class UserStore:
     def add_team(self, org: str, team: str, name: str | None = None) -> str:
         """A team in an organization; returns its key, <org>/<team>."""
         team = valid_name(team, "team")
-        with self._lock:
+        with self._locked():
             record = self._load()["orgs"].get(org)
             if record is None:
                 raise KeyError(org)
@@ -224,7 +282,7 @@ class UserStore:
         return team_key(org, team)
 
     def remove_team(self, org: str, team: str) -> None:
-        with self._lock:
+        with self._locked():
             data = self._load()
             if data["orgs"].get(org, {}).get("teams", {}).pop(team, None) is None:
                 raise KeyError(team)
@@ -234,7 +292,7 @@ class UserStore:
 
     def rename_team(self, org: str, team: str, name: str) -> None:
         """Change a team's display name without changing its sharing key."""
-        with self._lock:
+        with self._locked():
             record = self._load()["orgs"].get(org, {}).get("teams", {}).get(team)
             if record is None:
                 raise KeyError(team)
@@ -243,7 +301,7 @@ class UserStore:
 
     def set_membership(self, org: str, name: str, member: bool, *, team: str | None = None) -> None:
         """Change one membership under the lock, preserving memberships outside this scope."""
-        with self._lock:
+        with self._locked():
             data = self._load()
             organization = data["orgs"].get(org)
             if organization is None or name not in data["users"]:
@@ -294,16 +352,16 @@ class UserStore:
     # Users
 
     def users(self) -> list[str]:
-        with self._lock:
+        with self._locked():
             return sorted(self._load()["users"])
 
     def user(self, name: str) -> dict[str, Any] | None:
-        with self._lock:
+        with self._locked():
             return self._user_public(name) if name in self._load()["users"] else None
 
     def user_list(self, viewer: Identity | None = None) -> list[dict[str, Any]]:
         """Every user, or for a member those who share an organization with them (and themselves)."""
-        with self._lock:
+        with self._locked():
             users = [self._user_public(name) for name in sorted(self._load()["users"])]
         if viewer is None or viewer.admin:
             return users
@@ -313,7 +371,7 @@ class UserStore:
     def add_user(self, name: str, password: str, role: str | None = None, teams: list[str] | None = None, orgs: list[str] | None = None) -> dict[str, Any]:
         """A new user. The first user is an admin, so someone can manage the rest."""
         name = valid_name(name, "user")
-        with self._lock:
+        with self._locked():
             data = self._load()
             if name in data["users"]:
                 raise ValueError(f"There's already a user called {name}")
@@ -329,7 +387,7 @@ class UserStore:
             return self._user_public(name)
 
     def update_user(self, name: str, *, role: str | None = None, teams: list[str] | None = None, orgs: list[str] | None = None, password: str | None = None) -> dict[str, Any]:
-        with self._lock:
+        with self._locked():
             data = self._load()
             record = data["users"].get(name)
             if record is None:
@@ -357,7 +415,7 @@ class UserStore:
         self.update_user(name, password=password)
 
     def remove_user(self, name: str) -> bool:
-        with self._lock:
+        with self._locked():
             data = self._load()
             if name not in data["users"]:
                 return False
@@ -370,7 +428,7 @@ class UserStore:
             return True
 
     def verify(self, name: str, password: str) -> bool:
-        with self._lock:
+        with self._locked():
             record = self._load()["users"].get(name)
         if record is None:
             # Same work either way, so timing doesn't reveal which users exist.
@@ -379,7 +437,7 @@ class UserStore:
         return check_password(password, str(record.get("password") or ""))
 
     def account_version(self, name: str) -> str | None:
-        with self._lock:
+        with self._locked():
             record = self._load()["users"].get(name)
             if record is None:
                 return None
@@ -503,6 +561,8 @@ UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 # Changes to the server itself: only admins make them. Members use the server.
 ADMIN_ONLY = [
     (re.compile(r"PUT"), re.compile(r"/api/config")),
+    # The stored settings themselves: agents, model tuning, retention, export and import.
+    (re.compile(r"GET|POST|PUT|DELETE"), re.compile(r"/api/config/.+")),
     (re.compile(r"POST"), re.compile(r"/api/containers")),
     (re.compile(r"PUT|DELETE"), re.compile(r"/api/containers/[^/]+")),
     (re.compile(r"POST"), re.compile(r"/api/server/restart")),

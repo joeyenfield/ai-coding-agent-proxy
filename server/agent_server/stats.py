@@ -19,7 +19,7 @@ from typing import Any
 import psutil
 
 
-# Walking logs/ can take seconds once sessions pile up, so folder sizes are measured in the
+# Walking a folder can take seconds, so folder sizes (and the database's) are measured in the
 # background and kept this long.
 FOLDER_TTL = 300
 
@@ -33,9 +33,11 @@ class Folder:
 class ServerStats:
     def __init__(self, settings: Any):
         self.folders = [
-            Folder("Recorded traffic and logs", Path(settings.log_dir)),
+            Folder("Logs", Path(settings.log_dir)),
             Folder("Builds handed out", Path(settings.dist_dir)),
         ]
+        # Sessions, their records and traces, accounts and settings: all in the database.
+        self.db = getattr(settings, "db", None)
         self.process = psutil.Process()
         # psutil's CPU figures are since the previous call; the first one only starts the clock.
         psutil.cpu_percent(interval=None)
@@ -74,6 +76,10 @@ class ServerStats:
             "process": process,
             "disks": self._disks(),
             "folders": [{"name": folder.name, "path": str(folder.path), "bytes": sizes.get(str(folder.path))} for folder in self.folders],
+            "database": {
+                "kind": ("sqlite" if self.db.sqlite else "postgresql") if self.db else None,
+                "bytes": sizes.get("database"),
+            },
             "folders_measured_at": measured_at,
             "folders_measuring": measuring,
         }
@@ -106,6 +112,7 @@ class ServerStats:
 
     def _measure(self) -> None:
         sizes = {str(folder.path): _size(folder.path) for folder in self.folders}
+        sizes["database"] = self.db.size() if self.db else None
         with self._lock:
             self._sizes, self._measured_at, self._measuring = sizes, time.time(), False
 

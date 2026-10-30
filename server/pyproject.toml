@@ -21,6 +21,9 @@ dependencies = [
   "uvicorn[standard]>=0.27",
   # The server computer's CPU, memory and disk use (stats.py).
   "psutil>=5.9",
+  # Everything the server keeps (db/): PostgreSQL through psycopg, or SQLite from the standard library.
+  "SQLAlchemy>=2.0,<3",
+  "psycopg[binary]>=3.2",
 ]
 
 [project.optional-dependencies]

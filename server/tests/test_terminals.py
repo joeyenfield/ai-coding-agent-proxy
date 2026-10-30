@@ -16,6 +16,8 @@ from agent_server import terminals
 from agent_server.fleet import Fleet, Machine
 from agent_server.terminals import input_parts, screen_question
 from oidc_helpers import authenticated_client
+from oidc_helpers import database, stored_rows
+from agent_server.db import schema
 
 
 LOCAL = {"base_url": "http://127.0.0.1:8181", "client": ("127.0.0.1", 50000)}
@@ -133,9 +135,10 @@ def test_host_streams_to_viewers_and_viewer_input_reaches_the_host(tmp_path):
                 ws.send_text(json.dumps({"type": "exit", "status": 3}))
                 ended = json.loads(viewer.receive_text())
                 assert ended["type"] == "state" and ended["terminal"]["exit_status"] == 3
-        directory = tmp_path / "logs" / "sessions" / session_id
-        assert (directory / "terminal.log").read_bytes() == b"\x1b[?2004h> Welcome to Claude Code\r\nThinking...\r\n"
-        meta = json.loads((directory / "terminal.json").read_text())
+        db = client.app.state.runtime.db
+        chunks = sorted((row["offset"], row["data"]) for row in stored_rows(db, schema.terminal_chunks) if row["session_id"] == session_id)
+        assert b"".join(bytes(data) for _, data in chunks) == b"\x1b[?2004h> Welcome to Claude Code\r\nThinking...\r\n"
+        [meta] = [row["meta"] for row in stored_rows(db, schema.terminals) if row["session_id"] == session_id]
         assert (meta["cols"], meta["rows"], meta["exit_status"], meta["total"]) == (80, 24, 3, 47)
 
 
@@ -249,7 +252,7 @@ def test_running_agents_say_their_machine_and_when_they_wait_for_you(tmp_path, m
 
 
 def test_sessions_only_join_a_machine_of_their_own_owner(tmp_path):
-    fleet = Fleet(tmp_path / "machines.json")
+    fleet = Fleet(database(tmp_path))
     fleet.machines["mine"] = Machine(id="mine", name="desk", owner="joey")
     fleet.machines["theirs"] = Machine(id="theirs", name="desk", owner="sam", hostname="desk")
     assert fleet.machine_for({"machine": "mine", "owner": "joey"}).id == "mine"

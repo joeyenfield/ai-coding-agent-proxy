@@ -28,6 +28,7 @@ The stack has:
 
 | Service | Purpose |
 | --- | --- |
+| `postgres` | PostgreSQL: the server's settings, accounts and recordings, and the issuer's state, each in its own schema and role. No published port. |
 | `server` | API and console on `127.0.0.1:19999`. |
 | `auth` | Separate OIDC issuer on `127.0.0.1:20000`. |
 | `machine-1` | Fleet machine with the launcher, coding agents and `/workspace`. |
@@ -89,9 +90,16 @@ podman compose stop
 podman compose up -d
 ```
 
-Configuration, recordings, auth state, both machines' home folders and workspaces, and
-Ollama models have separate named volumes. They survive container recreation. This stack
+The database (configuration, accounts, recordings and auth state), the server's log, both
+machines' home folders and workspaces, and Ollama models have separate named volumes. They survive container recreation. This stack
 uses its own Compose project and does not read your checkout's runtime configuration.
+
+To look at the stored settings, or the database itself:
+
+```bash
+podman compose exec server agent-server config export
+podman compose exec postgres psql -U postgres mesh
+```
 
 To delete **all quickstart state, workspaces and downloaded models** and start fresh:
 

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import time
 import uuid
 from collections import deque
+from datetime import datetime, timedelta, timezone
 from http.cookiejar import CookieJar, DefaultCookiePolicy
 from functools import cached_property
 from typing import Any
@@ -49,19 +49,21 @@ class Runtime:
         self.bound_host = settings.host
         self.bound_port = settings.port
         self.proxy_instance_id = str(uuid.uuid4())
-        self.sessions = SessionStore(settings.log_dir)
+        # Everything the server keeps: settings, accounts, the fleet, sessions and their records.
+        self.db = settings.open_database()
+        self.sessions = SessionStore(self.db)
         self.chats = Chats(self.sessions)
         self.terminals = TerminalHub(self.sessions)
         # Machines signed in to this server: their agents, model servers and launches.
-        self.fleet = Fleet(settings.log_dir / "machines.json", self.sessions)
+        self.fleet = Fleet(self.db, self.sessions)
         # Strata traffic is sent with the key its machine reported.
         strata.fleet = self.fleet
         # Agents' requests to machines the server can't reach go through the machines themselves.
         self.tunnels = TunnelHub(self.fleet)
         self.remote = RemoteAccess()
-        self.auth = Auth(UserStore(settings.users_path), settings)
+        self.auth = Auth(UserStore(self.db), settings)
         # Containers the machines run for the server, asked for over the fleet's connections.
-        self.containers = ContainerManager(settings, KeyStore(settings.container_keys_path), self.fleet)
+        self.containers = ContainerManager(settings, KeyStore(self.db), self.fleet)
         self.client: httpx.AsyncClient | None = None
         self.intercept_client: httpx.AsyncClient | None = None
         self.recent: deque[dict[str, Any]] = deque(maxlen=100)
@@ -83,7 +85,7 @@ class Runtime:
 
     @cached_property
     def ca(self) -> CertificateAuthority:
-        return CertificateAuthority(self.settings.intercept.ca_dir)
+        return CertificateAuthority(self.db, self.settings.intercept.ca_dir or self.settings.log_dir / "ca")
 
     def intercept_info(self) -> dict[str, Any]:
         """How agents reach the HTTPS intercept proxy, for the launcher and the UI.
@@ -96,7 +98,7 @@ class Runtime:
         info: dict[str, Any] = {
             **config.public(),
             "running": running,
-            "error": self.intercept.error if self.intercept else ("Disabled in config/backends.yaml" if not config.enabled else None),
+            "error": self.intercept.error if self.intercept else ("Turned off in the server's settings" if not config.enabled else None),
             "url": f"http://127.0.0.1:{LOCAL_INTERCEPT_PORT}",
         }
         if running:
@@ -104,31 +106,38 @@ class Runtime:
         return info
 
     def agents(self) -> dict[str, AgentDefinition]:
-        # Read on demand so edits to agents.yaml apply without a restart.
-        return load_agents(self.settings.agents_file)
+        # Read on demand so an edited definition applies without a restart.
+        return load_agents(self.db)
 
     def reload_history(self) -> None:
-        self.total_input_tokens = 0
-        self.total_output_tokens = 0
-        existing: list[dict[str, Any]] = []
-        for session in self.sessions.list():
-            for record in self.records(session):
-                existing.append(record)
-                self.total_input_tokens += int(record.get("input_tokens") or 0)
-                self.total_output_tokens += int(record.get("output_tokens") or 0)
+        self.total_input_tokens, self.total_output_tokens = self.sessions.totals()
         self.recent.clear()
-        self.recent.extend(sorted(existing, key=lambda item: item.get("timestamp", ""))[-100:])
+        self.recent.extend(self.sessions.recent(self.recent.maxlen or 100))
 
     def records(self, session: Session) -> list[dict[str, Any]]:
-        records = []
-        for line in self.sessions.telemetry(session).splitlines():
+        return self.sessions.records(session)
+
+    def prune(self) -> int:
+        """Delete recordings older than the retention setting (traces, chat indexes, terminal output)."""
+        days = self.settings.retention_days
+        if not days:
+            return 0
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        pruned = self.sessions.prune(cutoff)
+        if pruned:
+            for session_id in [item.session_id for item in self.sessions.list() if (item.last_activity_at or item.started_at) < cutoff]:
+                self.chats.forget_id(session_id)
+            LOGGER.info("deleted the recordings of %s sessions older than %s days", pruned, days)
+        return pruned
+
+    async def prune_daily(self) -> None:
+        """The retention setting, applied once an hour (a change applies within the hour)."""
+        while True:
             try:
-                record = json.loads(line)
-            except ValueError:
-                continue
-            if isinstance(record, dict):
-                records.append(record)
-        return records
+                await asyncio.to_thread(self.prune)
+            except Exception:  # noqa: BLE001 - try again next time
+                LOGGER.exception("deleting old recordings failed")
+            await asyncio.sleep(3600)
 
     def status(self, visible: Any = None) -> dict[str, Any]:
         """Totals and traffic; with visible (a session-id test), only the sessions it allows."""

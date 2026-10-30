@@ -71,7 +71,7 @@ Every HTTP client and WebSocket dialer in `agent` and `agent-machine` ignores `H
 
 | Port | Where | Listens on | What |
 | --- | --- | --- | --- |
-| 9999 | the server | all interfaces (`proxy.url` in `backends.yaml`; 8181 without a config) | Everything: the API, the console, agent traffic, every WebSocket |
+| 9999 | the server | all interfaces (a new server's default; **Server settings** changes it) | Everything: the API, the console, agent traffic, every WebSocket |
 | 8184 | each agent computer | `127.0.0.1` only (`AI_PROXY_LOCAL_PORT`) | `agent-proxy`: agents' endpoints and the launcher's API |
 | 8183 | each agent computer | `127.0.0.1` only (`AI_PROXY_LOCAL_INTERCEPT_PORT`) | `agent-proxy`'s HTTPS proxy for account agents |
 | random | the server | `127.0.0.1` only | One tunnel listener per machine and model server (see [Tunnels](#tunnels)) |
@@ -121,7 +121,7 @@ What the server does depends on both the endpoint the agent called and the backe
 
 | Agent calls | `ollama` backend | `strata` backend | `docker` backend | `anthropic` backend |
 | --- | --- | --- | --- | --- |
-| `GET /v1/models` | Lists `/api/tags` as OpenAI models, plus the aliases in `models.yaml` | `/v1/models`, with Strata's key | `/engines/v1/models` | Not supported: hosted agents list models through `/anthropic` |
+| `GET /v1/models` | Lists `/api/tags` as OpenAI models, plus the aliases in the model tuning | `/v1/models`, with Strata's key | `/engines/v1/models` | Not supported: hosted agents list models through `/anthropic` |
 | `POST /v1/chat/completions` | **Translated** to native `/api/chat` with the model's profile applied, and the reply translated back (with `translate_openai: false`, passed to Ollama's own `/v1` with the alias resolved) | Passed through | Passed through to `/engines/v1/chat/completions` | 400: only through `/anthropic` |
 | Other `/v1/…` (Responses, embeddings) | Passed through, the alias resolved to the Ollama model | Passed through | Passed through to `/engines/v1/…` | 400 |
 | `POST /anthropic/v1/messages` | **Translated** to native `/api/chat` and back | Passed through to `/v1/messages` | Passed through to `/anthropic/v1/messages` | Passed through to the hosted `/v1/messages` |
@@ -131,7 +131,7 @@ What the server does depends on both the endpoint the agent called and the backe
 | Native `/api/embed`, `embeddings`, `tags`, `show`, `ps`, `version` | Passed through, the alias resolved | 400 | Passed through | 400 |
 | Native `/api/pull`, `delete`, `create`, `push`, … | 404: models are managed from the machine, not through agent traffic | 404 | 404 | 404 |
 
-Why Ollama is translated: its OpenAI-compatible `/v1` ignores per-request settings such as `num_ctx`, so agents' long conversations would be cut to Ollama's default context with no error. The native API takes the context size and sampling settings from `config/models.yaml`. See [Providers](providers.md).
+Why Ollama is translated: its OpenAI-compatible `/v1` ignores per-request settings such as `num_ctx`, so agents' long conversations would be cut to Ollama's default context with no error. The native API takes the context size and sampling settings from the server's Ollama model tuning. See [Providers](providers.md).
 
 ### 5. The upstream address
 

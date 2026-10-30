@@ -10,6 +10,8 @@ from agent_server.app import create_app
 from agent_server.chat import Chats, request_turns, response_turn
 from agent_server.config import Backend, Settings
 from agent_server.sessions import SessionStore
+from agent_server.db import schema
+from oidc_helpers import database, stored_rows
 
 
 def make_app(tmp_path: Path, handler, **settings_args):
@@ -90,8 +92,8 @@ def test_session_chat_follows_the_main_conversation_and_links_replies_to_calls(t
         title = next(thread for thread in chat["threads"] if not thread["main"])
         other = client.get(f"/api/sessions/{session['session_id']}/chat", params={"thread": title["id"]}).json()
         assert other["turns"][-1]["blocks"] == [{"type": "text", "text": "Readme"}]
-        # The index is kept beside the traces and goes when the session's data is cleared.
-        assert (tmp_path / "sessions" / session["session_id"] / "chat-index.json").exists()
+        # The index is kept with the traces and goes when the session's data is cleared.
+        assert [row["session_id"] for row in stored_rows(app.state.runtime.db, schema.chat_index)] == [session["session_id"]]
         assert client.delete(f"/api/sessions/{session['session_id']}/data").status_code == 200
         assert client.get(f"/api/sessions/{session['session_id']}/chat").json()["threads"] == []
         assert client.get("/api/sessions/missing/chat").status_code == 404
@@ -100,7 +102,7 @@ def test_session_chat_follows_the_main_conversation_and_links_replies_to_calls(t
 
 
 def test_calls_sent_with_only_new_messages_join_the_chat_their_replies_appear_in(tmp_path):
-    store = SessionStore(tmp_path)
+    store = SessionStore(database(tmp_path))
     session = store.create({"client": "claude", "backend": "direct", "trace": True})
     tool_use = {"type": "tool_use", "id": "toolu_1", "name": "Bash", "input": {"command": "ls"}}
     calls = [
@@ -137,7 +139,7 @@ def test_calls_sent_with_only_new_messages_join_the_chat_their_replies_appear_in
 
 
 def test_pages_carry_previews_of_long_texts_and_the_full_turn_has_them(tmp_path):
-    store = SessionStore(tmp_path)
+    store = SessionStore(database(tmp_path))
     session = store.create({"client": "claude", "backend": "direct", "trace": True})
     long = "x" * 5000
     request = {"model": "m", "messages": [

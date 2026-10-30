@@ -8,7 +8,7 @@ The client knows the server by URL and gets agent definitions, environments and 
 
 ## Boundaries
 
-- Never reads `config/` or imports server, machine or Python code. Never chooses backends or renders templates.
+- Never reads the server's settings or database, or imports server, machine or Python code. Never chooses backends or renders templates.
 - Never joins the fleet: `agent machine` points at agent-machine and exits.
 - Binds `127.0.0.1` only. No HTTP client or dialer uses an environment proxy (`Proxy: nil`).
 - Dependencies: gorilla/websocket, x/sys, x/term, creack/pty. Go 1.24 in `go.mod`; build with `GOTOOLCHAIN=local`.

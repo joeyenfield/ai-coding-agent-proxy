@@ -6,7 +6,7 @@ This page covers accounts, who can see and control what, and using the console f
 
 ## Authentication is always required
 
-On first start, if `users.json` does not exist and there is no environment account, the API creates `admin` with a random password, including on loopback. It prints the password and saves `first-user-password` beside `users.json`. Reset it with `agent-server user passwd admin`, then delete that file. Removing every user does not disable authentication.
+On the first start against a new database, if there is no environment account, the API creates `admin` with a random password, including on loopback. It prints the password and saves it in the file `first-user-password` (in `certs/` normally). Reset it with `agent-server user passwd admin`, then delete that file. Removing every user does not disable authentication.
 
 ## Users, roles, organizations and teams
 
@@ -42,9 +42,9 @@ agent-server team add pockets infra --name "Infrastructure"
 agent-server user list
 ```
 
-The full list of commands is on [Configuration](configuration.md#users-organizations-and-teams). They change `users.json`, which a running server picks up straight away.
+The full list of commands is on [Configuration](configuration.md#users-organizations-and-teams). They change the accounts in the server's database, which a running server and the issuer pick up straight away.
 
-**An account from the environment.** Set `AI_PROXY_USERNAME` and `AI_PROXY_PASSWORD` on the server and that account is an admin, without anything in `users.json`. Use it for servers set up by script. It can't change its password through the console.
+**An account from the environment.** Set `AI_PROXY_USERNAME` and `AI_PROXY_PASSWORD` on the server and that account is an admin, without an account in the database. Use it for servers set up by script. It can't change its password through the console.
 
 ## Signing in
 
@@ -60,7 +60,7 @@ The CLI never collects your password. Sign in and approve its code at the issuer
 
 The issuer limits failed sign-ins. Password reset and account removal invalidate issued credentials.
 
-Passwords are hashed in `users.json`; OAuth tokens and grant state are hashed in the issuer's separate database.
+Passwords are hashed in the server's database; OAuth tokens and grant state are hashed in the issuer's own part of it (the schema `mesh_auth` on PostgreSQL), or its own file with SQLite.
 
 **Agents keep their vendor credentials.** The proxy's alternate platform header preserves vendor `Authorization`. Open sessions still require access-token authentication and session control permission. Platform tokens are never forwarded to providers.
 
@@ -152,7 +152,7 @@ Open a running agent to see its terminal:
 Things to know:
 
 - **Your window stays the main one.** Its size sets the terminal's size, and closing it ends the agent.
-- **History is saved.** Each terminal's output goes to `logs/sessions/<id>/terminal.log` (up to 64 MB), so finished sessions stay readable. If the launcher loses the server, it keeps trying and resends what the server missed when it reconnects; if this computer's `agent-proxy` has stopped (`agent update` stops it), the launcher starts it again.
+- **History is saved.** Each terminal's output is saved in the server's database (up to 64 MB), so finished sessions stay readable. If the launcher loses the server, it keeps trying and resends what the server missed when it reconnects; if this computer's `agent-proxy` has stopped (`agent update` stops it), the launcher starts it again.
 - **It's off unless you ask.** Without `--control`, the agent runs directly and only its traffic is recorded. `AI_PROXY_CONTROL=1` makes `--control` a machine's default.
 - **It needs an interactive terminal.** On Windows that's Windows Terminal, PowerShell or cmd, not Git Bash's mintty. Otherwise the launcher says why sharing is off and runs the agent directly.
 - **Away from home**, use a VPN such as [Tailscale](https://tailscale.com), or HTTPS with the registered API, console and issuer hostnames ([Deployment](deployment.md)). Authentication is required in either case.

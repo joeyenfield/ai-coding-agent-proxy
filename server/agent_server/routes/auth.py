@@ -15,14 +15,14 @@ from joserfc.errors import JoseError
 from starlette.middleware.sessions import SessionMiddleware
 
 from .. import auth
-from ..remote import read_token
+from ..db import kv
 from ..runtime import Runtime
 
 
 def register(app: FastAPI, runtime: Runtime) -> None:
     accounts = runtime.auth
     settings = runtime.settings
-    key = read_token(settings.users_path.parent / "oidc-browser-key", create=True)
+    key = kv.secret(runtime.db, "oidc-browser-key", create=True)
     app.add_middleware(
         SessionMiddleware, secret_key=key, session_cookie="mesh_oidc_state",
         max_age=600, same_site="lax", https_only=settings.oidc_issuer.startswith("https://"),

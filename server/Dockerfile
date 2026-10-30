@@ -33,24 +33,17 @@ COPY --from=console /ui/dist /app/ui/dist
 COPY VERSION /app/VERSION
 # The documentation the console shows under /help.
 COPY docs /app/docs
-# Defaults for an empty config volume: the container's backends, and the repository's
-# models and agents (agents.yaml is what every launcher's `agent` gets from the server).
-COPY server/docker/backends.yaml /app/defaults/config/backends.yaml
-COPY config/models.yaml config/agents.yaml /app/defaults/config/
 COPY benchmarks/tests /app/benchmarks/tests
-COPY server/docker/entrypoint.sh /usr/local/bin/agent-server-entrypoint
-# Shell scripts must have LF endings, whatever the checkout used.
-RUN sed -i 's/\r$//' /usr/local/bin/agent-server-entrypoint \
-    && chmod 755 /usr/local/bin/agent-server-entrypoint \
-    && useradd --system --uid 10001 --home-dir /app agent \
+RUN useradd --system --uid 10001 --home-dir /app agent \
     && mkdir -p /app/config /app/logs /app/certs /app/auth-state \
     && chown -R agent:agent /app/config /app/logs /app/certs /app/auth-state
 USER agent
-# config/: backends, models, agents (the console's Settings page rewrites backends.yaml).
-# logs/: sessions, traces, terminals. certs/: the HTTPS intercept CA, users and keys.
+# Everything the server keeps is in its database (AI_PROXY_DATABASE_URL; compose.yaml runs
+# PostgreSQL). Without one it's a SQLite file in logs/. logs/ also holds the server's own log,
+# certs/ the first admin's password once; config/ is read only to import an older install.
 # Builds to hand out (scripts/build-dist.sh's dist/) are read from /app/dist: mount them there.
-VOLUME ["/app/config", "/app/logs", "/app/certs"]
+VOLUME ["/app/logs", "/app/certs"]
 EXPOSE 9999
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9999/health', timeout=3)"
-ENTRYPOINT ["agent-server-entrypoint"]
+ENTRYPOINT ["agent-server"]

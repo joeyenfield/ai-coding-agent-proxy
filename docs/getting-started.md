@@ -30,13 +30,13 @@ pip install -e ./server           # or "./server[dev]" to run the tests too
 agent-server                      # console on http://<this computer>:9999
 ```
 
-`agent-server` reads `config/backends.yaml` in the checkout. The one in the repository listens on `0.0.0.0:9999`. On its first start, and whenever the console's sources are newer than `ui/dist`, it builds the console with npm. `agent-server --no-build` (or `AI_PROXY_UI_BUILD=0`) serves the existing build as it is.
+`agent-server` keeps everything in a database: its settings, accounts, machines and every session's recordings. Without `AI_PROXY_DATABASE_URL` that's a SQLite file in the checkout, `logs/agent-server.sqlite3`; production servers use PostgreSQL (see [Deployment](deployment.md)). A new server listens on `0.0.0.0:9999`. Change its settings on the console's **Server settings** page, or with `agent-server config export` and `import` (see [Configuration](configuration.md)). On its first start, and whenever the console's sources are newer than `ui/dist`, it builds the console with npm. `agent-server --no-build` (or `AI_PROXY_UI_BUILD=0`) serves the existing build as it is.
 
 Other options:
 
 | Option | What it does |
 | --- | --- |
-| `--host`, `--port` | Listen somewhere else than `proxy.listen_host` and `proxy.listen_port` in `backends.yaml` |
+| `--host`, `--port` | Listen somewhere else than the stored `proxy.listen_host` and `proxy.listen_port` |
 | `--no-build` | Don't rebuild the console |
 | `--reload` | Restart on Python code changes, for development (the console's restart button is off then) |
 
@@ -49,19 +49,19 @@ docker compose up -d                  # console on http://<this host>:9999
 docker compose logs agent-server      # shows the first admin's password on the first start
 ```
 
-The API keeps its state in `config` (the YAML files, filled with the image's defaults on the first start), `logs` (sessions, traces and terminals) and `certs` (the HTTPS capture's CA, users and keys). The issuer has a separate `agent-auth-state` volume. Keep account, key and issuer state private. Inside the container, `127.0.0.1` is the container itself, so the default `backends.yaml` reaches an Ollama on the Docker host as `host.docker.internal:11434`. See [Deployment](deployment.md) for more.
+Compose runs PostgreSQL beside the API and the issuer, and both keep their state there: settings, accounts, machines, recordings and sign-ins. The database passwords go in `.env`. The `logs` volume keeps the server's own log and `certs` the first admin's password file. Keep the database and its backups private. Inside the container, `127.0.0.1` is the container itself: local providers come from machines in the fleet, not addresses the server reaches by itself. See [Deployment](deployment.md) for more.
 
 ## 2. Sign in to the console
 
 The console always requires OIDC sign-in. **Sign in** redirects to `auth.aicontrolmesh.com`; enter your password only there.
 
-On first start, including loopback, the API creates `admin` if no accounts file or environment account exists. Its random password is printed and saved in `first-user-password` beside `users.json`.
+On first start, including loopback, the API creates `admin` if accounts were never set up in its database and there is no environment account. Its random password is printed and saved in the file `first-user-password` (in `certs/` normally).
 
 1. Open your configured HTTPS console and sign in as `admin` through the issuer.
 2. Reset the password with `agent-server user passwd admin`.
 3. Delete `first-user-password`.
 
-The admin is created only while `users.json` does not exist. Removing all users never disables authentication.
+The admin is created only once, on the first start against a new database. Removing all users never disables authentication.
 
 ### Adding users from the shell
 
@@ -150,7 +150,7 @@ The first `agent` command starts this computer's `agent-proxy` in the background
 
 ## 5. Start a first agent
 
-Run `agent <agent> <folder>` from your project. The agents and how to start them come from the server's `config/agents.yaml`, so every signed-in computer has the same list. Install the coding agent itself first (`agent --list` shows the install command). Arguments after `--` go to the agent.
+Run `agent <agent> <folder>` from your project. The agents and how to start them come from the server's stored agent definitions, so every signed-in computer has the same list. Install the coding agent itself first (`agent --list` shows the install command). Arguments after `--` go to the agent.
 
 Each route below records the session on the server. Add `--trace` to save full request and response bodies, and `--control` to share the agent's terminal with the console.
 
@@ -187,11 +187,11 @@ agent opencode . --model qwen3:8b --backend <name>    # pick a backend by name
 agent claude . --model qwen3:8b                       # Claude Code, translated to Ollama
 ```
 
-Local-model agents need `--model`. The server translates their requests to Ollama's native API and applies the context size and sampling from `config/models.yaml`. Without `--backend`, the server uses `default_backend` when the agent can use it, otherwise the first backend that fits. See [Providers](providers.md) for Strata, Docker Model Runner and containers, and [Machines](machines.md) for the fleet.
+Local-model agents need `--model`. The server translates their requests to Ollama's native API and applies the context size and sampling from the server's Ollama model tuning. Without `--backend`, the server uses `default_backend` when the agent can use it, otherwise the first backend that fits. See [Providers](providers.md) for Strata, Docker Model Runner and containers, and [Machines](machines.md) for the fleet.
 
 ### The hosted Anthropic API
 
-`claude-subscription` points Claude Code's `ANTHROPIC_BASE_URL` at the server, which forwards each request unchanged to the `anthropic` backend (`https://api.anthropic.com`, in the default config). Claude Code keeps its own login.
+`claude-subscription` points Claude Code's `ANTHROPIC_BASE_URL` at the server, which forwards each request unchanged to the `anthropic` backend (`https://api.anthropic.com`, in a new server's settings). Claude Code keeps its own login.
 
 ```bash
 agent claude-subscription . --model sonnet
@@ -208,7 +208,7 @@ Open the console:
 - **Live** streams model calls token by token while they run.
 - **Running agents** shows the terminals of agents started with `--control`, to read and type into, from your phone too.
 
-On disk, each session is a folder on the server, `logs/sessions/<id>/`, with `session.json`, `requests.jsonl` and, with `--trace`, `traces/`.
+Everything is in the server's database: each session, a record per request and, with `--trace`, the full payloads. **Server settings** → **Storage** can delete payloads and terminals after a number of days.
 
 ## Where to go next
 
@@ -218,5 +218,5 @@ On disk, each session is a folder on the server, `logs/sessions/<id>/`, with `se
 - [MCP](mcp.md): sharing a machine's MCP servers with agents.
 - [Console](console.md): every page of the console.
 - [Accounts](accounts.md): users, organizations, teams, sharing and phone sign-in.
-- [Configuration](configuration.md): `backends.yaml`, `models.yaml`, `agents.yaml` and environment variables.
+- [Configuration](configuration.md): the database, the stored settings, `agent-server config` and environment variables.
 - [Deployment](deployment.md): Docker, HTTPS, services and packages.

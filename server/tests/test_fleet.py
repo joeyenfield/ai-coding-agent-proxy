@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 from agent_server.app import create_app
 from agent_server.config import Backend
 from agent_server.fleet import FleetError, within_roots
+from oidc_helpers import stored_backends
 from test_auth import BASE, HOST, ids, org_settings, signed_in, ws_headers
 
 
@@ -147,7 +148,7 @@ def test_an_admin_adds_a_machines_model_server_as_a_backend(tmp_path):
         assert response.status_code == 201, response.text
         name = response.json()["backend"]
         assert name == "laptop" and settings.backends[name].type == "ollama"
-        saved = yaml.safe_load(settings.backends_file.read_text())["backends"][name]
+        saved = stored_backends(settings)[name]
         assert saved["url"].endswith(":11434") and saved["machine"] == "m1"
         [listed] = dave.get("/api/machines").json()["machines"]
         assert listed["providers"][0]["backend"] == "laptop" and listed["backends"] == ["laptop"]
@@ -158,7 +159,6 @@ def test_an_admin_adds_a_machines_model_server_as_a_backend(tmp_path):
 def test_legacy_backends_need_explicit_admin_adoption_with_accounts(tmp_path):
     settings = org_settings(tmp_path)
     settings.backends = {**settings.backends, "old": Backend("old", "http://localhost:11434/")}
-    settings.backends_file.write_text(yaml.safe_dump({"default_backend": "test", "backends": {name: backend.public() for name, backend in settings.backends.items()}}))
     app = create_app(settings)
     alice, dave = signed_in(app, "alice"), signed_in(app, "dave")
     # The machine is this computer, so its Ollama is http://127.0.0.1:11434: the same server.
@@ -174,7 +174,7 @@ def test_legacy_backends_need_explicit_admin_adoption_with_accounts(tmp_path):
         adopted = dave.post("/api/machines/m1/providers/adopt", json={"type": "ollama"})
         assert adopted.status_code == 201 and adopted.json()["backend"] == "old", adopted.text
         assert settings.backends["old"].machine == "m1" and settings.backends["test"].machine is None
-        assert yaml.safe_load(settings.backends_file.read_text())["backends"]["old"]["machine"] == "m1"
+        assert stored_backends(settings)["old"]["machine"] == "m1"
         assert alice.get("/api/machines/m1").json()["backends"] == ["old"]
 
 
@@ -184,7 +184,7 @@ LEGACY_ACCESS_KEY = "Hb3xQ2v9mK1tW7pL0sZ4rN8cF6yJ5dA_eG-uI2oT3qE"
 def test_legacy_access_key_cannot_join_fleet_without_oauth_accounts(tmp_path):
     from agent_server.config import Settings
 
-    settings = Settings(log_dir=tmp_path / "logs", backends_file=tmp_path / "backends.yaml",
+    settings = Settings(log_dir=tmp_path / "logs", 
                         default_backend="old", backends={"old": Backend("old", "http://localhost:11434/")})
     app = create_app(settings)
     with TestClient(app, base_url=BASE) as client:
@@ -295,7 +295,6 @@ def test_a_machines_providers_follow_its_address(tmp_path):
         "box": Backend("box", "http://109.77.112.130:11500", machine="m1", container=spec),
         "elsewhere": Backend("elsewhere", "http://10.0.0.9:11434", machine="m2"),
     }
-    settings.backends_file.write_text(yaml.safe_dump({"default_backend": "test", "backends": {name: backend.public() for name, backend in settings.backends.items()}}))
     app = create_app(settings)
     alice = signed_in(app, "alice")
     # The machine says it's this computer (agent-machine address 127.0.0.1): its providers move there.
@@ -303,7 +302,7 @@ def test_a_machines_providers_follow_its_address(tmp_path):
         assert settings.backends["gamepc"].url == "http://127.0.0.1:11434"
         assert settings.backends["box"].url == "http://127.0.0.1:11500" and settings.backends["box"].container == spec
         assert settings.backends["elsewhere"].url == "http://10.0.0.9:11434"
-        saved = yaml.safe_load(settings.backends_file.read_text())["backends"]
+        saved = stored_backends(settings)
         assert saved["gamepc"]["url"] == "http://127.0.0.1:11434" and saved["gamepc"]["machine"] == "m1"
         # Its Ollama is the one gamepc points at, not a new one to add.
         assert alice.get("/api/machines/m1").json()["providers"][0]["backend"] == "gamepc"

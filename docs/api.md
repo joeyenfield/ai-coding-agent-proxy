@@ -61,9 +61,19 @@ its in-flight entry and records `client_closed`.
 |---|---|---|---|
 | GET | `/health` | Public | `status`, the running instance's id, the server's `version`, `protocol` and `min_protocol`. |
 | GET | `/api/status` | Signed in | Totals, requests in flight, recent requests, intercept state, `default_backend`, whether a restart is needed for the listen address, and each machine backend's `provider`. With accounts, only sessions you can see. |
-| GET | `/api/config` | Signed in | The editable network settings (`proxy.listen_host`, `listen_port`, `url`, `default_backend`, `backends`) and `restart_required`. |
-| PUT | `/api/config` | Admin | Saves them to `backends.yaml`. Can remove local backends and add or edit hosted ones; refuses new or moved local ones. Without `backends`, leaves them alone. See [Configuration](configuration.md). |
-| GET | `/api/server/stats` | Admin | The server computer's load and disk use, read when asked (nothing is saved): `hostname`, `platform`, `boot_time`; `cpu` (`percent`, `count`, `load_average`, null on Windows); `memory` and `swap` (bytes, `percent`); `process` (agent-server's `pid`, `rss`, `cpu_percent` of one core, `threads`, `started_at`); `disks`, each filesystem holding the log or build folder once (`mountpoint`, `total`, `used`, `free`, `percent`, `folders`); `folders` (`name`, `path`, `bytes`), measured in the background every five minutes, so `bytes` is null until `folders_measured_at` is set. |
+| GET | `/api/config` | Signed in | The editable network settings (`proxy.listen_host`, `listen_port`, `url`, `public_url`, `default_backend`, `backends`) and `restart_required`. |
+| PUT | `/api/config` | Admin | Stores them. Can remove local backends and add or edit hosted ones; refuses new or moved local ones. Without `backends`, leaves them alone; without `proxy.public_url`, leaves it as it is (`null` clears it). See [Configuration](configuration.md). |
+| GET | `/api/config/export` | Admin | Every setting as one YAML document (`proxy`, `default_backend`, `intercept`, `retention_days`, `backends`, `models`, `agents`); `?format=json` for JSON. |
+| POST | `/api/config/import` | Admin | Stores a settings document (YAML or JSON body): the parts it has, or with `?replace=true` every part. Everything is checked first. Answers `changed` and `restart_required`. |
+| GET | `/api/config/agents` | Admin | Every stored agent: `id`, `definition`, `yaml` (the definition as YAML, to edit), `builtin` (it ships with the server) and `edited` (changed since). |
+| PUT | `/api/config/agents/{agent_id}` | Admin | Adds or changes an agent; the body is its definition, YAML or JSON. A shipped one stops following the server's updates. `400` with the reason when it isn't valid. |
+| DELETE | `/api/config/agents/{agent_id}` | Admin | Removes an agent (`204`). A shipped one stays removed through updates, until it's added again or reset. |
+| POST | `/api/config/agents/{agent_id}/reset` | Admin | A shipped agent back to this version's definition, following updates again. `404` for others. |
+| GET | `/api/config/models` | Admin | Ollama model tuning: `defaults`, `profiles`, `aliases`. `?format=yaml` for YAML. |
+| PUT | `/api/config/models` | Admin | Stores the model tuning document (YAML or JSON body). |
+| GET | `/api/config/storage` | Admin | `database` (`kind`: `sqlite` or `postgresql`, `url` with its password hidden, `size` in bytes) and `retention_days`. |
+| PUT | `/api/config/storage` | Admin | `{"retention_days": days}` (1 to 36500), or `null` to keep recordings until deleted. Old recordings go at once. |
+| GET | `/api/server/stats` | Admin | The server computer's load and disk use, read when asked (nothing is saved): `hostname`, `platform`, `boot_time`; `cpu` (`percent`, `count`, `load_average`, null on Windows); `memory` and `swap` (bytes, `percent`); `process` (agent-server's `pid`, `rss`, `cpu_percent` of one core, `threads`, `started_at`); `disks`, each filesystem holding the log or build folder once (`mountpoint`, `total`, `used`, `free`, `percent`, `folders`); `folders` (`name`, `path`, `bytes`) and `database` (`kind`, `bytes`), measured in the background every five minutes, so `bytes` is null until `folders_measured_at` is set. |
 | POST | `/api/server/restart` | Admin, Trusted, Same origin | Restarts with the configuration on disk once in-flight requests finish (up to 30 s). Answers `202` with `waiting_for` and the address it comes back on. `409` when the server can't restart itself (`--reload`). |
 
 ## Sessions and requests
@@ -77,8 +87,8 @@ its in-flight entry and records `client_closed`.
 | PATCH | `/api/sessions/{session_id}` | Signed in, can control | Ends it (`ended`, `exit_status`), switches capture (`trace`), or for its owner changes its sharing (`visibility`, `team`, `org`, `access`). Narrowing the sharing drops terminal viewers who lose access. A shell can't be shared. |
 | DELETE | `/api/sessions/{session_id}` | Signed in, can control | Deletes it. `409` while requests are in flight. |
 | DELETE | `/api/sessions/{session_id}/data` | Signed in, can control | Clears its saved requests and traces, keeping the session. |
-| GET | `/api/requests` | Signed in | Every request you can see, newest first, with `trace_available`. `?session_id=` for one session. |
-| GET | `/api/sessions/{session_id}/telemetry` | Signed in, can view | The session's `requests.jsonl` as a download. |
+| GET | `/api/requests` | Signed in | Requests you can see, newest first, with `trace_available`. `?session_id=` for one session, `?model=` and `?kind=` to filter, `?limit=` (1 to 5000) and `?before=` (a timestamp: only older ones) to page. Without `limit`, all of them. |
+| GET | `/api/sessions/{session_id}/telemetry` | Signed in, can view | The session's request records as a download (newline-delimited JSON, `<id>-requests.jsonl`). |
 | GET | `/api/sessions/{session_id}/traces` | Signed in, can view | The names of its saved traces. |
 | GET | `/api/sessions/{session_id}/traces/{request_id}` | Signed in, can view | One trace: the full request and response. |
 | GET | `/api/sessions/{session_id}/chat` | Signed in, can view | The session's traced model calls read back as chats: its threads, and a page of one thread's turns. `?thread=`, `?before=`, `?limit=` (1 to 500, default 60). |
@@ -97,9 +107,9 @@ its in-flight entry and records `client_closed`.
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
-| GET | `/api/agents` | Signed in | Every agent in `config/agents.yaml`, with the `backends` it can use and the `default_backend` a launch picks (`direct` for account agents). |
+| GET | `/api/agents` | Signed in | Every agent the server stores, with the `backends` it can use and the `default_backend` a launch picks (`direct` for account agents). |
 | POST | `/api/agents/{agent_id}/sessions` | Signed in | Opens a session for an agent and returns `session`, the rendered `env`, `command` and `files`, `container` (whether its backend is a container to start first), `mcp` (the shared MCP servers it got, with their URLs) and `shell` (the same as bash and PowerShell lines). Takes `model`, `backend`, `trace`, `project`, `project_path`, `mcp`, sharing, `tags`; the launcher adds `launcher: true`, its `proxy_url`, its `intercept` paths and `files_dir`. `409` for an account agent when capture is off. |
-| GET | `/api/models` | Signed in | The models on each backend (or `?backend=` for one), asked of the backend's machine, with the profile the server applies, plus `aliases` from `models.yaml`. |
+| GET | `/api/models` | Signed in | The models on each backend (or `?backend=` for one), asked of the backend's machine, with the profile the server applies, plus the `aliases` from its Ollama model tuning. |
 | GET | `/api/mcp` | Signed in | The MCP servers machines share that you may give agents. |
 
 ## HTTPS capture
@@ -145,7 +155,7 @@ Containers the fleet's machines run as backends. See [Machines](machines.md). Ch
 | GET | `/api/containers/{name}` | Trusted | One container's state. |
 | POST | `/api/containers` | Admin, machine owner | Creates one on a connected machine with `agent-machine containers on`: `name`, `machine`, `engine`, and `image`, `port`, `gpus`, `env`, `volume`. Saves it as a backend. |
 | PUT | `/api/containers/{name}` | Admin, machine owner | Changes its settings; they apply when it next starts. The engine can't change. |
-| DELETE | `/api/containers/{name}` | Admin, machine owner | Removes it from its machine and from `backends.yaml`. |
+| DELETE | `/api/containers/{name}` | Admin, machine owner | Removes it from its machine and from the server's backends. |
 | POST | `/api/containers/{name}/{action}` | Trusted | `start`, `stop` or `restart`. Answers `202` with the job. `409` with `conflicts` when other containers hold the GPU it needs; send `{"switch": true}` to stop them first. |
 | GET | `/api/containers/{name}/log` | Trusted | Its container log, `?tail=` lines (10 to 5000, default 400). |
 

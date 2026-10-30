@@ -1,9 +1,9 @@
-"""Coding-agent definitions loaded from config/agents.yaml.
+"""Coding-agent definitions, kept in the database's agents table (shipped ones in defaults.py).
 
 Each agent describes how to point a CLI at a proxy session: environment
 variables, command-line arguments, settings files and the API protocol it speaks.
 Values are templates rendered with the session's endpoints, so supporting another
-agent only requires a new YAML entry.
+agent only requires a new definition (Server settings, or PUT /api/config/agents/<id>).
 
 A template whose placeholder has no value for a session (no {context_window} when
 the model's context size isn't known, no {files_dir} when the console rather than
@@ -24,10 +24,11 @@ import json
 import re
 import shutil
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
-import yaml
+from sqlalchemy import select
+
+from .db import Database, schema
 
 
 PROTOCOLS = {"openai-chat", "openai-responses", "anthropic", "ollama"}
@@ -197,12 +198,29 @@ def _install(value: Any) -> dict[str, Any]:
     return {"install": str(value) if value else None, "installs": {}}
 
 
-def load_agents(path: Path) -> dict[str, AgentDefinition]:
-    if not path.exists():
-        return {}
-    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+AGENT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+
+
+def load_agents(db: Database) -> dict[str, AgentDefinition]:
+    """Every stored agent, in order. Read on each call: they're few, and an edit applies at once."""
+    with db.read() as connection:
+        rows = connection.execute(select(schema.agents.c.id, schema.agents.c.definition).order_by(schema.agents.c.position, schema.agents.c.id)).all()
+    return parse_agents({agent_id: definition for agent_id, definition in rows})
+
+
+def stored_agents(db: Database) -> list[dict[str, Any]]:
+    """The agents as stored, for editing: each definition with whether it's shipped and edited."""
+    with db.read() as connection:
+        rows = connection.execute(select(schema.agents).order_by(schema.agents.c.position, schema.agents.c.id)).mappings().all()
+    return [{"id": row["id"], "definition": row["definition"], "builtin": row["builtin"], "edited": row["edited"]} for row in rows]
+
+
+def parse_agents(definitions: dict[str, Any]) -> dict[str, AgentDefinition]:
+    """Definitions (an id to its mapping, as stored or imported), checked."""
     agents: dict[str, AgentDefinition] = {}
-    for agent_id, value in (data.get("agents") or {}).items():
+    for agent_id, value in definitions.items():
+        if not AGENT_ID.fullmatch(str(agent_id)):
+            raise ValueError(f"Agent id '{agent_id}' may only contain letters, numbers, '.', '_' and '-'")
         if not isinstance(value, dict):
             raise ValueError(f"Agent '{agent_id}' must be a mapping")
         protocol = value.get("protocol", "openai-chat")

@@ -32,13 +32,13 @@ AI_PROXY_OIDC_REDIRECT_URIS=https://api.aicontrolmesh.com/api/auth/callback
 AI_PROXY_OIDC_BROWSER_ORIGINS=https://console.aicontrolmesh.com
 ```
 
-Then run `docker compose --profile console up -d --build`, with the introspection secret supplied in the environment. Compose adds `agent-auth` on **host loopback port 10000**, with its own persistent state volume. The issuer reads the existing `users.json` read-only; the API still owns account, organization and team administration. Both services must see the same accounts file. Do not run multiple independent writable copies.
+Then run `docker compose --profile console up -d --build`, with the introspection secret supplied in the environment. Compose adds `agent-auth` on **host loopback port 10000**, keeping its state in the same PostgreSQL as the API, in its own schema (`mesh_auth`) and through its own role (`AI_PROXY_AUTH_DATABASE_URL`). The issuer reads the API's accounts read-only (that role can only `SELECT` them); the API still owns account, organization and team administration. Both services must use the same database. Do not run multiple independent copies of it.
 
 The Windows HTTPS setup includes `auth.<HostName>` in its certificate and sends that hostname to `-AuthBackend` (default `http://127.0.0.1:10000`). `-AuthHostName` overrides the hostname. Provision DNS and TLS for the new host before using it. Auth responses must not be cached, and auth URLs must not enter access logs.
 
-Without containers, run `agent-auth` and `agent-server` as separate processes under the same service account. `agent-auth` listens on `127.0.0.1:10000` by default. Configure `AI_PROXY_AUTH_HOST` and `AI_PROXY_AUTH_PORT` when needed. Trust forwarded headers only from your reverse proxy; do not expose the issuer's plain HTTP listener publicly.
+Without containers, run `agent-auth` and `agent-server` as separate processes under the same service account. With PostgreSQL, `agent-auth` uses `AI_PROXY_AUTH_DATABASE_URL`, or else the API's `AI_PROXY_DATABASE_URL` (its own schema). With SQLite, it opens the API's database file read-only for accounts and keeps its own state in `issuer-state.sqlite3` in its state folder. `agent-auth` listens on `127.0.0.1:10000` by default. Configure `AI_PROXY_AUTH_HOST` and `AI_PROXY_AUTH_PORT` when needed. Trust forwarded headers only from your reverse proxy; do not expose the issuer's plain HTTP listener publicly.
 
-On first API start, including loopback, the server bootstraps an admin if `users.json` does not exist. Reset its password with `agent-server user passwd admin` and remove `first-user-password`. Adding, changing or removing accounts never disables authentication.
+On first API start, including loopback, the server bootstraps an admin if accounts were never set up in its database. Reset its password with `agent-server user passwd admin` and remove `first-user-password`. Adding, changing or removing accounts never disables authentication.
 
 ## Browser sign-in
 
@@ -137,13 +137,14 @@ Mutations and WebSocket connections with an `Origin` header require the API's or
 | `AI_PROXY_OIDC_CONSOLE_CLIENT` | `mesh-console`; public code/refresh client. |
 | `AI_PROXY_OIDC_CLI_CLIENT` | `mesh-cli`; public device/refresh client. |
 | `AI_PROXY_OIDC_INTROSPECTION_CLIENT` | `mesh-api`; confidential resource client. |
-| `AI_PROXY_OIDC_INTROSPECTION_SECRET` | Required shared confidential-client secret; never put it in `config/`. |
+| `AI_PROXY_OIDC_INTROSPECTION_SECRET` | Required shared confidential-client secret; never put it in the server's settings or a settings export. |
 | `AI_PROXY_OIDC_REDIRECT_URIS` | Comma-separated exact API callback URLs. |
 | `AI_PROXY_OIDC_BROWSER_ORIGINS` | Comma-separated exact console return origins. |
-| `AI_PROXY_OIDC_STATE_DIR` | Issuer database and private signing key; defaults to `oidc/` beside `users.json`. |
+| `AI_PROXY_AUTH_DATABASE_URL` | The issuer's database, such as `postgresql+psycopg://mesh_auth:<password>@host:5432/mesh`. Default: the API's PostgreSQL URL, else a SQLite file in the state folder. |
+| `AI_PROXY_OIDC_STATE_DIR` | The issuer's state folder: its SQLite file without PostgreSQL, and where an older install's `issuer.sqlite3` and `signing-key.pem` are imported from. Defaults to `oidc/` in the account-state folder (`certs/` normally). |
 | `AI_PROXY_AUTH_HOST`, `AI_PROXY_AUTH_PORT` | Issuer listen address (`127.0.0.1:10000`). |
 
-Back up the issuer's persistent state and signing key securely. Authorization, device and refresh state is transactional; secrets are hashed at rest. Access tokens expire quickly. Refresh tokens rotate and have an absolute family lifetime; replay revokes the family. Password reset and account removal invalidate issued credentials. Roles and memberships are resolved from the current account on API requests.
+Back up the issuer's state securely: its sign-ins, grants and signing key are in the database (`mesh_auth`), so a backup of the database covers them (see [Deployment](deployment.md)). An older install's `issuer.sqlite3` and `signing-key.pem` are imported on the issuer's first start against an empty database, so existing sign-ins keep working. Authorization, device and refresh state is transactional; secrets are hashed at rest. Access tokens expire quickly. Refresh tokens rotate and have an absolute family lifetime; replay revokes the family. Password reset and account removal invalidate issued credentials. Roles and memberships are resolved from the current account on API requests.
 
 ## Migration from protocol 1
 

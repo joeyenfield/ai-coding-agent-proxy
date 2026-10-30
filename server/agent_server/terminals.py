@@ -2,9 +2,10 @@
 
 The launcher runs the agent in a pseudo-terminal and streams everything it
 prints here (client/internal/terminal in the Go client). The proxy keeps the recent history in
-memory, appends it to logs/sessions/<id>/terminal.log, and fans it out to
-viewers: each new viewer gets the history replayed, then live output. Input
-from a viewer goes back to the launcher, which types it into the agent.
+memory, records it in the database (terminal_chunks, written a chunk at a time:
+every CHUNK bytes or FLUSH_SECONDS), and fans it out to viewers: each new viewer
+gets the history replayed, then live output. Input from a viewer goes back to the
+launcher, which types it into the agent.
 """
 
 from __future__ import annotations
@@ -12,18 +13,24 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
+from sqlalchemy import func, select
+
+from .db import kv, schema
 from .sessions import Session, SessionStore, utc_now
 
 
 # Replayed to each new viewer; enough for a long agent session's scrollback.
 HISTORY_LIMIT = 4 * 1024 * 1024
-# terminal.log stops growing past this; the in-memory history keeps going.
+# The recording stops growing past this; the in-memory history keeps going.
 LOG_LIMIT = 64 * 1024 * 1024
+# Output is recorded in chunks of about this size, or what came in this long.
+CHUNK = 64 * 1024
+FLUSH_SECONDS = 1.0
 # A viewer that falls this far behind is disconnected and catches up by reconnecting.
 VIEWER_BACKLOG = 512
 INPUT_LIMIT = 64 * 1024
@@ -45,7 +52,6 @@ QUESTION = re.compile(
 @dataclass
 class Terminal:
     session_id: str
-    directory: Path
     cols: int = 80
     rows: int = 24
     command: str | None = None
@@ -55,9 +61,13 @@ class Terminal:
     exit_status: int | None = None
     # Bytes received since the agent started; the launcher resumes from here after a reconnect.
     total: int = 0
-    # Bytes the launcher had already dropped when it reconnected; terminal.log lacks them.
+    # Bytes the launcher had already dropped when it reconnected; the recording lacks them.
     skipped: int = 0
     log_full: bool = False
+    # Bytes recorded (or waiting in pending to be), and when pending was last written.
+    logged: int = 0
+    pending: bytearray = field(default_factory=bytearray)
+    flushed_at: float = field(default_factory=time.monotonic)
     # Whether the agent asked for bracketed paste, so multi-line input can be sent as one paste.
     bracketed_paste: bool = False
     history: bytearray = field(default_factory=bytearray)
@@ -105,18 +115,19 @@ class TerminalHub:
     def summaries(self) -> list[dict[str, Any]]:
         """Every session with a shared terminal, newest first, without loading histories."""
         result = []
+        stored = self._metas()
         for session in self.sessions.list():
             terminal = self.terminals.get(session.session_id)
             if terminal is not None:
                 result.append(terminal.public())
                 continue
-            meta = _read_meta(self.sessions.directory(session))
+            meta = stored.get(session.session_id)
             if meta is not None:
                 result.append({**_public_meta(session, meta), "connected": False, "viewers": 0})
         return result
 
     def attach(self, session: Session, host: Any, hello: dict[str, Any]) -> Terminal:
-        terminal = self.get(session) or Terminal(session.session_id, self.sessions.directory(session))
+        terminal = self.get(session) or Terminal(session.session_id)
         if terminal.host is not None and terminal.host is not host:
             # A reconnecting launcher replaces a connection the proxy hasn't noticed is dead.
             asyncio.ensure_future(_close_quietly(terminal.host))
@@ -134,6 +145,7 @@ class TerminalHub:
         if terminal.host is not host:
             return
         terminal.host = None
+        self._flush(terminal)
         self._save(terminal)
         self._broadcast(terminal, {"type": "state", "terminal": terminal.public()})
 
@@ -164,6 +176,7 @@ class TerminalHub:
     def exited(self, terminal: Terminal, status: Any) -> None:
         terminal.exit_status = status if isinstance(status, int) else None
         terminal.ended_at = utc_now()
+        self._flush(terminal)
         self._save(terminal)
         self._broadcast(terminal, {"type": "state", "terminal": terminal.public()})
 
@@ -222,6 +235,7 @@ class TerminalHub:
     async def close_all(self) -> None:
         """Before a restart: launchers reconnect and resend what's missing, viewers reconnect too."""
         for terminal in self.terminals.values():
+            self._flush(terminal)
             if terminal.host is not None:
                 await _close_quietly(terminal.host, 1012)
             for queue in list(terminal.viewers):
@@ -230,6 +244,9 @@ class TerminalHub:
 
     def forget(self, session_id: str) -> None:
         terminal = self.terminals.pop(session_id, None)
+        if terminal is not None:
+            # A forgotten (deleted) session's output isn't wanted any more.
+            terminal.pending.clear()
         if terminal and terminal.host is not None:
             asyncio.ensure_future(_close_quietly(terminal.host))
 
@@ -245,49 +262,72 @@ class TerminalHub:
     def _append_log(self, terminal: Terminal, data: bytes) -> None:
         if terminal.log_full:
             return
-        path = terminal.directory / "terminal.log"
-        try:
-            size = path.stat().st_size if path.exists() else 0
-            if size + len(data) > LOG_LIMIT:
-                terminal.log_full = True
-                self._save(terminal)
-                return
-            with path.open("ab") as handle:
-                handle.write(data)
-        except OSError:
+        if terminal.logged + len(data) > LOG_LIMIT:
+            self._flush(terminal)
             terminal.log_full = True
+            self._save(terminal)
+            return
+        terminal.pending += data
+        terminal.logged += len(data)
+        if len(terminal.pending) >= CHUNK or time.monotonic() - terminal.flushed_at >= FLUSH_SECONDS:
+            self._flush(terminal)
+
+    def flush_quiet(self) -> None:
+        """Record output an agent printed before going quiet: chunks are otherwise written as more arrives."""
+        now = time.monotonic()
+        for terminal in list(self.terminals.values()):
+            if terminal.pending and now - terminal.flushed_at >= FLUSH_SECONDS:
+                self._flush(terminal)
+
+    def _flush(self, terminal: Terminal) -> None:
+        """Record the output waiting in pending as one chunk."""
+        terminal.flushed_at = time.monotonic()
+        if not terminal.pending:
+            return
+        row = {"session_id": terminal.session_id, "offset": terminal.logged - len(terminal.pending), "data": bytes(terminal.pending)}
+        terminal.pending.clear()
+        self.sessions.db.writer.submit(lambda connection: kv.upsert(connection, schema.terminal_chunks, row))
 
     def _save(self, terminal: Terminal) -> None:
-        try:
-            terminal.directory.mkdir(parents=True, exist_ok=True)
-            temporary = terminal.directory / "terminal.json.tmp"
-            temporary.write_text(json.dumps(terminal.meta(), indent=2) + "\n", encoding="utf-8")
-            temporary.replace(terminal.directory / "terminal.json")
-        except OSError:
-            pass
+        row = {"session_id": terminal.session_id, "meta": terminal.meta()}
+        self.sessions.db.writer.submit(lambda connection: kv.upsert(connection, schema.terminals, row))
+
+    def _metas(self) -> dict[str, dict[str, Any]]:
+        db = self.sessions.db
+        db.writer.flush()
+        with db.read() as connection:
+            return {session_id: meta for session_id, meta in connection.execute(select(schema.terminals.c.session_id, schema.terminals.c.meta)) if isinstance(meta, dict)}
 
     def _load(self, session: Session) -> Terminal | None:
-        directory = self.sessions.directory(session)
-        meta = _read_meta(directory)
-        if meta is None:
-            return None
-        terminal = Terminal(session.session_id, directory)
+        db = self.sessions.db
+        db.writer.flush()
+        chunks = schema.terminal_chunks
+        with db.read() as connection:
+            meta = connection.execute(select(schema.terminals.c.meta).where(schema.terminals.c.session_id == session.session_id)).scalar()
+            if not isinstance(meta, dict):
+                return None
+            last = connection.execute(
+                select(chunks.c.offset, func.length(chunks.c.data)).where(chunks.c.session_id == session.session_id)
+                .order_by(chunks.c.offset.desc()).limit(1)
+            ).first()
+            size = int(last[0]) + int(last[1]) if last else 0
+            # The chunks holding the last HISTORY_LIMIT bytes (a chunk is at most about CHUNK plus one frame).
+            rows = connection.execute(
+                select(chunks.c.offset, chunks.c.data).where(chunks.c.session_id == session.session_id, chunks.c.offset >= size - HISTORY_LIMIT - 4 * CHUNK)
+                .order_by(chunks.c.offset)
+            ).all()
+        terminal = Terminal(session.session_id)
         for key in ("cols", "rows", "command", "started_at", "last_output_at", "ended_at", "exit_status", "total", "skipped", "log_full", "bracketed_paste"):
             if key in meta:
                 setattr(terminal, key, meta[key])
         if terminal.ended_at is None and session.ended_at:
             # The launcher closed the session but never reported the exit (proxy restarted meanwhile).
             terminal.ended_at, terminal.exit_status = session.ended_at, session.exit_status
-        try:
-            with (directory / "terminal.log").open("rb") as handle:
-                handle.seek(0, 2)
-                size = handle.tell()
-                handle.seek(max(0, size - HISTORY_LIMIT))
-                terminal.history = bytearray(handle.read())
-        except OSError:
-            size = 0
+        history = b"".join(bytes(data) for _, data in rows)
+        terminal.history = bytearray(history[-HISTORY_LIMIT:])
+        terminal.logged = size
         if not terminal.log_full:
-            # terminal.json is only rewritten on events, so after a crash the log is the better count.
+            # The meta is only rewritten on events, so after a crash the recording is the better count.
             terminal.total = max(terminal.total, size + terminal.skipped)
         return terminal
 
@@ -339,14 +379,6 @@ def _size(message: dict[str, Any], terminal: Terminal) -> tuple[int, int]:
         except (TypeError, ValueError):
             return fallback
     return bounded(message.get("cols"), terminal.cols), bounded(message.get("rows"), terminal.rows)
-
-
-def _read_meta(directory: Path) -> dict[str, Any] | None:
-    try:
-        value = json.loads((directory / "terminal.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    return value if isinstance(value, dict) else None
 
 
 def _public_meta(session: Session, meta: dict[str, Any]) -> dict[str, Any]:

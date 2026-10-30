@@ -13,7 +13,7 @@ var baseVersion = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 
 // BuildVersion is the version every component of this checkout is stamped with, from
 // VERSION at the root: X.Y.Z when HEAD is tagged exactly vX.Y.Z and clean, else
-// X.Y.Z+<short commit>, with .dirty for uncommitted changes outside config/ (Dirty), or
+// X.Y.Z+<short commit>, with .dirty for uncommitted changes to tracked files (Dirty), or
 // X.Y.Z+unknown without git. AI_PROXY_VERSION wins. The server works it out the same way
 // (server/agent_server/version.py), so it finds its own build in dist/; keep them in step.
 func BuildVersion(root string) string {
@@ -63,15 +63,11 @@ func PackageRelease(root, version string) int {
 	return commits + 1
 }
 
-// CleanExcludes are left out when deciding a checkout is dirty: config/ is the running
-// server's own settings (the console saves backends.yaml), not its code. The server's
-// version.py excludes the same.
-var CleanExcludes = []string{":(exclude)config"}
-
-// Dirty tells whether tracked files outside CleanExcludes have uncommitted changes;
-// untracked files don't count.
+// Dirty tells whether tracked files have uncommitted changes; untracked files don't count.
+// The server's settings live in its database, so nothing in the checkout is exempt. The
+// server's version.py decides the same way.
 func Dirty(root string) bool {
-	_, changed := git(root, append([]string{"status", "--porcelain", "--untracked-files=no", "--", "."}, CleanExcludes...)...)
+	_, changed := git(root, "status", "--porcelain", "--untracked-files=no", "--", ".")
 	return changed
 }
 

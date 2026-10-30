@@ -4,7 +4,32 @@
 # admin with a random password: `docker compose logs agent-server` shows it, and it's
 # saved as certs/first-user-password in the agent-server-certs volume. Sign each agent
 # machine in through OIDC: agent login https://api.aicontrolmesh.com
+#
+# Everything the server keeps (settings, accounts, the fleet, every session's records,
+# traces and terminals, and agent-auth's OAuth state) is in PostgreSQL, in the postgres-data
+# volume; back it up with: docker compose exec -T postgres pg_dump -U postgres -Fc mesh > mesh.dump
+# Set AI_PROXY_POSTGRES_PASSWORD, AI_PROXY_DB_API_PASSWORD and AI_PROXY_DB_AUTH_PASSWORD
+# (letters and digits) in .env before the first start.
 services:
+  postgres:
+    image: docker.io/library/postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mesh
+      POSTGRES_PASSWORD: ${AI_PROXY_POSTGRES_PASSWORD:?Set a password for PostgreSQL's administrator}
+      # The roles server/docker/postgres-init.sh makes on the first start: agent-server's and agent-auth's.
+      AI_PROXY_DB_API_PASSWORD: ${AI_PROXY_DB_API_PASSWORD:?Set a password for agent-server's database role}
+      AI_PROXY_DB_AUTH_PASSWORD: ${AI_PROXY_DB_AUTH_PASSWORD:?Set a password for agent-auth's database role}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./server/docker/postgres-init.sh:/docker-entrypoint-initdb.d/10-mesh.sh:ro
+    # No published port: only agent-server and agent-auth reach it.
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "mesh"]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+
   agent-auth:
     build:
       context: .
@@ -14,7 +39,12 @@ services:
     image: agent-server
     entrypoint: ["agent-auth"]
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
+      # Its OAuth state, in schema mesh_auth; the role reads accounts but can't change them.
+      AI_PROXY_AUTH_DATABASE_URL: postgresql+psycopg://mesh_auth:${AI_PROXY_DB_AUTH_PASSWORD}@postgres:5432/mesh
       AI_PROXY_AUTH_HOST: 0.0.0.0
       AI_PROXY_AUTH_PORT: 10000
       AI_PROXY_OIDC_ISSUER: ${AI_PROXY_OIDC_ISSUER:-https://auth.aicontrolmesh.com}
@@ -31,9 +61,9 @@ services:
     ports:
       - "127.0.0.1:10000:10000"
     volumes:
-      - agent-server-config:/app/config:ro
-      - agent-server-certs:/app/certs:ro
-      - agent-auth-state:/app/auth-state
+      # Read once, by an issuer upgraded from before the database (its issuer.sqlite3 and
+      # signing key); a new install doesn't need it.
+      - agent-auth-state:/app/auth-state:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:10000/health', timeout=3)"]
 
@@ -66,7 +96,11 @@ services:
         AI_PROXY_VERSION: ${AI_PROXY_VERSION:-}
     image: agent-server
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
+      AI_PROXY_DATABASE_URL: postgresql+psycopg://mesh_api:${AI_PROXY_DB_API_PASSWORD}@postgres:5432/mesh
       AI_PROXY_SERVE_UI: ${AI_PROXY_SERVE_UI:-1}
       AI_PROXY_CONSOLE_ORIGINS: ${AI_PROXY_CONSOLE_ORIGINS:-}
       AI_PROXY_OIDC_ISSUER: ${AI_PROXY_OIDC_ISSUER:-https://auth.aicontrolmesh.com}
@@ -84,12 +118,12 @@ services:
       # Providers on the Docker host (Ollama on 11434, ...), on Linux as on Docker Desktop.
       - "host.docker.internal:host-gateway"
     volumes:
-      - agent-server-config:/app/config
+      # The server's own log (logs/proxy/proxy.log), and certs/first-user-password once.
       - agent-server-logs:/app/logs
       - agent-server-certs:/app/certs
-      # Or keep the config in this checkout instead of a volume (its backends.yaml
-      # must then name providers as the container sees them):
-      # - ./config:/app/config
+      # Only for an install from before the database: its config/ (and the logs/ and certs/
+      # above) are imported into PostgreSQL on the first start, then no longer read.
+      - agent-server-config:/app/config:ro
       # The builds the console's Downloads page and `agent update` hand out
       # (scripts/build-dist.sh). The server offers the one of its own version, or the
       # newest of the same release: build the image with AI_PROXY_VERSION set to match.
@@ -125,6 +159,7 @@ services:
       # - ./projects:/workspace
 
 volumes:
+  postgres-data:
   agent-server-config:
   agent-auth-state:
   agent-server-logs:

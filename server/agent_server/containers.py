@@ -1,6 +1,6 @@
 """Model servers in containers that the fleet's machines run for the server.
 
-A backend in backends.yaml with `machine:` and `container:` is a container on that
+A backend with `machine` and `container` set is a container on that
 machine. The machine's agent-machine runs it: it knows the engines it can run (Strata,
 Ollama), builds the `docker run` (or `podman run`) from the engine's template, and
 starts, stops and switches containers when the server asks over its fleet connection
@@ -16,19 +16,18 @@ own settings and plain image names, here and again on the machine.
 
 from __future__ import annotations
 
-import json
-import os
 import re
 import secrets
 import threading
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 import httpx
+from sqlalchemy import select
 
 from . import strata
 from .config import Backend, Settings
+from .db import Database, kv, schema
 from .fleet import Fleet, FleetError, Machine
 
 
@@ -104,10 +103,12 @@ def gpus_overlap(first: dict[str, Any], second: dict[str, Any]) -> bool:
 
 
 class KeyStore:
-    """API keys the server generated for Strata containers, by backend name, next to the access key."""
+    """API keys the server generated for Strata containers, by backend name (secrets "container-key:<name>")."""
 
-    def __init__(self, path: Path):
-        self.path = path
+    PREFIX = "container-key:"
+
+    def __init__(self, db: Database):
+        self.db = db
         self._keys: dict[str, str] | None = None
         self._lock = threading.Lock()
 
@@ -120,33 +121,28 @@ class KeyStore:
             keys = self._load()
             if name not in keys and create:
                 keys[name] = secrets.token_urlsafe(24)
-                self._save(keys)
+                with self.db.write() as connection:
+                    kv.put(connection, schema.secrets, self.PREFIX + name, keys[name].encode())
+                self._publish(keys)
             return keys.get(name)
 
     def drop(self, name: str) -> None:
         with self._lock:
             keys = self._load()
             if keys.pop(name, None) is not None:
-                self._save(keys)
+                with self.db.write() as connection:
+                    kv.remove(connection, schema.secrets, self.PREFIX + name)
+                self._publish(keys)
 
     def _load(self) -> dict[str, str]:
         if self._keys is None:
-            try:
-                value = json.loads(self.path.read_text(encoding="utf-8"))
-                self._keys = {str(k): str(v) for k, v in value.items()} if isinstance(value, dict) else {}
-            except (OSError, ValueError):
-                self._keys = {}
+            with self.db.read() as connection:
+                rows = connection.execute(
+                    select(schema.secrets.c.name, schema.secrets.c.value).where(schema.secrets.c.name.startswith(self.PREFIX))
+                ).all()
+            self._keys = {name[len(self.PREFIX):]: bytes(value).decode() for name, value in rows}
             self._publish(self._keys)
         return self._keys
-
-    def _save(self, keys: dict[str, str]) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = self.path.with_suffix(".tmp")
-        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            json.dump(keys, handle, indent=2)
-        temporary.replace(self.path)
-        self._publish(keys)
 
     @staticmethod
     def _publish(keys: dict[str, str]) -> None:

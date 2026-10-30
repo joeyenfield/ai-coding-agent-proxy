@@ -16,6 +16,7 @@ from starlette.websockets import WebSocketDisconnect
 from agent_server.app import FIRST_USER, account_command, create_app, ensure_first_user
 from agent_server.auth import UserStore
 from agent_server.config import Backend, Settings
+from agent_server.db import legacy
 from oidc_helpers import OAuthTestClient, access_token, issuer, plant_legacy_credentials
 
 
@@ -26,10 +27,10 @@ PASSWORD = "correct horse"
 
 def org_settings(tmp_path: Path) -> Settings:
     settings = Settings(
-        log_dir=tmp_path / "logs", backends_file=tmp_path / "backends.yaml",
+        log_dir=tmp_path / "logs", 
         default_backend="test", backends={"test": Backend("test", "http://ollama.test")},
     )
-    store = UserStore(settings.users_path)
+    store = UserStore(settings.open_database())
     store.add_org("acme", "Acme")
     store.add_org("globex")
     store.add_team("acme", "core")
@@ -195,7 +196,7 @@ def test_members_see_their_own_organizations_and_the_people_in_them(tmp_path):
 
 
 def test_leaving_or_deleting_an_organization_leaves_its_teams(tmp_path):
-    store = UserStore(org_settings(tmp_path).users_path)
+    store = UserStore(org_settings(tmp_path).open_database())
     assert store.update_user("alice", orgs=["acme", "globex"])["teams"] == ["acme/core"]
     assert store.update_user("alice", orgs=["globex"])["teams"] == []
     store.update_user("bob", orgs=["acme", "globex"])
@@ -229,7 +230,7 @@ def test_scoped_memberships_preserve_other_organizations_and_persist(tmp_path):
         alice = next(user for user in directory["users"] if user["name"] == "alice")
         assert alice["orgs"] == ["acme", "globex"]
         assert alice["teams"] == ["globex/core"]
-    reloaded = UserStore(settings.users_path)
+    reloaded = UserStore(settings.open_database())
     assert reloaded.user("alice")["orgs"] == ["acme", "globex"]
     assert reloaded.user("alice")["teams"] == ["globex/core"]
 
@@ -244,7 +245,7 @@ def test_team_rename_keeps_memberships_and_sharing_key(tmp_path):
         team = response.json()["orgs"][0]["teams"][0]
         assert team == {"id": "core", "key": "acme/core", "name": "Engineering", "members": ["alice", "bob"]}
         assert admin.delete("/api/orgs/acme/teams/core").status_code == 200
-    store = UserStore(settings.users_path)
+    store = UserStore(settings.open_database())
     assert store.user("alice")["orgs"] == ["acme"]
     assert store.user("alice")["teams"] == []
 
@@ -294,7 +295,7 @@ def test_combined_user_edit_is_atomic_and_password_reset_revokes_access_tokens(t
         response = admin.put("/api/users/alice", json={"role": "admin", "orgs": ["globex"], "password": "new password"})
         assert response.status_code == 200
         assert alice.get("/api/users").status_code == 401
-    store = UserStore(settings.users_path)
+    store = UserStore(settings.open_database())
     assert store.verify("alice", "new password")
     assert not store.verify("alice", PASSWORD)
     assert store.user("alice")["role"] == "admin"
@@ -318,13 +319,18 @@ def test_scoped_removal_revokes_shared_session_access(tmp_path):
 
 
 def test_a_users_file_from_before_organizations_becomes_one_organization(tmp_path):
-    path = tmp_path / "users.json"
+    (tmp_path / "certs").mkdir()
+    path = tmp_path / "certs" / "users.json"
     path.write_text(json.dumps({
         "org": {"name": "Empty Pockets"}, "teams": {"core": {"name": "Core", "created_at": 1}},
         "users": {"joey": {"password": "x", "role": "admin", "teams": ["core"]}, "sam": {"password": "x", "role": "member", "teams": []}},
         "sessions": {}, "tokens": {},
     }))
-    store = UserStore(path)
+    settings = Settings(log_dir=tmp_path / "logs")
+    db = settings.open_database()
+    with db.write() as connection:
+        assert legacy.import_settings(connection, settings, root=tmp_path) == ["users.json"]
+    store = UserStore(db)
     assert [(org["id"], org["name"], org["members"]) for org in store.orgs()] == [("empty-pockets", "Empty Pockets", ["joey", "sam"])]
     assert store.user("joey")["teams"] == ["empty-pockets/core"]
 
@@ -337,7 +343,7 @@ def test_oauth_access_tokens_can_be_revoked_and_legacy_tokens_are_rejected(tmp_p
         assert client.get("/api/sessions", headers=token).status_code == 200
         issuer(app).revoke(issued)
         assert client.get("/api/sessions", headers=token).status_code == 401
-        _, legacy = plant_legacy_credentials(app.state.runtime.settings.users_path, "alice")
+        _, legacy = plant_legacy_credentials("alice")
         assert client.get("/api/sessions", headers={"x-ai-proxy-token": legacy}).status_code == 401
 
 
@@ -506,7 +512,7 @@ def test_connected_terminal_viewers_lose_revoked_access(tmp_path, monkeypatch, c
                     response = None
                 else:
                     # A CLI edit uses a different UserStore instance; live checks must reload it too.
-                    UserStore(settings.users_path).set_membership("acme", "bob", False, team="core")
+                    UserStore(settings.open_database()).set_membership("acme", "bob", False, team="core")
                     response = None
                 assert response is None or response.status_code == 200
                 assert client.get(f"/api/sessions/{sid}", headers=headers).status_code in {401, 404}
@@ -529,7 +535,7 @@ def test_account_commands_create_the_first_admin(tmp_path, monkeypatch, capsys):
     assert account_command("user", ["add", "sam", "--team", "other/ops"]) == 0
     assert account_command("org", ["rename", "pockets", "Empty Pockets"]) == 0
     assert account_command("team", ["add", "pockets", "web"]) == 0
-    store = UserStore(tmp_path / "users.json")
+    store = UserStore(Settings.load().open_database())
     assert [(org["id"], org["name"]) for org in store.orgs()] == [("other", "other"), ("pockets", "Empty Pockets")]
     assert [team["key"] for team in store.org("pockets")["teams"]] == ["pockets/core", "pockets/web"]
     assert [(user["name"], user["role"], user["orgs"], user["teams"]) for user in store.user_list()] == [
@@ -547,7 +553,7 @@ def test_a_first_start_creates_an_admin_even_on_loopback(tmp_path, monkeypatch, 
     saved = ensure_first_user(settings)
     password = saved.read_text().strip()
     assert password in capsys.readouterr().err
-    store = UserStore(settings.users_path)
+    store = UserStore(settings.open_database())
     assert store.verify(FIRST_USER, password) and store.user(FIRST_USER)["role"] == "admin"
     # Once users.json exists it's left alone, even with every user removed.
     store.remove_user(FIRST_USER)

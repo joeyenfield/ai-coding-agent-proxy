@@ -320,7 +320,7 @@ function ConnectTab({ state, name }: { state: StrataState; name: string }) {
       <p>
         Agents set up for local models work with Strata. The server passes their OpenAI and Anthropic requests to Strata as they
         are, swaps the agent's placeholder key for Strata's, and records each one like any other request. The tuning in{" "}
-        <code>config/models.yaml</code> only applies to Ollama.
+        the model tuning in Server settings only applies to Ollama.
       </p>
       {agents.isPending && <p className="empty">Reading the agent list…</p>}
       {usable.length > 0 && (

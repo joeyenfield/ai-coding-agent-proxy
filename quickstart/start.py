@@ -3,8 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-from pathlib import Path
-import shutil
 import signal
 import sys
 
@@ -45,10 +43,7 @@ async def main(mode):
             ))
         command = [sys.executable, "/quickstart/machine.py"]
     elif mode == "server":
-        target = Path("/app/config/backends.yaml")
-        if not target.exists():
-            shutil.copyfile("/quickstart/backends.yaml", target)
-        command = ["agent-server-entrypoint"]
+        command = ["agent-server"]
     else:
         raise ValueError("Expected server or machine")
 

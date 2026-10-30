@@ -17,12 +17,12 @@ def help_app(tmp_path, accounts: bool = False, ui_dir=None):
     (docs / "notes.txt").write_text("not a page", encoding="utf-8")
     (tmp_path / "secret.md").write_text("outside docs", encoding="utf-8")
     settings = Settings(
-        log_dir=tmp_path / "logs", backends_file=tmp_path / "backends.yaml", docs_dir=docs,
+        log_dir=tmp_path / "logs", docs_dir=docs,
         default_backend="t", backends={"t": Backend("t", "http://ollama.test")},
         **({"ui_dir": ui_dir} if ui_dir else {}),
     )
     if accounts:
-        UserStore(settings.users_path).add_user("dave", "correct horse")
+        UserStore(settings.open_database()).add_user("dave", "correct horse")
     return create_app(settings)
 
 

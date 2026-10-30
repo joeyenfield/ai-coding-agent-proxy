@@ -1201,3 +1201,13 @@ code { background: var(--ground); border: 1px solid var(--line); padding: 0 5px;
 .offline-server { margin-bottom: 14px; }
 .offline-server .row { align-items: center; gap: 10px; }
 .offline-server p { margin: 0; }
+
+/* Server settings: the stored agents and the YAML editors (SettingsStored.tsx). */
+.stored-agents { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.stored-agents > li { padding: 12px 16px; }
+.stored-agent-head { gap: 10px; align-items: center; }
+.stored-agent-head .mono { color: var(--steel); overflow-wrap: anywhere; }
+.stored-agent-head .spacer, .row .spacer { flex: 1; }
+.stored-editor { display: grid; gap: 12px; margin-top: 12px; }
+.stored-editor textarea { min-height: 160px; }
+@media (max-width: 900px) { .stored-agent-head .spacer { flex-basis: 100%; height: 0; } }

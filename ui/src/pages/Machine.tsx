@@ -1110,7 +1110,7 @@ function LaunchForm({ machine, agents, onDone }: { machine: FleetMachine; agents
                   : !listing.online
                     ? `${effective} is offline, so its models can't be listed: ${listing.error ?? "no answer"}`
                     : available.length
-                      ? `${available.length} ${available.length === 1 ? "model" : "models"} on ${effective}, aliases from models.yaml included.`
+                      ? `${available.length} ${available.length === 1 ? "model" : "models"} on ${effective}, aliases from the model tuning included.`
                       : `${effective} answers, but lists no models yet.`}
             </small>
           )}

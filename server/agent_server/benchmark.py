@@ -179,7 +179,7 @@ def main() -> None:
     parser.add_argument("--all", action="store_true", help="Run all benchmark tests")
     parser.add_argument("--model", help="Override configured models")
     parser.add_argument("--backend", help="Override configured backend")
-    parser.add_argument("--proxy", help="Override proxy.url from config/backends.yaml")
+    parser.add_argument("--proxy", help="Override the server's stored proxy.url")
     parser.add_argument("--tests-dir", type=Path, default=ROOT / "benchmarks" / "tests")
     parser.add_argument("--results-dir", type=Path, default=ROOT / "benchmarks" / "results")
     args = parser.parse_args()

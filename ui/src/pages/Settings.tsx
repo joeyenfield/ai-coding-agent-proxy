@@ -7,6 +7,7 @@ import { PartTag } from "../components/PartTag";
 import { RestartButton } from "../components/Restart";
 import { useStatus } from "../hooks";
 import { machinePath } from "./Machine";
+import { AgentDefinitions, ModelTuningEditor, StorageSettings } from "./SettingsStored";
 
 const URL_PLACEHOLDERS: Record<string, string> = {
   ollama: "http://host:11434",
@@ -17,7 +18,7 @@ const URL_PLACEHOLDERS: Record<string, string> = {
 
 /** What each backend type is, in a line under its card. */
 const TYPE_HINTS: Record<string, string> = {
-  ollama: "Local models; the proxy translates requests and applies models.yaml.",
+  ollama: "Local models; the proxy translates requests and applies the model tuning below.",
   docker: "Docker Model Runner; requests pass through unchanged.",
   strata: "A Strata server; requests pass through with Strata's API key added.",
   anthropic: "Hosted API; requests pass through with the agent's own credentials.",
@@ -43,6 +44,7 @@ export function SettingsPage() {
   const [host, setHost] = useState("");
   const [port, setPort] = useState("");
   const [url, setUrl] = useState("");
+  const [publicUrl, setPublicUrl] = useState("");
   const [defaultBackend, setDefaultBackend] = useState("");
   const [rows, setRows] = useState<Row[]>([]);
   const [message, setMessage] = useState<{ text: string; tone: "good" | "warn" | "bad" } | null>(null);
@@ -53,6 +55,7 @@ export function SettingsPage() {
     setHost(value.proxy.listen_host);
     setPort(String(value.proxy.listen_port));
     setUrl(value.proxy.url);
+    setPublicUrl(value.proxy.public_url ?? "");
     setDefaultBackend(value.default_backend);
     setRows(
       Object.entries(value.backends).map(([name, backend]) => ({
@@ -88,7 +91,7 @@ export function SettingsPage() {
     }
     setMessage(null);
     save.mutate({
-      proxy: { listen_host: host.trim(), listen_port: Number(port), url: url.trim() },
+      proxy: { listen_host: host.trim(), listen_port: Number(port), url: url.trim(), public_url: publicUrl.trim() || null },
       default_backend: names.includes(defaultBackend) ? defaultBackend : (names[0] ?? ""),
       backends,
     });
@@ -107,8 +110,8 @@ export function SettingsPage() {
         <PartTag />
         <h1>Server settings</h1>
         <p className="lede">
-          The hub's address, and which provider agents use by default. Saved to <code>config/backends.yaml</code>; provider
-          changes apply right away. To script the server, see its{" "}
+          The hub's address, which provider agents use by default, the agents themselves and how long recordings are kept. All
+          of it is kept in the server's database; changes apply right away. To script the server, see its{" "}
           <a href={apiUrl("/docs")} target="_blank" rel="noreferrer">API reference</a> (<code>/openapi.json</code>).
         </p>
       </header>
@@ -134,6 +137,11 @@ export function SettingsPage() {
                 Address agent machines use
                 <input type="url" value={url} onChange={(event) => setUrl(event.target.value)} required />
                 <small>Shown for <code>agent login</code> and pairing. Use this machine's LAN or public address when sharing it.</small>
+              </label>
+              <label className="field span-2">
+                Public console address
+                <input type="url" value={publicUrl} placeholder="https://agents.example.com" onChange={(event) => setPublicUrl(event.target.value)} />
+                <small>Where people open the console from anywhere, shown ahead of the addresses the server finds itself. Optional.</small>
               </label>
             </div>
           </div>
@@ -220,20 +228,23 @@ export function SettingsPage() {
               {message.text}
             </span>
           ) : (
-            <span className="subtle">Changes are saved to config/backends.yaml.</span>
+            <span className="subtle">Saves the server's address and providers.</span>
           )}
           <button className="primary" type="submit" disabled={save.isPending || !config.data}>
             {save.isPending ? "Saving…" : "Save changes"}
           </button>
         </div>
       </form>
+      <AgentDefinitions />
+      <ModelTuningEditor />
+      <StorageSettings />
       {status.data?.restart?.available && (
         <section className="panel" aria-labelledby="restart-heading">
           <div className="panel-head">
             <h2 id="restart-heading">Restart the server</h2>
             <p className="subtle">
-              Picks up edits to <code>config/</code> made outside this page and a new listen address. It waits for requests in
-              flight; running agents and their terminals reconnect by themselves.
+              Picks up a new listen address, and settings changed from the command line (<code>agent-server config import</code>).
+              It waits for requests in flight; running agents and their terminals reconnect by themselves.
             </p>
           </div>
           <div className="row wrap">

@@ -180,11 +180,8 @@ FAKE_AGENT = (
 )
 
 
-def agents_file(tmp_path: Path) -> Path:
-    import yaml
-
-    path = tmp_path / "agents.yaml"
-    path.write_text(yaml.safe_dump({"agents": {
+def fake_agents() -> dict:
+    return {
         "fake": {
             "name": "Fake agent", "executable": sys.executable, "protocol": "openai-chat",
             "env": {"OPENAI_BASE_URL": "{openai_url}", "FAKE_MODEL": "{model}", "FAKE_PROJECT": "{project}", "FAKE_SETTINGS": "{files_dir}/settings.json"},
@@ -193,8 +190,7 @@ def agents_file(tmp_path: Path) -> Path:
             "mcp": {"env": {"FAKE_MCP": "{mcp_servers}"}},
         },
         "claude-account": {"name": "Claude (account)", "executable": "claude", "protocol": "anthropic", "intercept": True},
-    }}))
-    return path
+    }
 
 
 def approve_device(issuer: str, user_code: str) -> None:
@@ -241,13 +237,13 @@ def machine(tmp_path, agent_binary, accounts: bool = False, prepare=None):
     """
     issuer_port = free_port()
     settings = Settings(
-        log_dir=tmp_path / "server", backends_file=tmp_path / "backends.yaml",
+        log_dir=tmp_path / "server",
         default_backend="test", backends={"test": Backend("test", "http://ollama.test")},
-        intercept=InterceptSettings(ca_dir=tmp_path / "certs"), agents_file=agents_file(tmp_path), dist_dir=tmp_path / "dist",
+        intercept=InterceptSettings(ca_dir=tmp_path / "certs"), agents=fake_agents(), dist_dir=tmp_path / "dist",
         oidc_issuer=f"http://127.0.0.1:{issuer_port}", oidc_state_dir=tmp_path / "issuer",
         oidc_introspection_secret="contract-introspection-secret",
     )
-    UserStore(settings.users_path).add_user("dave", PASSWORD)
+    UserStore(settings.open_database()).add_user("dave", PASSWORD)
     server_app = create_app(settings)
     seen: list[httpx.Request] = []
     with serve_issuer(settings, issuer_port) as issuer, serve(server_app) as server:

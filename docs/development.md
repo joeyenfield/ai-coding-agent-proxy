@@ -9,6 +9,8 @@ The components live in a folder each and talk only over HTTP and WebSockets, nev
 ```text
 server/          The server, in Python (FastAPI): agent-server and agent-benchmark, its Dockerfile
   agent_server/  The package: app.py, config.py, runtime.py, auth.py, fleet.py, routes/, translate/, ...
+    db/          The database: tables, numbered migrations, the import of an older install
+    defaults.py  What a new server starts with: the shipped agents, Ollama model tuning, its address
   tests/         pytest, one file per area; test_client.py runs the real Go client against it
 ui/              The console: React 19, TypeScript, Vite, TanStack Query; the server serves its build
 client/          The client, in Go: agent (launcher, agent login, update) and agent-proxy
@@ -16,7 +18,6 @@ machine/         agent-machine, in Go, its own module: the fleet connection, pro
 python/          agent_py: the same agent, agent-proxy and agent-machine in Python
 android/         The Android app (Kotlin): a list of servers, each one's console in a WebView
 tools/dist/      Build tooling, in Go: every platform's binaries, archives, packages and the Python wheel
-config/          backends.yaml, models.yaml, agents.yaml
 scripts/         Build, dev and launcher scripts (.ps1 and .sh pairs), HTTPS setup, screenshots
 sandbox/         The agent-sandbox image
 benchmarks/      tests/<name>/ (prompt.md, test.yaml); results/ is gitignored
@@ -24,6 +25,10 @@ VERSION          The project's one hand-written version
 ```
 
 `logs/`, `certs/`, `ui/dist/`, `client/bin/`, `machine/bin/` and `dist/` are runtime output and builds, all gitignored. Don't commit them, or benchmark results.
+
+### Where the server keeps things
+
+The server keeps its settings, agents, accounts, machines and recordings in one database. Without `AI_PROXY_DATABASE_URL` that's SQLite, `logs/agent-server.sqlite3` in the checkout (`AI_PROXY_LOG_DIR` moves it); production uses PostgreSQL, such as `AI_PROXY_DATABASE_URL=postgresql+psycopg://mesh_api:<password>@host:5432/mesh`. A new database gets its tables and the defaults from `defaults.py` on the first start. Change the settings on the console's **Server settings** page, or with `agent-server config export` and `agent-server config import <file>`; `agent-server db info` says which database is in use. See [Configuration](configuration.md) and, for PostgreSQL, [Deployment](deployment.md).
 
 ## Setup
 
@@ -52,7 +57,7 @@ Vite on 5173 proxies `/api` (WebSockets included) and `/health` to the server on
 
 **What picks up a change:**
 
-- Python: restart `agent-server`, unless it runs with `--reload`. The console's restart reloads `config/`, not code.
+- Python: restart `agent-server`, unless it runs with `--reload`. The console's restart reloads the stored settings, not code.
 - The console: `npm run build`, then refresh the page. The server serves `ui/dist` directly.
 - The client: stop the running `agent-proxy` (port 8184), so the next `agent` starts the new one.
 - agent-machine: `agent-machine stop`, then `agent-machine start`.
@@ -75,7 +80,14 @@ Vite on 5173 proxies `/api` (WebSockets included) and `/health` to the server on
 
 The one pytest warning, Starlette's httpx deprecation in `TestClient`, is expected.
 
-`server/tests/conftest.py` fails any test that changes the real `config/*.yaml` or creates secrets in `certs/`, and restores the file. A test that saves config must pass `backends_file=tmp_path / "backends.yaml"` to `Settings(...)`.
+`server/tests/conftest.py` gives every test its own log, account-state and CA folders, so `Settings` (built in code or loaded) opens a SQLite file under the test's temporary folder. It fails any test that touches the real `logs/agent-server.sqlite3` or creates secrets in `certs/`. `Settings(...)` built in code writes its own values (backends, agents, model tuning) into that database; `agents=` passes definitions, or the shipped ones when left out. `test_db.py` covers the database itself: migrations, seeding, shipped-agent upgrades, export and import, the config routes' admin checks, request paging and retention, terminal chunks, the issuer's read-only accounts and the import of an older install.
+
+The tests run on SQLite by default. To run them against PostgreSQL, point `AI_PROXY_TEST_DATABASE_URL` at a PostgreSQL server with an admin role; each test gets a database of its own there, dropped afterwards:
+
+```bash
+podman run -d --name agent-test-postgres -e POSTGRES_PASSWORD=testpass -p 55432:5432 postgres:17
+cd server && AI_PROXY_TEST_DATABASE_URL=postgresql+psycopg://postgres:testpass@127.0.0.1:55432/postgres python -m pytest -q
+```
 
 Each server test file has `make_app(tmp_path, handler, ...)` and `close_app(...)`: they build `Settings` in code, run `create_app`, and swap the shared HTTP client's transport for a mock whose `handler(request)` plays the upstream. Assert on what the upstream received as well as what the agent got back. `fake_docker.py`, `fake_ollama.py`, `fake_strata.py`, `fake_mcp.py` and `fake_systemctl.py` stand in for real programs.
 
@@ -86,7 +98,7 @@ python scripts/screenshots/demo.py                                    # leave it
 node scripts/screenshots/capture.mjs http://127.0.0.1:8199 docs/screenshots [name,...]
 ```
 
-`demo.py` runs a self-contained server on port 8199 in a temporary home, so your `logs/`, `config/` and accounts aren't touched. It has fake Ollama, Anthropic and Docker Model Runner servers, three made-up machines joined over the fleet socket (with fake model servers, metrics, catalogue results and containers), three made-up shared terminals you can type into, seeded account sessions, and live traffic. `scripts/screenshots/traffic.py` drives agent-like traffic through a server for smoke tests. Stop the demo with Ctrl+C.
+`demo.py` runs a self-contained server on port 8199 in a temporary home, so your database, `logs/` and accounts aren't touched. It has fake Ollama, Anthropic and Docker Model Runner servers, three made-up machines joined over the fleet socket (with fake model servers, metrics, catalogue results and containers), three made-up shared terminals you can type into, seeded account sessions, and live traffic. `scripts/screenshots/traffic.py` drives agent-like traffic through a server for smoke tests. Stop the demo with Ctrl+C.
 
 `capture.mjs` needs `playwright-core` and a browser (`npx playwright-core install chromium-headless-shell`, or point `chromium.launch({ executablePath })` at an installed one). Keep throwaway screenshot scripts outside the repository.
 
@@ -104,7 +116,7 @@ The browser doesn't use the agent's `HTTPS_PROXY`, so the pages it opens aren't 
 
 ## Versions and the protocol
 
-`VERSION` holds `X.Y.Z` and is the only version written by hand. A build is `X.Y.Z` when `HEAD` is tagged `vX.Y.Z` and clean, otherwise `X.Y.Z+<commit>`, with `.dirty` for uncommitted changes to tracked files outside `config/` (the console saves settings there). `server/agent_server/version.py` and `tools/dist/version.go` compute it the same way; keep them in step. `AI_PROXY_VERSION` overrides both.
+`VERSION` holds `X.Y.Z` and is the only version written by hand. A build is `X.Y.Z` when `HEAD` is tagged `vX.Y.Z` and clean, otherwise `X.Y.Z+<commit>`, with `.dirty` for uncommitted changes to tracked files. `server/agent_server/version.py` and `tools/dist/version.go` compute it the same way; keep them in step. `AI_PROXY_VERSION` overrides both.
 
 Compatibility is `PROTOCOL`, an integer in `version.py` and in `settings.Protocol` in `client/` and `machine/`; `test_client.py` checks they agree.
 
@@ -165,7 +177,7 @@ Each run gets its own session, and results go to `benchmarks/results/<timestamp>
 
 ## Checklists
 
-**A new agent.** Add an entry to `config/agents.yaml`: `executable`, `protocol`, `env` and `args` templates, `install`, `homepage`, and `backend_type` or `intercept` (see [Agents](agents.md)). The server renders it for every launch, so the client needs no change. Then:
+**A new agent.** On a running server, an admin adds it on **Server settings** → **Agents** (or `PUT /api/config/agents/<id>`). To ship it with the server, add it to `AGENTS_YAML` in `server/agent_server/defaults.py`: `executable`, `protocol`, `env` and `args` templates, `install`, `homepage`, and `backend_type` or `intercept` (see [Agents](agents.md#adding-a-new-agent)). Servers pick up shipped agents on their next start, unless an admin changed or removed that agent. The server renders it for every launch, so the client needs no change. Then:
 
 - run `agent --list` to check it's found;
 - launch it once with `--trace` and read the recorded traces;
@@ -178,7 +190,7 @@ Each run gets its own session, and results go to `benchmarks/results/<timestamp>
 3. agent-machine: a kind in `machine/internal/providers` (status, model operations, log), its probe in `presence.DetectProviders`, and Go tests.
 4. `routes/management.py`: `_backend_models` shapes the machine's status for `/api/models`. The console's provider routes in `routes/machines.py` are generic.
 5. The console: types and methods in `api.ts` (and its `MACHINE_TYPES`), `PROVIDERS` in `routes.ts`, the type option and URL placeholder in `Settings.tsx`, and a `<Kind>Provider` view taking a `ProviderRef`, with its case in `ProviderView` in `pages/Machine.tsx`.
-6. The comments in `config/backends.yaml` and `config/agents.yaml`, these docs, and the fake server in `scripts/screenshots/demo.py`.
+6. The comments in `AGENTS_YAML` in `defaults.py`, these docs, and the fake server in `scripts/screenshots/demo.py`.
 7. Tests: its traffic in `server/tests/test_<provider>.py` (follow `test_model_runner.py`), the relay in `test_providers.py`, the machine's side in Go.
 
 **A new console page.** Create `ui/src/pages/X.tsx`, add a `<Route>` in `App.tsx` and an item in `PARTS` in `navigation.ts`, and put `<PartTag />` above its `<h1>`. Anything about a model server goes on its machine's page instead.
@@ -189,11 +201,11 @@ Each run gets its own session, and results go to `benchmarks/results/<timestamp>
 - **One HTTP client.** Make upstream calls with the shared `runtime.client`. Tests replace its transport with a mock; a client of your own would bypass that.
 - **The server never manages a model server.** It only forwards agents' traffic. Everything else is a request to the machine that runs it, over the fleet socket. Add a provider operation to agent-machine and relay it.
 - **Upstream calls to a machine's model server use `runtime.tunnels.base_url(backend)`,** not `backend.url`, so they go through the machine's tunnel.
-- **The client/server boundary is the API.** The client never reads `config/` or imports the server; the server owns agent definitions, backend choice and template rendering. Something new the client needs goes into the API, the `agent-proxy`'s `LauncherAPI` allowlist if the launcher calls it, and `test_client.py`.
-- **Tests never touch real files.** Pass a temporary `backends_file`; `Settings(...)` built in code keeps `users.json` and the other account files under `log_dir` and leaves HTTPS capture off.
+- **The client/server boundary is the API.** The client never reads the server's settings or imports the server; the server owns agent definitions, backend choice and template rendering. Something new the client needs goes into the API, the `agent-proxy`'s `LauncherAPI` allowlist if the launcher calls it, and `test_client.py`.
+- **Tests never touch the real database.** `conftest.py` points each test at its own; `Settings(...)` built in code leaves HTTPS capture off.
 - **Admin-only routes go in `auth.ADMIN_ONLY`.** Every route that touches a session checks its sharing; every machine route checks its feature with `fleet.allowed`.
 - **Long-lived connections close on a restart.** A new kind must be closed in `Runtime._restart_when_idle`, or it holds the restart up.
-- **`PUT /api/config` drops comments** from `backends.yaml`. Make comment edits by hand.
+- **Stored settings have no comments.** The server stores what a definition says, not its YAML text; comments on the shipped agents and model tuning live in `defaults.py`.
 - **Style.** Python: `from __future__ import annotations`, a module docstring, dataclasses and type hints, comments that explain why. Go: `gofmt`, `go vet` clean for Windows and Linux, the standard library first. UI: calls and types in `api.ts`, data from TanStack Query, styles in `styles.css` with its variables. UI and docs text: plain, short sentences in sentence case.
 - **Don't write backslash escapes through shell heredocs**; the tooling mangles them. Use an editor.
 - **Line endings.** Working copies use CRLF (`core.autocrlf=true`); keep a file's existing endings.

@@ -5,8 +5,7 @@ by hand. Every component's build version comes from it the same way (tools/dist
 computes it for the Go programs and the Android app, this module for the server):
 
   - X.Y.Z when HEAD is tagged exactly vX.Y.Z and the tree is clean;
-  - X.Y.Z+<short commit> otherwise, with .dirty when tracked files have uncommitted changes
-    (outside config/: the console saves the running server's settings there);
+  - X.Y.Z+<short commit> otherwise, with .dirty when tracked files have uncommitted changes;
   - X.Y.Z+unknown without git;
   - AI_PROXY_VERSION, when set, wins (Docker images, CI).
 
@@ -62,14 +61,10 @@ def build_version(root: Path = ROOT, environ: dict[str, str] | None = None) -> s
     return f"{base}+{commit}" + (".dirty" if dirty else "")
 
 
-# Changes here don't make a build dirty: config/ is the running server's own settings (the console
-# saves backends.yaml), not its code. tools/dist/version.go excludes the same.
-CLEAN_EXCLUDES = (":(exclude)config",)
-
-
 def is_dirty(root: Path = ROOT) -> bool:
-    """Whether tracked files outside config/ have uncommitted changes (untracked ones don't count)."""
-    return _git(root, "status", "--porcelain", "--untracked-files=no", "--", ".", *CLEAN_EXCLUDES) is not None
+    """Whether tracked files have uncommitted changes (untracked ones don't count). The server's
+    settings are in its database, so nothing in the checkout is exempt; tools/dist/version.go agrees."""
+    return _git(root, "status", "--porcelain", "--untracked-files=no", "--", ".") is not None
 
 
 @lru_cache(maxsize=1)

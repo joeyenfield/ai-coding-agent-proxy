@@ -1,27 +1,34 @@
 """A local certificate authority for the HTTPS intercept proxy.
 
-The CA is generated on first use and kept on this machine. It is never added to
-the system trust store; the launcher hands it only to agent processes it starts
-(through NODE_EXTRA_CA_CERTS), so nothing else on the machine trusts it.
+The CA is generated on first use and kept in the database (secret "intercept-ca"). Its
+certificate, and a bundle of it with the system roots, are written to ca_dir for the agents
+that read them as files; its key never is. It is never added to the system trust store;
+the launcher hands it only to agent processes it starts (through NODE_EXTRA_CA_CERTS), so
+nothing else on the machine trusts it.
 """
 
 from __future__ import annotations
 
 import datetime
 import ipaddress
+import json
 import os
 import ssl
 import tempfile
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
+from .db import Database, kv, schema
+
 
 CA_NAME = "AI Control Mesh local CA"
+SECRET = "intercept-ca"
 
 
 def system_roots() -> str:
@@ -46,17 +53,42 @@ def write_bundle(ca_pem: str, path: Path) -> None:
     temporary.replace(path)
 
 
+def load_pair(db: Database) -> tuple[bytes, bytes] | None:
+    """The stored CA: its certificate and key, PEM."""
+    with db.read() as connection:
+        stored = kv.get(connection, schema.secrets, SECRET)
+    if not stored:
+        return None
+    value = json.loads(stored)
+    return value["cert"].encode(), value["key"].encode()
+
+
+def store_pair(connection: Any, cert_pem: bytes, key_pem: bytes) -> None:
+    kv.put(connection, schema.secrets, SECRET, json.dumps({"cert": cert_pem.decode(), "key": key_pem.decode()}).encode())
+
+
 class CertificateAuthority:
-    def __init__(self, directory: Path):
+    def __init__(self, db: Database, directory: Path):
         self.directory = directory
         self.cert_path = directory / "ca.pem"
-        self.key_path = directory / "ca-key.pem"
         self.bundle_path = directory / "bundle.pem"
-        if not (self.cert_path.exists() and self.key_path.exists()):
-            self._create()
-        write_bundle(self.cert_path.read_text(encoding="ascii"), self.bundle_path)
-        self.cert = x509.load_pem_x509_certificate(self.cert_path.read_bytes())
-        self.key = serialization.load_pem_private_key(self.key_path.read_bytes(), password=None)
+        pair = load_pair(db)
+        if pair is None:
+            pair = self._create()
+            with db.write() as connection:
+                # Another process may have made one first; keep theirs.
+                if kv.get(connection, schema.secrets, SECRET) is None:
+                    store_pair(connection, *pair)
+            pair = load_pair(db) or pair
+        cert_pem, key_pem = pair
+        self.directory.mkdir(parents=True, exist_ok=True)
+        temporary = self.cert_path.with_suffix(".tmp")
+        temporary.write_bytes(cert_pem)
+        temporary.replace(self.cert_path)
+        write_bundle(cert_pem.decode("ascii"), self.bundle_path)
+        self.cert = x509.load_pem_x509_certificate(cert_pem)
+        self.key = serialization.load_pem_private_key(key_pem, password=None)
+        self._pem = cert_pem.decode("ascii")
         # One key for every leaf keeps per-host certificate creation cheap.
         self.leaf_key = ec.generate_private_key(ec.SECP256R1())
         self._leaf_key_pem = self.leaf_key.private_bytes(
@@ -65,7 +97,7 @@ class CertificateAuthority:
 
     @property
     def pem(self) -> str:
-        return self.cert_path.read_text(encoding="ascii")
+        return self._pem
 
     def fingerprint(self) -> str:
         return self.cert.fingerprint(hashes.SHA256()).hex(":").upper()
@@ -111,8 +143,8 @@ class CertificateAuthority:
         )
         return cert.public_bytes(serialization.Encoding.PEM)
 
-    def _create(self) -> None:
-        self.directory.mkdir(parents=True, exist_ok=True)
+    @staticmethod
+    def _create() -> tuple[bytes, bytes]:
         key = ec.generate_private_key(ec.SECP256R1())
         name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, CA_NAME)])
         now = datetime.datetime.now(datetime.timezone.utc)
@@ -139,8 +171,4 @@ class CertificateAuthority:
         key_bytes = key.private_bytes(
             serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption(),
         )
-        # Create the key file private from the start rather than chmod-ing afterwards.
-        descriptor = os.open(self.key_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(key_bytes)
-        self.cert_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+        return cert.public_bytes(serialization.Encoding.PEM), key_bytes

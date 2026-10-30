@@ -14,7 +14,7 @@ export const ROUTE_ORDER: RouteKind[] = ["account", "ollama", "hosted"];
 export const ROUTES: Record<RouteKind, { label: string; description: string }> = {
   ollama: {
     label: "Local models",
-    description: "Your Ollama machines, the Strata server and Docker Model Runner. For Ollama the proxy translates each request and applies the model settings from models.yaml; Strata and Docker take requests as they are.",
+    description: "Your Ollama machines, the Strata server and Docker Model Runner. For Ollama the proxy translates each request and applies the model tuning from Server settings; Strata and Docker take requests as they are.",
   },
   hosted: {
     label: "Hosted API",

@@ -105,7 +105,15 @@ async def test_quickstart_relay_preserves_bytes_and_half_close():
 def test_compose_resolves_services_and_isolates_machine_storage():
     compose = yaml.safe_load((QUICKSTART / "compose.yaml").read_text())
     services = compose["services"]
-    assert set(services) == {"server", "auth", "machine-1", "machine-2", "ollama"}
+    assert set(services) == {"postgres", "server", "auth", "machine-1", "machine-2", "ollama"}
+    # The server and agent-auth keep everything in PostgreSQL, as their own roles; it publishes no port.
+    assert "ports" not in services["postgres"]
+    assert services["server"]["environment"]["AI_PROXY_DATABASE_URL"].startswith("postgresql+psycopg://mesh_api:")
+    assert services["auth"]["environment"]["AI_PROXY_AUTH_DATABASE_URL"].startswith("postgresql+psycopg://mesh_auth:")
+    for service in ("server", "auth"):
+        assert services[service]["depends_on"]["postgres"]["condition"] == "service_healthy"
+    init = (QUICKSTART / "../server/docker/postgres-init.sh").resolve()
+    assert any(str(volume).startswith("../server/docker/postgres-init.sh:") for volume in services["postgres"]["volumes"]) and init.is_file()
     # No shared namespaces: Podman can't recreate a container another one shares with.
     # machine-1's start.py relays its loopback 11434 to Ollama instead.
     assert not any("network_mode" in service for service in services.values())

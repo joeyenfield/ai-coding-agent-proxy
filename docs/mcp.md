@@ -96,7 +96,7 @@ In the console, **Start an agent** and starting an agent on a machine's page lis
 
 ## What each agent gets
 
-The server writes the chosen servers into the agent's own MCP settings for the session, from the agent's `mcp` block in `config/agents.yaml` (see [Adding a new agent](agents.md#the-mcp-block)). Each server's URL is on the agent's own `agent-proxy`, `http://127.0.0.1:8184/session/<id>/mcp/<machine>/<name>?key=<token>`, and speaks Streamable HTTP. The token is unique to the session and is delivered to the agent in its launch settings; the server stores only its hash. Treat the URL as a secret. A session id alone, including one visible to a session viewer, cannot call its MCP servers.
+The server writes the chosen servers into the agent's own MCP settings for the session, from the `mcp` block in the agent's definition (see [Adding a new agent](agents.md#the-mcp-block)). Each server's URL is on the agent's own `agent-proxy`, `http://127.0.0.1:8184/session/<id>/mcp/<machine>/<name>?key=<token>`, and speaks Streamable HTTP. The token is unique to the session and is delivered to the agent in its launch settings; the server stores only its hash. Treat the URL as a secret. A session id alone, including one visible to a session viewer, cannot call its MCP servers.
 
 | Agent | How it gets them |
 |---|---|

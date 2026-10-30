@@ -40,7 +40,7 @@ flowchart TB
   style MACHINES fill:#d9770612,stroke:#d97706
 ```
 
-- **The server** (`agent-server`) is the hub. Agent traffic goes through it, and allowed requests are recorded in a **session** per agent run, under `logs/sessions/<id>/`. It owns all configuration: the agents it knows, the providers it routes to, its users. It serves the **console**, the web app you manage everything from.
+- **The server** (`agent-server`) is the hub. Agent traffic goes through it, and allowed requests are recorded in a **session** per agent run, in its database. It owns all configuration, kept in the same database: the agents it knows, the providers it routes to, its users. It serves the **console**, the web app you manage everything from.
 - **Agents** run on any computer with the client installed (`agent`). `agent claude .` asks the server for a session, starts the agent pointed at that computer's **agent-proxy** (a small proxy on `127.0.0.1:8184`), and the agent-proxy carries the agent's traffic to the server. The agent needs nothing but the right environment, which the server renders for it.
 - **Machines** are computers in the server's **fleet**, kept there by `agent-machine`. They supply every local model: the Ollama, Strata and Docker Model Runner servers they run, and containers they run for the server. They can also share MCP servers, take agent launches from the console, open terminals, and update themselves to the server's build. A machine holds one WebSocket to the server, and the server reaches everything on it through that connection, so a machine behind NAT or in WSL needs no open port.
 
@@ -53,7 +53,7 @@ How an agent's request reaches a model depends on the agent:
 | Route | For | What happens |
 | --- | --- | --- |
 | **Your accounts** | Claude Code, Copilot CLI and Codex signed in to your own Claude, GitHub Copilot or ChatGPT plan | Nothing is redirected. The agent's HTTPS goes through its agent-proxy to the server, which decrypts and records it with its own certificate authority (trusted only by that agent's process tree) and sends it to public destinations. Private and reserved IP addresses are refused. |
-| **Local models** | Qwen Code, OpenCode, Claude Code, Copilot CLI, Codex, Aider, Goose against your own models | The agent talks to the proxy's OpenAI, Anthropic or Ollama endpoint. For Ollama, the server translates the request to Ollama's native API and applies the context size and sampling settings from `models.yaml`. Strata and Docker Model Runner take the request as it is. |
+| **Local models** | Qwen Code, OpenCode, Claude Code, Copilot CLI, Codex, Aider, Goose against your own models | The agent talks to the proxy's OpenAI, Anthropic or Ollama endpoint. For Ollama, the server translates the request to Ollama's native API and applies the context size and sampling settings from the server's Ollama model tuning. Strata and Docker Model Runner take the request as it is. |
 | **Hosted API** | Claude Code with your Anthropic login or key | The request is passed through to the hosted API unchanged, and recorded. |
 
 ### What a session is
@@ -75,16 +75,16 @@ Everyone signs in through OIDC, including on loopback. Sessions are private unti
 | [Getting started](getting-started.md) | From nothing to a first recorded agent session: install the server, sign in, install `agent`, run an agent on each route. |
 | [Architecture](architecture.md) | How it works inside: components, routes, a session step by step, HTTPS capture, tunnels, terminal sharing, what's recorded, versions, restarts, security. |
 | [Networking and protocols](networking.md) | Every connection and port, how a request is routed to a model, the fleet and terminal sockets message by message, headers, close codes, reverse proxies, troubleshooting. |
-| [Agents](agents.md) | The `agent` command and every option, the agent-proxy, every supported agent, what the requests are, sharing terminals, adding a new agent to `agents.yaml`. |
+| [Agents](agents.md) | The `agent` command and every option, the agent-proxy, every supported agent, what the requests are, sharing terminals, adding a new agent on Server settings. |
 | [MCP servers](mcp.md) | Sharing MCP servers from a machine with agents anywhere: `agent-machine mcp`, choosing them for a launch, how the bridge works, recording and access. |
 | [Machines](machines.md) | The fleet and `agent-machine`: every command, its files, launches, terminals, remote updates, tunnels, access grants, services, the sandbox machine, the Python version. |
-| [Providers](providers.md) | Ollama (translation, `models.yaml` tuning, Qwen), Strata, Docker Model Runner, containers machines run, hosted APIs, which agent can use which provider. |
+| [Providers](providers.md) | Ollama (translation, model tuning, Qwen), Strata, Docker Model Runner, containers machines run, hosted APIs, which agent can use which provider. |
 | [The console](console.md) | Every page of the web console and what each control does, with screenshots. |
 | [OIDC authentication](oidc.md) | Auth service deployment, browser PKCE, CLI device flow, service accounts, access tokens and migration. |
 | [Accounts and sharing](accounts.md) | Users, organizations and teams, session sharing, phones and the Android app. |
-| [Configuration](configuration.md) | `backends.yaml`, `models.yaml`, `agents.yaml`, every environment variable, secrets, the `agent-server` and `agent-benchmark` commands. |
+| [Configuration](configuration.md) | The database, the stored settings (providers, agents, model tuning, retention), `agent-server config export` and `import`, every environment variable, secrets, the `agent-server` and `agent-benchmark` commands. |
 | [API](api.md) | Every HTTP endpoint and WebSocket, who may call it, and what it takes and returns. |
-| [Deployment](deployment.md) | Docker, HTTPS, what the server hands out, one-line installers, packages and services, versions and updates, ports. |
+| [Deployment](deployment.md) | Docker, PostgreSQL and backups, HTTPS, what the server hands out, one-line installers, packages and services, versions and updates, ports. |
 | [Development](development.md) | Building and testing every component, the demo and screenshots, distributions, benchmarks, checklists. |
 
 [`AGENTS.md`](../AGENTS.md) at the repository root is the guide for changing the code.
@@ -99,7 +99,8 @@ Everyone signs in through OIDC, including on loopback. Sessions are private unti
 | Capture full payloads | `--trace` | Capture full request and response payloads | [Agents](agents.md#options) |
 | Record account agents' HTTPS | `agent claude-account` and the other `-account` agents | Traffic | [Agents](agents.md#your-accounts-https-capture) |
 | Local models on Ollama, Strata, Docker | `--model`, `--backend` | Start an agent, a machine's model server tabs | [Providers](providers.md) |
-| Tune Ollama per model | `config/models.yaml` | Aliases tab | [Providers](providers.md#tuning-with-modelsyaml) |
+| Tune Ollama per model | `agent-server config import` | Server settings › Ollama model tuning, a model server's Aliases tab | [Providers](providers.md#model-tuning) |
+| Add or change an agent | `PUT /api/config/agents/<id>` | Server settings › Agents | [Agents](agents.md#adding-a-new-agent) |
 | Hosted API pass-through | `agent claude-subscription` | Server settings › Add hosted API | [Providers](providers.md#backend-types) |
 | Watch model calls live | | Live | [Console](console.md#live) |
 | Account-agent traffic to public destinations | | Traffic | [Console](console.md#traffic) |
@@ -119,7 +120,8 @@ Everyone signs in through OIDC, including on loopback. Sessions are private unti
 | Who may use a machine | | Access tab | [Machines](machines.md#who-may-use-a-machine) |
 | Users, organizations, teams | `agent-server user\|org\|team` | Organizations | [Accounts](accounts.md) |
 | Share a session | `--share`, `--team` | A session's sharing | [Accounts](accounts.md#session-sharing) |
-| Server settings and restart | `agent-server` | Server settings | [Configuration](configuration.md) |
+| Server settings and restart | `agent-server config export`, `import` | Server settings | [Configuration](configuration.md) |
+| How long recordings are kept | | Server settings › Storage | [Configuration](configuration.md) |
 | The server computer's CPU, memory and disks | | Server stats | [Console](console.md#server-stats) |
 | Downloads and installers | `/install.sh`, `/install.ps1` | Downloads | [Deployment](deployment.md) |
 | The server in Docker, HTTPS | `docker compose up -d` | | [Deployment](deployment.md#the-server-in-docker) |
@@ -135,7 +137,7 @@ Everyone signs in through OIDC, including on loopback. Sessions are private unti
 | **agent-proxy** | The proxy on each agent machine (`127.0.0.1:8184`, and `8183` for HTTPS capture), started by `agent`. It signs the launcher's calls with the computer's sign-in and carries agents' traffic to the server. |
 | **agent-server** | The server: the hub that records and routes everything, and serves the console. |
 | **agent-machine** | The program that keeps a computer in the server's fleet. |
-| **backend**, **provider** | Where model requests go: an Ollama, Strata or Docker Model Runner server on a machine, a container a machine runs, or a hosted API. Listed in `config/backends.yaml`. |
+| **backend**, **provider** | Where model requests go: an Ollama, Strata or Docker Model Runner server on a machine, a container a machine runs, or a hosted API. Listed on Server settings › Providers. |
 | **session** | One run of one agent, and everything recorded for it. |
 | **route** | How an agent reaches a model: your accounts, local models or hosted API. |
 | **fleet** | The machines signed in to the server. |

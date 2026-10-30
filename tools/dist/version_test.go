@@ -8,9 +8,8 @@ import (
 	"testing"
 )
 
-// The console saves config/backends.yaml on the server's computer; that's settings, not code,
-// and mustn't make the server's build (or a dist built there) dirty.
-func TestTheServersOwnConfigDoesntMakeABuildDirty(t *testing.T) {
+// A clean tag is X.Y.Z; untracked files leave it so, a change to a tracked file makes it dirty.
+func TestOnlyChangesToTrackedFilesMakeABuildDirty(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git isn't installed")
 	}
@@ -33,7 +32,6 @@ func TestTheServersOwnConfigDoesntMakeABuildDirty(t *testing.T) {
 		}
 	}
 	write("VERSION", "1.4.2\n")
-	write("config/backends.yaml", "backends: {}\n")
 	write("app.go", "package app\n")
 	run("init", "-q")
 	run("add", ".")
@@ -42,10 +40,9 @@ func TestTheServersOwnConfigDoesntMakeABuildDirty(t *testing.T) {
 	if got := BuildVersion(root); got != "1.4.2" {
 		t.Fatalf("clean tag: %s", got)
 	}
-	write("config/backends.yaml", "backends: {saved: {}}\n")
 	write("notes.txt", "untracked\n")
 	if got := BuildVersion(root); got != "1.4.2" {
-		t.Fatalf("with config changed: %s", got)
+		t.Fatalf("with an untracked file: %s", got)
 	}
 	write("app.go", "package app // changed\n")
 	if got := BuildVersion(root); !strings.HasPrefix(got, "1.4.2+") || !strings.HasSuffix(got, ".dirty") {

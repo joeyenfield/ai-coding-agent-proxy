@@ -4,9 +4,10 @@ import json
 
 import pytest
 
-from agent_server.agents import load_agents
+from agent_server import defaults
+from agent_server.agents import parse_agents
 from agent_server.benchmark import summarize
-from agent_server.config import ROOT, Settings
+from agent_server.config import Settings
 from agent_server.telemetry import RequestTelemetry
 from agent_server.translate import (
     OpenAIStreamTranslator,
@@ -52,7 +53,7 @@ def test_benchmark_summary_ignores_missing_values():
     assert result["ttft_ms"] == {"average": 3, "minimum": 2, "maximum": 4}
 
 
-def test_network_locations_load_from_central_config(tmp_path, monkeypatch):
+def test_an_older_installs_backends_yaml_is_imported_into_a_new_database(tmp_path, monkeypatch):
     config = tmp_path / "backends.yaml"
     config.write_text(
         """proxy:
@@ -158,7 +159,7 @@ def test_openai_non_stream_response_shape():
 
 
 def test_bundled_agents_render_session_endpoints():
-    agents = load_agents(ROOT / "config" / "agents.yaml")
+    agents = parse_agents(defaults.agents())
     assert {"qwen", "opencode", "copilot", "claude", "codex"} <= set(agents)
     qwen = agents["qwen"].render("http://proxy:8181", "abc", "qwen3.6:35b")
     assert qwen["env"]["OPENAI_BASE_URL"] == "http://proxy:8181/session/abc/v1"
@@ -311,7 +312,7 @@ def test_backend_for_picks_a_backend_of_the_agents_type():
     assert settings.backend_for("anthropic").name == "anthropic"
     with pytest.raises(ValueError, match="needs a backend of type anthropic"):
         settings.backend_for("anthropic", "laptop")
-    agents = load_agents(ROOT / "config" / "agents.yaml")
+    agents = parse_agents(defaults.agents())
     assert agents["claude-subscription"].route == "hosted"
     assert agents["claude-account"].route == "account"
     assert agents["qwen"].route == "ollama"

@@ -441,7 +441,7 @@ function ConnectTab({ state }: { state: DockerView }) {
       <p>
         Every agent set up for local models works with Model Runner, including those that speak Ollama's native API. The server
         forwards their requests unchanged and records each one. Use Model Runner's model names, such as <code>ai/qwen3</code>;
-        the aliases and tuning in <code>config/models.yaml</code> only apply to Ollama.
+        the aliases and tuning in Server settings only apply to Ollama.
       </p>
       <div className="callout">
         <p>

@@ -70,7 +70,7 @@ def test_every_local_model_agent_can_use_docker_but_only_some_can_use_strata():
 
 
 def test_docker_backends_survive_a_settings_save(tmp_path):
-    settings = Settings(backends_file=tmp_path / "backends.yaml", backends={"docker": Backend("docker", DMR, type="docker", machine="m1")})
+    settings = Settings(backends={"docker": Backend("docker", DMR, type="docker", machine="m1")})
     proxy = {"listen_host": "127.0.0.1", "listen_port": 8181, "url": "http://127.0.0.1:8181"}
     settings.update_network_config({"proxy": proxy, "default_backend": "docker", "backends": {"docker": {"type": "docker", "url": DMR}}})
     assert settings.backend(None).type == "docker" and settings.backend(None).machine == "m1"

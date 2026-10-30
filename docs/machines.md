@@ -187,7 +187,7 @@ It sends a **hello** when it connects, and an **update** every 60 seconds, with:
 - servers: whether they're on, and the state of the Ollama and Strata installed here;
 - the MCP servers it shares.
 
-It also sends an update straight after a launch and after starting or stopping a model server. It pings every 25 seconds. The server keeps what it learns in `machines.json` in its logs folder, apart from Strata keys and the MCP bridge's key, which it keeps in memory only and drops when the machine disconnects.
+It also sends an update straight after a launch and after starting or stopping a model server. It pings every 25 seconds. The server keeps what it learns in its database, apart from Strata keys and the MCP bridge's key, which it keeps in memory only and drops when the machine disconnects.
 
 Over the same connection the server sends requests, each answered on the machine:
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
+import json
 import logging
 import re
 from urllib.parse import parse_qs, urlsplit
@@ -15,7 +16,9 @@ import pytest
 
 from agent_server.auth import UserStore
 from agent_server.config import Settings
+from agent_server.db import schema
 from agent_server.issuer import DEVICE_GRANT, Issuer, create_auth_app, digest
+from oidc_helpers import stored_rows
 
 
 @pytest.fixture
@@ -24,7 +27,7 @@ def issuer(tmp_path, monkeypatch):
     monkeypatch.delenv("AI_PROXY_PASSWORD", raising=False)
     settings = Settings(log_dir=tmp_path / "logs", oidc_state_dir=tmp_path / "issuer",
                         oidc_introspection_secret="api-introspection-secret")
-    store = UserStore(settings.users_path)
+    store = UserStore(settings.open_database())
     store.add_user("admin", "admin-password")
     store.add_user("alice", "alice-password", role="member")
     app = create_auth_app(settings)
@@ -81,7 +84,7 @@ def refresh(client, service, token, client_id=None):
 
 def test_browser_pkce_discovery_jwks_and_no_secret_storage(issuer, caplog):
     client, service, store = issuer
-    before = store.path.read_bytes()
+    before = stored_rows(store.db, schema.users)
     assert client.get("/health").json() == {"status": "ok"}
     discovery = client.get("/.well-known/openid-configuration").json()
     assert discovery["issuer"] == service.issuer
@@ -107,10 +110,10 @@ def test_browser_pkce_discovery_jwks_and_no_secret_storage(issuer, caplog):
     info = client.get("/userinfo", headers={"Authorization": "Bearer " + tokens["access_token"]}).json()
     assert info["sub"] == claims["sub"] and info["preferred_username"] == "alice"
     assert exchange(client, service, code, verifier, params).json()["error"] == "invalid_grant"
-    assert store.path.read_bytes() == before
-    stored = (service.settings.oidc_state_dir / "issuer.sqlite3").read_bytes()
+    assert stored_rows(store.db, schema.users) == before
+    stored = json.dumps(stored_rows(service.state.db, schema.records)) + repr(stored_rows(service.state.db, schema.auth_secrets))
     for secret in (tokens["access_token"], tokens["refresh_token"], code, verifier, "alice-password"):
-        assert secret.encode() not in stored
+        assert secret not in stored
         assert secret not in caplog.text
     assert "d" not in client.get("/.well-known/jwks.json").json()["keys"][0]
 
@@ -275,7 +278,7 @@ def test_device_denial_is_authenticated_csrf_bound_and_final(issuer):
         assert response.status_code == 400
         assert response.json()["error"] == "access_denied"
         assert "access_token" not in response.json()
-    assert service.state.db.execute("SELECT COUNT(*) FROM records WHERE kind IN ('access', 'refresh')").fetchone()[0] == 0
+    assert not [row for row in stored_rows(service.state.db, schema.records) if row["kind"] in ("access", "refresh")]
 
 
 def test_device_expiration_wrong_client_and_guess_limit(issuer):

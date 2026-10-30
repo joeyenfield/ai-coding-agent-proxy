@@ -1,0 +1,2 @@
+# Run inside Linux containers as they are, whatever the checkout's line endings.
+server/docker/postgres-init.sh text eol=lf

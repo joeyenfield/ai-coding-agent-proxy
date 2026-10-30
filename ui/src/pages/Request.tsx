@@ -9,7 +9,7 @@ import { LiveCard } from "./Live";
 /** One request on its own screen: streaming as a live card, then its saved timing and payload. */
 export function RequestPage() {
   const { sessionId = "", requestId = "" } = useParams();
-  const requests = useRequests();
+  const requests = useRequests(sessionId);
   const sessions = useSessions();
   const live = useLive(sessionId);
   const key = `${sessionId}:${requestId}`;

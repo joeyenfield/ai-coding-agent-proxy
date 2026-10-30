@@ -36,7 +36,7 @@ def test_a_cookie_an_upstream_sets_is_never_sent_with_another_request():
 
 
 def test_the_servers_own_client_keeps_no_cookies(tmp_path):
-    app = create_app(Settings(log_dir=tmp_path / "logs", backends_file=tmp_path / "backends.yaml", default_backend="t", backends={"t": Backend("t", "http://x")}))
+    app = create_app(Settings(log_dir=tmp_path / "logs", default_backend="t", backends={"t": Backend("t", "http://x")}))
     with TestClient(app):
         client = app.state.runtime.client
         response = httpx.Response(200, headers={"set-cookie": "ai_proxy_session=someone; Path=/"}, request=httpx.Request("GET", "https://aiproxy.example/api/auth/login"))

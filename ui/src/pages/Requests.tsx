@@ -1,10 +1,10 @@
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { isFailure, isModelCall, outcomeLabel, requestKey, tokens, type RequestRecord } from "../api";
+import { api, isFailure, isModelCall, outcomeLabel, requestKey, tokens, type RequestRecord } from "../api";
 import { Inspector } from "../components/Inspector";
 import { RouteBadge } from "../components/RouteBadge";
 import { endpointPath, formatDuration, formatNumber, formatRelative, shortId } from "../format";
-import { useRequests, useSessions, useStatus } from "../hooks";
+import { REQUEST_WINDOW, useRequests, useSessions, useStatus } from "../hooks";
 import { ROUTE_ORDER, ROUTES, routeOf, type RouteKind } from "../routes";
 import { PartTag } from "../components/PartTag";
 
@@ -24,7 +24,32 @@ export function RequestsPage() {
   const includeOther = params.get("other") === "1";
   const selectedKey = params.get("request");
 
-  const records = requests.data ?? [];
+  // Older pages, fetched on demand (the newest REQUEST_WINDOW come with useRequests).
+  const [older, setOlder] = useState<RequestRecord[]>([]);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [olderError, setOlderError] = useState<string | null>(null);
+  const [exhausted, setExhausted] = useState(false);
+  const newest = requests.data ?? [];
+  const records = useMemo(() => {
+    const seen = new Set(newest.map(requestKey));
+    return [...newest, ...older.filter((record) => !seen.has(requestKey(record)))];
+  }, [newest, older]);
+  const mayHaveMore = !exhausted && newest.length >= REQUEST_WINDOW;
+  const loadOlder = async () => {
+    const oldest = records[records.length - 1];
+    if (!oldest) return;
+    setLoadingOlder(true);
+    setOlderError(null);
+    try {
+      const page = await api.requests({ limit: REQUEST_WINDOW, before: oldest.timestamp });
+      setOlder((current) => [...current, ...page]);
+      if (page.length < REQUEST_WINDOW) setExhausted(true);
+    } catch (error) {
+      setOlderError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setLoadingOlder(false);
+    }
+  };
   const matches = useMemo(() => {
     const text = query.trim().toLowerCase();
     return records.filter(
@@ -59,7 +84,8 @@ export function RequestsPage() {
         <PartTag />
         <h1>Request history</h1>
         <p className="lede">
-          {formatNumber(records.length)} saved requests across {formatNumber(sessions.data?.length ?? 0)} sessions.
+          {mayHaveMore ? `The newest ${formatNumber(records.length)}` : formatNumber(records.length)} saved requests across{" "}
+          {formatNumber(sessions.data?.length ?? 0)} sessions.
         </p>
       </header>
       <div className="split">
@@ -150,6 +176,16 @@ export function RequestsPage() {
               </button>
             </div>
           </div>
+          {mayHaveMore && (
+            <div className="pager">
+              <span className={olderError ? "bad" : "subtle"}>
+                {olderError ?? `Searching and filtering cover the ${formatNumber(records.length)} requests loaded so far.`}
+              </span>
+              <button type="button" disabled={loadingOlder} onClick={loadOlder}>
+                {loadingOlder ? "Loading…" : `Load ${formatNumber(REQUEST_WINDOW)} older`}
+              </button>
+            </div>
+          )}
         </div>
         <div className="split-side">
           {selected ? (

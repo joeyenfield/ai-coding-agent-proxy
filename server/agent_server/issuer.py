@@ -1,4 +1,4 @@
-"""Standalone Authlib OIDC issuer; accounts are read-only, credentials live in SQLite."""
+"""Standalone Authlib OIDC issuer; accounts are read-only, its credentials live in its own schema (mesh_auth)."""
 from __future__ import annotations
 
 import argparse
@@ -33,10 +33,12 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 from joserfc.jwk import RSAKey
+from sqlalchemy import select, text
 
 from . import issuer_pages as pages
 from .auth import Auth, UserStore
 from .config import Settings
+from .db import Database, kv, migrate, schema, sqlite_url
 
 DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 SCOPES = "openid profile offline_access mesh-api"
@@ -57,63 +59,120 @@ class IssuerError(Exception):
 
 
 class State:
-    """A transaction spans grant validation, consumption and token persistence."""
+    """The issuer's OAuth state (schema mesh_auth): a transaction spans grant validation, consumption and token persistence.
 
-    def __init__(self, directory: Path):
-        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-        os.chmod(directory, 0o700)
-        path = directory / "issuer.sqlite3"
-        fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
-        os.close(fd)
-        os.chmod(path, 0o600)
-        self.db = sqlite3.connect(path, check_same_thread=False, isolation_level=None, timeout=30)
-        self.db.execute("PRAGMA journal_mode=DELETE")
-        self.db.execute("PRAGMA secure_delete=ON")
-        self.db.execute("CREATE TABLE IF NOT EXISTS records(kind TEXT, key TEXT, data TEXT NOT NULL, PRIMARY KEY(kind,key))")
+    One transaction at a time in this process (the lock); across processes, PostgreSQL's advisory
+    lock or SQLite's BEGIN IMMEDIATE serializes them, as the SQLite file of earlier versions did.
+    """
+
+    LOCK = 7_406_003
+
+    def __init__(self, db: Database, legacy_dir: Path | None = None):
+        self.db = db
+        migrate.migrate(db, "auth")
         self.lock = threading.RLock()
+        self.connection = None
         self.next_cleanup = 0.0
-        key_path = directory / "signing-key.pem"
-        # Serialize first-time key creation across issuer processes as well.
+        # Serialize first-time key creation (and the import from an older version) across issuer processes as well.
         with self.transaction():
-            if not key_path.exists():
+            if legacy_dir is not None and self.connection.execute(select(schema.records.c.kind).limit(1)).first() is None:
+                _import_legacy_state(self.connection, legacy_dir)
+            pem = kv.get(self.connection, schema.auth_secrets, "signing-key")
+            if pem is None:
                 key = rsa.generate_private_key(public_exponent=65537, key_size=3072)
-                pending = directory / "signing-key.pending"
-                fd = os.open(pending, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-                with os.fdopen(fd, "wb") as file:
-                    file.write(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
-                    file.flush()
-                    os.fsync(file.fileno())
-                pending.replace(key_path)
-            os.chmod(key_path, 0o600)
-            self.signing_key = RSAKey.import_key(key_path.read_bytes())
+                pem = key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
+                kv.put(self.connection, schema.auth_secrets, "signing-key", pem)
+            self.signing_key = RSAKey.import_key(bytes(pem))
         self.kid = self.signing_key.thumbprint()
         self.signing_key.ensure_kid()
 
     @contextmanager
     def transaction(self):
         with self.lock:
-            self.db.execute("BEGIN IMMEDIATE")
-            try:
-                now = time.time()
-                if now >= self.next_cleanup:
-                    self.db.execute("DELETE FROM records WHERE kind != 'client' AND json_extract(data, '$.exp') <= ?", (now - DEVICE_TTL,))
-                    self.next_cleanup = now + 300
+            if self.connection is not None:
                 yield
-            except BaseException:
-                self.db.execute("ROLLBACK")
-                raise
-            else:
-                self.db.execute("COMMIT")
+                return
+            with self.db.write() as connection:
+                if not self.db.sqlite:
+                    connection.execute(text("SELECT pg_advisory_xact_lock(:id)"), {"id": self.LOCK})
+                self.connection = connection
+                try:
+                    now = time.time()
+                    if now >= self.next_cleanup:
+                        records = schema.records
+                        connection.execute(records.delete().where(records.c.kind != "client", records.c.exp <= now - DEVICE_TTL))
+                        self.next_cleanup = now + 300
+                    yield
+                finally:
+                    self.connection = None
 
     def get(self, kind, key):
-        row = self.db.execute("SELECT data FROM records WHERE kind=? AND key=?", (kind, key)).fetchone()
+        with self.transaction():
+            row = self.connection.execute(select(schema.records.c.data).where(schema.records.c.kind == kind, schema.records.c.key == key)).first()
         return json.loads(row[0]) if row else None
 
     def put(self, kind, key, data):
-        self.db.execute("INSERT OR REPLACE INTO records VALUES (?,?,?)", (kind, key, json.dumps(data)))
+        exp = data.get("exp") if isinstance(data, dict) else None
+        with self.transaction():
+            kv.upsert(self.connection, schema.records, {
+                "kind": kind, "key": key, "data": json.dumps(data), "exp": float(exp) if isinstance(exp, (int, float)) else None,
+            })
 
     def delete(self, kind, key):
-        self.db.execute("DELETE FROM records WHERE kind=? AND key=?", (kind, key))
+        with self.transaction():
+            self.connection.execute(schema.records.delete().where(schema.records.c.kind == kind, schema.records.c.key == key))
+
+
+def _import_legacy_state(connection, directory: Path) -> None:
+    """An issuer from before the database kept issuer.sqlite3 and signing-key.pem in its state folder."""
+    path = directory / "issuer.sqlite3"
+    if path.is_file():
+        source = sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True)
+        try:
+            for kind, key, data in source.execute("SELECT kind, key, data FROM records"):
+                try:
+                    exp = json.loads(data).get("exp")
+                except (ValueError, AttributeError):
+                    exp = None
+                kv.upsert(connection, schema.records, {
+                    "kind": kind, "key": key, "data": data, "exp": float(exp) if isinstance(exp, (int, float)) else None,
+                })
+        except sqlite3.Error:
+            pass
+        finally:
+            source.close()
+    key_path = directory / "signing-key.pem"
+    if key_path.is_file() and kv.get(connection, schema.auth_secrets, "signing-key") is None:
+        kv.put(connection, schema.auth_secrets, "signing-key", key_path.read_bytes())
+
+
+def state_database(settings: Settings) -> Database:
+    """The issuer's database: AI_PROXY_AUTH_DATABASE_URL, else the API's PostgreSQL (its own schema), else a SQLite file of its own."""
+    url = os.getenv("AI_PROXY_AUTH_DATABASE_URL")
+    if not url and settings.database_url and not settings.database_url.startswith("sqlite"):
+        url = settings.database_url
+    if not url:
+        directory = state_directory(settings)
+        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(directory, 0o700)
+        path = directory / "issuer-state.sqlite3"
+        fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+        os.close(fd)
+        os.chmod(path, 0o600)
+        url = sqlite_url(path)
+    return Database(url)
+
+
+def accounts_database(settings: Settings, state: Database) -> Database:
+    """Where the issuer reads accounts (never writes them): in PostgreSQL, the state's connection,
+    whose role has SELECT on mesh's account tables; with SQLite, the API's file, read-only."""
+    if not state.sqlite:
+        return state
+    return Database(settings.database_address, readonly=True)
+
+
+def state_directory(settings: Settings) -> Path:
+    return Path(settings.oidc_state_dir or settings.users_path.parent / "oidc")
 
 
 class Payload(OAuth2Payload):
@@ -444,8 +503,9 @@ class Issuer:
                 target.scheme != "https" and not (target.scheme == "http" and target.hostname in {"localhost", "127.0.0.1", "::1"})
             ):
                 raise ValueError("OIDC callback must be explicit HTTPS or loopback HTTP")
-        self.state = State(Path(settings.oidc_state_dir or settings.users_path.parent / "oidc"))
-        self.auth = Auth(UserStore(settings.users_path))
+        self.state = State(state_database(settings), state_directory(settings))
+        self.accounts = accounts_database(settings, self.state.db)
+        self.auth = Auth(UserStore(self.accounts, readonly=True))
         self.server = Server(self)
         self.attempts = defaultdict(deque)
         # Authlib's grant debug statements include complete issued token dictionaries.
@@ -615,7 +675,7 @@ async def parameters(request: Request):
 
 def create_auth_app(settings: Settings | None = None) -> FastAPI:
     """Create the separately hosted issuer, never mount it into the API app."""
-    service = Issuer(settings or Settings.load())
+    service = Issuer(settings or Settings.load(database=False))
     @asynccontextmanager
     async def lifespan(app):
         try:
@@ -625,6 +685,8 @@ def create_auth_app(settings: Settings | None = None) -> FastAPI:
                 service.auth.client.close()
             finally:
                 service.state.db.close()
+                if service.accounts is not service.state.db:
+                    service.accounts.close()
 
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.state.issuer = service
@@ -882,7 +944,7 @@ def main():
     remove = client.add_parser("remove", help="Revoke a provisioned service client")
     remove.add_argument("client_id")
     args = parser.parse_args()
-    settings = Settings.load()
+    settings = Settings.load(database=False)
     if args.command == "client":
         service = Issuer(settings)
         with service.state.transaction():

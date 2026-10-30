@@ -89,7 +89,7 @@ def start(app: Any, machine_id: str = "desk", **hello: Any) -> FakeSocket:
 
 def local_app(tmp_path: Path) -> Any:
     settings = Settings(
-        log_dir=tmp_path / "logs", backends_file=tmp_path / "backends.yaml", default_backend="desk",
+        log_dir=tmp_path / "logs", default_backend="desk",
         backends={
             "desk": Backend("desk", "http://127.0.0.1:11434", machine="desk"),
             "desk-strata": Backend("desk-strata", "http://127.0.0.1:18500", type="strata", machine="desk"),

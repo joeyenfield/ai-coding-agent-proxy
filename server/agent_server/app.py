@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import getpass
 import logging
 import os
@@ -56,7 +57,11 @@ def create_app(settings: Settings | None = None, restart: Any = None, address_pi
         if settings.intercept.enabled:
             runtime.intercept = InterceptProxy(runtime)
             await runtime.intercept.start()
+        pruning = asyncio.ensure_future(runtime.prune_daily())
+        flushing = asyncio.ensure_future(_flush_terminals(runtime))
         yield
+        pruning.cancel()
+        flushing.cancel()
         if runtime.intercept:
             await runtime.intercept.stop()
         assert runtime.client
@@ -64,6 +69,8 @@ def create_app(settings: Settings | None = None, restart: Any = None, address_pi
         if runtime.intercept_client:
             await runtime.intercept_client.aclose()
         runtime.auth.client.close()
+        # Writes still queued (the last requests' records) go out before the database closes.
+        runtime.db.close()
         LOGGER.info("proxy stopped instance=%s", runtime.proxy_instance_id)
 
     # /docs (Swagger UI), /redoc and /openapi.json; openapi.install shapes the document.
@@ -96,6 +103,13 @@ def create_app(settings: Settings | None = None, restart: Any = None, address_pi
     if settings.serve_ui:
         _register_ui(app, settings.ui_dir)
     return app
+
+
+async def _flush_terminals(runtime: Runtime) -> None:
+    """Shared terminals' quiet output goes to the database within a few seconds, not only when more comes."""
+    while True:
+        await asyncio.sleep(2)
+        runtime.terminals.flush_quiet()
 
 
 def _register_downloads(app: FastAPI, downloads: Downloads) -> None:
@@ -198,7 +212,11 @@ def _configure_logging(path: Path) -> None:
 def main() -> None:
     if sys.argv[1:2] and sys.argv[1] in {"user", "team", "org"}:
         raise SystemExit(account_command(sys.argv[1], sys.argv[2:]))
-    parser = argparse.ArgumentParser(description="Run the agent-server: the console, accounts and routing for every agent machine's agent-proxy (users and organizations: agent-server user|org|team --help)")
+    if sys.argv[1:2] and sys.argv[1] in {"config", "db"}:
+        from . import commands
+
+        raise SystemExit(commands.main(sys.argv[1], sys.argv[2:]))
+    parser = argparse.ArgumentParser(description="Run the agent-server: the console, accounts and routing for every agent machine's agent-proxy (users and organizations: agent-server user|org|team --help; its settings and database: agent-server config|db --help)")
     parser.add_argument("--host")
     parser.add_argument("--port", type=int)
     parser.add_argument("--reload", action="store_true", help="Restart on code changes (development)")
@@ -226,10 +244,12 @@ FIRST_USER = "admin"
 def ensure_first_user(settings: Settings) -> Path | None:
     """Bootstrap an account on first start; OIDC remains mandatory even with no users."""
     environment_user = os.getenv("AI_PROXY_USERNAME") and os.getenv("AI_PROXY_PASSWORD")
-    if environment_user or settings.users_path.exists():
+    store = UserStore(settings.open_database())
+    if environment_user or store.initialized():
         return None
     password = secrets.token_urlsafe(12)
-    UserStore(settings.users_path).add_user(FIRST_USER, password)
+    store.add_user(FIRST_USER, password)
+    # The one thing kept as a file: for the operator to read once, then delete.
     saved = settings.users_path.with_name("first-user-password")
     remote.write_secret(saved, password)
     print(
@@ -248,10 +268,10 @@ def _tls(settings: Settings) -> dict[str, str]:
 
 
 class Supervisor:
-    """Runs the proxy and, when the console asks, serves it again with the configuration on disk.
+    """Runs the proxy and, when the console asks, serves it again with the stored configuration.
 
     The restart happens in this process, so it keeps its console window and PID on
-    every platform. Each round reloads config/*.yaml, rebuilds the console if its
+    every platform. Each round reloads the stored settings, rebuilds the console if its
     sources changed, and binds the listen address from the config (unless --host or
     --port fix it). Python code changes still need a full restart of agent-server.
     """
@@ -288,7 +308,7 @@ class Supervisor:
             self.server.run()
             if not self.restart_requested:
                 return
-            print(f"agent-server: restarting with the latest configuration from {settings.backends_file.parent}", file=sys.stderr, flush=True)
+            print("agent-server: restarting with the latest stored configuration", file=sys.stderr, flush=True)
 
 
 def account_command(kind: str, argv: list[str]) -> int:
@@ -330,7 +350,8 @@ def account_command(kind: str, argv: list[str]) -> int:
         remove.add_argument("id")
         commands.add_parser("list", help="List organizations and their members")
     args = parser.parse_args(argv)
-    store = UserStore(Settings.load().users_path)
+    settings = Settings.load()
+    store = UserStore(settings.open_database())
     try:
         if kind == "org" and args.action == "list":
             orgs = store.orgs()

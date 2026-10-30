@@ -19,6 +19,8 @@ from agent_server.agents import AgentDefinition
 from agent_server.app import create_app
 from agent_server.config import Backend, Settings, serves
 from agent_server.fleet import Fleet
+from agent_server.db import schema
+from oidc_helpers import database, stored_backends, stored_rows
 
 
 KEY = "s3cret-strata-key"
@@ -77,14 +79,14 @@ def test_local_model_agents_can_use_strata_but_native_ollama_agents_cannot():
 
 
 def test_strata_backends_survive_a_settings_save(tmp_path):
-    settings = Settings(backends_file=tmp_path / "backends.yaml", backends={"strata": Backend("strata", "http://127.0.0.1:18500", type="strata", machine="m1")})
+    settings = Settings(backends={"strata": Backend("strata", "http://127.0.0.1:18500", type="strata", machine="m1")})
     settings.update_network_config({
         "proxy": {"listen_host": "127.0.0.1", "listen_port": 8181, "url": "http://127.0.0.1:8181"},
         "default_backend": "strata",
         "backends": {"strata": {"type": "strata", "url": "http://127.0.0.1:18500"}},
     })
     assert settings.backend(None).type == "strata" and settings.backend(None).machine == "m1"
-    assert "api_key" not in (tmp_path / "backends.yaml").read_text(encoding="utf-8")
+    assert "api_key" not in json.dumps(stored_backends(settings))
 
 
 def test_openai_chat_passes_through_to_strata_with_its_key(tmp_path, install):
@@ -178,14 +180,14 @@ def test_launcher_puts_a_local_agent_on_strata_when_asked(tmp_path, install):
 
 
 def test_key_comes_from_the_container_the_environment_or_the_machine(tmp_path, install, monkeypatch):
-    fleet = Fleet(tmp_path / "machines.json")
+    fleet = Fleet(database(tmp_path))
     monkeypatch.setattr(strata, "fleet", fleet)
     fleet.connect(object(), None, "10.0.0.5", {"id": "desk", "providers": [{"type": "strata", "port": 18500, "api_key": KEY}, {"type": "ollama", "port": 11434, "api_key": "x"}]})
     assert strata.key_for(Backend("s", "http://10.0.0.5:18500", type="strata", machine="desk")) == (KEY, "machine")
     assert strata.key_for(Backend("s", "http://10.0.0.5:18501", type="strata", machine="desk")) == (None, None)
     assert strata.key_for(Backend("s", "http://10.0.0.5:18500", type="strata")) == (None, None)
-    # Kept in memory only: never in machines.json.
-    assert KEY not in (tmp_path / "machines.json").read_text(encoding="utf-8")
+    # Kept in memory only: never in the database.
+    assert KEY not in json.dumps(stored_rows(fleet.db, schema.machines))
     assert fleet.machines["desk"].keys == {18500: KEY}
     monkeypatch.setenv("STRATA_API_KEY", "from-env")
     assert strata.key_for(Backend("s", "http://10.0.0.5:18500", type="strata", machine="desk")) == ("from-env", "environment")

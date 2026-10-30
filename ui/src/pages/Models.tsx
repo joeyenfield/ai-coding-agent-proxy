@@ -1,4 +1,5 @@
 import { useId, useState } from "react";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type OllamaProviderModel, type OllamaState, type Profile, type ProviderRef } from "../api";
 import { formatBytes, formatNumber } from "../format";
@@ -24,7 +25,7 @@ function compareModels(sort: Sort, a: OllamaProviderModel, b: OllamaProviderMode
 /**
  * One Ollama on one machine: its models (load, unload, delete), finding and pulling more, and
  * the aliases agents can use. The machine does all of it (agent-machine). backend names the
- * backend agents use it as, whose models.yaml settings the server adds to their requests;
+ * backend agents use it as, whose model tuning the server adds to their requests;
  * manageable, when set, says why changes can't be made now.
  */
 export function OllamaProvider({ target, label, backend, manageable }: { target: ProviderRef; label: string; backend: string | null; manageable: string | null }) {
@@ -212,7 +213,7 @@ function ModelTable({
                   </td>
                   <td className="num nowrap">{formatBytes(model.size)}</td>
                   <td>{model.loaded ? <GpuShare model={model} /> : <span className="subtle nowrap">Not loaded</span>}</td>
-                  <td>{profile ? <ProfileSummary profile={profile} /> : <span className="subtle">Add it as a provider to apply models.yaml</span>}</td>
+                  <td>{profile ? <ProfileSummary profile={profile} /> : <span className="subtle">Add it as a provider to apply the model tuning</span>}</td>
                   <td>
                     <div className="model-actions">
                       {model.loaded ? (
@@ -257,16 +258,16 @@ function AliasesTab({ aliases }: { aliases: [string, Profile][] }) {
   if (!aliases.length) {
     return (
       <p className="empty">
-        No aliases yet. Add one under <code>models:</code> in <code>config/models.yaml</code> to give agents a short name for an Ollama
-        tag and its settings.
+        No aliases yet. Add one under <code>aliases:</code> in <Link to="/settings">Server settings</Link>' Ollama model tuning to give
+        agents a short name for an Ollama tag and its settings.
       </p>
     );
   }
   return (
     <div className="tab-stack">
       <p className="subtle">
-        Names agents can use in place of an Ollama tag, on every Ollama provider. Edit them under <code>models:</code> in{" "}
-        <code>config/models.yaml</code> on the server.
+        Names agents can use in place of an Ollama tag, on every Ollama provider. Edit them under <code>aliases:</code> in{" "}
+        <Link to="/settings">Server settings</Link>' Ollama model tuning.
       </p>
       <div className="table-scroll">
         <table className="table">

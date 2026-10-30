@@ -41,8 +41,11 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 from urllib.parse import urlsplit
 from typing import Any
 
+from sqlalchemy import select
+
 from . import access, strata, version
 from .auth import Identity
+from .db import Database, kv, schema
 from .sessions import SessionStore
 
 
@@ -98,7 +101,7 @@ class Machine:
     last_seen: float = 0.0
     history: list[dict[str, Any]] = field(default_factory=list)
     # The API keys of the Strata servers it runs, by port, for forwarding agents' traffic.
-    # Held in memory only: never saved to machines.json or shown in the console.
+    # Held in memory only: never saved in the database or shown in the console.
     keys: dict[int, str] = field(default_factory=dict, repr=False)
     # The key its MCP bridge takes, new each time agent-machine starts; in memory only, like keys.
     mcp_key: str | None = field(default=None, repr=False)
@@ -221,10 +224,10 @@ def within_roots(project: str, roots: list[str]) -> bool:
 
 
 class Fleet:
-    """The machines: those connected now, and the rest from machines.json."""
+    """The machines: those connected now, and the rest from the database (machines table)."""
 
-    def __init__(self, path: Path, sessions: SessionStore | None = None):
-        self.path = path
+    def __init__(self, db: Database, sessions: SessionStore | None = None):
+        self.db = db
         self.sessions = sessions
         self.machines: dict[str, Machine] = {}
         self.sockets: dict[str, Any] = {}
@@ -240,26 +243,29 @@ class Fleet:
     # Storage
 
     def _load(self) -> None:
-        try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return
-        for item in data.get("machines", []) if isinstance(data, dict) else []:
+        with self.db.read() as connection:
+            machines = [row[0] for row in connection.execute(select(schema.machines.c.data))]
+            removed = {key: value for key, value in connection.execute(select(schema.machines_removed.c.id, schema.machines_removed.c.data))}
+        for item in machines:
             try:
                 machine = Machine(**{key: value for key, value in item.items() if key in Machine.__dataclass_fields__})
             except TypeError:
                 continue
             self.machines[machine.id] = machine
-        removed = data.get("removed") if isinstance(data, dict) else None
-        if isinstance(removed, dict):
-            self.removed = {str(key): value for key, value in removed.items() if isinstance(value, dict)}
+        self.removed = {str(key): value for key, value in removed.items() if isinstance(value, dict)}
 
     def _save(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = self.path.with_suffix(".tmp")
-        stored = {"machines": [machine.stored() for machine in self.machines.values()], "removed": self.removed}
-        temporary.write_text(json.dumps(stored, indent=2), encoding="utf-8")
-        temporary.replace(self.path)
+        """Write every machine as it is now, behind the request (machines send updates every minute)."""
+        machines = {machine.id: machine.stored() for machine in self.machines.values()}
+        removed = {key: dict(value) for key, value in self.removed.items()}
+
+        def write(connection: Any) -> None:
+            for table, rows in ((schema.machines, machines), (schema.machines_removed, removed)):
+                connection.execute(table.delete().where(table.c.id.not_in(list(rows))) if rows else table.delete())
+                for key, data in rows.items():
+                    kv.upsert(connection, table, {"id": key, "data": data})
+
+        self.db.writer.submit(write)
 
     # Connections
 
