@@ -57,6 +57,8 @@ sequenceDiagram
   A-->>B: Host-only HttpOnly cookies; return to console
 ```
 
+The issuer's sign-in page looks like the console. A wrong password shows the page again with the username kept. Each page works once and for 10 minutes, and each has its own cookie, so several open at once (other tabs) don't interfere. An expired or already-used page explains that and links back to the console to start again. If the API can't complete a sign-in, or the issuer isn't answering, the browser goes back to the console's sign-in page (`?sign_in=failed` or `?sign_in=unavailable`), which says what happened.
+
 Callback URLs and console return origins must be explicitly registered. No wildcards or arbitrary return URLs are allowed. The issuer requires PKCE S256. The API verifies the ID token and nonce through Authlib.
 
 Access tokens stay in an HttpOnly API cookie; refresh tokens stay in a separate HttpOnly cookie restricted to `/api/auth`. They are not stored in localStorage. The console renews access automatically and serializes refreshes between tabs using Web Locks where available. Keep the console and API on HTTPS subdomains of the same site so host-only `SameSite=Lax` cookies work. Sign-out revokes the refresh family before removing the cookies.

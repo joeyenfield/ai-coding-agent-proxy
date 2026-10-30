@@ -167,6 +167,46 @@ def test_browser_csrf_host_cookie_and_password_is_auth_only(issuer):
     assert denied.status_code == 401 and "alice-password" not in denied.text and "location" not in denied.headers
 
 
+def test_sign_in_pages_are_branded_retryable_and_independent(issuer):
+    client, service, _ = issuer
+    params, _ = auth_params(service)
+    origin = {"Origin": service.issuer}
+    page = client.get("/authorize", params=params)
+    assert "AI Control Mesh" in page.text and 'href="/sign-in.css"' in page.text and "<script" not in page.text
+    assert "style-src 'self'" in page.headers["content-security-policy"]
+    css = client.get("/sign-in.css")
+    assert css.status_code == 200 and css.headers["content-type"].startswith("text/css") and "--accent" in css.text
+    # Two pages open at once (two tabs, or the console starting over) each keep working.
+    other, _ = auth_params(service, state="second-tab", nonce="second-tab-nonce")
+    first, second = transaction(page), transaction(client.get("/authorize", params=other))
+    form = {"username": "alice", "password": "alice-password", "approve": "yes"}
+    # A wrong password shows the same form again, with the name kept and a message, as HTML.
+    wrong = client.post("/authorize", data={**form, "transaction": first, "password": "wrong"}, headers=origin)
+    assert wrong.status_code == 401 and wrong.headers["content-type"].startswith("text/html")
+    assert "Wrong username or password." in wrong.text and 'value="alice"' in wrong.text and first in wrong.text
+    signed_in = client.post("/authorize", data={**form, "transaction": first}, headers=origin, follow_redirects=False)
+    assert signed_in.status_code == 302 and "code=" in signed_in.headers["location"]
+    assert client.post("/authorize", data={**form, "transaction": second}, headers=origin, follow_redirects=False).status_code == 302
+    # A spent page explains itself and offers the console, instead of a JSON error.
+    spent = client.post("/authorize", data={**form, "transaction": first}, headers=origin)
+    assert spent.status_code == 403 and "This page has expired" in spent.text
+    assert f'href="{service.settings.oidc_browser_origins[0]}"' in spent.text
+    assert not [name for name in client.cookies.keys() if name.startswith(service.cookie)]
+    broken = client.get("/authorize", params={**params, "redirect_uri": "https://evil.test/callback"})
+    assert broken.status_code == 400 and "This sign-in link isn&#x27;t valid" in broken.text and "evil.test" not in broken.text
+
+
+def test_device_page_keeps_what_was_typed_after_a_mistake(issuer):
+    client, service, _ = issuer
+    device = device_issue(client, service)
+    tx = transaction(client.get("/device"))
+    form = {"transaction": tx, "username": "alice", "password": "alice-password", "approve": "yes"}
+    mistyped = client.post("/device", data={**form, "user_code": "BBBB-CCCC"}, headers={"Origin": service.issuer})
+    assert mistyped.status_code == 400 and "That code isn&#x27;t right" in mistyped.text and 'value="BBBB-CCCC"' in mistyped.text
+    approved = client.post("/device", data={**form, "user_code": device["user_code"]}, headers={"Origin": service.issuer})
+    assert approved.status_code == 200 and "Device approved" in approved.text and "AI Control Mesh" in approved.text
+
+
 def device_issue(client, service):
     result = client.post("/device_authorization", data={"client_id": service.settings.oidc_cli_client,
                                                        "scope": "mesh-api offline_access"})

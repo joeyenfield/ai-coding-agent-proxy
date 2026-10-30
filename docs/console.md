@@ -45,7 +45,7 @@ The rail on the left has three parts, in the order a request flows:
 
 The console always requires sign-in. **Sign in** redirects to the separate OIDC issuer using authorization code + PKCE; passwords are entered only there. Access renews automatically through host-only HttpOnly cookies. **Downloads** and documentation remain public.
 
-An unavailable authentication service shows an error, never an unsigned console. See [OIDC authentication](oidc.md).
+An unavailable authentication service shows an error, never an unsigned console. If a sign-in can't be completed (it took more than 10 minutes, or the sign-in service isn't answering), you come back to this page with a message saying so; press **Continue to sign in** again. See [OIDC authentication](oidc.md).
 
 ![OIDC sign-in](screenshots/login.png)
 

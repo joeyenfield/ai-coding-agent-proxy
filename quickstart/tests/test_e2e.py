@@ -169,7 +169,7 @@ def test_wrong_password_is_refused():
     browser = Browser()
     try:
         answer = browser.sign_in(ADMIN, "not-the-password")
-        assert answer.status_code == 401 and answer.json()["error"] == "access_denied"
+        assert answer.status_code == 401 and "Wrong username or password." in answer.text
         assert browser.identity() is None
     finally:
         browser.close()
@@ -181,7 +181,7 @@ def test_sign_in_form_needs_the_issuers_origin(origin):
     try:
         page = browser.client.get(browser.client.get(API + "/api/auth/login").headers["location"])
         answer = browser.submit(page, "/authorize", {"username": ADMIN, "password": PASSWORD, "approve": "yes"}, origin=origin)
-        assert answer.status_code == 403 and answer.json()["error"] == "invalid_origin"
+        assert answer.status_code == 403 and "This page has expired" in answer.text
     finally:
         browser.close()
 
@@ -251,4 +251,4 @@ def test_removing_a_user_ends_their_sign_in(admin, member):
         assert client.get(API + "/api/sessions", headers={"X-AI-Proxy-Token": token["access_token"]}).status_code == 401
         refreshed = client.post(ISSUER + "/token", data={"client_id": CLI_CLIENT, "grant_type": "refresh_token", "refresh_token": token["refresh_token"]})
         assert refreshed.status_code == 400
-    assert browser.sign_in(name, password).json()["error"] == "access_denied"
+    assert "Wrong username or password." in browser.sign_in(name, password).text

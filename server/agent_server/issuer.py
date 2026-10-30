@@ -7,7 +7,6 @@ from collections import defaultdict, deque
 from contextlib import asynccontextmanager, contextmanager
 import hashlib
 import hmac
-import html
 import json
 import logging
 import os
@@ -32,9 +31,10 @@ from authlib.oidc.core.grants import OpenIDCode
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import JSONResponse, Response
 from joserfc.jwk import RSAKey
 
+from . import issuer_pages as pages
 from .auth import Auth, UserStore
 from .config import Settings
 
@@ -549,33 +549,34 @@ class Issuer:
         if request.headers.get("origin") != self.issuer:
             raise IssuerError("invalid_origin", 403)
 
+    def transaction_cookie(self, key):
+        # One cookie per form, named after its transaction: a second sign-in page (another tab,
+        # the console starting over) must not replace the first page's cookie and break it.
+        return f"{self.cookie}_{key[:16]}"
+
     def csrf(self, request, data):
         self.browser_origin(request)
         key = digest(data.get("transaction", ""))
         saved = self.state.get("transaction", key)
-        cookie = request.cookies.get(self.cookie, "")
+        cookie = request.cookies.get(self.transaction_cookie(key), "")
         if not saved or saved["exp"] <= time.time() or not cookie or not hmac.compare_digest(key, digest(cookie)):
             raise IssuerError("invalid_transaction", 403)
         return key, saved
 
-    def page(self, request, kind, data=None):
+    def page(self, kind, data=None):
+        """A fresh sign-in or device form, with its transaction and its own cookie."""
         transaction = secrets.token_urlsafe(32)
-        self.state.put("transaction", digest(transaction), {"kind": kind, "data": data or {}, "exp": time.time() + 600})
-        fields = '<label>Device code <input name="user_code" required autocomplete="off"></label>' if kind == "device" else ""
-        fields += '<label>Username <input name="username" required autocomplete="username"></label>'
-        fields += '<label>Password <input type="password" name="password" required autocomplete="current-password"></label>'
-        label = "Approve device sign-in" if kind == "device" else "Sign in and allow"
-        deny = '<button name="approve" value="no">Deny device sign-in</button>' if kind == "device" else ""
-        client = html.escape((data or {}).get("client_id", self.settings.oidc_cli_client))
-        scopes = html.escape((data or {}).get("scope", "mesh-api"))
-        body = f"""<!doctype html><html><head><title>AI Control Mesh sign-in</title></head>
-<body><h1>Sign in</h1><p>Authorize {client} to use your AI Control Mesh account.</p>
-<p>Requested permissions: {scopes}</p>
-<p>Only approve a device code from a sign-in you started yourself. Never approve a code sent by someone else.</p>
-<form method="post" action="/{kind}"><input type="hidden" name="transaction" value="{transaction}">{fields}
-<button name="approve" value="yes">{label}</button>{deny}</form></body></html>"""
-        response = HTMLResponse(body)
-        response.set_cookie(self.cookie, transaction, max_age=600, httponly=True, secure=self.issuer.startswith("https:"), samesite="lax", path="/")
+        key = digest(transaction)
+        self.state.put("transaction", key, {"kind": kind, "data": data or {}, "exp": time.time() + 600})
+        response = pages.device(transaction) if kind == "device" else pages.sign_in(transaction)
+        response.set_cookie(self.transaction_cookie(key), transaction, max_age=600, httponly=True,
+                            secure=self.issuer.startswith("https:"), samesite="lax", path="/")
+        return response
+
+    def finish(self, response, key):
+        """A form's transaction is spent: forget it and its cookie."""
+        self.state.delete("transaction", key)
+        response.delete_cookie(self.transaction_cookie(key), path="/", secure=self.issuer.startswith("https:"))
         return response
 
 
@@ -631,7 +632,10 @@ def create_auth_app(settings: Settings | None = None) -> FastAPI:
     # callbacks' origins must be allowed or the console never receives its code.
     form_targets = " ".join(dict.fromkeys(
         f"{part.scheme}://{part.netloc}" for part in map(urlsplit, service.settings.oidc_redirect_uris)))
-    policy = f"default-src 'none'; form-action 'self' {form_targets}; frame-ancestors 'none'; base-uri 'none'"
+    # style-src 'self' is for /sign-in.css only; the pages have no scripts.
+    policy = f"default-src 'none'; style-src 'self'; form-action 'self' {form_targets}; frame-ancestors 'none'; base-uri 'none'"
+    # Where a browser page sends someone to start over: the console starts a fresh sign-in.
+    console = service.settings.oidc_browser_origins[0] if service.settings.oidc_browser_origins else None
 
     @app.middleware("http")
     async def credential_headers(request, call_next):
@@ -661,8 +665,17 @@ def create_auth_app(settings: Settings | None = None) -> FastAPI:
 
     @app.exception_handler(IssuerError)
     async def issuer_error(request, error):
+        # People see /authorize and /device in a browser: explain, and offer a way to start over.
+        if request.url.path == "/authorize":
+            return pages.problem(error.error, error.status, again=console, again_label="Back to the console")
+        if request.url.path == "/device":
+            return pages.problem(error.error, error.status, again="/device", again_label="Enter a code again")
         headers = {"WWW-Authenticate": 'Basic realm="issuer"'} if error.status == 401 else {}
         return JSONResponse({"error": error.error}, status_code=error.status, headers=headers)
+
+    @app.get("/sign-in.css")
+    def stylesheet():
+        return Response(pages.STYLESHEET, media_type="text/css")
 
     @app.exception_handler(OAuth2Error)
     async def oauth_error(request, error):
@@ -699,22 +712,21 @@ def create_auth_app(settings: Settings | None = None) -> FastAPI:
             if request.method == "GET":
                 service.rate(("authorize", request.client.host))
                 service.authorize_request(data)
-                return service.page(request, "authorize", data)
+                return service.page("authorize", data)
             key, saved = service.csrf(request, data)
             if saved["kind"] != "authorize" or data.get("approve") != "yes":
                 raise IssuerError("invalid_request")
             service.rate(("password", request.client.host), 10)
             name = data.get("username", "").strip().lower()
             if not service.auth.check_password(name, data.get("password", "")):
-                return JSONResponse({"error": "access_denied"}, status_code=401)
+                # The same form again (its transaction still stands), so they can just retype.
+                return pages.sign_in(data["transaction"], username=name, error="Wrong username or password.", status=401)
             user = service.bound_user(name)
             if not user:
                 raise IssuerError("access_denied", 401)
             protocol = service.authorize_request(saved["data"])
             response = service.server.create_authorization_response(protocol, grant_user=user, grant=protocol.consent_grant)
-            service.state.delete("transaction", key)
-            response.delete_cookie(service.cookie, path="/", secure=service.issuer.startswith("https:"))
-            return response
+            return service.finish(response, key)
 
     @app.post("/device_authorization")
     async def device_authorization(request: Request):
@@ -741,33 +753,33 @@ def create_auth_app(settings: Settings | None = None) -> FastAPI:
         with service.state.transaction():
             if request.method == "GET":
                 service.rate(("device_page", request.client.host))
-                return service.page(request, "device")
+                return service.page("device")
             key, saved = service.csrf(request, data)
             if saved["kind"] != "device" or data.get("approve") not in {"yes", "no"}:
                 raise IssuerError("invalid_request")
             service.rate(("device_guess", request.client.host), 10)
-            code_hash = digest(data.get("user_code", "").upper().replace("-", "").replace(" ", ""))
+            typed = data.get("user_code", "").strip()
+            name = data.get("username", "").strip().lower()
+            # Mistakes they can fix show the same form again (its transaction still stands).
+            again = {"user_code": typed, "username": name}
+            code_hash = digest(typed.upper().replace("-", "").replace(" ", ""))
             record = service.state.get("user_code", code_hash)
             if not record or record["exp"] <= time.time():
-                return JSONResponse({"error": "invalid_user_code"}, status_code=400)
+                return pages.device(data["transaction"], **again, status=400,
+                                    error="That code isn't right, or it has expired. Check it, or run the login command again for a new one.")
             credential = service.state.get("device", record["device"])
             if not credential or credential["used"] or service.state.get("approval", code_hash):
                 raise IssuerError("invalid_user_code")
             service.rate(("password", request.client.host), 10)
-            name = data.get("username", "").strip().lower()
             if not service.auth.check_password(name, data.get("password", "")):
-                return JSONResponse({"error": "access_denied"}, status_code=401)
+                return pages.device(data["transaction"], **again, error="Wrong username or password.", status=401)
             user = service.bound_user(name)
             if not user:
                 raise IssuerError("access_denied", 401)
             approved = data["approve"] == "yes"
             service.state.put("approval", code_hash, {"user": name, "version": user.version,
                                                      "approved": approved, "exp": record["exp"]})
-            service.state.delete("transaction", key)
-            outcome = "approved" if approved else "denied"
-            response = HTMLResponse(f"<h1>Device {outcome}</h1><p>You may close this page.</p>")
-            response.delete_cookie(service.cookie, path="/", secure=service.issuer.startswith("https:"))
-            return response
+            return service.finish(pages.device_done(approved), key)
 
     @app.post("/token")
     async def token(request: Request):

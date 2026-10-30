@@ -80,6 +80,7 @@ server/                     THE SERVER (Python); console scripts in server/pypro
   Dockerfile docker/        The server's image (built from the repo root: it needs ui/), its default backends.yaml and entrypoint
 server/agent_server/        Python package (FastAPI)
   issuer.py                 agent-auth: separate Authlib OIDC issuer, read-only accounts, transactional OAuth state and signing key
+  issuer_pages.py           agent-auth's branded pages (sign-in, device approval, what went wrong) and /sign-in.css; no scripts
   app.py                    create_app(), route registration order, UI serving, `agent-server` CLI, Supervisor, ensure_first_user
   config.py                 Settings, Backend, backend types, serves()/backend_for(), model profiles, the client's default LOCAL_* ports
   runtime.py                Runtime: shared state (settings, sessions, chats, terminals, fleet, tunnels, containers, auth, remote, httpx client, live hub, totals)

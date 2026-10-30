@@ -51,6 +51,19 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             response.set_cookie("mesh_refresh", token["refresh_token"], max_age=30 * 86400, httponly=True, secure=secure, samesite="lax", path="/api/auth")
         response.headers["Cache-Control"] = "no-store"
 
+    def back_to_console(request: Request, reason: str) -> RedirectResponse:
+        """A browser sign-in that can't go on: back to the console's sign-in page, which says why.
+
+        reason is "failed" or "unavailable"; the console shows its own wording for each.
+        """
+        target = request.session.pop("return_to", None)
+        request.session.clear()
+        if target != "/" and target not in settings.oidc_browser_origins:
+            target = settings.oidc_browser_origins[0] if settings.oidc_browser_origins else "/"
+        response = RedirectResponse(f"{target.rstrip('/')}/?sign_in={reason}", status_code=303)
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
     def clear_tokens(response: Response) -> None:
         response.delete_cookie(auth.COOKIE)
         response.delete_cookie("mesh_refresh", path="/api/auth")
@@ -91,8 +104,8 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         request.session["return_to"] = target
         try:
             response = await oidc.authorize_redirect(request, callback)
-        except (OAuthError, httpx.HTTPError, ValueError) as exc:
-            raise HTTPException(status_code=503, detail="The authentication service is unavailable") from exc
+        except (OAuthError, httpx.HTTPError, ValueError):
+            return back_to_console(request, "unavailable")
         response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -102,17 +115,23 @@ def register(app: FastAPI, runtime: Runtime) -> None:
 
     @app.get("/api/auth/callback", name="oidc_callback")
     async def callback(request: Request) -> Response:
+        # A browser landed here, so failures go back to the console's sign-in page, not a JSON error.
         try:
             token = await oidc.authorize_access_token(request)
-        except (OAuthError, JoseError, httpx.HTTPError, ValueError) as exc:
-            request.session.clear()
-            raise HTTPException(status_code=400, detail="Sign-in could not be verified. Start sign-in again.") from exc
+        except httpx.HTTPError:
+            return back_to_console(request, "unavailable")
+        except (OAuthError, JoseError, ValueError):
+            # An expired or replayed callback, or one from another browser's sign-in.
+            return back_to_console(request, "failed")
         if not token.get("userinfo"):
-            raise HTTPException(status_code=400, detail="The authentication service did not return a verified OIDC identity")
+            return back_to_console(request, "failed")
         target = request.session.pop("return_to", "/")
         request.session.clear()
         response = RedirectResponse(target if target == "/" or target in settings.oidc_browser_origins else "/")
-        set_tokens(response, token)
+        try:
+            set_tokens(response, token)
+        except HTTPException:
+            return back_to_console(request, "failed")
         return response
 
     @app.post("/api/auth/refresh")

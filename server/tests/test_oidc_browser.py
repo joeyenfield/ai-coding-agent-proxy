@@ -81,7 +81,10 @@ def test_real_browser_login_refresh_and_logout(browser):
     assert api.post("/api/auth/logout", headers={"Origin": settings.oidc_browser_origins[0]}).status_code == 200
     assert api.get("/api/status").status_code == 401
     assert api.get("/api/status", headers={"Authorization": "Bearer " + current_access}).status_code == 401
-    assert api.get(callback).status_code == 400
+    # A replayed callback signs nobody in; the browser goes back to the console's sign-in page.
+    replayed = api.get(callback, follow_redirects=False)
+    assert replayed.status_code == 303 and replayed.headers["location"].endswith("/?sign_in=failed")
+    assert COOKIE + "=" not in replayed.headers.get("set-cookie", "")
 
 
 def test_callback_rejects_unbound_state_and_refresh_rejects_cross_origin(browser):
@@ -91,6 +94,7 @@ def test_callback_rejects_unbound_state_and_refresh_rejects_cross_origin(browser
     query = parse_qs(parsed.query)
     query["state"] = ["not-the-browser-state"]
     forged = urlunsplit(parsed._replace(query=urlencode(query, doseq=True)))
-    assert api.get(forged).status_code == 400
+    refused = api.get(forged, follow_redirects=False)
+    assert refused.status_code == 303 and refused.headers["location"].endswith("/?sign_in=failed")
     assert api.get("/api/auth/status").json()["identity"] is None
     assert api.post("/api/auth/refresh", headers={"Origin": "https://evil.test"}).status_code == 403
