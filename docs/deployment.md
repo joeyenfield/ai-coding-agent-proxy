@@ -114,7 +114,13 @@ Set these variables for Compose (or put them in the root `.env`, which is ignore
 VITE_API_URL=https://api.aicontrolmesh.com
 AI_PROXY_SERVE_UI=0
 AI_PROXY_CONSOLE_ORIGINS=https://console.aicontrolmesh.com
+AI_PROXY_OIDC_INTROSPECTION_SECRET=<a long random secret>
+# nginx on the same computer terminates HTTPS:
+AI_PROXY_PUBLISH_HOST=127.0.0.1
+AI_PROXY_FORWARDED_ALLOW_IPS=*
 ```
+
+**Behind a reverse proxy on the same computer**, set the last two. Inside a container, requests come from Docker's bridge address, not 127.0.0.1, so by default the server ignores the proxy's `X-Forwarded-For` and `X-Forwarded-Proto`. Every visitor then shows the bridge's address (machines included), and the API builds `http://` sign-in callbacks. `AI_PROXY_FORWARDED_ALLOW_IPS=*` makes those headers count, and `AI_PROXY_PUBLISH_HOST=127.0.0.1` publishes port 9999 on loopback only, so nothing but the proxy can send them. `agent-auth` does this already: its port is loopback-only. Behind Cloudflare, also have nginx take the visitor's address from `CF-Connecting-IP` for Cloudflare's ranges only (`set_real_ip_from`, `real_ip_header`), or every address is Cloudflare's.
 
 `VITE_API_URL` is a **build-time** setting. Rebuild the console when its API address changes. `ui/Dockerfile` builds it; `ui/nginx.conf` serves its assets and SPA routes, returns 404 for API paths and never forwards requests to the server. With no `VITE_API_URL`, a normal `npm run build` still uses the page's origin for bundled/local installs.
 

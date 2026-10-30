@@ -23,6 +23,11 @@ services:
       AI_PROXY_OIDC_BROWSER_ORIGINS: ${AI_PROXY_OIDC_BROWSER_ORIGINS:-https://console.aicontrolmesh.com}
       AI_PROXY_OIDC_INTROSPECTION_SECRET: ${AI_PROXY_OIDC_INTROSPECTION_SECRET:?Set a strong shared OIDC introspection secret}
       AI_PROXY_OIDC_STATE_DIR: /app/auth-state
+      # Requests reach the container from Docker's bridge, not 127.0.0.1, so uvicorn would
+      # ignore the reverse proxy's X-Forwarded-For: every visitor would share one address,
+      # and with it the password rate limit. The port below is loopback-only, so only this
+      # computer's own processes (the reverse proxy) can send these headers.
+      FORWARDED_ALLOW_IPS: "*"
     ports:
       - "127.0.0.1:10000:10000"
     volumes:
@@ -69,8 +74,12 @@ services:
       AI_PROXY_OIDC_REDIRECT_URIS: ${AI_PROXY_OIDC_REDIRECT_URIS:-https://api.aicontrolmesh.com/api/auth/callback}
       AI_PROXY_OIDC_BROWSER_ORIGINS: ${AI_PROXY_OIDC_BROWSER_ORIGINS:-https://console.aicontrolmesh.com}
       AI_PROXY_OIDC_INTROSPECTION_SECRET: ${AI_PROXY_OIDC_INTROSPECTION_SECRET:?Set a strong shared OIDC introspection secret}
+      # Behind a reverse proxy on this computer (nginx for HTTPS): set AI_PROXY_PUBLISH_HOST=127.0.0.1
+      # and AI_PROXY_FORWARDED_ALLOW_IPS=*, so the proxy's X-Forwarded-For and -Proto count (the
+      # container sees Docker's bridge, never 127.0.0.1) and nothing else can reach the port to fake them.
+      FORWARDED_ALLOW_IPS: ${AI_PROXY_FORWARDED_ALLOW_IPS:-127.0.0.1}
     ports:
-      - "9999:9999"
+      - "${AI_PROXY_PUBLISH_HOST:-0.0.0.0}:9999:9999"
     extra_hosts:
       # Providers on the Docker host (Ollama on 11434, ...), on Linux as on Docker Desktop.
       - "host.docker.internal:host-gateway"
