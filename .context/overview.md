@@ -18,16 +18,21 @@ flowchart LR
     models["Ollama · Strata ·<br/>Docker Model Runner ·<br/>containers · MCP servers"]
     machine --> models
   end
+  issuer["agent-auth<br/>(OIDC issuer, issuer.py)"]
   agent -- "HTTP + WS, signed by agent login" --> server
-  console -- "same-origin API" --> server
+  console -- "API (same origin or an allowed console origin)" --> server
   machine -- "WS /api/machines/connect (dials out)" --> server
+  agent -.->|"device sign-in, refresh"| issuer
+  machine -.->|"device sign-in, refresh"| issuer
+  console -.->|"PKCE sign-in, through the server"| issuer
+  server -- "introspects every token" --> issuer
   server -- "hosted API" --> hosted["Anthropic"]
 ```
 
 - **Server**: the hub. It owns all configuration, accounts, agent definitions, backend choice and recordings.
 - **Agents** connect to it through their computer's `agent-proxy`.
 - **Machines** supply every local provider. Hosted APIs are the only providers not on a machine.
-- **Auth issuer** (`agent-auth`, separate process at `auth.aicontrolmesh.com`) issues OAuth access tokens through Authlib. All API traffic, including loopback and agent sessions, is authenticated; see `auth.md`.
+- **Auth issuer** (`agent-auth`, `server/agent_server/issuer.py`, a separate process at `auth.aicontrolmesh.com`) issues OAuth access tokens through Authlib: device codes for `agent login` and `agent-machine login`, PKCE for the console, client credentials for provisioned service clients. It reads the server's accounts but never changes them. The server introspects every token there and has no unauthenticated mode: all API traffic, including loopback and agent sessions, needs a token. Pairing and the access key are gone. See `auth.md`.
 
 ## Design principles (apply to every component)
 
@@ -76,14 +81,14 @@ The console starts agents on a machine the same way: `POST /api/machines/{id}/la
 | --- | --- |
 | Server `config/` | `backends.yaml`, `models.yaml`, `agents.yaml` |
 | Server `logs/` | sessions (telemetry, traces, terminals), `machines.json`, `chat-index.json` |
-| Server `certs/` | the intercept CA, the access key, `users.json`, `container-keys.json` |
-| Issuer state directory | SQLite OAuth grants/token hashes and private signing key; accounts are read-only from the API's `users.json` |
+| Server `certs/` | the intercept CA, `users.json`, `container-keys.json`, `oidc-browser-key`, `first-user-password` |
+| Issuer state directory (`AI_PROXY_OIDC_STATE_DIR`, else `certs/oidc/`) | `issuer.sqlite3` (OAuth grants and token hashes) and `signing-key.pem`; accounts are read-only from the API's `users.json` |
 | Agent computer | `credentials.json` (+ `agent-proxy.log`), `~/.cache/agent-proxy/` (CA copy, per-session files) |
 | Machine | its folder: `credentials.json`, `machine.json`, `status.json`, `mcp.json`, `servers.json`, `ollama.json`, logs |
 
 ## Ports
 
-9999 server · 8184 agent-proxy (loopback) · 8183 agent-proxy HTTPS proxy (loopback) · 5173 Vite · 11434 Ollama · 18500 Strata · 12434 Docker Model Runner. Never test on 8183/8184/9999 on the dev machine.
+9999 server · 10000 agent-auth (its default, loopback) · 8184 agent-proxy (loopback) · 8183 agent-proxy HTTPS proxy (loopback) · 5173 Vite · 11434 Ollama · 18500 Strata · 12434 Docker Model Runner. Never test on 8183/8184/9999 on the dev machine.
 
 ## Cross-component changes
 
@@ -91,3 +96,4 @@ The console starts agents on a machine the same way: `POST /api/machines/{id}/la
 - **New provider type**: server config and compat, agent-machine providers, console view, docs, the demo. Follow the checklist in `AGENTS.md`.
 - **New fleet message**: `Fleet` on the server, `presence` in Go and Python.
 - **Incompatible protocol change**: raise `PROTOCOL` everywhere.
+- **Sign-in or credentials**: the issuer and `auth.py` on the server, `agent login` and `agent-machine login` in Go and `python/`, the console and the Android app. Read `auth.md` first.

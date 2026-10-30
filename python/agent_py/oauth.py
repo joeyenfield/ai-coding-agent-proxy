@@ -81,6 +81,12 @@ def credential_lock(path: Path):
             if time.monotonic() >= deadline:
                 raise OAuthError("credentials are locked; another sign-in or refresh is in progress (remove a stale credentials.json.lock only after stopping clients)")
             time.sleep(0.05)
+        except PermissionError:
+            # On Windows, creating the directory while another process is removing it is refused
+            # as access denied, not as already existing: that's the lock being released, so wait.
+            if os.name != "nt" or time.monotonic() >= deadline:
+                raise
+            time.sleep(0.05)
     try:
         yield
     finally:

@@ -141,7 +141,7 @@ def test_the_console_updates_a_python_machine_that_takes_updates(tmp_path, agent
             base = f"{m.server}/api/machines/{fleet.box['id']}"
             assert fleet.box["updates"] is True
             first = json.loads((home / "status.json").read_text())["pid"]
-            started = httpx.post(f"{base}/update", json={"agent": True}, timeout=60)
+            started = httpx.post(f"{base}/update", headers=m.headers, json={"agent": True}, timeout=60)
             assert started.status_code == 200, started.text
             assert started.json()["updating"] is True and started.json()["to"] == "9.9.9"
             deadline = time.monotonic() + 120

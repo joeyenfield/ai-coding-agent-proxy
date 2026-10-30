@@ -57,8 +57,8 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         machine = fleet.machines.get(machine_id)
         # Whoever started it (launched_by, for a launch from the console) has to be allowed still: grants change.
         user = session.tags.get("launched_by") or session.tags.get("owner")
-        identity = runtime.auth.identity_for(str(user), "session") if runtime.auth.enabled and user else None
-        if machine is None or (runtime.auth.enabled and identity is None) or not mcp.usable(fleet, identity, machine):
+        identity = runtime.auth.identity_for(str(user), "session") if user else None
+        if machine is None or identity is None or not mcp.usable(fleet, identity, machine):
             raise HTTPException(status_code=403, detail="You may no longer use this machine's MCP servers")
         shared = machine.mcp or {}
         if not fleet.connected(machine.id) or not shared.get("port") or not machine.mcp_key:

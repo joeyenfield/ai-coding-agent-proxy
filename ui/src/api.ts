@@ -354,13 +354,6 @@ export interface SessionChat {
   traced_calls: number;
 }
 
-export interface LauncherToken {
-  id: string;
-  label: string;
-  created_at: number;
-  last_used_at: number | null;
-}
-
 export interface Trace {
   metadata: Record<string, unknown>;
   request: unknown;
@@ -913,27 +906,12 @@ export interface DockerHubTag {
   updated: string | null;
 }
 
-/**
- * An address another device could reach the proxy on. configured is proxy.public_url in backends.yaml;
- * tailscale works away from home; virtual is a VM or WSL adapter.
- */
-export interface RemoteAddress {
-  address: string;
-  interface: string | null;
-  kind: "configured" | "lan" | "tailscale" | "public" | "virtual";
-  /** The console's address there, without a trailing slash. */
-  url: string;
-}
-
-/** Whether this browser may watch and type into agents' terminals. The key and addresses only reach this computer. */
+/** Whether this browser may watch and type into agents' terminals: only when signed in. local and paired are always false (pairing was removed). */
 export interface RemoteStatus {
   trusted: boolean;
-  local: boolean;
-  paired: boolean;
-  key?: string;
-  listen_host?: string;
-  port?: number;
-  addresses?: RemoteAddress[];
+  local: false;
+  paired: false;
+  accounts: true;
 }
 
 /** A terminal the launcher shares with the proxy. */
@@ -1103,10 +1081,6 @@ export const api = {
   dockerHubTags: (machine: string, repo: string) =>
     searchCatalog<{ repo: string; tags: DockerHubTag[] }>(machine, "docker-hub-tags", { repo }),
   remote: () => request<RemoteStatus>("/api/remote"),
-  pair: (key: string) => request<{ paired: boolean }>("/api/remote/pair", { method: "POST", body: JSON.stringify({ key }) }),
-  pairingCode: () => request<{ code: string; expires_in: number }>("/api/remote/code", { method: "POST", body: "{}" }),
-  unpair: () => request<{ paired: boolean }>("/api/remote/unpair", { method: "POST", body: "{}" }),
-  replaceRemoteKey: () => request<{ key: string }>("/api/remote/rotate", { method: "POST", body: "{}" }),
   terminals: () => request<{ terminals: TerminalSummary[] }>("/api/terminals"),
   machines: () => request<{ machines: FleetMachine[]; removed?: RemovedMachine[]; features?: Record<MachineFeature, string> }>("/api/machines"),
   setMachineAccess: (machineId: string, access: MachineAccess) =>
@@ -1154,11 +1128,6 @@ export const api = {
   },
   login: () => window.location.assign(apiUrl(`/api/auth/login?return_to=${encodeURIComponent(window.location.origin)}`)),
   logout: () => request<{ identity: null }>("/api/auth/logout", { method: "POST", body: "{}" }),
-  changePassword: (current: string, next: string) =>
-    request<{ changed: boolean }>("/api/auth/password", { method: "POST", body: JSON.stringify({ current, new: next }) }),
-  tokens: () => request<{ tokens: LauncherToken[] }>("/api/auth/tokens"),
-  createToken: (label: string) => request<{ id: string; token: string }>("/api/auth/tokens", { method: "POST", body: JSON.stringify({ label }) }),
-  revokeToken: (id: string) => request<{ revoked: string }>(`/api/auth/tokens/${encodeURIComponent(id)}`, { method: "DELETE" }),
   orgs: () => request<{ orgs: Org[] }>("/api/orgs"),
   addOrg: (id: string, name: string) => request<Directory>("/api/orgs", { method: "POST", body: JSON.stringify({ id, name }) }),
   renameOrg: (id: string, name: string) => request<Directory>(`/api/orgs/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ name }) }),

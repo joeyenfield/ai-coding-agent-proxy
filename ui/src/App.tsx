@@ -66,7 +66,7 @@ function Shell({ identity }: { identity: Identity | null }) {
   const closeMenu = () => (window.history.state?.menu ? window.history.back() : setMenuOpen(false));
   const parts = PARTS;
   const inFlight = status.data?.current_requests.length ?? 0;
-  // Devices that aren't paired get a 401 here; stop asking until the page is reloaded.
+  // A sign-in that has lapsed gets a 401 here; stop asking until the page is reloaded.
   const terminals = useQuery({
     queryKey: ["terminals"],
     queryFn: api.terminals,

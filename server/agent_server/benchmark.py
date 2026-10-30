@@ -14,7 +14,7 @@ import httpx
 import yaml
 
 from .config import ROOT, Settings
-from .remote import HEADER, read_token
+from .remote import HEADER
 
 
 @dataclass
@@ -187,14 +187,16 @@ def main() -> None:
     proxy_url = (args.proxy or settings.proxy_url).rstrip("/")
     if not args.all and not args.test:
         parser.error("provide a test name or --all")
+    # The server takes only OAuth access tokens: a service account's, or one `agent login` issued.
+    token = os.getenv("AI_PROXY_TOKEN", "").strip()
+    if not token:
+        parser.error("set AI_PROXY_TOKEN to an OAuth access token for the server (docs/configuration.md, agent-benchmark)")
     paths = sorted(path for path in args.tests_dir.iterdir() if path.is_dir()) if args.all else [args.tests_dir / args.test]
     timestamp = datetime.now().astimezone().strftime("%Y-%m-%d_%H-%M-%S")
     output_root = args.results_dir / timestamp
     output_root.mkdir(parents=True, exist_ok=False)
-    # A launcher token on a server with accounts, or this computer's access key on one without.
-    token = os.getenv("AI_PROXY_TOKEN") or read_token(settings.remote_key_path)
     try:
-        with httpx.Client(headers={HEADER: token} if token else {}) as client:
+        with httpx.Client(headers={HEADER: token}) as client:
             client.get(f"{proxy_url}/health").raise_for_status()
             tests = [run_test(client, proxy_url, load_test(path), output_root, args.model, args.backend) for path in paths]
     except Exception as exc:

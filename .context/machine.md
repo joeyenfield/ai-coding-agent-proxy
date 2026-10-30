@@ -8,19 +8,19 @@ The machine only dials out. It holds one WebSocket to the server (`/api/machines
 
 ## Boundaries
 
-- Imports nothing from `client/`, `server/` or `tools/`. Dependencies: gorilla/websocket, x/sys, x/term.
+- Imports nothing from `client/`, `server/` or `tools/`. Dependencies: gorilla/websocket and x/sys (`go.mod` also lists x/term, which no code imports).
 - No inbound listeners except the MCP bridge on `127.0.0.1:0`. Outbound only: the server, loopback model servers, model catalogues.
 - `Proxy: nil` on every client (`settings.Transport`). Server calls carry the version, protocol and token headers (`settings.ServerClient`, `Identify`).
 - Its own sign-in (`agent-machine login`), apart from `agent login`.
-- Device authorization and rotating OAuth credentials mirror the client in this separate Go module (`internal/settings/oauth.go`). Every request and socket reconnect renews as needed; 4410 is retryable. Never send passwords to the API or fall back to an old key. See `auth.md`.
+- Device authorization and rotating OAuth credentials mirror the client in this separate Go module (`internal/settings/oauth.go`: `DeviceLogin`, `Upstream.AccessToken`, `RejectAccessToken`, `LockCredentials`, `Revoke`). Automation sets `AI_PROXY_MACHINE_TOKEN` (never `AI_PROXY_TOKEN`, which is the agent's). Every request and socket dial (`presence.Dial`) gets a fresh access token; a close 4410 calls `RejectAccessToken` and the reconnect refreshes. `login` refuses `--user`/`--key`. Never send passwords to the API or fall back to an old key. See `auth.md`.
 
 ## Command line (`internal/command`)
 
 - `agent-machine` / `status`: show id, server, fleet state, providers, toggles, MCP servers, roots.
-- `login`/`logout`; `run` (foreground), `start` (detached, `AI_PROXY_MACHINE_STARTED=background`), `stop`.
+- `login [url]`/`logout [url]` (OIDC device sign-in, `https://` when no scheme is given); `run [--server url]` (foreground), `start` (detached, `AI_PROXY_MACHINE_STARTED=background`), `stop`.
 - Toggles, all **off by default**: `launches`, `commands`, `updates`, `servers`, `containers` `on|off`; `containers cli auto|docker|podman`; `roots add|remove <dir>`; `name`; `address`.
 - `sudo agent-machine servers service [off]`: lets it drive a systemd `ollama.service` (a sudoers rule for `systemctl start|stop|restart ollama`, a drop-in, `/etc/agent-machine/ollama.env`).
-- `mcp`, `mcp add <name> [--env] [--dir] -- <cmd...>` or `--url u [--header]`, `mcp remove`.
+- `mcp`, `mcp add <name> [--env] [--dir] [--description] -- <cmd...>` or `--url u [--header] [--description]`, `mcp remove`.
 - `update [--force] [--server] [--with-agent]`, `version`.
 
 ## Packages
@@ -34,7 +34,7 @@ The machine only dials out. It holds one WebSocket to the server (`/api/machines
 | `internal/servers` | Starting and stopping Ollama (only the one it started, or through systemd) and Strata profiles; Ollama's `OLLAMA_*` settings | `Manager.Handle`, `ollama_settings.go`, `systemd.go` |
 | `internal/containers` | Containers for the server: the engine table, spec checks, run arguments, the CLI, jobs | `Engines`, `Validate`, `RunArgsFor`, `Detect`, `Manager`, `Prefix = "ai-proxy-"` |
 | `internal/mcp` | Shared MCP servers (`mcp.json`) and the bridge | `Server.Check`, `Load`/`Save`, `Bridge.Describe`/`ServeHTTP` |
-| `internal/settings` | Its folder, credentials, `machine.json`, `status.json`, root checks | `Home`, `Upstream`, `Machine.Within`, `Protocol` |
+| `internal/settings` | Its folder, credentials, `machine.json`, `status.json`, root checks; OAuth in `oauth.go` | `Home`, `Upstream`, `LoadMachine` (carries `agent-proxy/machine.json` over once), `Machine.Within`, `Status`, `Protocol`, `TokenHeader`, `DeviceLogin`, `AccessToken`, `TokenEnvironment` |
 | `internal/login`, `update`, `process` | Sign-in; self-update from `/downloads/index.json` (SHA-256, `.old` swap); detached runs, `Stop`/`StopTree`, WSL-aware `LookPath` | |
 
 ## Fleet protocol, from the machine
@@ -70,11 +70,12 @@ sequenceDiagram
 | `update` | `updates` | runs `agent-machine update` detached |
 | `tunnel` | port reported, a container's port, or the bridge | pipes bytes to `127.0.0.1:<port>`; closes 4502 if nothing answers |
 
-- Reconnects back off 2, 5, 10, 30 s. A 426 or close 4426 means a protocol mismatch.
+- An update also goes out at once after a `server` request that changed something and after a launch.
+- Reconnects back off 2, 5, 10, 30 s (reset after a connection that lasted a minute). A 426 or close 4426 means a protocol mismatch; a close 4410 means the access token expired, so it's rejected and the next dial refreshes.
 
 ## State (`settings.Home()`: `AI_PROXY_MACHINE_HOME`, `%APPDATA%\agent-machine`, `~/.config/agent-machine`)
 
-`credentials.json` (token only, never the password), `machine.json` (id, name, toggles, roots, address, CLI), `status.json` (pid, state, server, server_version, started), `mcp.json`, `servers.json` (the Ollama it started), `ollama.json`, `agent-machine.log`, `ollama.log`. Files are 0600 in a 0700 folder, written atomically.
+`credentials.json` (OAuth access and refresh tokens, expiry, issuer, client id and endpoints, in the client's format; never a password), `credentials.json.lock` (the refresh lock directory, shared with the Python agent-machine), `machine.json` (id, name, toggles, roots, address, CLI), `status.json` (pid, state, server, at, server_version, started: background, service or terminal), `mcp.json`, `servers.json` (the Ollama it started), `ollama.json`, `agent-machine.log`, `ollama.log`. Files are 0600 in a 0700 folder, written atomically.
 
 ## Invariants
 

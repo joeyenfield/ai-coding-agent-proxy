@@ -80,7 +80,7 @@ The `marketing-site` service serves `site/` on `127.0.0.1:8080` for the reverse 
 |---|---|
 | `/app/config` | `backends.yaml`, `models.yaml`, `agents.yaml`. On the first start the entrypoint copies in the image's defaults, never overwriting what's there. |
 | `/app/logs` | Sessions, traces, terminal history, the proxy log, `machines.json`. |
-| `/app/certs` | The capture CA, the access key, `users.json`, `container-keys.json` and `first-user-password`. |
+| `/app/certs` | The capture CA, `users.json`, `container-keys.json`, `oidc-browser-key` and `first-user-password`. |
 | `/app/dist` | The builds to hand out (mount `dist/` read-only; `compose.yaml` does). |
 
 The default `backends.yaml` in the image (`server/docker/backends.yaml`) has an Ollama backend at `http://host.docker.internal:11434` and the hosted Anthropic API. Inside the container `127.0.0.1` is the container itself, so `compose.yaml` maps `host.docker.internal` to the Docker host on Linux too. Local providers normally come from machines in the fleet, so in practice you run `agent-machine` where the models are and add them from the console ([Machines](machines.md)).

@@ -161,7 +161,6 @@ The GET stream and DELETE are passed on without being recorded.
 - **Admins need a grant too**, as these servers often hold their owner's tokens. Unlike seeing a machine or managing its models, it isn't one of the things admins may do on any machine.
 - **It's checked twice:** when the launch chooses the servers, and on every request, for whoever started the session (for a launch from the console, whoever asked for it). Taking a grant away stops agents already running.
 - **A session reaches only the servers it was started with.** They're kept in the session's `mcp` tag, which clients can't set. A request for any other server gets `404`.
-- Without accounts, everyone may use every machine's servers.
 
 ## API
 

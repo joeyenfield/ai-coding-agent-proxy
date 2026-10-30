@@ -24,7 +24,7 @@ export function SharingBadge({ you }: { you?: SessionYou }) {
   );
 }
 
-/** Who can see a session; its owner can change that here. Nothing shows without accounts. */
+/** Who can see a session; its owner can change that here. */
 export function SharingControl({ sessionId, you }: { sessionId: string; you?: SessionYou }) {
   const auth = useAuth();
   const identity = auth.data?.identity;
@@ -115,7 +115,7 @@ function ShareOptions({ identity }: { identity: Identity }) {
   );
 }
 
-/** Choose who sees a session you're about to start; hidden without accounts. */
+/** Choose who sees a session you're about to start. */
 export function ShareChoice({ value, control, onChange }: { value: string; control: boolean; onChange: (value: string, control: boolean) => void }) {
   const identity = useAuth().data?.identity;
   if (!identity) return null;

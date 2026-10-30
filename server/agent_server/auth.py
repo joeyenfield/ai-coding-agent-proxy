@@ -2,7 +2,8 @@
 
 The separate issuer owns OAuth credentials. This resource server introspects them,
 then reloads current roles and memberships from the existing account directory.
-Legacy stored sessions and launcher keys remain readable but cannot authenticate.
+Browser sign-ins and launcher tokens that older versions stored in users.json are
+kept but never read: they cannot authenticate.
 """
 
 from __future__ import annotations
@@ -19,7 +20,6 @@ import re
 import secrets
 import threading
 import time
-from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -33,12 +33,8 @@ from .remote import same_origin
 
 COOKIE = "ai_proxy_session"
 HEADER = "x-ai-proxy-token"
-SESSION_DAYS = 30
 # scrypt cost: tens of milliseconds per check, so guessing is slow but signing in isn't.
 SCRYPT = {"n": 2**14, "r": 8, "p": 1}
-FAILURE_WINDOW = 600
-FAILURE_LIMIT = 10
-TOKEN_PREFIX = "aip_"
 ROLES = ("admin", "member")
 NAME = re.compile(r"[a-z0-9][a-z0-9._-]{0,39}")
 
@@ -117,7 +113,7 @@ def _migrated(data: dict[str, Any]) -> dict[str, Any]:
 
 
 class UserStore:
-    """users.json: users, organizations and their teams, browser sign-ins and launcher tokens."""
+    """users.json: users, organizations and their teams (plus older versions' sign-ins and tokens, never read)."""
 
     def __init__(self, path: Path):
         self.path = path
@@ -389,75 +385,6 @@ class UserStore:
                 return None
             return _digest(json.dumps([record.get("created_at"), record.get("password")]))
 
-    # Browser sign-ins
-
-    def start_session(self, name: str, agent: str) -> str:
-        secret = secrets.token_urlsafe(32)
-        with self._lock:
-            data = self._load()
-            now = time.time()
-            data["sessions"] = {key: value for key, value in data["sessions"].items() if value.get("expires_at", 0) > now}
-            data["sessions"][_digest(secret)] = {"user": name, "created_at": now, "expires_at": now + SESSION_DAYS * 86400, "agent": agent[:200]}
-            self._save()
-        return secret
-
-    def end_session(self, secret: str) -> None:
-        with self._lock:
-            if self._load()["sessions"].pop(_digest(secret), None) is not None:
-                self._save()
-
-    def session_user(self, secret: str) -> str | None:
-        with self._lock:
-            record = self._load()["sessions"].get(_digest(secret))
-            if not record or record.get("expires_at", 0) < time.time():
-                return None
-            return str(record["user"])
-
-    # Launcher tokens
-
-    def create_token(self, name: str, label: str) -> tuple[str, str]:
-        """A launcher token: returns (its id, the token itself, shown once)."""
-        token_id = secrets.token_hex(4)
-        secret = TOKEN_PREFIX + secrets.token_urlsafe(32)
-        with self._lock:
-            self._load()["tokens"][token_id] = {
-                "user": name, "label": label.strip()[:80] or "launcher", "hash": _digest(secret),
-                "created_at": time.time(), "last_used_at": None,
-            }
-            self._save()
-        return token_id, secret
-
-    def tokens(self, name: str) -> list[dict[str, Any]]:
-        with self._lock:
-            tokens = self._load()["tokens"]
-            return [
-                {"id": token_id, "label": value["label"], "created_at": value["created_at"], "last_used_at": value.get("last_used_at")}
-                for token_id, value in sorted(tokens.items(), key=lambda item: item[1]["created_at"]) if value.get("user") == name
-            ]
-
-    def revoke_token(self, name: str, token_id: str) -> bool:
-        with self._lock:
-            tokens = self._load()["tokens"]
-            if tokens.get(token_id, {}).get("user") != name:
-                return False
-            del tokens[token_id]
-            self._save()
-            return True
-
-    def token_user(self, secret: str) -> str | None:
-        if not secret.startswith(TOKEN_PREFIX):
-            return None
-        digest = _digest(secret)
-        with self._lock:
-            for value in self._load()["tokens"].values():
-                if hmac.compare_digest(value.get("hash", ""), digest):
-                    # Recorded at most once a minute, to keep writes rare.
-                    if not value.get("last_used_at") or time.time() - value["last_used_at"] > 60:
-                        value["last_used_at"] = time.time()
-                        self._save()
-                    return str(value["user"])
-        return None
-
 
 def _checked_password(password: str) -> str:
     if len(password) < 8:
@@ -466,23 +393,17 @@ def _checked_password(password: str) -> str:
 
 
 class Auth:
-    """Whether accounts are on, who a request comes from, and the sign-in attempt limit."""
+    """Who a request comes from: OAuth access tokens introspected at the issuer, mapped to current accounts."""
 
-    def __init__(self, store: UserStore, access_key: Any = None, settings: Any = None):
+    def __init__(self, store: UserStore, settings: Any = None):
         self.store = store
-        self.access_key = access_key
         self.settings = settings
         self.client = httpx.Client(timeout=5, trust_env=False, follow_redirects=False)
-        self._failures: dict[str, deque[float]] = defaultdict(deque)
 
     @property
     def environment_user(self) -> tuple[str, str] | None:
         user, password = os.getenv("AI_PROXY_USERNAME"), os.getenv("AI_PROXY_PASSWORD")
         return (user.strip().lower(), password) if user and password else None
-
-    @property
-    def enabled(self) -> bool:
-        return True
 
     def account_version(self, user: str) -> str | None:
         version = self.store.account_version(user)
@@ -549,19 +470,6 @@ class Auth:
             return hmac.compare_digest(password.encode(), environment[1].encode())
         return self.store.verify(user, password)
 
-    def allowed_attempt(self, client: str) -> bool:
-        attempts = self._failures[client]
-        now = time.time()
-        while attempts and now - attempts[0] > FAILURE_WINDOW:
-            attempts.popleft()
-        return len(attempts) < FAILURE_LIMIT
-
-    def failed(self, client: str) -> None:
-        self._failures[client].append(time.time())
-
-    def succeeded(self, client: str) -> None:
-        self._failures.pop(client, None)
-
 
 # Reachable without signing in: health checks, signing in itself, and the console's files
 # (the app shows its sign-in page). Everything under the protected prefixes needs a credential.
@@ -576,7 +484,6 @@ ADMIN_ONLY = [
     (re.compile(r"PUT"), re.compile(r"/api/config")),
     (re.compile(r"POST"), re.compile(r"/api/containers")),
     (re.compile(r"PUT|DELETE"), re.compile(r"/api/containers/[^/]+")),
-    (re.compile(r"POST"), re.compile(r"/api/remote/rotate")),
     (re.compile(r"POST"), re.compile(r"/api/server/restart")),
     (re.compile(r"POST"), re.compile(r"/api/machines/[^/]+/providers/adopt")),
     (re.compile(r"POST|PUT|DELETE"), re.compile(r"/api/orgs(/.*)?")),
@@ -596,7 +503,7 @@ class AuthMiddleware:
         self.runtime = runtime
 
     async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
-        if scope["type"] not in ("http", "websocket") or not self.runtime.auth.enabled:
+        if scope["type"] not in ("http", "websocket"):
             await self.app(scope, receive, send)
             return
         path = scope["path"]

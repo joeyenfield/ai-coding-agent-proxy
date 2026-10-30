@@ -21,6 +21,8 @@ from oidc_helpers import authenticated_client
 LOCAL = {"base_url": "http://127.0.0.1:8181", "client": ("127.0.0.1", 50000)}
 # TestClient always connects WebSockets to ws://testserver; a browser or launcher here names this computer.
 LOCAL_HOST = {"host": "127.0.0.1:8181"}
+# The kind of key old launchers and paired phones sent; it no longer authenticates anything.
+LEGACY_ACCESS_KEY = "Hb3xQ2v9mK1tW7pL0sZ4rN8cF6yJ5dA_eG-uI2oT3qE"
 
 
 def settings(tmp_path: Path) -> Settings:
@@ -78,7 +80,7 @@ def test_terminals_require_oauth_even_on_loopback_or_with_the_access_key(tmp_pat
         status = local.get("/api/remote").json()
         assert status["trusted"] and not status["local"] and "key" not in status
         assert local.get("/api/terminals").json() == {"terminals": []}
-        key = app.state.runtime.remote.token
+        key = LEGACY_ACCESS_KEY
         with TestClient(app) as launcher:
             assert launcher.get("/api/terminals", headers={remote.HEADER: key}).status_code == 401
             assert launcher.get("/api/terminals", headers={remote.HEADER: key + "x"}).status_code == 401
@@ -88,7 +90,7 @@ def test_terminals_require_oauth_even_on_loopback_or_with_the_access_key(tmp_pat
 def test_legacy_pairing_cannot_replace_oauth(tmp_path, path):
     app = create_app(settings(tmp_path))
     with local_client(tmp_path, app) as local, TestClient(app, base_url="http://192.168.1.10:8181", client=("192.168.1.50", 40000)) as phone:
-        key = app.state.runtime.remote.token
+        key = LEGACY_ACCESS_KEY
         assert phone.post(path, json={"key": key}).status_code == 401
         assert phone.get("/api/terminals").status_code == 401
         response = local.post(path, json={"key": key})

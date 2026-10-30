@@ -103,7 +103,7 @@ Every route checks that the request came from this computer: a loopback Host and
 ### 2. At the server's door
 
 - **Protocol check.** `agent` and `agent-machine` send `X-AI-Proxy-Version` and `X-AI-Proxy-Protocol`. A protocol outside the server's `MIN_PROTOCOL`…`PROTOCOL` gets `426 Upgrade Required` (WebSockets: close `4426`), with how to update. Agents' own requests carry no such header and aren't checked.
-- **Sign-in.** With accounts, everything under `/api/`, `/v1/`, `/anthropic/` and `/session/` needs a credential. An agent's request passes when it names an **open** session (not ended): in the path, or in `X-AI-Proxy-Session` on bare `/v1/` and `/anthropic/`. The agent's own `Authorization` header is never looked at or replaced.
+- **Sign-in.** Everything under `/api/`, `/v1/`, `/anthropic/` and `/session/` needs an OAuth access token (the `agent-proxy` adds its machine's as `X-AI-Proxy-Token`). An agent's request also has to name an **open** session (not ended) that the signed-in user may control: in the path, or in `X-AI-Proxy-Session` on bare `/v1/` and `/anthropic/`. The agent's own `Authorization` header is passed on to the provider; platform credentials never are.
 
 ### 3. The session and its backend
 

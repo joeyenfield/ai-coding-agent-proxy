@@ -57,21 +57,17 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         return fleet.public(machine, auth.request_identity(request), runtime.settings.backends)
 
     async def claim(machine: Any) -> None:
-        """The machine's backends follow its address; older backends at one of its model servers become its."""
+        """The machine's backends follow its address. Older backends without a machine are never
+        claimed automatically: a self-reported address isn't proof that a machine owns one, so an
+        admin links them with Add as a provider."""
         moved = fleet.moved(machine, runtime.settings.backends)
-        # A self-reported address isn't proof that a signed-in machine owns a legacy backend.
-        names = [] if runtime.auth.enabled else fleet.unclaimed(machine, runtime.settings.backends)
-        if not moved and not names:
+        if not moved:
             return
         async with runtime.config_lock:
             for name, url in moved.items():
                 backend = runtime.settings.backends.get(name)
                 if backend and backend.machine == machine.id:
                     runtime.settings.save_backend(name, {**backend.public(), "url": url})
-            for name in names:
-                backend = runtime.settings.backends.get(name)
-                if backend and not backend.machine:
-                    runtime.settings.save_backend(name, {**backend.public(), "machine": machine.id})
 
     @app.websocket("/api/machines/connect")
     async def connect(websocket: WebSocket) -> None:
@@ -184,7 +180,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             raise HTTPException(status_code=403, detail="Only the machine's owner or an admin can change who can use it.")
         data = await request.json()
         try:
-            target.access = checked_access(identity, (data or {}).get("access") if isinstance(data, dict) else None, runtime.auth.store if runtime.auth.enabled else None)
+            target.access = checked_access(identity, (data or {}).get("access") if isinstance(data, dict) else None, runtime.auth.store)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         fleet._save()

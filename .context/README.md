@@ -9,10 +9,10 @@ Design references for coding agents working on this repository: one file per com
 | [client.md](client.md) | `client/` (`agent`, `agent-proxy`, Go) | The launcher, the loopback proxy, login, terminals |
 | [machine.md](machine.md) | `machine/` (`agent-machine`, Go) | Fleet membership, model servers, containers, tunnels, MCP bridge |
 | [python.md](python.md) | `python/` (`agent_py`) | The Python versions of the client and machine |
-| [console.md](console.md) | `ui/` (React) | Console pages, data layer, the Machine page |
-| [auth.md](auth.md) | Accounts and access, across components | Sign-in, tokens, the access key, `AuthMiddleware`, roles, sharing, machine grants, any new route |
-| [android.md](android.md) | `android/` (Kotlin) | The app shell around the console |
-| [build-and-deploy.md](build-and-deploy.md) | `tools/`, `scripts/`, Docker, `sandbox/` | Versions, builds, downloads, installers, images |
+| [console.md](console.md) | `ui/` (React) | Console pages, data layer, the Machine page, split hosting (`VITE_API_URL`, `ui/Dockerfile`, `ui/nginx.conf`) |
+| [auth.md](auth.md) | Accounts and access, across components | OIDC sign-in through the separate `agent-auth` issuer (`issuer.py`), tokens and cookies, `AuthMiddleware`, roles, sharing, machine grants, any new route (the legacy access key and pairing no longer authenticate) |
+| [android.md](android.md) | `android/` (Kotlin) | The app shell around the console, and the debug-only Android Auto monitor (`app/src/debug/`) |
+| [build-and-deploy.md](build-and-deploy.md) | `tools/`, `scripts/`, Docker and Compose (`server/Dockerfile`, `server/docker/`, `ui/Dockerfile`, `compose.yaml`), `sandbox/`, `site/`, `quickstart/` | Versions, builds, downloads, installers, images, the brochure site, HTTPS setup, the local quickstart stack |
 
 ## Keeping these files true
 

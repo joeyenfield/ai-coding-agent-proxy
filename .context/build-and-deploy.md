@@ -1,4 +1,4 @@
-# Build and deploy (`tools/`, `scripts/`, `server/Dockerfile`, `compose.yaml`, `sandbox/`)
+# Build and deploy (`tools/`, `scripts/`, `server/Dockerfile`, `ui/Dockerfile`, `site/`, `compose.yaml`, `sandbox/`, `quickstart/`)
 
 How the components are versioned, built for every platform, handed out by the server, installed and run in containers. The static brochure site in `site/` is separate from the application console in `ui/`; Compose serves it privately on port 8080 for the public reverse proxy.
 
@@ -28,7 +28,8 @@ flowchart LR
 - 15 targets (Windows, Linux incl. arm/riscv64/s390x/loong64, macOS, FreeBSD), built with `CGO_ENABLED=0 -trimpath` and `-X main.version`. Components: `agent` (agent and agent-proxy) and `agent-machine`.
 - Archives and Linux packages are written in Go (execute bits survive NTFS). A missing external tool (wix, pkgbuild, a JDK or Android SDK) skips its format with a note.
 - The wheel is written in Go from `python/pyproject.toml`, with `_version.py` stamped in. It is skipped when the version isn't PEP 440.
-- Flags: `-only`, `-packages`, `-android`, `-python`, `-print-version` (used by the build scripts).
+- Flags: `-version`, `-root`, `-out`, `-only`, `-packages`, `-android`, `-python`, `-print-version` (used by the build scripts).
+- The APK is a release build only when `android/keystore.properties` exists, else a debug build (which carries the Android Auto service); see `android.md`.
 
 ## Handing out and installing
 
@@ -40,9 +41,9 @@ flowchart LR
 ## Containers
 
 - The root `.dockerignore` excludes local virtual environments, agent metadata/history and generated `.screenshot*`, `.test-*` and `.tmp-*` directories. Keep these out of the context: Compose's Windows context validation can fail on their private ACLs before the container engine sees the build.
-- `server/Dockerfile` (built from the repo root, because it needs `ui/`): builds the console with Node, then a python:3.13-slim image running as uid 10001. Volumes `/app/config`, `/app/logs`, `/app/certs`; port 9999. The entrypoint seeds `config/` from `/app/defaults/config` without overwriting. Pass `--build-arg AI_PROXY_VERSION` to match a `dist/` folder (no git in the image).
-- `compose.yaml`: `marketing-site` on host loopback port 8080, the standalone static `console` on loopback 8081 under `--profile console`, `agent-server` with named volumes and `./dist:/app/dist:ro`, and `agent-sandbox` under `--profile sandbox`. Split deployments build the console with `VITE_API_URL`, run the API with `AI_PROXY_SERVE_UI=0` and trust the console through `AI_PROXY_CONSOLE_ORIGINS`.
-- `site/`: static public brochure site (`index.html`, `styles.css`), served by its own small nginx image. The apex and `www` hostnames serve this site; `console.<domain>` serves only the static console (`ui/Dockerfile`, `ui/nginx.conf`); `api.<domain>` routes console, agent and machine requests to `agent-server` and redirects its root to the console.
+- `server/Dockerfile` (built from the repo root, because it needs `ui/`): builds the console with Node, then a python:3.13-slim image running as uid 10001, with `docs/` for `/help` and `AI_PROXY_UI_BUILD=0`. Volumes `/app/config`, `/app/logs`, `/app/certs` (and `/app/auth-state`, owned for `agent-auth`); port 9999. The entrypoint (`server/docker/entrypoint.sh`) seeds `config/` from `/app/defaults/config` without overwriting. Pass `--build-arg AI_PROXY_VERSION` to match a `dist/` folder (no git in the image).
+- `compose.yaml`: `marketing-site` on host loopback port 8080, the standalone static `console` on loopback 8081 under `--profile console` (built with `VITE_API_URL`, default `http://localhost:9999`), `agent-auth` on loopback 10000, `agent-server` with named volumes and `./dist:/app/dist:ro`, and `agent-sandbox` under `--profile sandbox`. Split deployments build the console with `VITE_API_URL`, run the API with `AI_PROXY_SERVE_UI=0` and trust the console through `AI_PROXY_CONSOLE_ORIGINS`.
+- `site/`: static public brochure site (`index.html`, `styles.css`), served by its own small nginx image (`site/Dockerfile`, `site/nginx.conf`, with a `/health`). The apex and `www` hostnames serve this site; `console.<domain>` serves only the static console (`ui/Dockerfile`, `ui/nginx.conf`); `api.<domain>` routes console, agent and machine requests to `agent-server` and redirects its root to the console.
 - The brochure explains the component roles, request routes, organization features and deployment steps. Its architecture and request-flow diagrams are semantic HTML/CSS (no JavaScript or third-party renderer). On phones the request path stacks vertically, with separate console access below it. Keep product claims in step with `docs/`; the hero workspace is illustrative, not live fleet data.
 - Bump the brochure stylesheet URL's `v` query in `site/index.html` when changing `site/styles.css`: public CDNs may keep the previous CSS after a deployment.
 - `sandbox/`: an image with `agent`, `agent-machine` and the npm coding agents. Its entrypoint signs both in through device approval, sets launches on for `/workspace` only (containers and servers off), and runs `agent-machine run`.
@@ -56,7 +57,9 @@ flowchart LR
 ## Scripts (`.sh`/`.ps1` pairs; change both)
 
 - `build-client`, `build-machine` (into `client/bin`, `machine/bin`), `build-dist` (wraps `tools/dist`; `PACKAGES=1` / `-Packages`), `agent` (build and run), `dev` (API with reload + Vite).
-- No pair: `start-ollama.sh`, and `scripts/https/setup-https.ps1` (Windows: nginx + win-acme for Let's Encrypt, serving the brochure site on the apex/`www`, the console on its hostname and API traffic on `api.<domain>`).
+- No pair: `start-ollama.sh`, and `scripts/https/setup-https.ps1` (Windows: nginx + win-acme for Let's Encrypt, filling in `nginx.conf.template` and `nginx-https.conf.template`: the brochure site on the apex/`www` (`-SiteBackend`, :8080), the console on its hostname (`-ConsoleBackend`, :8081), the issuer on `auth.<domain>` (`-AuthBackend`, :10000) and API traffic on `api.<domain>` (`-Backend`, :9999)).
+- `scripts/deploy.sh`/`.ps1` (gitignored, so they exist only on the developer's computer): release to the server's own computer. From a clean `master` (optionally setting and tagging `VERSION` first) it pushes, runs `build-dist`, has the remote checkout `git pull --ff-only` to the same commit, copies `dist/<version>/` there, checks its SHA256SUMS, restarts the systemd unit and checks `/health` reports that version. The server works its version out from its checkout, so build and checkout must be the same clean commit. Settings: `AI_PROXY_DEPLOY_TARGET`, `_DIR`, `_SERVICE`, `_HEALTH`, `_PASSWORD`.
+- `scripts/screenshots/`: `demo.py` (a self-contained demo server on :8199 with fake machines and backends), `traffic.py` (drives agent traffic through it) and `capture.mjs` (Playwright screenshots into `docs/screenshots/`).
 
 ## Rules
 

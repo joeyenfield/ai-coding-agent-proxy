@@ -166,7 +166,7 @@ Account agents' other calls (sign-in, telemetry, MCP) aren't shown here; they're
 - **End session**: closes an open session; its agent can no longer use it.
 - **Clear data**: deletes its recorded requests and payloads but keeps the session.
 - **Delete**: deletes the session and everything recorded for it. A session with requests in flight can't be cleared or deleted.
-- **Delete all sessions** deletes ended sessions, empties open sessions idle for more than 15 minutes, and leaves recently active ones running. With accounts, only your own.
+- **Delete all sessions** deletes ended sessions, empties open sessions idle for more than 15 minutes, and leaves recently active ones running. Only your own.
 - **Open a session manually**: for other tools. Name the agent, model and backend, choose whether to capture payloads, and **Open session**; it shows the OpenAI, Anthropic and Ollama URLs to point the tool at.
 
 ### A session
@@ -201,7 +201,6 @@ Saving rewrites `backends.yaml`, so comments in it are lost. **API reference** l
 - **Organizations**: search and select an organization. Its **Teams** tab lists its teams; open one to add or remove members, create a user in it, or rename or delete it in **Team settings**. **Members** manages everyone in the organization, including users not assigned to a team. Add existing users before placing them in teams, or create an account directly in either view. **Settings** renames or deletes the organization.
 - **User directory**: search accounts and filter by organization, including **No organization** for unassigned users. Admins can create accounts, **Edit user** to change their server role, memberships or password, and **Delete account**. Removing someone from a team or organization is separate from deleting their account.
 - **Your account**: your identity and OIDC sign-in instructions. CLI sign-in uses device approval; scripts use explicitly provisioned service clients ([OIDC](oidc.md)). Admins reset account passwords in User directory or with `agent-server user passwd`.
-- Without accounts the page says **Accounts are off** and how to turn them on (`agent-server user add ...`).
 
 Members see only their organizations and the people in them; all management controls require a server admin. Removing an organization membership also removes that user's team memberships there. Deleting a team or organization keeps people's accounts. Destructive changes ask for confirmation.
 
@@ -303,7 +302,7 @@ The MCP servers the machine shares, by name, with how each runs (a command or a 
 
 ![A machine's Access tab](screenshots/machine-access.png)
 
-For its owner and admins: which organizations and teams may use each feature (see it, start agents, open terminals, change models, run model servers, update it, use MCP servers), and which of the machine's own switches each also needs. Without accounts it says everyone can use everything. See [Machines](machines.md#who-may-use-a-machine).
+For its owner and admins: which organizations and teams may use each feature (see it, start agents, open terminals, change models, run model servers, update it, use MCP servers), and which of the machine's own switches each also needs. See [Machines](machines.md#who-may-use-a-machine).
 
 ## Pairing a phone
 

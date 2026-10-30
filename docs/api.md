@@ -7,7 +7,7 @@ The server also describes its HTTP routes in OpenAPI:
 | Path | What it is |
 |---|---|
 | `/openapi.json` | The OpenAPI document, grouped by area, with a unique id per operation and the sign-in schemes. |
-| `/docs` | Swagger UI. Use **Authorize** with a launcher token, or just be signed in to the console. |
+| `/docs` | Swagger UI. Use **Authorize** with an OAuth access token, or just be signed in to the console. |
 | `/redoc` | ReDoc. |
 
 These always need an OAuth access token or an authenticated browser cookie. See [OIDC authentication](oidc.md) for the separate issuer's endpoints.
@@ -23,9 +23,8 @@ With [separate hosting](deployment.md#separate-console-and-api-domains), all the
 | **Signed in** | Active OAuth access token: `Authorization: Bearer`, `X-AI-Proxy-Token`, or host-only `ai_proxy_session` cookie. |
 | **Admin** | Signed in as an admin; enforced by `auth.ADMIN_ONLY`. |
 | **Trusted** | Signed in. Loopback and old access keys confer no privilege. |
-| **Local** | Legacy pairing operations are refused. |
 | **Same origin** | Unsafe methods and WebSockets require the request's host or an exact console origin in `AI_PROXY_CONSOLE_ORIGINS`. Other origins are refused. |
-| **Machine feature** | The fleet's grants, `fleet.allowed(identity, machine, feature)`: the machine's owner always; admins for `view`, `models` and `update`; organizations and teams the owner granted the feature. Without accounts, everyone. See [Machines](machines.md). |
+| **Machine feature** | The fleet's grants, `fleet.allowed(identity, machine, feature)`: the machine's owner always; admins for `view`, `models` and `update`; organizations and teams the owner granted the feature. See [Machines](machines.md). |
 | **Machine owner** | The machine's owner, or an admin where it says so. |
 
 Every protected path requires authentication, including agent session paths and loopback. Exceptions are `/health` and `/api/auth/{status,login,callback,refresh,logout}`. Refused credentials get 401; forbidden origins/roles get 403; issuer failures get 503. WebSockets initially close 4401/4403 and close 4410 when an established credential needs renewal.
@@ -155,8 +154,9 @@ Shared terminals are a remote shell, so these routes need **Trusted** and **Same
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
-| GET | `/api/remote` | Signed in | `trusted: true`, `accounts: true`; local/paired privileges are disabled. No access key is returned. |
-| POST | `/api/remote/code`, `/api/remote/pair`, `/api/remote/rotate` | Signed in | Legacy pairing is refused; it cannot grant OAuth access. |
+| GET | `/api/remote` | Signed in | `{trusted: true, local: false, paired: false, accounts: true}`, for launchers checking they may share a terminal. No access key is returned. |
+| POST | `/api/remote/code`, `/api/remote/rotate` | Signed in | Always 403: the access key and pairing codes were removed. |
+| POST | `/api/remote/pair` | Signed in | Always 410: pairing was removed; sign in through OIDC. |
 | POST | `/api/remote/unpair` | Signed in, Same origin | Removes only the legacy pairing cookie; use `/api/auth/logout` to sign out. |
 | GET | `/api/terminals` | Trusted | The shared terminals you can see: agent, machine, project, model, backend, state, activity, requests in flight and `attention` (waiting, with the question on screen). |
 
@@ -225,7 +225,7 @@ The console's pages, sign-in included, are public files; the data they show come
 
 ## WebSockets
 
-OpenAPI can't describe these. All need **Trusted** (with accounts, a sign-in; machines send their own token) and **Same origin**.
+OpenAPI can't describe these. All need **Trusted** (a sign-in; machines send their own token) and **Same origin**.
 
 | Path | Who connects | What it carries |
 |---|---|---|

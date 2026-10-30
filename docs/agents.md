@@ -53,7 +53,7 @@ How the capture works:
 - WebSockets are relayed byte for byte and logged as a connection. Their messages are also decoded on the side: Codex sends its model turns over a WebSocket, and each `response.create` becomes its own model call record. The server drops `Sec-WebSocket-Extensions` from the upgrade so messages aren't compressed.
 - Hosts listed under `intercept.passthrough` in the server's `backends.yaml` are tunnelled without decryption and logged as connections only (see [Configuration](configuration.md)).
 - The server only connects to public IP addresses. It refuses loopback, private, link-local and reserved addresses, including when a hostname resolves to one and when the host uses `intercept.passthrough`.
-- On a server with accounts, HTTPS without an open session gets `407`. If the server refuses the tunnel (the machine isn't signed in), the `agent-proxy` answers the agent with `407` too, with the reason in an `X-Agent-Proxy-Error` header.
+- HTTPS without an open session gets `407`. If the server refuses the tunnel (the machine isn't signed in), the `agent-proxy` answers the agent with `407` too, with the reason in an `X-Agent-Proxy-Error` header.
 
 Privacy and security:
 
@@ -455,7 +455,7 @@ Typing into an agent's terminal is as good as a shell on that computer. Viewers 
 
 ### Who can see a session
 
-On a server with accounts, every session belongs to whoever started it and is private until they share it. The launcher's sharing flags set it when the session starts:
+Every session belongs to whoever started it and is private until they share it. The launcher's sharing flags set it when the session starts:
 
 | `--share` | Who sees it |
 |---|---|

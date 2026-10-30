@@ -16,6 +16,7 @@ from agent_server.app import create_app
 from agent_server.auth import UserStore
 from agent_server.config import Backend, Settings
 from agent_server.intercept import InterceptProxy
+from oidc_helpers import plant_legacy_credentials
 
 
 @pytest.fixture
@@ -73,8 +74,7 @@ def test_unsafe_oidc_configuration_is_rejected(settings):
 
 def test_legacy_credentials_and_id_tokens_are_not_access_tokens(api_app):
     client, runtime, _ = api_app
-    old = runtime.auth.store.start_session("alice", "old browser")
-    _, launcher = runtime.auth.store.create_token("alice", "old launcher")
+    old, launcher = plant_legacy_credentials(runtime.settings.users_path, "alice")
     for token in (old, launcher, "id-token"):
         assert client.get("/api/status", headers={"authorization": "Bearer " + token}).status_code == 401
         client.cookies.set("ai_proxy_session", token)

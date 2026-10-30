@@ -11,9 +11,9 @@ benchmarks/results/*
 !benchmarks/results/.gitkeep
 certs/
 client/bin/
-client/dist/
 /dist/
 machine/bin/
 .history/
-
-/python/build/
+.playwright-mcp/
+scripts/deploy.sh
+scripts/deploy.ps1

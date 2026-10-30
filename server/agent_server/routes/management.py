@@ -45,8 +45,6 @@ def register(app: FastAPI, runtime: Runtime) -> None:
     def visible_ids(request: Request) -> Any:
         """A test of session ids for this user, checked as it's used: sharing changes apply at once."""
         identity = auth.request_identity(request)
-        if identity is None:
-            return None
 
         def visible(session_id: str) -> bool:
             session = runtime.sessions.get(session_id)
@@ -148,14 +146,14 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         STALE_SESSION_SECONDS (their agent most likely exited without ending them).
         Recently active open sessions keep running, since an agent may still be
         using the session URL, but lose their saved data. Sessions with requests in
-        flight are skipped. With accounts, only your own sessions are touched.
+        flight are skipped. Only your own sessions are touched (admins: also those without an owner).
         """
         identity = auth.request_identity(request)
         busy = {record["session_id"] for record in runtime.active.values()}
         cutoff = time.time() - STALE_SESSION_SECONDS
         deleted, cleared, skipped = 0, 0, []
         for session in runtime.sessions.list():
-            if identity is not None and not (access.is_owner(identity, session) or (session.tags.get("owner") is None and identity.admin)):
+            if not (access.is_owner(identity, session) or (session.tags.get("owner") is None and identity is not None and identity.admin)):
                 continue
             if session.session_id in busy:
                 skipped.append(session.session_id)
@@ -196,7 +194,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         identity = auth.request_identity(request)
         session = controllable(session_id, request)
         data = await request.json()
-        if identity is not None and any(key in data for key in ("visibility", "team", "org", "access")):
+        if any(key in data for key in ("visibility", "team", "org", "access")):
             if not access.is_owner(identity, session):
                 raise HTTPException(status_code=403, detail="Only the person who started a session can change who it's shared with.")
             if session.client == SHELL_CLIENT:
@@ -261,7 +259,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
 
         def wanted(event: dict[str, Any]) -> bool:
             key = event["request"]["key"] if event["type"] == "start" else event["key"]
-            if visible is not None and not visible(key.split(":", 1)[0]):
+            if not visible(key.split(":", 1)[0]):
                 return False
             return not session_id or key.startswith(f"{session_id}:")
 
@@ -269,8 +267,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             nonlocal visible
             try:
                 snapshot = runtime.live.snapshot(session_id)
-                if visible is not None:
-                    snapshot = {**snapshot, **{part: [entry for entry in snapshot[part] if visible(entry["session_id"])] for part in ("active", "recent")}}
+                snapshot = {**snapshot, **{part: [entry for entry in snapshot[part] if visible(entry["session_id"])] for part in ("active", "recent")}}
                 yield _sse("snapshot", snapshot)
                 while not await request.is_disconnected():
                     try:
@@ -446,7 +443,7 @@ def _proxy_url(value: Any) -> str:
 
 
 def _new_tags(data: dict[str, Any], tags: Any, request: Request) -> dict[str, Any]:
-    """A new session's tags: the client's own, plus its owner and sharing when accounts are on."""
+    """A new session's tags: the client's own, plus its owner and sharing."""
     tags = access.client_tags(tags)
     identity = auth.request_identity(request)
     if identity is not None:

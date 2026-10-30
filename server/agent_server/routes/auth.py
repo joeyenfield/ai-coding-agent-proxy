@@ -163,16 +163,11 @@ def register(app: FastAPI, runtime: Runtime) -> None:
     # Organizations and users: everyone signed in sees their own organizations and the people in them,
     # admins see and change everything (the middleware checks ADMIN_ONLY). Changes answer with the whole directory.
 
-    def accounts_or_400() -> None:
-        if not accounts.enabled:
-            raise HTTPException(status_code=400, detail="This proxy has no accounts, so no organizations yet.")
-
     def directory(request: Request) -> dict[str, Any]:
         viewer = auth.request_identity(request)
         return {"orgs": accounts.store.orgs(viewer), "users": accounts.store.user_list(viewer)}
 
     def change(request: Request, action: Any, missing: str) -> dict[str, Any]:
-        accounts_or_400()
         try:
             action()
         except KeyError as exc:
@@ -183,7 +178,6 @@ def register(app: FastAPI, runtime: Runtime) -> None:
 
     @app.get("/api/orgs")
     async def orgs(request: Request) -> dict[str, Any]:
-        accounts_or_400()
         return {"orgs": accounts.store.orgs(auth.request_identity(request))}
 
     @app.post("/api/orgs", status_code=201)
@@ -226,7 +220,6 @@ def register(app: FastAPI, runtime: Runtime) -> None:
 
     @app.get("/api/users")
     async def users(request: Request) -> dict[str, Any]:
-        accounts_or_400()
         return {"users": accounts.store.user_list(auth.request_identity(request))}
 
     @app.post("/api/users", status_code=201)

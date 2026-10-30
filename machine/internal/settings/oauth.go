@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -133,10 +134,16 @@ func LockCredentials() (func(), error) {
 		if err == nil {
 			return func() { _ = os.Remove(path) }, nil
 		}
-		if !os.IsExist(err) {
+		// On Windows, creating the directory while another process is removing it is refused
+		// as access denied, not as already existing: that's the lock being released, so wait.
+		releasing := runtime.GOOS == "windows" && os.IsPermission(err)
+		if !os.IsExist(err) && !releasing {
 			return nil, err
 		}
 		if time.Now().After(deadline) {
+			if releasing {
+				return nil, err
+			}
 			return nil, errors.New("credentials are locked; another sign-in or refresh is in progress (remove a stale credentials.json.lock only after stopping clients)")
 		}
 		time.Sleep(50 * time.Millisecond)

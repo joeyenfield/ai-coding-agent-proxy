@@ -1,4 +1,4 @@
-"""Shared agent terminals: the launcher's connection, the console's viewers, and pairing devices.
+"""Shared agent terminals: the launcher's connection and the console's viewers.
 
 Every endpoint here checks remote.RemoteAccess: watching a terminal shows
 everything the agent prints, and typing into it can run commands on this
@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 import json
 from typing import Any, Awaitable, Callable
-from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
@@ -38,51 +37,23 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         if not access.trusted(request):
             raise HTTPException(status_code=401, detail="Sign in through the OIDC authentication service.")
 
-    def require_local(request: Request) -> None:
-        if not (access.local(request) and remote.same_origin(request)):
-            raise HTTPException(status_code=403, detail="Only the computer running the proxy can do this.")
-
+    # The old access-key pairing is gone: these answer as they did once it was turned off, so an
+    # old console or script gets a clear refusal. Only a signed-in identity is trusted now.
     @app.get("/api/remote")
     async def remote_status(request: Request) -> dict[str, Any]:
-        local = access.local(request)
-        value: dict[str, Any] = {
-            "trusted": access.trusted(request), "local": local, "paired": not access.accounts and access.has_key(request),
-            # With accounts, phones sign in instead of pairing.
-            "accounts": access.accounts,
-        }
-        if local:
-            # Only this computer sees the key, to show it as a QR code for a phone.
-            value.update(
-                key=access.token, listen_host=runtime.bound_host, port=runtime.bound_port,
-                addresses=_addresses(runtime),
-            )
-        return value
+        return {"trusted": access.trusted(request), "local": False, "paired": False, "accounts": True}
 
     @app.post("/api/remote/code")
-    async def pairing_code(request: Request) -> dict[str, Any]:
-        require_local(request)
-        code = access.new_code()
-        return {"code": f"{code[:4]}-{code[4:]}", "expires_in": remote.CODE_TTL}
+    async def pairing_code() -> None:
+        raise HTTPException(status_code=403, detail="Access-key pairing was removed. Sign in through OIDC.")
+
+    @app.post("/api/remote/rotate")
+    async def rotate() -> None:
+        raise HTTPException(status_code=403, detail="The access key was removed. Sign in through OIDC.")
 
     @app.post("/api/remote/pair")
-    async def pair(request: Request) -> JSONResponse:
-        if access.accounts:
-            raise HTTPException(status_code=410, detail="Access-key pairing was removed. Sign in through OIDC.")
-        if not remote.same_origin(request):
-            raise HTTPException(status_code=403, detail="Pair from the console's own page.")
-        data = await request.json()
-        key = str(data.get("key") or "").strip() if isinstance(data, dict) else ""
-        if not key or not access.redeem(key):
-            raise HTTPException(
-                status_code=403,
-                detail="That code doesn't match, or it has expired. Get a new one on the computer running the proxy, or scan its QR code again.",
-            )
-        response = JSONResponse({"paired": True})
-        response.set_cookie(
-            remote.COOKIE, access.token, max_age=remote.COOKIE_MAX_AGE, httponly=True, samesite="strict",
-            secure=request.url.scheme == "https",
-        )
-        return response
+    async def pair() -> None:
+        raise HTTPException(status_code=410, detail="Access-key pairing was removed. Sign in through OIDC.")
 
     @app.post("/api/remote/unpair")
     async def unpair(request: Request) -> JSONResponse:
@@ -91,11 +62,6 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         response = JSONResponse({"paired": False})
         response.delete_cookie(remote.COOKIE)
         return response
-
-    @app.post("/api/remote/rotate")
-    async def rotate(request: Request) -> dict[str, Any]:
-        require_local(request)
-        return {"key": access.rotate()}
 
     @app.get("/api/terminals")
     async def list_terminals(request: Request) -> dict[str, Any]:
@@ -176,22 +142,16 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         if terminal is None:
             await websocket.close(code=CLOSE_NOT_FOUND, reason="This session has no shared terminal")
             return
-        accounts_required = identity is not None
 
         async def permitted(control: bool = False) -> int:
             # Re-read the credential and memberships, not the middleware's connection-time snapshot.
-            if accounts_required or runtime.auth.enabled:
-                try:
-                    current = await asyncio.to_thread(runtime.auth.identify, websocket)
-                except auth.AuthUnavailable:
-                    return 4410
-                trusted = current is not None
-            else:
-                current = None
-                trusted = access.trusted(websocket)
-            check = sharing.can_control if control else sharing.can_view
-            if not trusted:
+            try:
+                current = await asyncio.to_thread(runtime.auth.identify, websocket)
+            except auth.AuthUnavailable:
                 return 4410
+            if current is None:
+                return 4410
+            check = sharing.can_control if control else sharing.can_view
             return 0 if runtime.sessions.get(session_id) is session and check(current, session) else 4403
 
         history, queue = hub.subscribe(terminal, identity)
@@ -220,16 +180,6 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         finally:
             hub.unsubscribe(terminal, queue)
             sender.cancel()
-
-
-def _addresses(runtime: Runtime) -> list[dict[str, Any]]:
-    """Where a phone could open the console, each with its URL; a configured public URL comes first."""
-    scheme = "https" if runtime.settings.tls_cert else "http"
-    found = [{**item, "url": f"{scheme}://{item['address']}:{runtime.bound_port}"} for item in remote.addresses(runtime.bound_host)]
-    public = runtime.settings.public_url
-    if public:
-        found.insert(0, {"address": urlparse(public).hostname or public, "interface": None, "kind": "configured", "url": public})
-    return found
 
 
 def _control(hub: Any, terminal: Terminal, text: str) -> None:

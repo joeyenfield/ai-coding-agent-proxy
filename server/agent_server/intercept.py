@@ -147,7 +147,6 @@ class InterceptProxy:
         self.settings = runtime.settings.intercept
         self.server: asyncio.base_events.Server | None = None
         self.error: str | None = None
-        self._unattributed: str | None = None
         self._connections: set[asyncio.Task[Any]] = set()
         self.tunnels: set[Any] = set()
 
@@ -566,26 +565,6 @@ class InterceptProxy:
             await _pipe_both(reader, writer, upstream_reader, upstream_writer, telemetry)
         finally:
             self.runtime.complete(session, telemetry, None, None)
-
-    def _open_session(self, authorization: str | None) -> bool:
-        session_id = _proxy_user(authorization)
-        session = self.runtime.sessions.get(session_id) if session_id else None
-        return session is not None and session.ended_at is None
-
-    def _session(self, authorization: str | None) -> Session:
-        session_id = _proxy_user(authorization)
-        session = self.runtime.sessions.get(session_id) if session_id else None
-        if session:
-            return session
-        existing = self.runtime.sessions.get(self._unattributed or "")
-        if existing and existing.ended_at is None:
-            return existing
-        session = self.runtime.sessions.create({
-            "client": "unattributed", "backend": "direct",
-            "tags": {"implicit": True, "intercept": True},
-        })
-        self._unattributed = session.session_id
-        return session
 
 
 class SocketTurns:

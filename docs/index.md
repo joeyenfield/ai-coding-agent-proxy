@@ -106,7 +106,7 @@ Everyone signs in through OIDC, including on loopback. Sessions are private unti
 | Model-call history and payloads | | Requests | [Console](console.md#requests) |
 | Sessions, chats, telemetry export | | Sessions | [Console](console.md#sessions) |
 | Share and type into a terminal | `--control`, `--let-others-type` | Running agents | [Agents](agents.md#sharing-a-terminal-with---control) |
-| Use terminals from a phone | | Running agents › Pair this device | [Accounts](accounts.md#running-agents-on-your-phone) |
+| Use terminals from a phone | | Running agents (sign in on the phone) | [Accounts](accounts.md#running-agents-on-your-phone) |
 | Share a shell | `agent --shell [folder]` | A machine's Terminal tab | [Machines](machines.md#terminals) |
 | Join a machine to the fleet | `agent-machine login`, `start`, `stop`, `run` | Machines › Add a machine | [Machines](machines.md#quick-start) |
 | Add a machine's model server as a provider | | Add as a provider | [Providers](providers.md#where-providers-come-from) |

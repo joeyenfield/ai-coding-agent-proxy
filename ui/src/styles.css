@@ -756,16 +756,6 @@ details.collapsible > summary::-webkit-details-marker { display: none; }
 .terminal-card-head a { font-size: 16px; overflow-wrap: anywhere; }
 .terminal-card-meta { font-size: 12.5px; overflow-wrap: anywhere; }
 .terminal-card .button { align-self: flex-start; }
-.pair-form { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
-.pair-form .field { flex: 1 1 260px; }
-.pair-address { max-width: 560px; }
-.pair-code summary { cursor: pointer; font-weight: 700; color: var(--accent-ink); }
-.pair-code[open] { display: flex; flex-direction: column; gap: 12px; }
-.pair-short { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
-.pair-short p { display: flex; flex-direction: column; gap: 4px; margin: 0; }
-.pair-short-code { font-size: 28px; letter-spacing: 0.12em; }
-.qr { width: 240px; max-width: 100%; padding: 8px; background: #fff; border-radius: var(--radius-small); }
-.qr svg { display: block; width: 100%; height: auto; }
 .terminal-view { display: flex; flex-direction: column; gap: 10px; }
 .terminal-view[hidden] { display: none; }
 .terminal-view .banner { margin: 0; max-width: none; }

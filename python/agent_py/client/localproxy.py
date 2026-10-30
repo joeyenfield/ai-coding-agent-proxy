@@ -306,8 +306,10 @@ async def relay(launcher: WebSocket, remote) -> Tuple[int, str]:
 
     tasks = [asyncio.ensure_future(up()), asyncio.ensure_future(down())]
     done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-    # Give the other direction a moment to record a close that's already on its way.
-    await asyncio.wait(pending, timeout=0.05)
+    # Give the other direction a moment to record a close that's already on its way. Both can end
+    # at once (a refusal right after the hello), and asyncio.wait refuses an empty set.
+    if pending:
+        await asyncio.wait(pending, timeout=0.05)
     for task in pending:
         task.cancel()
     return closed["code"], closed["reason"]
@@ -359,7 +361,8 @@ class TunnelServer:
 
         tasks = [asyncio.ensure_future(up()), asyncio.ensure_future(down())]
         done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-        await asyncio.wait(pending, timeout=0.05)
+        if pending:  # both may end at once; asyncio.wait refuses an empty set
+            await asyncio.wait(pending, timeout=0.05)
         for task in pending:
             task.cancel()
         for task in done:

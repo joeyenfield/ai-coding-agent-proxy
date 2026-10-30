@@ -353,12 +353,12 @@ def account_command(kind: str, argv: list[str]) -> int:
             print(f"Removed team {args.org}/{args.id}.")
         elif args.action == "list":
             users = store.user_list()
-            print("\n".join(f"{user['name']} ({user['role']}) {' '.join(user['orgs'] + user['teams'])}".rstrip() for user in users) if users else "No users: sign-in is off.")
+            print("\n".join(f"{user['name']} ({user['role']}) {' '.join(user['orgs'] + user['teams'])}".rstrip() for user in users) if users else "No users yet: the server makes an admin on its first start, or add one.")
         elif args.action == "remove":
             if not store.remove_user(args.name):
                 print(f"No user called {args.name}", file=sys.stderr)
                 return 1
-            print(f"Removed {args.name}." + ("" if store.users() else " No users are left, so sign-in is off."))
+            print(f"Removed {args.name}." + ("" if store.users() else " No users are left: nobody can sign in until you add one."))
         else:
             if args.action == "passwd" and args.name not in store.users():
                 print(f"No user called {args.name}", file=sys.stderr)
@@ -383,7 +383,7 @@ def account_command(kind: str, argv: list[str]) -> int:
                         store.add_team(*team.split("/", 1))
                 first = not store.users()
                 user = store.add_user(args.name, password, "admin" if args.admin else None, teams, args.org)
-                print(f"Added {user['name']} ({user['role']})." + (" Sign-in is on: everyone now needs a user to use this proxy." if first else ""))
+                print(f"Added {user['name']} ({user['role']})." + (" As the first user, they're an admin." if first else ""))
     except (KeyError, ValueError) as exc:
         print(str(exc).strip("'"), file=sys.stderr)
         return 1

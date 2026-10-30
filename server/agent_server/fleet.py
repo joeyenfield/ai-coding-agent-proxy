@@ -130,8 +130,8 @@ ADMIN_FEATURES = frozenset({"view", "models", "update"})
 
 
 def owns(identity: Identity | None, machine: Machine) -> bool:
-    """Its owner; without accounts, everyone."""
-    return identity is None or machine.owner == identity.user
+    """Its owner. No identity (never the case behind the sign-in middleware) owns nothing."""
+    return identity is not None and machine.owner == identity.user
 
 
 def granted(identity: Identity, machine: Machine, feature: str) -> bool:
@@ -141,10 +141,12 @@ def granted(identity: Identity, machine: Machine, feature: str) -> bool:
 
 def allowed(identity: Identity | None, machine: Machine, feature: str) -> bool:
     """Whether identity may use one of the machine's features: its owner always, admins the ADMIN_FEATURES,
-    and the organizations and teams the owner granted it. Any grant includes seeing the machine."""
+    and the organizations and teams the owner granted it. Any grant includes seeing the machine.
+    No identity may use nothing."""
+    if identity is None:
+        return False
     if owns(identity, machine):
         return True
-    assert identity is not None
     if identity.admin and feature in ADMIN_FEATURES:
         return True
     if feature == "view":
@@ -172,6 +174,8 @@ def can_update(identity: Identity | None, machine: Machine) -> bool:
 def checked_access(identity: Identity | None, requested: Any, store: Any) -> dict[str, dict[str, list[str]]]:
     """A machine's grants as asked for, checked: known features, organizations and teams that exist, and
     (unless an admin asks) only ones the asker is in, as with sharing a session. Raises ValueError."""
+    if identity is None:
+        raise ValueError("Sign in first")
     if not isinstance(requested, dict):
         raise ValueError("Send the grants as {feature: {orgs: [...], teams: [...]}}")
     access: dict[str, dict[str, list[str]]] = {}
@@ -182,16 +186,16 @@ def checked_access(identity: Identity | None, requested: Any, store: Any) -> dic
         orgs = sorted({str(item) for item in grant.get("orgs") or []})
         teams = sorted({str(item) for item in grant.get("teams") or []})
         for org in orgs:
-            if store is not None and store.org(org) is None:
+            if store.org(org) is None:
                 raise ValueError(f"No organization {org}")
-            if identity is not None and not identity.admin and org not in identity.orgs:
+            if not identity.admin and org not in identity.orgs:
                 raise ValueError(f"You aren't in the organization {org}")
         for team in teams:
             org, _, name = team.partition("/")
-            known = store.org(org) if store is not None else None
-            if store is not None and (known is None or not any(item["id"] == name for item in known["teams"])):
+            known = store.org(org)
+            if known is None or not any(item["id"] == name for item in known["teams"]):
                 raise ValueError(f"No team {team} (name it as <organization>/<team>)")
-            if identity is not None and not identity.admin and team not in identity.teams:
+            if not identity.admin and team not in identity.teams:
                 raise ValueError(f"You aren't in the team {team}")
         if orgs or teams:
             access[feature] = {"orgs": orgs, "teams": teams}
@@ -266,6 +270,7 @@ class Fleet:
         if machine_id in self.removed:
             raise FleetError(4403, "This machine was removed from the server; its owner or an admin can allow it back on the Machines page")
         existing = self.machines.get(machine_id)
+        # The route only connects signed-in machines; tests register ownerless ones directly.
         owner = identity.user if identity else None
         if existing and existing.owner and owner and existing.owner != owner:
             # Another user's machine id: refuse rather than take the machine over.
@@ -446,16 +451,6 @@ class Fleet:
                 found[name] = url + (parsed.path.rstrip("/") if parsed.path not in ("", "/") else "")
         return found
 
-    def unclaimed(self, machine: Machine, backends: dict[str, Any]) -> list[str]:
-        """Backends from before machines supplied providers that point at one of this machine's model servers."""
-        found = []
-        for provider in machine.providers:
-            url = normal_url(self.provider_url(machine, provider))
-            for name, backend in backends.items():
-                if not backend.machine and backend.type == provider["type"] and normal_url(backend.url) == url:
-                    found.append(name)
-        return found
-
     def machine_for(self, tags: dict[str, Any]) -> Machine | None:
         """The machine a session runs on, from its tags.
 
@@ -507,7 +502,7 @@ class Fleet:
         """The removed machines someone may allow back: their owner's, and every one for admins."""
         return [
             {"id": machine_id, **record} for machine_id, record in sorted(self.removed.items(), key=lambda item: -float(item[1].get("at") or 0))
-            if identity is None or identity.admin or record.get("owner") == identity.user
+            if identity is not None and (identity.admin or record.get("owner") == identity.user)
         ]
 
     # What the console sees
@@ -547,7 +542,7 @@ class Fleet:
 
     def _visible_launch(self, record: dict[str, Any], identity: Identity | None) -> bool:
         if identity is None:
-            return True
+            return False
         session_id = record.get("session_id")
         if session_id:
             session = self.sessions.get(str(session_id)) if self.sessions else None

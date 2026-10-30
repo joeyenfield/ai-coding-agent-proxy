@@ -5,7 +5,7 @@ import { api, machineProviders, type FleetMachine, type RemovedMachine } from ".
 import { CodeLine } from "../components/CodeLine";
 import { PartTag } from "../components/PartTag";
 import { StateDot } from "../components/ProviderState";
-import { useAuth, useClipboard, useMachines, useStatus, useToast } from "../hooks";
+import { useClipboard, useMachines, useStatus, useToast } from "../hooks";
 import { formatDate, formatRelative } from "../format";
 import { OS_LABELS, machinePath } from "./Machine";
 import { OneLineInstall, serverAddress } from "./Downloads";
@@ -283,13 +283,10 @@ function useRemembered<T extends string>(key: string, options: readonly { id: T 
 /** A machine of its own in a container (sandbox/Dockerfile): agents started on it can only touch its /workspace. */
 function SandboxSteps({ server }: { server: string }) {
   const copy = useClipboard();
-  const auth = useAuth();
   const [runtime, setRuntime] = useRemembered<Runtime>(RUNTIME_KEY, RUNTIMES, "docker");
   const [shell, setShell] = useRemembered<Shell>(SHELL_KEY, SHELLS, navigator.userAgent.includes("Windows") ? "powershell" : "bash");
   const engine = RUNTIMES.find((item) => item.id === runtime) ?? RUNTIMES[0];
   const style = SHELLS.find((item) => item.id === shell) ?? SHELLS[0];
-  // Quoted placeholders: a bare <...> is a redirection in both shells.
-  const user = auth.data?.required ? (auth.data.identity?.user ?? '"your-user"') : null;
   let address = server;
   let hostGateway = false;
   try {
@@ -307,7 +304,6 @@ function SandboxSteps({ server }: { server: string }) {
     `${runtime} run -d --name agent-sandbox --restart unless-stopped`,
     ...(hostGateway ? ["  --add-host=host.docker.internal:host-gateway"] : []),
     `  -e AI_PROXY_SERVER=${address}`,
-    ...(user ? [`  -e AI_PROXY_USER=${user} -e AI_PROXY_PASSWORD="your password"`] : []),
     "  -v agent-sandbox-home:/home/agent -v agent-sandbox-workspace:/workspace agent-sandbox",
   ].join(`${style.continuation}\n`);
   return (
@@ -331,8 +327,8 @@ function SandboxSteps({ server }: { server: string }) {
         </li>
         <li>
           <p>
-            Run it{user ? ", signed in as you" : ""}. It shows up here as <strong>agent-sandbox</strong>
-            {user ? "; its sign-in is kept in the agent-sandbox-home volume, so you can leave the password out of later runs" : ""}.
+            Run it. On its first start it prints two sign-in codes (<code>{runtime} logs agent-sandbox</code>): approve both in your
+            browser. It shows up here as <strong>agent-sandbox</strong>, and its sign-in is kept in the agent-sandbox-home volume.
           </p>
           <CodeLine text={run} onCopy={() => copy(run, "Command copied")} />
           <p className="subtle">

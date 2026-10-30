@@ -16,7 +16,7 @@ from starlette.websockets import WebSocketDisconnect
 from agent_server.app import FIRST_USER, account_command, create_app, ensure_first_user
 from agent_server.auth import UserStore
 from agent_server.config import Backend, Settings
-from oidc_helpers import OAuthTestClient, access_token, issuer
+from oidc_helpers import OAuthTestClient, access_token, issuer, plant_legacy_credentials
 
 
 BASE = "http://127.0.0.1:8181"
@@ -124,8 +124,8 @@ def test_separate_console_origin_terminal_websocket(tmp_path):
         client.cookies.set("ai_proxy_session", access_token(app, "alice"))
         session_id = client.post("/api/sessions", json={"client": "x", "backend": "test"}).json()["session_id"]
         headers = {"host": "api.example.com", "cookie": f"ai_proxy_session={client.cookies.get('ai_proxy_session')}"}
-        # A trusted console reaches the session lookup; other origins fail the terminal's own gate.
-        for candidate, code in ((origin, 4404), ("https://evil.example.com", 4401)):
+        # A trusted console reaches the session lookup; the middleware refuses other origins, as it does for HTTP.
+        for candidate, code in ((origin, 4404), ("https://evil.example.com", 4403)):
             with pytest.raises(WebSocketDisconnect) as closed:
                 with client.websocket_connect(f"/api/terminals/{session_id}/view", headers={**headers, "origin": candidate}) as ws:
                     ws.receive_json()
@@ -314,7 +314,7 @@ def test_oauth_access_tokens_can_be_revoked_and_legacy_tokens_are_rejected(tmp_p
         assert client.get("/api/sessions", headers=token).status_code == 200
         issuer(app).revoke(issued)
         assert client.get("/api/sessions", headers=token).status_code == 401
-        _, legacy = app.state.runtime.auth.store.create_token("alice", "old laptop")
+        _, legacy = plant_legacy_credentials(app.state.runtime.settings.users_path, "alice")
         assert client.get("/api/sessions", headers={"x-ai-proxy-token": legacy}).status_code == 401
 
 
@@ -502,7 +502,7 @@ def test_account_commands_create_the_first_admin(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("AI_PROXY_NEW_PASSWORD", PASSWORD)
     assert account_command("user", ["add", "joey", "--team", "core"]) == 1  # which organization's?
     assert account_command("user", ["add", "joey", "--org", "pockets", "--team", "core"]) == 0
-    assert "Sign-in is on" in capsys.readouterr().out
+    assert "the first user, they're an admin" in capsys.readouterr().out
     assert account_command("user", ["add", "sam", "--team", "other/ops"]) == 0
     assert account_command("org", ["rename", "pockets", "Empty Pockets"]) == 0
     assert account_command("team", ["add", "pockets", "web"]) == 0

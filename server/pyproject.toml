@@ -12,7 +12,6 @@ dependencies = [
   "fastapi>=0.110",
   "httpx>=0.27",
   "pydantic>=2.6",
-  "psutil>=5.9",
   "PyYAML>=6.0",
   "cryptography>=42",
   "Authlib>=1.9,<2",

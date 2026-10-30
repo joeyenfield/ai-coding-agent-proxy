@@ -3,11 +3,31 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import json
+import secrets
 import time
 from urllib.parse import parse_qs
 
 import httpx
 from fastapi.testclient import TestClient
+
+
+def plant_legacy_credentials(users_path, user: str) -> tuple[str, str]:
+    """Write a browser sign-in and a launcher token into users.json as versions before OIDC did,
+    and return their secrets: (browser cookie, launcher token). They must authenticate nothing."""
+    data = json.loads(users_path.read_text(encoding="utf-8"))
+    browser, launcher = secrets.token_urlsafe(32), "aip_" + secrets.token_urlsafe(32)
+    now = time.time()
+    data.setdefault("sessions", {})[hashlib.sha256(browser.encode()).hexdigest()] = {
+        "user": user, "created_at": now, "expires_at": now + 30 * 86400, "agent": "old browser",
+    }
+    data.setdefault("tokens", {})[secrets.token_hex(4)] = {
+        "user": user, "label": "old launcher", "hash": hashlib.sha256(launcher.encode()).hexdigest(),
+        "created_at": now, "last_used_at": None,
+    }
+    users_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    return browser, launcher
 
 
 class Issuer:

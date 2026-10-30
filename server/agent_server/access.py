@@ -1,4 +1,4 @@
-"""Who can see and control a session, once the proxy has accounts.
+"""Who can see and control a session.
 
 Whoever starts a session owns it and decides who else gets it:
 
@@ -12,8 +12,8 @@ The sharing lives in the session's tags (owner, visibility, team, org, access),
 which only these functions write. Sessions from before accounts existed have no
 owner; admins can see those. Sessions shared before organizations name a team
 without its organization (matched by the team's own name) or "org" without one
-(everyone signed in), as the server was then a single organization. Without
-accounts, everyone can see and control everything.
+(everyone signed in), as the server was then a single organization. No identity
+(never the case behind the sign-in middleware) can see or control nothing.
 
 Launchers name the organization in `team` (`agent --share org --team acme`), so
 `org` falls back to it.
@@ -54,7 +54,7 @@ def _in_team(identity: Identity, team: str | None) -> bool:
 
 def can_view(identity: Identity | None, session: Session) -> bool:
     if identity is None:
-        return True
+        return False
     shared = sharing(session)
     if shared["owner"] is None:
         return identity.admin
@@ -68,7 +68,7 @@ def can_view(identity: Identity | None, session: Session) -> bool:
 def can_control(identity: Identity | None, session: Session) -> bool:
     """Type into its terminal, end it, change capture, clear or delete it."""
     if identity is None:
-        return True
+        return False
     shared = sharing(session)
     if shared["owner"] is None:
         return identity.admin
@@ -78,7 +78,7 @@ def can_control(identity: Identity | None, session: Session) -> bool:
 
 
 def is_owner(identity: Identity | None, session: Session) -> bool:
-    return identity is None or session.tags.get("owner") == identity.user
+    return identity is not None and session.tags.get("owner") == identity.user
 
 
 def _pick(value: Any, mine: tuple[str, ...], what: str) -> str:

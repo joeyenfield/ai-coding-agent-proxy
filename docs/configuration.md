@@ -46,7 +46,7 @@ intercept:
 
 | Key | Default | What it does |
 |---|---|---|
-| `listen_host` | `127.0.0.1` | The address the server listens on. Anything other than loopback lets other machines in, and turns sign-in on at the first such start (see [Accounts](accounts.md)). |
+| `listen_host` | `127.0.0.1` | The address the server listens on. Anything other than loopback lets other machines in. Sign-in is required either way (see [Accounts](accounts.md)). |
 | `listen_port` | `8181` | The port. The repository's own config uses `9999`. |
 | `url` | `http://<listen_host>:<listen_port>` | How this computer reaches the server. The `agent-proxy` uses it before `agent login` names another, and `agent-benchmark` uses it. |
 | `public_url` | none | Where other devices reach the console, such as a DNS name your router forwards here. Pairing links and the first-start message use it ahead of this computer's own addresses. |
@@ -67,7 +67,7 @@ Each entry is a name (letters, numbers, `_` and `-`, starting with a letter or n
 | `machine` | The id of the fleet machine that runs it. Local types (`ollama`, `strata`, `docker`) come from machines; only hosted APIs have none. |
 | `container` | The container spec, when the machine runs this backend as a container (engine, image, port, gpus, env, volume). Written by the containers API; see [Machines](machines.md). |
 
-Local backends are never added by URL. You add them from their machine: **Add as a provider** on the machine's page (`POST /api/machines/{id}/providers/adopt`, admins), or a container (`POST /api/containers`). Backends from before this have no `machine`; they keep working. With accounts, an admin links a matching backend with **Add as a provider**, preserving its name and settings. Without accounts, matching legacy backends are linked automatically.
+Local backends are never added by URL. You add them from their machine: **Add as a provider** on the machine's page (`POST /api/machines/{id}/providers/adopt`, admins), or a container (`POST /api/containers`). Backends from before this have no `machine`; they keep working. An admin links a matching backend with **Add as a provider**, preserving its name and settings.
 
 Older keys such as `metrics_url` are ignored.
 
@@ -161,9 +161,9 @@ See [Agents](agents.md) for the format and how to add one, and [MCP](mcp.md) for
 | `AI_PROXY_INTERCEPT_HOST`, `AI_PROXY_INTERCEPT_PORT` | `intercept.listen_host` and `intercept.listen_port`. |
 | `AI_PROXY_CA_DIR` | `intercept.ca_dir`. |
 | `AI_PROXY_LIVE=0` | Stops streaming request text to the console's live views. Counts still stream. |
-| `AI_PROXY_REMOTE_KEY_FILE` | The terminal access key's file (default `certs/remote-access-key`). `users.json`, `container-keys.json` and `first-user-password` go in the same folder. |
-| `AI_PROXY_TOKEN` | Uses this value as the terminal access key instead of the file's. `agent-benchmark` also sends it as its token. |
-| `AI_PROXY_USERNAME`, `AI_PROXY_PASSWORD` | An admin account from the environment. Both set turns sign-in on, without anything in `users.json`. |
+| `AI_PROXY_REMOTE_KEY_FILE` | Names the folder for the server's account files: `users.json`, `container-keys.json`, `oidc-browser-key` and `first-user-password` go beside this path (default `certs/remote-access-key`). The old terminal access key it named grants nothing now and is no longer created. |
+| `AI_PROXY_TOKEN` | The OAuth access token `agent-benchmark` sends; it refuses to start without one. (On agent machines the launcher reads it too, see [Agents](agents.md).) |
+| `AI_PROXY_USERNAME`, `AI_PROXY_PASSWORD` | An admin account from the environment, outside `users.json`, which the issuer accepts. With both set, the first start makes no `admin` user. |
 | `AI_PROXY_NEW_PASSWORD` | The password for `agent-server user add` and `user passwd`, instead of asking. For scripts. |
 | `STRATA_API_KEY` | The key sent with agents' traffic to Strata backends, ahead of the one their machine reports. A container's own key still wins. |
 
@@ -191,7 +191,7 @@ Secrets never go in `config/`.
 | `certs/container-keys.json` | The API keys the server made for the Strata containers its machines run. |
 | `logs/machines.json` | The fleet: machines seen, their owners, grants, launch history and removed machines. No keys. |
 
-Everything in the `certs/` rows lives beside the access key, so `AI_PROXY_REMOTE_KEY_FILE` moves them together. The CA follows `intercept.ca_dir`. Strata keys a machine reports are kept in memory only.
+Everything in the `certs/` rows lives in the folder `AI_PROXY_REMOTE_KEY_FILE` names (the old access key's), so it moves them together. The CA follows `intercept.ca_dir`. Strata keys a machine reports are kept in memory only.
 
 ## The agent-server command
 

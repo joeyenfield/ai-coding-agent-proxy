@@ -58,9 +58,8 @@ class Runtime:
         strata.fleet = self.fleet
         # Agents' requests to machines the server can't reach go through the machines themselves.
         self.tunnels = TunnelHub(self.fleet)
-        self.remote = RemoteAccess(settings.remote_key_path)
-        self.auth = Auth(UserStore(settings.users_path), self.remote, settings)
-        self.remote.auth = self.auth
+        self.remote = RemoteAccess()
+        self.auth = Auth(UserStore(settings.users_path), settings)
         # Containers the machines run for the server, asked for over the fleet's connections.
         self.containers = ContainerManager(settings, KeyStore(settings.container_keys_path), self.fleet)
         self.client: httpx.AsyncClient | None = None

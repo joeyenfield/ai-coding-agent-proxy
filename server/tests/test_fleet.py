@@ -178,6 +178,9 @@ def test_legacy_backends_need_explicit_admin_adoption_with_accounts(tmp_path):
         assert alice.get("/api/machines/m1").json()["backends"] == ["old"]
 
 
+LEGACY_ACCESS_KEY = "Hb3xQ2v9mK1tW7pL0sZ4rN8cF6yJ5dA_eG-uI2oT3qE"
+
+
 def test_legacy_access_key_cannot_join_fleet_without_oauth_accounts(tmp_path):
     from agent_server.config import Settings
 
@@ -185,7 +188,8 @@ def test_legacy_access_key_cannot_join_fleet_without_oauth_accounts(tmp_path):
                         default_backend="old", backends={"old": Backend("old", "http://localhost:11434/")})
     app = create_app(settings)
     with TestClient(app, base_url=BASE) as client:
-        headers = {**HOST, "x-ai-proxy-token": app.state.runtime.remote.token}
+        # What an old agent-machine sent: the access key, which no longer authenticates anything.
+        headers = {**HOST, "x-ai-proxy-token": LEGACY_ACCESS_KEY}
         with pytest.raises(Exception):
             with client.websocket_connect("/api/machines/connect", headers=headers) as socket:
                 socket.send_json(hello(address="127.0.0.1"))

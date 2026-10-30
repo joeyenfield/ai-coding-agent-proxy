@@ -86,7 +86,7 @@ python scripts/screenshots/demo.py                                    # leave it
 node scripts/screenshots/capture.mjs http://127.0.0.1:8199 docs/screenshots [name,...]
 ```
 
-`demo.py` runs a self-contained server on port 8199 in a temporary home, so your `logs/`, `config/`, accounts and access key aren't touched. It has fake Ollama, Anthropic and Docker Model Runner servers, three made-up machines joined over the fleet socket (with fake model servers, metrics, catalogue results and containers), three made-up shared terminals you can type into, seeded account sessions, and live traffic. `scripts/screenshots/traffic.py` drives agent-like traffic through a server for smoke tests. Stop the demo with Ctrl+C.
+`demo.py` runs a self-contained server on port 8199 in a temporary home, so your `logs/`, `config/` and accounts aren't touched. It has fake Ollama, Anthropic and Docker Model Runner servers, three made-up machines joined over the fleet socket (with fake model servers, metrics, catalogue results and containers), three made-up shared terminals you can type into, seeded account sessions, and live traffic. `scripts/screenshots/traffic.py` drives agent-like traffic through a server for smoke tests. Stop the demo with Ctrl+C.
 
 `capture.mjs` needs `playwright-core` and a browser (`npx playwright-core install chromium-headless-shell`, or point `chromium.launch({ executablePath })` at an installed one). Keep throwaway screenshot scripts outside the repository.
 
@@ -190,7 +190,7 @@ Each run gets its own session, and results go to `benchmarks/results/<timestamp>
 - **The server never manages a model server.** It only forwards agents' traffic. Everything else is a request to the machine that runs it, over the fleet socket. Add a provider operation to agent-machine and relay it.
 - **Upstream calls to a machine's model server use `runtime.tunnels.base_url(backend)`,** not `backend.url`, so they go through the machine's tunnel.
 - **The client/server boundary is the API.** The client never reads `config/` or imports the server; the server owns agent definitions, backend choice and template rendering. Something new the client needs goes into the API, the `agent-proxy`'s `LauncherAPI` allowlist if the launcher calls it, and `test_client.py`.
-- **Tests never touch real files.** Pass a temporary `backends_file`; `Settings(...)` built in code keeps the access key under `log_dir` and leaves HTTPS capture off.
+- **Tests never touch real files.** Pass a temporary `backends_file`; `Settings(...)` built in code keeps `users.json` and the other account files under `log_dir` and leaves HTTPS capture off.
 - **Admin-only routes go in `auth.ADMIN_ONLY`.** Every route that touches a session checks its sharing; every machine route checks its feature with `fleet.allowed`.
 - **Long-lived connections close on a restart.** A new kind must be closed in `Runtime._restart_when_idle`, or it holds the restart up.
 - **`PUT /api/config` drops comments** from `backends.yaml`. Make comment edits by hand.
