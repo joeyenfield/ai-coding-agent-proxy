@@ -12,7 +12,7 @@ from pathlib import Path
 
 import httpx
 import pytest
-from fastapi.testclient import TestClient
+from oidc_helpers import authenticated_client as TestClient
 
 from agent_server import strata
 from agent_server.agents import AgentDefinition

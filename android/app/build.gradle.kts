@@ -58,6 +58,10 @@ android {
     }
 }
 
-// No libraries: the platform's own widgets and WebView, so the app stays small and has
-// nothing to keep up to date but itself.
-dependencies {}
+// The phone and release app stay platform-only; car templates are a private debug experiment.
+dependencies {
+    debugImplementation("androidx.car.app:app:1.4.0")
+    debugImplementation("androidx.car.app:app-projected:1.4.0")
+    testImplementation("junit:junit:4.13.2")
+    add("testDebugImplementation", "org.json:json:20240303")
+}

@@ -1,22 +1,12 @@
 # Accounts and sharing
 
-The server runs in one of two modes. In **local mode** it's a single-user tool on your own computer. In **server mode** it has accounts, everyone signs in, and people share sessions and machines through organizations and teams.
+Everyone signs in through the separate OIDC issuer at **auth.aicontrolmesh.com**, including on loopback. People share sessions and machines through organizations and teams. See [OIDC authentication](oidc.md) for deployment, access tokens, device sign-in and automation.
 
-This page covers both, how each program signs in, who can see and control what, and using the console from a phone.
+This page covers accounts, who can see and control what, and using the console from a phone.
 
-## Local mode and server mode
+## Authentication is always required
 
-| | Local mode | Server mode |
-|---|---|---|
-| When | `users.json` has no users and `AI_PROXY_USERNAME`/`AI_PROXY_PASSWORD` aren't set | At least one user, or the environment account |
-| The console and API | Open to anyone who reaches the port | Need a sign-in |
-| Terminals, machines, containers | This computer, or a device paired with the access key | Need a sign-in |
-| Phones | Pair with the access key or a short code | Sign in |
-| Sessions | Everyone sees and controls everything | Each has an owner who decides who else gets it |
-
-**Sign-in turns itself on when the server listens on the network.** On a start that listens beyond loopback (for example `proxy.listen_host: 0.0.0.0`), if `users.json` doesn't exist and there's no environment account, the server creates a user called `admin` with a random password. It prints the password and saves it in `first-user-password` beside `users.json` (`certs/` by default). Sign in, change the password on **Server → Organizations**, then delete that file.
-
-It happens only while `users.json` doesn't exist. If you remove every user later, sign-in is off again and `admin` isn't created a second time. Do that only on a network you trust: in local mode, the console's pages (traffic, sessions, settings) are open to anyone who can reach the port.
+On first start, if `users.json` does not exist and there is no environment account, the API creates `admin` with a random password, including on loopback. It prints the password and saves `first-user-password` beside `users.json`. Reset it with `agent-server user passwd admin`, then delete that file. Removing every user does not disable authentication.
 
 ## Users, roles, organizations and teams
 
@@ -40,7 +30,7 @@ In **Server → Organizations**, choose an organization, then open a team to man
 
 Removing a team member keeps their organization membership. Removing an organization member also removes their memberships in that organization's teams. Neither deletes the account or memberships elsewhere. Membership changes apply to subsequent session and machine access checks. Deleting a team keeps its people in the organization; renaming its display name keeps its sharing key.
 
-**User directory** manages accounts, server roles, passwords and all memberships. **Your account** contains your own password and launcher tokens. An Admin role is server-wide, not a team role. Only server admins can change organizations, teams or other users.
+**User directory** manages accounts, server roles, password resets and memberships. **Your account** shows your identity and sign-in instructions. An Admin role is server-wide, not a team role. Only server admins can change organizations, teams or other users.
 
 Manage them from the console (**Server → Organizations**), the API (`/api/orgs`, `/api/users`; see [API](api.md)), or the server's shell:
 
@@ -60,21 +50,21 @@ The full list of commands is on [Configuration](configuration.md#users-organizat
 
 | Who | How | What it carries |
 |---|---|---|
-| A browser | The console's sign-in page (`POST /api/auth/login`) | The `ai_proxy_session` cookie: HTTP-only, `SameSite=Lax`, secure over HTTPS, for 30 days |
-| An agent machine | `agent login <server>`, once | A launcher token, sent by its `agent-proxy` as `X-AI-Proxy-Token` |
-| A fleet machine | `agent-machine login <server>`, once | Its own launcher token, separate from `agent login`'s |
-| Scripts and Swagger UI | A token from **Server → Organizations** (`POST /api/auth/tokens`) | `X-AI-Proxy-Token` |
-| An agent | Nothing: it uses an open session's id, which the launcher gives it | Model traffic uses the session id in the URL (`/session/<id>/...`), `X-AI-Proxy-Session`, or the HTTPS proxy's user name. MCP uses a separate URL capability delivered only in the launch settings. |
+| A browser | Console redirects through `GET /api/auth/login` to the issuer; authorization code + PKCE | Short-lived HttpOnly access cookie and a rotating refresh cookie |
+| An agent machine | `agent login <server>`; approve the displayed device code in your browser | OAuth access token in `X-AI-Proxy-Token`, renewed automatically |
+| A fleet machine | `agent-machine login <server>`; device approval | Its own access and refresh tokens, separate from `agent login` |
+| Scripts and Swagger UI | A provisioned service client's access token | `Authorization: Bearer <access_token>` |
+| An agent | Its loopback agent-proxy signs every upstream request | Session id selects the session; MCP also requires its launch-only capability |
 
-`agent login` and `agent-machine login` send your user name and password once (`POST /api/auth/token`) and keep the token they get back, labelled `agent-proxy on <host>` or `agent-machine on <host>`. Your password isn't stored on the machine. The tokens show on **Server → Organizations**, where you can revoke them. `agent login` takes effect at once: the `agent-proxy` reads its credentials on every request.
+The CLI never collects your password. Sign in and approve its code at the issuer. Each program stores its own rotating credentials with restricted permissions and refreshes access automatically. Logout revokes credentials.
 
-Ten failed sign-ins in ten minutes from one address are refused for the rest of that time (`429`). A new password signs the user out of every browser.
+The issuer limits failed sign-ins. Password reset and account removal invalidate issued credentials.
 
-Passwords and tokens are stored only as hashes (scrypt for passwords, SHA-256 for tokens), in `users.json`.
+Passwords are hashed in `users.json`; OAuth tokens and grant state are hashed in the issuer's separate database.
 
-**Agents keep their own credentials.** Agent requests that name an open session pass without a sign-in, and the server never replaces the agent's own `Authorization` header: hosted pass-through needs it. Once a session has ended, its id stops working.
+**Agents keep their vendor credentials.** The proxy's alternate platform header preserves vendor `Authorization`. Open sessions still require access-token authentication and session control permission. Platform tokens are never forwarded to providers.
 
-**Other sites can't act for you.** With accounts, a `POST`, `PUT`, `PATCH` or `DELETE` whose `Origin` is another site is refused, and so are WebSockets from other sites' pages.
+**Other sites can't act for you.** Unsafe methods and WebSockets require the API's origin or an explicitly allowed console origin.
 
 ## What only admins can change
 
@@ -84,7 +74,6 @@ Changes to the server itself are admin-only. The list is `ADMIN_ONLY` in `server
 - restarting the server (`POST /api/server/restart`);
 - adding, changing or deleting containers (`POST /api/containers`, `PUT`/`DELETE /api/containers/{name}`);
 - adding a machine's model server as a provider (`POST /api/machines/{id}/providers/adopt`);
-- replacing the terminal access key (`POST /api/remote/rotate`);
 - changing organizations, teams and users (`/api/orgs/...`, `/api/users/...`).
 
 Everything else is open to any signed-in user, limited by session sharing and machine grants.
@@ -128,38 +117,7 @@ Containers stay the owner's (and admins'). See [Machines](machines.md) for the d
 
 ## The terminal access key and pairing
 
-```mermaid
-sequenceDiagram
-  participant C as Console on the server's computer
-  participant S as agent-server
-  participant F as Phone
-  C->>S: POST /api/remote/code (this computer only)
-  S-->>C: a pairing code: single use, 10 minutes
-  F->>S: POST /api/remote/pair with the code (or the access key)
-  S-->>F: the ai_proxy_remote cookie, which stands for the access key
-  F->>S: WS /api/terminals/<id>/view, with the cookie
-  S-->>F: the terminal
-```
-
-Typing into an agent's terminal is as good as a shell on that computer. So in local mode, only trusted clients can use terminals, machines and containers:
-
-- **This computer**: a loopback client whose `Host` header also names loopback. A web page that rebinds its own DNS name to `127.0.0.1` sends its own name in `Host`, so it isn't trusted.
-- **A paired device**: one that holds the access key, in the `ai_proxy_remote` cookie (HTTP-only, `SameSite=Strict`) or the `X-AI-Proxy-Token` header.
-
-The access key is a random value in `certs/remote-access-key` (`AI_PROXY_REMOTE_KEY_FILE` moves it; `AI_PROXY_TOKEN` replaces it). The file is created on first use, readable by its owner only where the system allows it.
-
-**Pairing a phone.** On this computer, open **Agents → Running agents**, then **Use it from your phone**:
-
-1. **Show the pairing code** shows a QR code with a link that carries the key. Scan it with the phone's camera.
-2. Can't scan it? **Get a short code** instead (`POST /api/remote/code`), and type it into **Pair this device** on the phone.
-
-A short code stands in for the key, so it's limited: it works once, for 10 minutes (`CODE_TTL`), and five wrong tries cancel it (`CODE_ATTEMPTS`). A new code replaces the last one. Only this computer can make codes or see the key.
-
-**Replace access key** (`POST /api/remote/rotate`) makes a new key, which signs every paired device out. Only this computer can do it.
-
-**Agent machines on a server without accounts** use the access key too: `agent login <server> --key <access key>`, or set `AI_PROXY_TOKEN` on that machine.
-
-With accounts, pairing is off: phones sign in like any browser, and "this computer" gets no special trust.
+Access-key pairing has been removed. Old keys, short codes and `/pair` links no longer authenticate. Phones sign in through OIDC like other browsers; loopback has no special privilege.
 
 ## Running agents on your phone
 
@@ -177,11 +135,11 @@ From your phone you can:
 
 To set it up on a server you reach over your network:
 
-1. Set the listen host to `0.0.0.0` (**Server settings**, or `proxy.listen_host`) and restart the server. The first such start creates the `admin` user, as above.
+1. Configure HTTPS for the API, console and issuer ([OIDC](oidc.md)), and make the console reachable from your phone.
 2. On your phone, open the console and sign in. Add it to the home screen to get back quickly.
 3. Sign each agent machine in once with `agent login <server>`, including the server's own computer (`agent login http://127.0.0.1:9999`).
 
-Rather not sign in on your own network? Remove the users (`agent-server user remove admin`) and pair the phone instead, as above.
+Authentication cannot be disabled by removing users.
 
 Open a running agent to see its terminal:
 
@@ -197,7 +155,7 @@ Things to know:
 - **History is saved.** Each terminal's output goes to `logs/sessions/<id>/terminal.log` (up to 64 MB), so finished sessions stay readable. If the launcher loses the server, it keeps trying and resends what the server missed when it reconnects; if this computer's `agent-proxy` has stopped (`agent update` stops it), the launcher starts it again.
 - **It's off unless you ask.** Without `--control`, the agent runs directly and only its traffic is recorded. `AI_PROXY_CONTROL=1` makes `--control` a machine's default.
 - **It needs an interactive terminal.** On Windows that's Windows Terminal, PowerShell or cmd, not Git Bash's mintty. Otherwise the launcher says why sharing is off and runs the agent directly.
-- **Away from home**, put the server and your phone on the same [Tailscale](https://tailscale.com) network (or another VPN), and pick its `100.x` address under **Use it from your phone**. If your router forwards a public name here, set it as `proxy.public_url`; pairing links then use it first. On a public address, use accounts and HTTPS ([Deployment](deployment.md)), or anyone who finds it can read your traffic.
+- **Away from home**, use a VPN such as [Tailscale](https://tailscale.com), or HTTPS with the registered API, console and issuer hostnames ([Deployment](deployment.md)). Authentication is required in either case.
 
 ## The Android app
 
@@ -205,9 +163,31 @@ The app (`android/`) keeps a list of your agent-servers and opens each one's con
 
 - **Getting it.** Open `http://<your server>/android` in the phone's browser: every server hands out the app built with it, no sign-in needed. The **Downloads** page (`/get`) has it too, with its size and SHA-256.
 - **Adding a server.** Type its address (a LAN address, a Tailscale name, or HTTPS). The app checks it's an agent-server (`/health`) before saving it, and shows whether each is online.
-- **Signing in** is the console's own: an account on a server with accounts, or pairing on one without. The sign-in stays in the app, on this phone only.
+- **Signing in** uses the console's OIDC flow. The configured HTTPS issuer and API callback stay in the app; the sign-in belongs to this phone's WebView.
 - **Plain HTTP** is allowed, since servers usually run on a LAN or Tailscale; the app says when a connection isn't encrypted.
 - **Back** goes through the console's own history (closing its menu first), then to your servers. Links to other sites open in the browser.
+- **Separate console hosting.** The server's initial redirect to an HTTPS console stays in the app, including a different console host. Later external links still open in the browser. For the Android Auto monitor, add the API host where your sign-in cookie lives, not the brochure website.
 - **Updates.** When a server's version isn't the app's own, its card says **Update available**, and **Update** opens that server's Downloads page.
 
 Building it is in `android/README.md`.
+
+### Private Android Auto experiment
+
+Debug APKs include **AI Control Mesh (private test)** in Android Auto development
+hosts. Add servers and sign in on the phone while parked, then select a server in the
+car app. It shows up to five recent visible sessions, open first, with status, model
+and request counts, refreshing every 15 seconds while visible. Open means the session
+has not ended, not necessarily that the agent is working. There is no terminal output,
+typing, prompt approval or launching from the car.
+
+It uses the phone's existing sign-in and the same session-sharing permissions. Renew
+expired sign-ins on the phone while parked. Your phone must be able to reach the server.
+Release APKs do not contain this experiment. The debug navigation category is a
+development discovery workaround, not navigation functionality or Play eligibility.
+Hosts can still refuse it. Android Auto's **Unknown sources** option alone does not enable
+sideloaded Car App Library apps in real vehicles; Google's
+[testing requirements](https://developer.android.com/training/cars/testing#test-in-real-vehicles)
+require a trusted installation source for supported testing, such as Play Internal App Sharing or an Internal
+Test Track. Use the Desktop Head Unit for this private experiment; see
+`android/README.md` for setup, launcher troubleshooting and reported unofficial
+real-car testing workarounds that have not yet been validated on this app.

@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 from agent_server.app import create_app
 from agent_server.config import Backend, Settings
 from test_auth import org_settings, signed_in
+from oidc_helpers import authenticated_client, access_token
 
 
 LOCAL = {"base_url": "http://127.0.0.1:8181", "client": ("127.0.0.1", 50000)}
@@ -87,9 +88,9 @@ def prepare(client: TestClient, agent: str = "claude", **fields: Any) -> httpx.R
 def test_a_launch_gives_the_agent_the_mcp_servers_it_chose_and_the_server_records_their_calls(tmp_path):
     app = local_app(tmp_path)
     bridge = Bridge()
-    with TestClient(app, **LOCAL) as client:
+    with authenticated_client(app, **LOCAL) as client:
         app.state.runtime.client = httpx.AsyncClient(transport=httpx.MockTransport(bridge))
-        join(app)
+        join(app, owner="test-admin")
         listed = client.get("/api/mcp").json()
         assert [(item["id"], item["transport"], item["connected"]) for item in listed] == [("desk/github", "stdio", True), ("desk/docs", "http", True)]
         # The key is the machine's and the server's only.
@@ -174,9 +175,11 @@ def test_only_those_a_machine_lets_use_its_mcp_servers_get_them(tmp_path):
         message = {"jsonrpc": "2.0", "id": 1, "method": "initialize"}
         # A view-only collaborator knows the public session id, not the launch-only MCP capability.
         assert alice.post(f"/session/{session_id}/mcp/desk/github", json=message).status_code == 404
-        # The session id is the credential, as for model traffic.
+        # Both OAuth and the launch-only MCP capability are required.
         with TestClient(app, base_url="http://127.0.0.1:8181") as agent:
             app.state.runtime.client = httpx.AsyncClient(transport=httpx.MockTransport(Bridge()))
+            assert agent.post(base, json=message).status_code == 401
+            agent.headers["x-ai-proxy-token"] = access_token(app, "bob")
             assert agent.post(base, json=message).status_code == 200
             # Grants are checked on every request.
             assert alice.put("/api/machines/desk/access", json={"access": {}}).status_code == 200

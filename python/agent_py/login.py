@@ -1,118 +1,68 @@
-"""`login` and `logout` for both programs: trading a username and password for a token,
-kept with the server's URL in the program's own credentials file. The password isn't stored.
-A server without accounts is remembered too, with its access key when one is given (--key).
-"""
+"""OIDC device sign-in and refresh-credential revocation for both programs."""
 
 from __future__ import annotations
 
 import argparse
-import getpass
-import os
-import socket
 import sys
 from pathlib import Path
 from typing import Callable, List
 
 import httpx
 
-from . import common
+from . import common, oauth
 
 
 def login(args: List[str], *, program: str, credentials_path: Callable[[], Path], default_server: str, label: str, done: str, signed_in: str = "") -> int:
-    """`<program> login [url] [--user name] [--key key]`. done ends the line for a server without accounts
-    ("... no sign-in; <done> from now on."), signed_in follows "Signed in to <server> as <user>." (default:
-    done, from now on)."""
-    parser = argparse.ArgumentParser(prog=f"{program} login", description=f"Sign this machine in to an agent-server. url defaults to {default_server}.")
+    token_env = "AI_PROXY_MACHINE_TOKEN" if program == "agent-machine" else "AI_PROXY_TOKEN"
+    for arg in args:
+        if arg == "-u" or arg.startswith(("--user", "--key")):
+            print(f"Password/key login was removed. Use login [server] for OIDC device sign-in, or {token_env} for an OAuth service-account access token.", file=sys.stderr)
+            return 2
+    parser = argparse.ArgumentParser(prog=f"{program} login", description=f"Sign in using a browser and a device code. For automation inject an OAuth access token with {token_env}.")
     parser.add_argument("url", nargs="?", default=default_server)
-    parser.add_argument("-u", "--user", default="", help="Your username (asked for when omitted)")
-    parser.add_argument("--key", default="", help="For a server without accounts: its access key, to use it from another machine")
     options = parser.parse_args(args)
     server = options.url.strip().rstrip("/")
     if "://" not in server:
-        server = "http://" + server
-    credentials = common.Credentials.load(credentials_path())
-    with common.client(20, program) as http:
-        try:
-            response = http.get(server + "/api/auth/status")
-            if response.status_code >= 400:
-                raise RuntimeError(common.detail(response.content))
-            status = response.json()
-            required = bool(status.get("required")) if isinstance(status, dict) else False
-        except (httpx.HTTPError, ValueError, RuntimeError) as error:
-            print(f"{program} login: couldn't reach {server}: {error}", file=sys.stderr)
-            return 1
-        if not required:
-            credentials.servers[common.normalize(server)] = common.ServerEntry(server, token=options.key)
+        server = "https://" + server
+    try:
+        entry = oauth.device_login(server, sys.stdout, program)
+        with oauth.credential_lock(credentials_path()):
+            credentials = common.Credentials.load(credentials_path())
+            credentials.servers[common.normalize(server)] = entry
             credentials.default = common.normalize(server)
-            try:
-                credentials.save()
-            except OSError as error:
-                print(f"{program} login: {error}", file=sys.stderr)
-                return 1
-            print(f"{server} doesn't use accounts, so there's no sign-in; {done} from now on.")
-            return 0
-        if not server.startswith("https://") and not common.is_loopback_url(server):
-            print("Warning: this connection isn't encrypted; your password crosses the network in the clear unless you're on a VPN such as Tailscale.", file=sys.stderr)
-        name = options.user.strip()
-        if not name:
-            print("Username: ", end="", flush=True)
-            name = sys.stdin.readline().strip()
-        password = os.environ.get("AI_PROXY_PASSWORD_INPUT", "")
-        if not password:
-            if sys.stdin.isatty():
-                password = getpass.getpass("Password: ")
-            else:
-                print("Password: ", end="", flush=True)
-                password = sys.stdin.readline().rstrip("\r\n")
-        try:
-            response = http.post(server + "/api/auth/token", json={"username": name, "password": password, "label": f"{label} on {socket.gethostname()}"})
-        except httpx.HTTPError as error:
-            print(f"{program} login: {error}", file=sys.stderr)
-            return 1
-    if response.status_code >= 400:
-        print(f"{program} login: {common.detail(response.content)}", file=sys.stderr)
-        return 1
-    try:
-        token = response.json()
-        if not isinstance(token, dict):
-            raise ValueError("not an object")
-    except ValueError as error:
-        print(f"{program} login: unexpected answer: {error}", file=sys.stderr)
-        return 1
-    credentials.servers[common.normalize(server)] = common.ServerEntry(server, str(token.get("user") or ""), str(token.get("token") or ""), str(token.get("id") or ""))
-    credentials.default = common.normalize(server)
-    try:
-        credentials.save()
-    except OSError as error:
+            credentials.save()
+    except (httpx.HTTPError, ValueError, OSError, RuntimeError) as error:
         print(f"{program} login: {error}", file=sys.stderr)
         return 1
-    print(f"Signed in to {server} as {token.get('user') or ''}. " + (signed_in or f"{done[0].upper() + done[1:]} from now on ({program} logout to stop)."))
+    print(f"Signed in to {server} as {entry.user}.")
     return 0
 
 
 def logout(args: List[str], *, program: str, credentials_path: Callable[[], Path]) -> int:
-    parser = argparse.ArgumentParser(prog=f"{program} logout", description="Forget this machine's sign-in to an agent-server (default: the one signed in to last).")
+    parser = argparse.ArgumentParser(prog=f"{program} logout", description="Forget this machine's OAuth sign-in.")
     parser.add_argument("url", nargs="?")
     options = parser.parse_args(args)
-    credentials = common.Credentials.load(credentials_path())
-    key = common.normalize(options.url) if options.url else credentials.default
-    entry = credentials.servers.pop(key, None) if key else None
-    if entry is None:
-        print("Not signed in to that server.")
-        return 0
-    if entry.token and entry.token_id:
-        # Best effort: the server may be gone.
-        try:
-            with common.client(10, program) as http:
-                http.delete(entry.url.rstrip("/") + "/api/auth/tokens/" + entry.token_id, headers={common.TOKEN_HEADER: entry.token})
-        except httpx.HTTPError:
-            pass
-    if credentials.default == key:
-        credentials.default = next(iter(credentials.servers), "")
+    revoke_error = None
     try:
-        credentials.save()
-    except OSError as error:
+        with oauth.credential_lock(credentials_path()):
+            credentials = common.Credentials.load(credentials_path())
+            key = common.normalize(options.url) if options.url else credentials.default
+            entry = credentials.servers.pop(key, None) if key else None
+            if entry is None:
+                print("Not signed in to that server.")
+                return 0
+            try:
+                oauth.revoke(entry)
+            except (httpx.HTTPError, ValueError, OSError, RuntimeError) as error:
+                revoke_error = error
+            if credentials.default == key:
+                credentials.default = next(iter(credentials.servers), "")
+            credentials.save()
+    except (OSError, RuntimeError) as error:
         print(f"{program} logout: {error}", file=sys.stderr)
         return 1
     print(f"Signed out of {entry.url}.")
+    if revoke_error:
+        print(f"{program} logout: local credentials forgotten, but issuer revocation failed: {revoke_error}", file=sys.stderr)
+        return 1
     return 0

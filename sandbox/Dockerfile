@@ -13,7 +13,7 @@
 #   docker build -f sandbox/Dockerfile --build-arg AGENTS="@openai/codex opencode-ai" -t agent-sandbox .
 
 # The Go components, for whichever platform the image is built for.
-FROM golang:1.24-bookworm AS build
+FROM docker.io/library/golang:1.24-bookworm AS build
 # The build's version (VERSION at the root; there's no git here): pass the server's,
 # --build-arg AI_PROXY_VERSION=..., to match it exactly.
 ARG AI_PROXY_VERSION=
@@ -29,7 +29,7 @@ RUN version="${AI_PROXY_VERSION:-$(cat VERSION)+unknown}" \
     && cd client && go build -trimpath -ldflags "-s -w -X main.version=$version" -o /out/ ./cmd/agent ./cmd/agent-proxy \
     && cd ../machine && go build -trimpath -ldflags "-s -w -X main.version=$version" -o /out/ ./cmd/agent-machine
 
-FROM node:22-bookworm-slim
+FROM docker.io/library/node:22-bookworm-slim
 ARG AGENTS="@anthropic-ai/claude-code @openai/codex opencode-ai @qwen-code/qwen-code @github/copilot"
 # What coding agents expect to find: git, a shell, Python, search tools. tini reaps the
 # processes agents leave behind, as agent-machine is the container's main process.

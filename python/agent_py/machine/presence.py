@@ -24,7 +24,6 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import httpx
 import websockets
-from websockets.asyncio.client import connect
 
 from .. import common
 from . import containers, mcp, providers, servers, settings
@@ -282,10 +281,10 @@ class Presence:
 
     async def dial(self, server: str, path: str):
         headers = common.identify({}, settings.PROGRAM)
-        token = self.upstream.token(server)
+        token = await asyncio.to_thread(self.upstream.token, server)
         if token:
             headers[common.TOKEN_HEADER] = token
-        return await connect(common.websocket_url(server, path), additional_headers=headers, proxy=None, open_timeout=10,
+        return await common.signed_connect(common.websocket_url(server, path), additional_headers=headers, proxy=None, open_timeout=10,
                              max_size=None, compression=None, user_agent_header=None, ping_interval=None)
 
     async def run(self, stop: asyncio.Event) -> None:
@@ -342,6 +341,8 @@ class Presence:
             try:
                 welcome = json.loads(await asyncio.wait_for(conn.recv(), 20))
             except websockets.ConnectionClosed as closed:
+                if closed.rcvd and closed.rcvd.code == 4410:
+                    await asyncio.to_thread(self.upstream.reject_access_token, server)
                 reason = closed.rcvd.reason if closed.rcvd else ""
                 if closed.rcvd and closed.rcvd.code == CLOSE_UPGRADE_REQUIRED:
                     raise Refused(f"the agent-server at {server} can't take this agent-machine: {reason}")
@@ -377,6 +378,10 @@ class Presence:
                         task = asyncio.ensure_future(self.dispatch(message, server, send, send_from_thread))
                         tasks.add(task)
                         task.add_done_callback(tasks.discard)
+            except websockets.ConnectionClosed as closed:
+                if closed.rcvd and closed.rcvd.code == 4410:
+                    await asyncio.to_thread(self.upstream.reject_access_token, server)
+                raise
             finally:
                 for task in tasks:
                     task.cancel()

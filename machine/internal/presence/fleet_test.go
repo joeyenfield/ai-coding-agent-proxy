@@ -73,6 +73,7 @@ func TestLaunchArgumentsRunTheAgentHeadless(t *testing.T) {
 
 func TestPresenceSaysHelloAndAnswersLaunches(t *testing.T) {
 	t.Setenv("AI_PROXY_MACHINE_HOME", t.TempDir())
+	t.Setenv("AI_PROXY_MACHINE_TOKEN", "oauth-machine")
 	messages := make(chan map[string]any, 10)
 	upgrader := websocket.Upgrader{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

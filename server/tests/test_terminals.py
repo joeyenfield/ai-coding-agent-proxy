@@ -15,6 +15,7 @@ from agent_server.config import Backend, Settings
 from agent_server import terminals
 from agent_server.fleet import Fleet, Machine
 from agent_server.terminals import input_parts, screen_question
+from oidc_helpers import authenticated_client
 
 
 LOCAL = {"base_url": "http://127.0.0.1:8181", "client": ("127.0.0.1", 50000)}
@@ -27,7 +28,7 @@ def settings(tmp_path: Path) -> Settings:
 
 
 def local_client(tmp_path: Path, app=None) -> TestClient:
-    return TestClient(app or create_app(settings(tmp_path)), **LOCAL)
+    return authenticated_client(app or create_app(settings(tmp_path)), **LOCAL)
 
 
 def new_session(client: TestClient) -> str:
@@ -65,7 +66,7 @@ def test_input_parts_send_enter_separately_and_paste_multiline_text():
     assert input_parts({}, True) == []
 
 
-def test_terminals_need_this_computer_or_the_access_key(tmp_path):
+def test_terminals_require_oauth_even_on_loopback_or_with_the_access_key(tmp_path):
     app = create_app(settings(tmp_path))
     with TestClient(app) as stranger:
         assert stranger.get("/api/terminals").status_code == 401
@@ -75,77 +76,36 @@ def test_terminals_need_this_computer_or_the_access_key(tmp_path):
         assert rebinding.get("/api/terminals").status_code == 401
     with local_client(tmp_path, app) as local:
         status = local.get("/api/remote").json()
-        assert status["trusted"] and status["local"] and status["key"]
+        assert status["trusted"] and not status["local"] and "key" not in status
         assert local.get("/api/terminals").json() == {"terminals": []}
-        key = status["key"]
-    assert (tmp_path / "logs" / "remote" / "access-key").read_text().strip() == key
-    with TestClient(app) as launcher:
-        assert launcher.get("/api/terminals", headers={remote.HEADER: key}).status_code == 200
-        assert launcher.get("/api/terminals", headers={remote.HEADER: key + "x"}).status_code == 401
+        key = app.state.runtime.remote.token
+        with TestClient(app) as launcher:
+            assert launcher.get("/api/terminals", headers={remote.HEADER: key}).status_code == 401
+            assert launcher.get("/api/terminals", headers={remote.HEADER: key + "x"}).status_code == 401
 
 
-def test_pairing_sets_a_cookie_and_replacing_the_key_signs_devices_out(tmp_path):
+@pytest.mark.parametrize("path", ["/api/remote/pair", "/api/remote/code", "/api/remote/rotate"])
+def test_legacy_pairing_cannot_replace_oauth(tmp_path, path):
     app = create_app(settings(tmp_path))
     with local_client(tmp_path, app) as local, TestClient(app, base_url="http://192.168.1.10:8181", client=("192.168.1.50", 40000)) as phone:
-        key = local.get("/api/remote").json()["key"]
-        assert phone.post("/api/remote/pair", json={"key": "wrong"}).status_code == 403
-        assert phone.post("/api/remote/pair", json={"key": key}, headers={"origin": "http://evil.example"}).status_code == 403
-        response = phone.post("/api/remote/pair", json={"key": key})
-        assert response.status_code == 200
-        cookie = response.headers["set-cookie"].lower()
-        assert "httponly" in cookie and "samesite=strict" in cookie
-        assert phone.get("/api/remote").json() == {"trusted": True, "local": False, "paired": True, "accounts": False}
-        assert phone.get("/api/terminals").status_code == 200
-        # Only the computer itself can replace the key.
-        assert phone.post("/api/remote/rotate").status_code == 403
-        new_key = local.post("/api/remote/rotate").json()["key"]
-        assert new_key != key
+        key = app.state.runtime.remote.token
+        assert phone.post(path, json={"key": key}).status_code == 401
         assert phone.get("/api/terminals").status_code == 401
-        phone.post("/api/remote/unpair")
-        assert phone.get("/api/remote").json()["paired"] is False
+        response = local.post(path, json={"key": key})
+        if path == "/api/remote/pair":
+            assert response.status_code == 410
+            local.headers.pop("x-ai-proxy-token")
+            assert local.get("/api/terminals").status_code == 401
+        else:
+            assert response.status_code == 403
 
 
-def phone_client(app, address: str = "192.168.1.50") -> TestClient:
-    return TestClient(app, base_url="http://192.168.1.10:8181", client=(address, 40000))
-
-
-def test_a_short_code_pairs_one_device_once(tmp_path):
-    app = create_app(settings(tmp_path))
-    with local_client(tmp_path, app) as local, phone_client(app) as phone, phone_client(app, "192.168.1.51") as other:
-        # Only this computer hands out codes.
-        assert phone.post("/api/remote/code").status_code == 403
-        code = local.post("/api/remote/code").json()["code"]
-        assert len(code) == 9 and code[4] == "-"
-        # Typed loosely on a phone: lower case, no dash.
-        assert phone.post("/api/remote/pair", json={"key": code.replace("-", "").lower()}).status_code == 200
-        assert phone.get("/api/terminals").status_code == 200
-        assert other.post("/api/remote/pair", json={"key": code}).status_code == 403
-        # Replacing the key cancels a code that hasn't been used.
-        code = local.post("/api/remote/code").json()["code"]
-        local.post("/api/remote/rotate")
-        assert other.post("/api/remote/pair", json={"key": code}).status_code == 403
-
-
-def test_wrong_guesses_and_time_cancel_a_code(tmp_path, monkeypatch):
-    app = create_app(settings(tmp_path))
-    with local_client(tmp_path, app) as local, phone_client(app) as phone:
-        code = local.post("/api/remote/code").json()["code"]
-        for _ in range(remote.CODE_ATTEMPTS):
-            # 0 isn't in the alphabet, so this never matches by chance.
-            assert phone.post("/api/remote/pair", json={"key": "0000-0000"}).status_code == 403
-        assert phone.post("/api/remote/pair", json={"key": code}).status_code == 403
-        monkeypatch.setattr(remote, "CODE_TTL", -1)
-        code = local.post("/api/remote/code").json()["code"]
-        assert phone.post("/api/remote/pair", json={"key": code}).status_code == 403
-        assert phone.get("/api/terminals").status_code == 401
-
-
-def test_pairing_links_default_to_the_public_url(tmp_path):
+def test_authenticated_remote_status_does_not_publish_pairing_links(tmp_path):
     config = settings(tmp_path)
     config.host, config.public_url = "0.0.0.0", "http://proxy.example.net:9999"
     with local_client(tmp_path, create_app(config)) as local:
-        first = local.get("/api/remote").json()["addresses"][0]
-    assert first == {"address": "proxy.example.net", "interface": None, "kind": "configured", "url": "http://proxy.example.net:9999"}
+        status = local.get("/api/remote").json()
+    assert status["accounts"] is True and "addresses" not in status and "key" not in status
 
 
 def test_host_streams_to_viewers_and_viewer_input_reaches_the_host(tmp_path):
@@ -198,10 +158,10 @@ def test_websockets_from_other_sites_are_refused(tmp_path):
     with local_client(tmp_path) as client:
         session_id = new_session(client)
         for path in (f"/api/terminals/{session_id}/host", f"/api/terminals/{session_id}/view"):
-            with ws_connect(client, path, origin="http://evil.example") as socket_:
-                with pytest.raises(WebSocketDisconnect) as closed:
-                    socket_.receive_text()
-                assert closed.value.code == 4401
+            with pytest.raises(WebSocketDisconnect) as closed:
+                with ws_connect(client, path, origin="http://evil.example"):
+                    pytest.fail("A foreign origin completed the WebSocket handshake")
+            assert closed.value.code == 4403
 
 
 def test_reconnecting_host_resumes_and_history_survives_a_restart(tmp_path):

@@ -12,6 +12,7 @@ The machine only dials out. It holds one WebSocket to the server (`/api/machines
 - No inbound listeners except the MCP bridge on `127.0.0.1:0`. Outbound only: the server, loopback model servers, model catalogues.
 - `Proxy: nil` on every client (`settings.Transport`). Server calls carry the version, protocol and token headers (`settings.ServerClient`, `Identify`).
 - Its own sign-in (`agent-machine login`), apart from `agent login`.
+- Device authorization and rotating OAuth credentials mirror the client in this separate Go module (`internal/settings/oauth.go`). Every request and socket reconnect renews as needed; 4410 is retryable. Never send passwords to the API or fall back to an old key. See `auth.md`.
 
 ## Command line (`internal/command`)
 

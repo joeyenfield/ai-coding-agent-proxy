@@ -38,7 +38,7 @@ type Options struct {
 const Usage = `Usage: agent <agent> [project] [options] [-- agent arguments]
        agent --list
        agent --shell [folder]             share a shell in a private terminal, to use it from the console
-       agent login [url] [--user name] [--key access-key]
+       agent login [url]                         (OIDC device sign-in)
                                           sign this machine in to an agent-server
        agent logout [url]
        agent proxy [--server url]         run this machine's agent-proxy in the foreground
@@ -61,7 +61,7 @@ Options:
       --switch            If the backend is a container a machine runs, stop other containers using
                           its GPU to start it
 
-Sharing, on a server with accounts:
+Sharing:
       --share WHO         private, team or org: who else can see this session (default: private)
       --team NAME         Which of your teams (org/team) with --share team, or which of your
                           organizations with --share org (needed if you're in several)

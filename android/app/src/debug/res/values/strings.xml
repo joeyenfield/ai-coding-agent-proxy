@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="car_app_name">AI Control Mesh (private test)</string>
+    <string name="car_servers">Session servers</string>
+    <string name="car_setup">Add a server and sign in using the phone app while parked.</string>
+    <string name="car_empty">No visible sessions</string>
+    <string name="car_refresh">Refresh</string>
+    <string name="car_loading">Loading sessions</string>
+    <string name="car_sign_in">Sign in on the phone while parked, then refresh.</string>
+    <string name="car_failed">Unable to load sessions. Check the server and connection.</string>
+    <string name="car_bad_response">The server returned an invalid session list.</string>
+    <string name="car_overview">Open: %1$d. Ended: %2$d. Recent sessions below.</string>
+    <string name="car_open">Open</string>
+    <string name="car_ended">Ended</string>
+    <string name="car_error">Ended with error</string>
+    <string name="car_session_status">%1$s - Requests: %2$d</string>
+</resources>

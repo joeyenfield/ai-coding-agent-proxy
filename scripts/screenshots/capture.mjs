@@ -2,16 +2,78 @@
 // (or set CHROMIUM_PATH to an installed Chromium or Edge)
 // python scripts/screenshots/demo.py                     (demo proxy with sample traffic on :8199)
 // node scripts/screenshots/capture.mjs http://127.0.0.1:8199 docs/screenshots [name,name...]
+// Other servers require explicit SCREENSHOT_USERNAME, SCREENSHOT_PASSWORD and SCREENSHOT_ISSUER.
 import { chromium } from "playwright-core";
 
-const base = process.argv[2] ?? "http://127.0.0.1:8199";
+const base = (process.argv[2] ?? "http://127.0.0.1:8199").replace(/\/$/, "");
 const out = process.argv[3];
 const only = process.argv[4];
 const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
+const configured = [process.env.SCREENSHOT_USERNAME, process.env.SCREENSHOT_PASSWORD, process.env.SCREENSHOT_ISSUER];
+if (configured.some(Boolean) && !configured.every(Boolean)) {
+  await browser.close();
+  throw new Error("Set SCREENSHOT_USERNAME, SCREENSHOT_PASSWORD and SCREENSHOT_ISSUER together.");
+}
+const signIn = configured.every(Boolean)
+  ? { username: configured[0], password: configured[1], issuer: configured[2] }
+  : base === "http://127.0.0.1:8199"
+    ? { username: "demo", password: "demo-screenshot-password", issuer: "http://127.0.0.1:18200" }
+    : null;
+let authenticatedState;
+
+async function login() {
+  const context = await browser.newContext();
+  try {
+    const response = await context.request.get(`${base}/api/auth/status`);
+    if (!response.ok()) throw new Error("Cannot read the server's authentication status.");
+    const status = await response.json();
+    if (!status.required) throw new Error("The screenshot server must require OIDC authentication.");
+    if (!signIn) throw new Error("Non-demo servers need explicit SCREENSHOT_USERNAME, SCREENSHOT_PASSWORD and SCREENSHOT_ISSUER.");
+    if (status.issuer !== signIn.issuer) throw new Error("Refusing to send credentials: the issuer does not match the explicitly trusted screenshot issuer.");
+    const page = await context.newPage();
+    await page.goto(`${base}/api/auth/login`, { waitUntil: "domcontentloaded" });
+    const issuer = new URL(signIn.issuer);
+    if (new URL(page.url()).origin !== issuer.origin || new URL(page.url()).pathname !== "/authorize") {
+      throw new Error("Refusing to submit credentials outside the trusted issuer's authorization page.");
+    }
+    const action = await page.locator("form").evaluate((form) => form.action);
+    if (new URL(action).origin !== issuer.origin || new URL(action).pathname !== "/authorize") {
+      throw new Error("Refusing an unexpected authorization form destination.");
+    }
+    await page.locator('input[name="username"]').fill(signIn.username);
+    await page.locator('input[name="password"]').fill(signIn.password);
+    await Promise.all([
+      page.waitForURL((url) => url.origin === new URL(base).origin && url.pathname === "/", { timeout: 20000 }),
+      page.locator('button[name="approve"]').click(),
+    ]);
+    const verified = await (await context.request.get(`${base}/api/auth/status`)).json();
+    if (verified.identity?.user !== signIn.username) throw new Error("The verified browser identity does not match the screenshot account.");
+    authenticatedState = await context.storageState();
+  } finally {
+    await context.close();
+  }
+}
+
+try {
+  await login();
+} catch (error) {
+  await browser.close();
+  throw error;
+}
 
 async function shot(name, path, { theme = "light", width = 1440, height = 900, prepare, fullPage = false, scrollTop = false } = {}) {
   if (only && !only.split(",").includes(name)) return;
-  const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1.5, colorScheme: theme });
+  const context = await browser.newContext({ storageState: authenticatedState, viewport: { width, height }, deviceScaleFactor: 1.5, colorScheme: theme });
+  // Carry the latest rotating refresh token into the next (sequential) screenshot.
+  const status = await (await context.request.get(`${base}/api/auth/status`)).json();
+  if (!status.identity) {
+    const renewed = await context.request.post(`${base}/api/auth/refresh`, { headers: { Origin: new URL(base).origin } });
+    if (!renewed.ok()) {
+      await context.close();
+      await browser.close();
+      throw new Error("The screenshot browser sign-in could not be renewed.");
+    }
+  }
   await context.addInitScript((value) => localStorage.setItem("ai-proxy-theme", value), theme);
   const page = await context.newPage();
   page.on("console", (message) => message.type() === "error" && console.log(`[${name}] console:`, message.text()));
@@ -25,6 +87,7 @@ async function shot(name, path, { theme = "light", width = 1440, height = 900, p
   if (scrollTop) await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({ path: `${out}/${name}.png`, fullPage });
   console.log("saved", name);
+  authenticatedState = await context.storageState();
   await context.close();
 }
 

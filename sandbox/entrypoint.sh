@@ -1,11 +1,9 @@
 #!/bin/sh
 # Joins the agent-server's fleet as a machine that takes launches in the workspace only.
 #
-#   AI_PROXY_SERVER          the agent-server, for example http://agent-server:9999 (required)
-#   AI_PROXY_USER            the account to sign in as; the machine is then that user's, and
-#   AI_PROXY_PASSWORD        only they can start agents on it (or AI_PROXY_PASSWORD_FILE,
-#                            for a Docker secret)
-#   AI_PROXY_KEY             instead, for a server without accounts: its access key
+#   AI_PROXY_SERVER          the API, for example https://api.aicontrolmesh.com (required)
+#   On first start, approve both printed OIDC device codes in your browser.
+#   Later starts reuse rotating credentials in the persistent home volume.
 #   AI_PROXY_MACHINE_NAME    the name the console shows (default: the container's hostname)
 #   AGENT_WORKSPACE          where agents may start (default /workspace)
 #
@@ -16,39 +14,28 @@
 #   AGENT_REPOS              git URLs to clone into the workspace on start (space-separated;
 #                            ones already there are left alone)
 #
-# Signing in trades the password for tokens, kept in /home/agent/.config: once that's a
-# volume, later starts skip the sign-in, and the password can be left out. Both components
-# sign in: agent-machine to join the fleet, and agent (the launcher) to start agents.
+# Both components sign in separately: agent-machine joins the fleet, agent launches agents.
 set -eu
 
 server=${AI_PROXY_SERVER:-}
 if [ -z "$server" ]; then
-    echo "agent-sandbox: set AI_PROXY_SERVER to the agent-server's URL, for example http://agent-server:9999" >&2
+    echo "agent-sandbox: set AI_PROXY_SERVER to the API's URL, for example https://api.aicontrolmesh.com" >&2
     exit 2
 fi
-case "$server" in *://*) ;; *) server="http://$server" ;; esac
+case "$server" in *://*) ;; *) server="https://$server" ;; esac
 server=${server%/}
 workspace=${AGENT_WORKSPACE:-/workspace}
 config=${XDG_CONFIG_HOME:-$HOME/.config}
-password=${AI_PROXY_PASSWORD:-}
-if [ -z "$password" ] && [ -n "${AI_PROXY_PASSWORD_FILE:-}" ]; then password=$(cat "$AI_PROXY_PASSWORD_FILE"); fi
 
 # sign_in signs one component in, unless its credentials already name this server.
 sign_in() {
     program=$1
     credentials=$2
-    if grep -qs "\"url\": \"$server\"" "$credentials"; then
+    if grep -Fqs "\"url\": \"$server\"" "$credentials" && grep -qs '"refresh_token": "[^"]' "$credentials"; then
         echo "$program: already signed in to $server"
         return 0
     fi
-    if [ -n "${AI_PROXY_KEY:-}" ]; then
-        "$program" login "$server" --key "$AI_PROXY_KEY"
-    elif [ -n "${AI_PROXY_USER:-}" ]; then
-        AI_PROXY_PASSWORD_INPUT=$password "$program" login "$server" --user "$AI_PROXY_USER" </dev/null
-    else
-        # A server without accounts needs no sign-in; with accounts this fails and says so.
-        "$program" login "$server" </dev/null
-    fi
+    "$program" login "$server" </dev/null
 }
 
 # Wait for the server: in compose it may still be starting.

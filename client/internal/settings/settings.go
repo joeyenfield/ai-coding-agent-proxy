@@ -27,7 +27,7 @@ const (
 	DefaultInterceptPort = 8183
 	// The server before `agent login` names one: an agent-server on this computer.
 	DefaultServer = "http://127.0.0.1:9999"
-	// The header the server reads a launcher token (or a server's access key) from.
+	// The header the server reads an OAuth access token from.
 	TokenHeader = "X-AI-Proxy-Token"
 )
 
@@ -37,7 +37,7 @@ var Version = "dev"
 // Protocol is the server API level this client speaks. The server accepts a range of
 // them and refuses others with 426; raise it only for a change older servers can't take.
 // The server's and agent-machine's must agree (server/tests/test_client.py checks).
-const Protocol = 1
+const Protocol = 2
 
 // Program is how this binary names itself to the server, in its User-Agent.
 var Program = "agent"
@@ -78,7 +78,7 @@ func ServerTransport(userAgent bool) http.RoundTripper {
 
 // ServerClient is Client for requests to the server, identified (ServerTransport).
 func ServerClient(timeout time.Duration) *http.Client {
-	return &http.Client{Transport: ServerTransport(true), Timeout: timeout}
+	return &http.Client{Transport: ServerTransport(true), Timeout: timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 }
 
 // Platform is this build's os-arch as dist names it: 32-bit ARM is armv7.
@@ -134,19 +134,24 @@ func LoopbackHost(host string) bool {
 	return Loopback[strings.Trim(host, "[]")]
 }
 
-// Credentials is `agent login`'s file: each server's URL, user and launcher token, and
-// the default server. The password is never stored. The format is shared with earlier
-// (Python) versions of the client, so existing sign-ins carry over.
+// Credentials stores OAuth credentials locally, in the same format as Python.
 type Credentials struct {
 	Servers map[string]*ServerEntry `json:"servers"`
 	Default string                  `json:"default,omitempty"`
 }
 
 type ServerEntry struct {
-	URL     string `json:"url"`
-	User    string `json:"user,omitempty"`
-	Token   string `json:"token,omitempty"`
-	TokenID string `json:"token_id,omitempty"`
+	URL                string `json:"url"`
+	User               string `json:"user,omitempty"`
+	Token              string `json:"token,omitempty"`
+	TokenID            string `json:"token_id,omitempty"`
+	AccessToken        string `json:"access_token,omitempty"`
+	RefreshToken       string `json:"refresh_token,omitempty"`
+	ExpiresAt          int64  `json:"expires_at,omitempty"`
+	Issuer             string `json:"issuer,omitempty"`
+	ClientID           string `json:"client_id,omitempty"`
+	TokenEndpoint      string `json:"token_endpoint,omitempty"`
+	RevocationEndpoint string `json:"revocation_endpoint,omitempty"`
 }
 
 // CredentialsPath is credentials.json in the user's config folder, or AI_PROXY_CREDENTIALS.
@@ -246,16 +251,11 @@ func DefaultServerURL() string {
 	return DefaultServer
 }
 
-// Token is AI_PROXY_TOKEN, or the stored token for server: a launcher token on a server
-// with accounts, or (with `agent login --key`) the access key of one without.
+// Token is retained for compatibility with callers inspecting sign-in state.
+// Requests and dials must use AccessToken to propagate refresh failures.
 func (u Upstream) Token(server string) string {
-	if token := os.Getenv("AI_PROXY_TOKEN"); token != "" {
-		return token
-	}
-	if entry := LoadCredentials().Servers[Normalize(server)]; entry != nil {
-		return entry.Token
-	}
-	return ""
+	token, _ := u.AccessToken(server)
+	return token
 }
 
 func (u Upstream) User(server string) string {

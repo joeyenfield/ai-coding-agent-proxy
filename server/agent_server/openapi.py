@@ -18,20 +18,21 @@ from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
 from fastapi.routing import APIRoute
 
+from .auth import PROTECTED_PREFIXES, PUBLIC_PATHS
 # The tag for each route module, in the order Swagger UI shows them.
 TAGS = [
-    ("Accounts", "agent_server.routes.auth", "Sign-in, launcher tokens, password; organizations, their teams, and users (`/api/orgs`, `/api/users`)."),
+    ("Accounts", "agent_server.routes.auth", "OIDC browser sign-in, refresh and logout; organizations, their teams, and users (`/api/orgs`, `/api/users`)."),
     ("Agents and sessions", "agent_server.routes.management", "Agents, sessions, requests, traces, live traffic, the models agents can use, configuration and the server itself."),
     ("Machines", "agent_server.routes.machines", "The fleet: machines, launches on them, and their LLM providers: adopting model servers, their models, status, logs and load, Ollama's settings, starting and stopping Ollama and Strata, and model catalogue search. The server asks the machine for all of it."),
     ("MCP", "agent_server.routes.mcp",
      "MCP servers machines share (`agent-machine mcp add`), and agents' MCP traffic to them under "
      "`/session/{session_id}/mcp/{machine}/{name}` (Streamable HTTP; launch-only URL capability)."),
     ("Containers", "agent_server.routes.containers", "Strata and Ollama containers that machines run for the server."),
-    ("Terminals", "agent_server.routes.terminals", "Shared agent terminals and pairing a phone. Trusted clients only."),
+    ("Terminals", "agent_server.routes.terminals", "Shared agent terminals. OAuth authentication and session permissions required."),
     ("Downloads", "agent_server.app", "The builds of agent, agent-machine and the Android app this server hands out, and the documentation the console shows (`/help-files/...`); public, like /health."),
     ("Agent APIs", "agent_server.routes.compat",
      "What agents call: OpenAI (`/v1`), Anthropic (`/anthropic`) and native Ollama (`/api/...`), unscoped or under "
-     "`/session/{session_id}/`. The open session's id is the credential for model traffic; MCP also needs its launch-only URL capability."),
+     "`/session/{session_id}/`. OAuth access tokens are required, including scoped sessions; MCP also needs its launch-only URL capability."),
 ]
 
 WEBSOCKETS = """
@@ -53,16 +54,16 @@ The API of agent-server: the console uses it, and so do the launcher (`agent`), 
 
 ## Signing in
 
-Without accounts (a server nobody has added a user to), requests from this computer need nothing.
-Once accounts exist, everything here needs one of:
+Authentication is mandatory on every interface, including loopback. Sign in through the
+OIDC issuer (by default https://auth.aicontrolmesh.com). API requests need one of:
 
-- **A launcher token** in the `X-AI-Proxy-Token` header: from `agent login`, or **Settings → Organization → Tokens**.
-  Use **Authorize** to send it with every request from this page.
+- **An OAuth access token** in `Authorization: Bearer <access_token>`. ID tokens are not API credentials.
+- **An OAuth access token** in `X-AI-Proxy-Token` for agent-proxy traffic, preserving the agent's own vendor Authorization.
 - **The console's sign-in cookie** (`ai_proxy_session`): signed in to the console in this browser, this page already uses it.
 
-Agent APIs are the exception: an open session's id in the path (`/session/{session_id}/...`) or the
-`X-AI-Proxy-Session` header is the credential for model traffic. MCP also needs its launch-only
-URL capability. Changes to the server itself need an admin.
+`agent login` and `agent-machine login` use device authorization at the issuer. Session ids
+identify sessions but do not authenticate API requests. MCP also needs its launch-only URL
+capability. Existing sharing and machine grants still apply. Changes to the server need an admin.
 """ + WEBSOCKETS
 
 
@@ -82,13 +83,18 @@ def install(app: FastAPI, version: str) -> None:
         _tag_and_name(app, schema)
         components = schema.setdefault("components", {})
         components["securitySchemes"] = {
-            "launcherToken": {"type": "apiKey", "in": "header", "name": "X-AI-Proxy-Token",
-                              "description": "A launcher token: `agent login`, or Settings → Organization → Tokens."},
+            "accessToken": {"type": "http", "scheme": "bearer", "description": "An OAuth access token for this API, not an OIDC ID token."},
+            "proxyAccessToken": {"type": "apiKey", "in": "header", "name": "X-AI-Proxy-Token",
+                                 "description": "An OAuth access token; the alternate header preserves coding agents' vendor Authorization."},
             "consoleCookie": {"type": "apiKey", "in": "cookie", "name": "ai_proxy_session",
                               "description": "Set by signing in to the console."},
         }
-        # Either one, or neither for a server without accounts and the agent APIs.
-        schema["security"] = [{"launcherToken": []}, {"consoleCookie": []}, {}]
+        schema["security"] = [{"accessToken": []}, {"proxyAccessToken": []}, {"consoleCookie": []}]
+        for path, methods in schema.get("paths", {}).items():
+            if path in PUBLIC_PATHS or not path.startswith(PROTECTED_PREFIXES):
+                for operation in methods.values():
+                    if isinstance(operation, dict):
+                        operation["security"] = []
         app.openapi_schema = schema
         return schema
 

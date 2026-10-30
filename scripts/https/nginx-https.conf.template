@@ -50,6 +50,34 @@
         }
     }
 
+    # All credential entry and OAuth grants belong to the separate issuer.
+    server {
+{{HTTPS_LISTEN}}
+        http2        on;
+        server_name  {{AUTH_HOSTNAME}};
+
+        ssl_certificate      "{{CERT}}";
+        ssl_certificate_key  "{{KEY}}";
+        ssl_protocols        TLSv1.2 TLSv1.3;
+        ssl_session_cache    shared:SSL:10m;
+        ssl_session_timeout  1d;
+        add_header Strict-Transport-Security "max-age=31536000" always;
+        client_max_body_size 32k;
+        # Authorization codes and device codes must never enter access logs.
+        access_log off;
+
+        location / {
+            proxy_pass          {{AUTH_BACKEND}};
+            proxy_http_version  1.1;
+            proxy_set_header    Host               $http_host;
+            proxy_set_header    X-Forwarded-For    $remote_addr;
+            proxy_set_header    X-Forwarded-Proto  https;
+            proxy_set_header    X-Real-IP          $remote_addr;
+            proxy_no_cache 1;
+            proxy_cache_bypass 1;
+        }
+    }
+
     # Agent and machine clients use the API hostname. Send its root to the console.
     server {
 {{HTTPS_LISTEN}}
@@ -66,6 +94,18 @@
 
         location = / {
             return 302 https://{{CONSOLE_HOSTNAME}}/;
+        }
+
+        location /api/auth/ {
+            access_log off;
+            proxy_pass          {{BACKEND}};
+            proxy_http_version  1.1;
+            proxy_set_header    Host               $http_host;
+            proxy_set_header    X-Forwarded-For    $remote_addr;
+            proxy_set_header    X-Forwarded-Proto  https;
+            proxy_set_header    X-Real-IP          $remote_addr;
+            proxy_no_cache 1;
+            proxy_cache_bypass 1;
         }
 
         location / {

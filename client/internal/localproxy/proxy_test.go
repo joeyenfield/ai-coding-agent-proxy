@@ -132,7 +132,7 @@ func TestOnlyProgramsOnThisComputerAreServed(t *testing.T) {
 	}
 }
 
-func TestAgentTrafficStreamsWithoutTheMachinesToken(t *testing.T) {
+func TestAgentTrafficIsSignedAndPreservesVendorAuthorization(t *testing.T) {
 	server := newFakeServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		flusher := w.(http.Flusher)
@@ -145,6 +145,7 @@ func TestAgentTrafficStreamsWithoutTheMachinesToken(t *testing.T) {
 	request, _ := http.NewRequest("POST", front.URL+"/session/s1/v1/chat/completions?x=1", strings.NewReader(`{"stream":true}`))
 	request.Header.Set("Authorization", "Bearer agent-key")
 	request.Header.Set("Cookie", "secret=1")
+	request.Header.Set(settings.TokenHeader, "caller-controlled")
 	response, err := settings.Client(5 * time.Second).Do(request)
 	if err != nil {
 		t.Fatal(err)
@@ -164,9 +165,27 @@ func TestAgentTrafficStreamsWithoutTheMachinesToken(t *testing.T) {
 	if seen.URL.RequestURI() != "/session/s1/v1/chat/completions?x=1" {
 		t.Fatalf("path %s", seen.URL.RequestURI())
 	}
-	// The agent's own Authorization goes through (hosted APIs need it); the machine's token and cookies don't.
-	if seen.Header.Get("Authorization") != "Bearer agent-key" || seen.Header.Get(settings.TokenHeader) != "" || seen.Header.Get("Cookie") != "" {
+	// Vendor Authorization is preserved, independently of the OAuth credential.
+	if seen.Header.Get("Authorization") != "Bearer agent-key" || seen.Header.Get(settings.TokenHeader) != "aip_machine" || seen.Header.Get("Cookie") != "" {
 		t.Fatalf("headers: %v", seen.Header)
+	}
+}
+
+func TestMissingOAuthLoginRefusesCallerToken(t *testing.T) {
+	server := newFakeServer(t, func(w http.ResponseWriter, r *http.Request) { t.Error("unsigned request reached server") })
+	_, front := newProxy(t, server.URL)
+	t.Setenv("AI_PROXY_TOKEN", "")
+	for _, path := range []string{"/session/s1/v1/models", "/api/agents"} {
+		request, _ := http.NewRequest(http.MethodGet, front.URL+path, nil)
+		request.Header.Set(settings.TokenHeader, "caller-controlled")
+		response, err := settings.Client(time.Second).Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		if response.StatusCode != 401 {
+			t.Fatalf("%s: HTTP %d", path, response.StatusCode)
+		}
 	}
 }
 
@@ -179,6 +198,10 @@ func TestTerminalRelayPassesTheServersRefusalOn(t *testing.T) {
 			return
 		}
 		defer conn.Close()
+		if strings.Contains(r.URL.Path, "/expired/") {
+			_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(4410, "OAuth credential expired"), time.Now().Add(time.Second))
+			return
+		}
 		if strings.Contains(r.URL.Path, "/missing/") {
 			_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(4404, "Unknown session"), time.Now().Add(time.Second))
 			return
@@ -213,6 +236,16 @@ func TestTerminalRelayPassesTheServersRefusalOn(t *testing.T) {
 	closed, ok := err.(*websocket.CloseError)
 	if !ok || closed.Code != 4404 || closed.Text != "Unknown session" {
 		t.Fatalf("close: %v", err)
+	}
+	expired, _, err := websocket.DefaultDialer.Dial(base+"/api/terminals/expired/host", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer expired.Close()
+	_, _, err = expired.ReadMessage()
+	closed, ok = err.(*websocket.CloseError)
+	if !ok || closed.Code != 4410 {
+		t.Fatalf("OAuth expiry must remain retryable: %v", err)
 	}
 }
 
@@ -266,5 +299,28 @@ func TestHealthNamesTheServerAndUser(t *testing.T) {
 	_ = json.Unmarshal([]byte(body), &health)
 	if health["role"] != "agent-proxy" || health["server"] != "http://server.test:9999" || health["intercept_port"] != float64(18183) {
 		t.Fatalf("health: %s", body)
+	}
+
+}
+
+func TestTunnelWithoutOAuthLoginAnswers407(t *testing.T) {
+	proxy, _ := newProxy(t, "http://127.0.0.1:1")
+	t.Setenv("AI_PROXY_TOKEN", "")
+	listener, err := Listen(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	go func() { _ = proxy.ServeTunnels(listener) }()
+	conn, err := net.Dial("tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	_, _ = io.WriteString(conn, "CONNECT api.anthropic.com:443 HTTP/1.1\r\n\r\n")
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	status, _ := bufio.NewReader(conn).ReadString('\n')
+	if !strings.HasPrefix(status, "HTTP/1.1 407") {
+		t.Fatalf("status %q", status)
 	}
 }

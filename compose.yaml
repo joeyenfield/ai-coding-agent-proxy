@@ -3,8 +3,35 @@
 # The console is then on http://<this host>:9999. On first start the server creates an
 # admin with a random password: `docker compose logs agent-server` shows it, and it's
 # saved as certs/first-user-password in the agent-server-certs volume. Sign each agent
-# machine in with the Go client: agent login http://<this host>:9999
+# machine in through OIDC: agent login https://api.aicontrolmesh.com
 services:
+  agent-auth:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+      args:
+        AI_PROXY_VERSION: ${AI_PROXY_VERSION:-}
+    image: agent-server
+    entrypoint: ["agent-auth"]
+    restart: unless-stopped
+    environment:
+      AI_PROXY_AUTH_HOST: 0.0.0.0
+      AI_PROXY_AUTH_PORT: 10000
+      AI_PROXY_OIDC_ISSUER: ${AI_PROXY_OIDC_ISSUER:-https://auth.aicontrolmesh.com}
+      AI_PROXY_OIDC_AUDIENCE: ${AI_PROXY_OIDC_AUDIENCE:-https://api.aicontrolmesh.com}
+      AI_PROXY_OIDC_REDIRECT_URIS: ${AI_PROXY_OIDC_REDIRECT_URIS:-https://api.aicontrolmesh.com/api/auth/callback}
+      AI_PROXY_OIDC_BROWSER_ORIGINS: ${AI_PROXY_OIDC_BROWSER_ORIGINS:-https://console.aicontrolmesh.com}
+      AI_PROXY_OIDC_INTROSPECTION_SECRET: ${AI_PROXY_OIDC_INTROSPECTION_SECRET:?Set a strong shared OIDC introspection secret}
+      AI_PROXY_OIDC_STATE_DIR: /app/auth-state
+    ports:
+      - "127.0.0.1:10000:10000"
+    volumes:
+      - agent-server-config:/app/config:ro
+      - agent-server-certs:/app/certs:ro
+      - agent-auth-state:/app/auth-state
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:10000/health', timeout=3)"]
+
   console:
     profiles: [console]
     build:
@@ -37,6 +64,11 @@ services:
     environment:
       AI_PROXY_SERVE_UI: ${AI_PROXY_SERVE_UI:-1}
       AI_PROXY_CONSOLE_ORIGINS: ${AI_PROXY_CONSOLE_ORIGINS:-}
+      AI_PROXY_OIDC_ISSUER: ${AI_PROXY_OIDC_ISSUER:-https://auth.aicontrolmesh.com}
+      AI_PROXY_OIDC_AUDIENCE: ${AI_PROXY_OIDC_AUDIENCE:-https://api.aicontrolmesh.com}
+      AI_PROXY_OIDC_REDIRECT_URIS: ${AI_PROXY_OIDC_REDIRECT_URIS:-https://api.aicontrolmesh.com/api/auth/callback}
+      AI_PROXY_OIDC_BROWSER_ORIGINS: ${AI_PROXY_OIDC_BROWSER_ORIGINS:-https://console.aicontrolmesh.com}
+      AI_PROXY_OIDC_INTROSPECTION_SECRET: ${AI_PROXY_OIDC_INTROSPECTION_SECRET:?Set a strong shared OIDC introspection secret}
     ports:
       - "9999:9999"
     extra_hosts:
@@ -55,9 +87,8 @@ services:
       - ./dist:/app/dist:ro
 
   # A sandbox machine: coding agents the console starts on it run in this container, in
-  # /workspace only. docker compose --profile sandbox up -d (with AI_PROXY_USER and
-  # AI_PROXY_PASSWORD set, or in .env, once the server has accounts). Sign-ins are kept in
-  # the agent-sandbox-home volume, so later starts don't need the password.
+  # /workspace only. On first start, follow logs and approve both OIDC device codes.
+  # Rotating credentials persist in agent-sandbox-home; no password is supplied here.
   agent-sandbox:
     profiles: [sandbox]
     build:
@@ -70,9 +101,7 @@ services:
     depends_on: [agent-server]
     hostname: agent-sandbox
     environment:
-      AI_PROXY_SERVER: http://agent-server:9999
-      AI_PROXY_USER: ${AI_PROXY_USER:-}
-      AI_PROXY_PASSWORD: ${AI_PROXY_PASSWORD:-}
+      AI_PROXY_SERVER: ${AI_PROXY_SERVER:-https://api.aicontrolmesh.com}
       AI_PROXY_MACHINE_NAME: ${AI_PROXY_MACHINE_NAME:-agent-sandbox}
       GIT_USER_NAME: ${GIT_USER_NAME:-}
       GIT_USER_EMAIL: ${GIT_USER_EMAIL:-}
@@ -88,6 +117,7 @@ services:
 
 volumes:
   agent-server-config:
+  agent-auth-state:
   agent-server-logs:
   agent-server-certs:
   agent-sandbox-home:

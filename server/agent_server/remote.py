@@ -1,11 +1,4 @@
-"""Who may watch and type into agents' terminals: this computer, or a device paired with the access key.
-
-Typing into an agent's terminal is as good as a shell on this computer, so these
-checks guard every terminal endpoint. A request is trusted when it comes from
-this computer and names it in its Host header, which rules out DNS-rebinding
-pages, or when it carries the access key: as a cookie set by pairing a browser
-(a phone scanning the console's QR code or typing its short code), or in a header (the launcher).
-"""
+"""Authenticated remote access and browser-origin checks; legacy key storage helpers."""
 
 from __future__ import annotations
 
@@ -39,14 +32,14 @@ CODE_ATTEMPTS = 5
 
 
 class RemoteAccess:
-    """The access key, stored in a file next to the intercept CA, and the checks made with it."""
+    """OAuth trust checks alongside compatibility helpers for obsolete pairing state."""
 
     def __init__(self, path: Path):
         self.path = path
         self._token: str | None = None
         self._code: tuple[str, float] | None = None
         self._failures = 0
-        # Set by the runtime: once accounts exist, signing in replaces this computer's trust and pairing.
+        # Set by the runtime; authentication is always enabled.
         self.auth: Any = None
 
     @property
@@ -97,9 +90,7 @@ class RemoteAccess:
         return _is_loopback(client) and _hostname(connection.headers.get("host", "")) in LOOPBACK_NAMES
 
     def trusted(self, connection: HTTPConnection) -> bool:
-        if self.accounts:
-            return self.auth.identify(connection) is not None
-        return self.local(connection) or self.has_key(connection)
+        return connection.scope.get("state", {}).get("identity") is not None
 
 
 def same_origin(connection: HTTPConnection) -> bool:
@@ -114,7 +105,12 @@ def same_origin(connection: HTTPConnection) -> bool:
     runtime = getattr(app.state, "runtime", None) if app else None
     if runtime and origin in runtime.settings.console_origins:
         return True
-    return urlparse(origin).netloc.lower() == connection.headers.get("host", "").lower()
+    parsed = urlparse(origin)
+    scheme = "https" if connection.url.scheme in {"https", "wss"} else "http"
+    return (
+        parsed.scheme == scheme and parsed.netloc.lower() == connection.headers.get("host", "").lower()
+        and not parsed.path and not parsed.query and not parsed.fragment and not parsed.username
+    )
 
 
 def read_token(path: Path, create: bool = False) -> str | None:

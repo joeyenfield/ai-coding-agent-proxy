@@ -30,10 +30,13 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
 import h11
+import anyio
 import httpcore
 import httpx
 from httpcore._backends.auto import AutoBackend
+from starlette.requests import HTTPConnection
 
+from . import access, auth
 from .sessions import Session
 from .telemetry import RequestTelemetry, has_content, parse_json_line
 from .translate import estimate_tokens
@@ -49,7 +52,7 @@ MAX_HEAD = 256 * 1024
 CAPTURE_LIMIT = 4 * 1024 * 1024
 HOP_HEADERS = {
     "connection", "keep-alive", "proxy-authorization", "proxy-authenticate", "proxy-connection",
-    "te", "trailer", "transfer-encoding", "upgrade", "host", "content-length", "accept-encoding",
+    "te", "trailer", "transfer-encoding", "upgrade", "host", "content-length", "accept-encoding", "x-ai-proxy-token",
 }
 # Events that end one Responses API turn sent over a WebSocket.
 TURN_END_EVENTS = {"response.completed", "response.failed", "response.incomplete", "response.cancelled", "error"}
@@ -182,8 +185,12 @@ class InterceptProxy:
         ours, theirs = socket.socketpair()
         ours.setblocking(False)
         theirs.setblocking(False)
+
+        async def accepted(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+            await self._accept(reader, writer, websocket)
+
         await loop.connect_accepted_socket(
-            lambda: asyncio.StreamReaderProtocol(asyncio.StreamReader(limit=MAX_HEAD), self._accept), theirs,
+            lambda: asyncio.StreamReaderProtocol(asyncio.StreamReader(limit=MAX_HEAD), accepted), theirs,
         )
         reader, writer = await asyncio.open_connection(sock=ours)
 
@@ -202,19 +209,25 @@ class InterceptProxy:
 
         self.tunnels.add(websocket)
         tasks = [asyncio.ensure_future(from_agent()), asyncio.ensure_future(to_agent())]
+        cancelled = False
         try:
             # Either side ending ends the agent's connection; HTTP clients don't half-close.
             await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        except asyncio.CancelledError:
+            cancelled = True
+            raise
         finally:
             self.tunnels.discard(websocket)
             for task in tasks:
                 task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
-            writer.close()
-            try:
-                await websocket.close()
-            except Exception:  # noqa: BLE001 - the agent-proxy closed it first
-                pass
+            with anyio.CancelScope(shield=True):
+                await asyncio.gather(*tasks, return_exceptions=True)
+                writer.close()
+                if not cancelled:
+                    try:
+                        await websocket.close()
+                    except (RuntimeError, ConnectionError):
+                        pass
 
     async def close_tunnels(self) -> None:
         """End every tunnel, for a restart; the agents' next connections open new ones."""
@@ -224,12 +237,12 @@ class InterceptProxy:
             except Exception:  # noqa: BLE001 - already closing
                 pass
 
-    async def _accept(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    async def _accept(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter, connection: HTTPConnection | None = None) -> None:
         task = asyncio.current_task()
         assert task
         self._connections.add(task)
         try:
-            await self._connection(reader, writer)
+            await self._connection(reader, writer, connection)
         except (ConnectionError, asyncio.IncompleteReadError, asyncio.LimitOverrunError):
             pass
         except asyncio.CancelledError:
@@ -240,20 +253,32 @@ class InterceptProxy:
             self._connections.discard(task)
             writer.close()
 
-    async def _connection(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    async def _connection(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter, connection: HTTPConnection | None = None) -> None:
         head = await reader.readuntil(b"\r\n\r\n")
         request_line, _, header_block = head.decode("latin-1").partition("\r\n")
         method, target, _version = (request_line.split(" ", 2) + ["", ""])[:3]
         headers = _parse_headers(header_block)
-        if self.runtime.auth.enabled and not self._open_session(headers.get("proxy-authorization")):
-            # With accounts, only agents the launcher started (in an open session) may use the listener.
+        if connection is not None:
+            identity = auth.request_identity(connection)
+        else:
+            direct = HTTPConnection({"type": "http", "headers": [
+                (b"x-ai-proxy-token", headers.get("x-ai-proxy-token", "").encode("latin-1")),
+            ]})
+            try:
+                identity = await asyncio.to_thread(self.runtime.auth.identify, direct)
+            except auth.AuthUnavailable:
+                writer.write(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                await writer.drain()
+                return
+        session_id = _proxy_user(headers.get("proxy-authorization"))
+        session = self.runtime.sessions.get(session_id) if session_id else None
+        if identity is None or session is None or session.ended_at is not None or not access.can_control(identity, session):
             writer.write(
                 b"HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"ai-proxy\"\r\n"
                 b"Content-Length: 0\r\nConnection: close\r\n\r\n"
             )
             await writer.drain()
             return
-        session = self._session(headers.get("proxy-authorization"))
         if method.upper() != "CONNECT":
             # A plain http:// request sent to the proxy with an absolute URL.
             await self._serve(reader, writer, session, None, head)
@@ -468,7 +493,7 @@ class InterceptProxy:
         lines += [
             f"{name.decode('latin-1')}: {value.decode('latin-1')}" for name, value in request.headers
             # Dropping extensions keeps frames uncompressed so the tap can read them.
-            if name.lower() not in {b"host", b"proxy-authorization", b"proxy-connection", b"sec-websocket-extensions"}
+            if name.lower() not in {b"host", b"proxy-authorization", b"proxy-connection", b"sec-websocket-extensions", b"x-ai-proxy-token"}
         ]
         telemetry = RequestTelemetry(
             session_id=session.session_id, request_id=await self.runtime.sessions.next_request_id(session),

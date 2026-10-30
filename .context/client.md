@@ -4,7 +4,7 @@ The Go module `ai-coding-agent-proxy/client`. It builds `agent` (the launcher, `
 
 ## Design in one paragraph
 
-The client is deliberately dumb. It knows the server only by URL, and gets everything else (the agent, its environment, its command, its files, the backend) from the API. The `agent-proxy` is a loopback-only gateway that holds the computer's sign-in. It signs the short list of launcher calls with the token, streams agents' model traffic through unsigned (the session id in the URL is the credential), forwards shared MCP URLs with their per-session capability token, tunnels account agents' HTTPS to the server over WebSockets, and relays shared terminals. The launcher starts the proxy if needed, opens a session, writes the session's files, and runs the agent: plainly, in a shared pseudo-terminal (`--control`), or headless for fleet launches.
+The client knows the server by URL and gets agent definitions, environments and routing from its API. The loopback agent-proxy authenticates **all** upstream traffic, including model/MCP calls, with an OAuth access token in `X-AI-Proxy-Token`, preserving vendor Authorization. Login uses device authorization; serialized refresh rotates credentials before requests and reconnects. Session ids select sessions, not credentials. The launcher opens the session, writes its files and runs the agent plainly, with `--control`, or headless.
 
 ## Boundaries
 
@@ -25,7 +25,7 @@ flowchart LR
     P["agent-proxy :8184"]
   end
   P -->|"signed with token"| S["agent-server /api/..."]
-  P -->|"unsigned, streamed"| S2["agent-server /session/..."]
+  P -->|"OAuth signed, streamed"| S2["agent-server /session/..."]
   P ==>|"WS /api/proxy/tunnel"| S3["agent-server intercept"]
   P ==>|"WS /api/terminals/<id>/host"| S4["agent-server terminals"]
 ```
@@ -62,11 +62,11 @@ flowchart LR
 2. `POST /shutdown`: `local()` only.
 3. `/api/terminals/<id>/host`: WebSocket relay to the server. Refusals map to close `4400+status%100`.
 4. Other `/api/*`: `local()`, then the **`LauncherAPI` allowlist** (anything else is a 404). Signed with `X-AI-Proxy-Token`; cookie, Origin and proxy headers are stripped. `/api/intercept`'s `url` is rewritten to the local 8183.
-5. `/session/`, `/v1/`, `/anthropic/`: `local()`, then `ReverseProxy` to the same path, **without the token**, flushed immediately for SSE. Bare `/api/*` is *not* agent traffic here; native Ollama calls use `/session/<id>/api/...`.
+5. `/session/`, `/v1/`, `/anthropic/`: `local()`, then OAuth-signed `ReverseProxy`, flushed immediately for SSE. Caller platform headers/cookies/Origin are stripped; vendor Authorization stays. Bare `/api/*` is not agent traffic here.
 
 **HTTPS tunnel** (8183): one `WS /api/proxy/tunnel` per TCP connection, signed. A refused or failed dial reads the agent's CONNECT head first (`readHead`, because Windows resets sockets closed with unread data), then answers 407 or 502.
 
-**Login**: `GET /api/auth/status`; with accounts, `POST /api/auth/token` with username and password, then store `{url, user, token, token_id}` as the default. Logout revokes the token on a best-effort basis.
+**Login**: public API status discovers the trusted issuer, then device authorization prints a verification URL/code. Credentials include expiring access and rotating refresh tokens. Cross-process locking prevents refresh replay; failures propagate. Logout revokes credentials. `internal/settings/oauth.go` owns OAuth state/transport behavior; see `auth.md`.
 
 ## State
 

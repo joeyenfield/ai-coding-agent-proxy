@@ -27,6 +27,7 @@ flowchart LR
 - **Server**: the hub. It owns all configuration, accounts, agent definitions, backend choice and recordings.
 - **Agents** connect to it through their computer's `agent-proxy`.
 - **Machines** supply every local provider. Hosted APIs are the only providers not on a machine.
+- **Auth issuer** (`agent-auth`, separate process at `auth.aicontrolmesh.com`) issues OAuth access tokens through Authlib. All API traffic, including loopback and agent sessions, is authenticated; see `auth.md`.
 
 ## Design principles (apply to every component)
 
@@ -76,6 +77,7 @@ The console starts agents on a machine the same way: `POST /api/machines/{id}/la
 | Server `config/` | `backends.yaml`, `models.yaml`, `agents.yaml` |
 | Server `logs/` | sessions (telemetry, traces, terminals), `machines.json`, `chat-index.json` |
 | Server `certs/` | the intercept CA, the access key, `users.json`, `container-keys.json` |
+| Issuer state directory | SQLite OAuth grants/token hashes and private signing key; accounts are read-only from the API's `users.json` |
 | Agent computer | `credentials.json` (+ `agent-proxy.log`), `~/.cache/agent-proxy/` (CA copy, per-session files) |
 | Machine | its folder: `credentials.json`, `machine.json`, `status.json`, `mcp.json`, `servers.json`, `ollama.json`, logs |
 

@@ -30,7 +30,7 @@ const usage = `agent-machine puts this computer in an agent-server's fleet, so t
 LLM providers it runs (Ollama, Strata, Docker Model Runner, containers) and start agents on it.
 
 Usage: agent-machine                           this machine as the fleet sees it
-       agent-machine login [url] [--user name] [--key access-key]
+       agent-machine login [url]                 (OIDC device sign-in)
        agent-machine logout [url]
        agent-machine start                     join the fleet in the background
        agent-machine stop
@@ -370,13 +370,16 @@ func show(machine *settings.Machine) {
 	signedIn := "not signed in (agent-machine login " + server + ")"
 	if entry := settings.LoadCredentials().Servers[settings.Normalize(server)]; entry != nil {
 		switch {
-		case entry.User != "":
+		case entry.AccessToken != "" && entry.User != "":
 			signedIn = "as " + entry.User
-		case entry.Token != "":
-			signedIn = "with an access key"
+		case entry.AccessToken != "":
+			signedIn = "with OAuth"
 		default:
-			signedIn = "no accounts there"
+			signedIn = "OAuth sign-in required (agent-machine login " + server + ")"
 		}
+	}
+	if os.Getenv(settings.TokenEnvironment) != "" {
+		signedIn = "with an injected OAuth access token"
 	}
 	fmt.Printf("Machine   : %s (%s)\nServer    : %s, %s\n", machine.DisplayName(), machine.ID, server, signedIn)
 	if status := running(); status != nil {

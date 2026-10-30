@@ -1,6 +1,67 @@
 # Deployment
 
+**Authentication is mandatory.** For public deployments, run `agent-auth` separately at **auth.aicontrolmesh.com**, register API callbacks, configure the shared introspection secret and provide HTTPS. The root Compose includes the issuer on host loopback :10000 with private persistent state. See [OIDC authentication](oidc.md) before starting or upgrading public services. The local demo below includes its own loopback issuer.
+
 How to run the server for other machines and people, put HTTPS in front of it, and get `agent` and `agent-machine` onto the computers that use it.
+
+## Local container quickstart
+
+For a local demo, the checkout's `quickstart/` folder contains a separate Compose project
+with the API and console, its OIDC issuer, two fleet machines, and Ollama on machine-1.
+From the repository root:
+
+```bash
+podman compose -f quickstart/compose.yaml up -d --build
+```
+
+Use `docker compose` instead for Docker. With Podman on Windows/macOS, start the VM
+with `podman machine start` first (`podman machine init` once if none exists).
+`podman compose version` checks the Compose provider; Podman Desktop can install it
+under **Settings > Resources > Compose**. A provider named Docker Compose works with
+Podman: `podman compose` connects it to the Podman engine.
+
+Open **http://localhost:19999**, using `localhost` exactly, and sign in with **admin** /
+**secret**. Sign-in uses the local issuer on `http://localhost:20000`. Both published ports
+bind host loopback. The demo's environment-defined admin password can be overridden with
+`QUICKSTART_ADMIN_PASSWORD`; these known demo credentials are for local use.
+
+The machines automatically sign in separately for the launcher and fleet connection.
+They have independent home/workspace volumes and allow launches and shells in `/workspace`.
+Ollama runs in its own container on CPU by default; machine-1 relays its loopback port
+11434 to it, where agent-machine finds it. No host project folders or Docker socket are mounted.
+
+In **Machines**, open **machine-1** and choose **Add as a provider** for Ollama. This creates
+the default `machine-1` backend. Pull a model from its model page, then start an agent on
+either machine with that backend and model. No model is downloaded automatically.
+The server reaches Ollama through the fleet tunnel; model operations run on machine-1.
+Compose controls the Ollama process itself.
+
+Use `podman compose -f quickstart/compose.yaml logs -f machine-1 machine-2` to inspect the
+machines and `podman compose -f quickstart/compose.yaml stop` to stop the demo. Volumes
+preserve configuration, auth state, recordings, workspaces and models. To delete all of
+that demo state, run `podman compose -f quickstart/compose.yaml down -v`. Reset or sign the
+machines in again after changing the admin password, which invalidates their tokens.
+
+The helper scripts in `quickstart/` forward the canonical localhost addresses inside
+containers and provision machine credentials through normal issuer device authorization.
+They do not change the server's authentication rules. For public deployment use the
+HTTPS setup below and the [OIDC deployment guide](oidc.md).
+
+Images use explicit registries to avoid Podman's short-name selection prompt. The
+shared read-only helper mounts use SELinux's `z` label. Keep the services in separate
+network namespaces: a container sharing another's (`network_mode: service:...`) stops
+Podman from recreating that one after a rebuild.
+
+The root `.dockerignore` excludes generated screenshot/test folders, virtual environments
+and agent history. Keep these exclusions when customizing the build context: private
+Windows ACLs on generated directories can otherwise cause `checking context: can't stat`
+before a build starts.
+
+On Windows, a `netavark`/`nftables` failure before containers start can be a WSL kernel
+compatibility problem ([reported upstream](https://github.com/containers/netavark/issues/1495)).
+Update WSL with `wsl --update`, save other WSL work, and restart WSL/Podman before
+retrying. `wsl --shutdown` stops all distributions, so schedule it accordingly. The
+quickstart retains bridge networking and does not disable the VM firewall.
 
 ## The server in Docker
 
@@ -24,11 +85,11 @@ The `marketing-site` service serves `site/` on `127.0.0.1:8080` for the reverse 
 
 The default `backends.yaml` in the image (`server/docker/backends.yaml`) has an Ollama backend at `http://host.docker.internal:11434` and the hosted Anthropic API. Inside the container `127.0.0.1` is the container itself, so `compose.yaml` maps `host.docker.internal` to the Docker host on Linux too. Local providers normally come from machines in the fleet, so in practice you run `agent-machine` where the models are and add them from the console ([Machines](machines.md)).
 
-Because the container listens on `0.0.0.0`, the first start turns sign-in on: it creates an `admin` user with a random password. `docker compose logs agent-server` shows it, and it's saved as `first-user-password` in the certs volume. See [Accounts](accounts.md).
+Authentication is always required. The first start creates an `admin` user with a random password if no accounts file exists. `docker compose logs agent-server` shows it, and it's saved as `first-user-password` in the certs volume. See [Accounts](accounts.md).
 
 **Versions in Docker.** There's no git inside the image, so pass the version as a build argument: `AI_PROXY_VERSION=1.2.0+abc1234 docker compose build`. The server hands out the `dist/<version>/` of its own version, or the newest of the same `X.Y.Z` when that wasn't built, so match it to the builds you mount.
 
-**A sandbox machine.** `docker compose --profile sandbox up -d` also starts `agent-sandbox` (`sandbox/Dockerfile`): `agent`, `agent-machine` and npm coding agents in a container that joins the fleet and takes launches in `/workspace` only. It reads `AI_PROXY_SERVER`, `AI_PROXY_USER`, `AI_PROXY_PASSWORD` and `AI_PROXY_MACHINE_NAME` from the environment (or `.env`). See [Machines](machines.md).
+**A sandbox machine.** `docker compose --profile sandbox up -d` also starts `agent-sandbox` (`sandbox/Dockerfile`): `agent`, `agent-machine` and npm coding agents in a container that joins the fleet and takes launches in `/workspace` only. Set `AI_PROXY_SERVER` to your HTTPS API and optionally `AI_PROXY_MACHINE_NAME`. Approve both device codes from its logs on first start; persistent credentials refresh on later starts. Password/key bootstrap is removed. See [Machines](machines.md).
 
 Podman builds and runs the same image; pass `--http-proxy=false` to `podman build`.
 
@@ -45,6 +106,7 @@ The console can run as static files, independently of `agent-server`:
 | `aicontrolmesh.com`, `www.aicontrolmesh.com` | Brochure (`marketing-site`, loopback port 8080). |
 | `console.aicontrolmesh.com` | Static console (`console`, loopback port 8081). No API forwarding. |
 | `api.aicontrolmesh.com` | `agent-server` (port 9999): API, WebSockets, live streams, documentation files, downloads and installers. |
+| `auth.aicontrolmesh.com` | `agent-auth` (loopback port 10000): OIDC sign-in, device approval and OAuth endpoints. |
 
 Set these variables for Compose (or put them in the root `.env`, which is ignored by git), then run `docker compose --profile console up -d --build`:
 
@@ -60,7 +122,7 @@ On the API server, `AI_PROXY_SERVE_UI=0` disables console routes, static assets 
 
 Keep the console and API on HTTPS subdomains of the **same site**. Sign-in sets an HttpOnly, host-only cookie on the API domain; the console includes credentials on requests and live streams, and browsers send that cookie on API WebSockets. The cookie is not shared with the brochure or console hosts. Unrelated registrable domains are not supported by this SameSite=Lax cookie setup. Moving an existing console to the API host's cookie requires signing in again.
 
-Set `proxy.public_url` to `https://console.aicontrolmesh.com` for pairing links. Agent and machine login and installation commands use `https://api.aicontrolmesh.com`. Point DNS at the reverse proxy and include every hostname in its origin certificate. With Cloudflare, use Full (strict) TLS and leave API responses uncached.
+Set `proxy.public_url` to the console's HTTPS address. CLI installation/login uses `https://api.aicontrolmesh.com`; OIDC uses `https://auth.aicontrolmesh.com`. Include all hostnames in DNS and TLS. With Cloudflare, use Full (strict), and never cache API or auth responses.
 
 ### nginx and Let's Encrypt on Windows
 
@@ -96,7 +158,7 @@ The name has to reach this computer from the internet on port 80 for Let's Encry
 
 nginx forwards the `Host` header to each service. The API routes upgrade WebSockets, turn buffering off and allow hour-long reads, so live views, pulls and terminals stream. Requests for any other name get no TLS at all. The templates are `scripts/https/nginx.conf.template` and `nginx-https.conf.template`; on another system, use them as a starting point for your own nginx.
 
-When it's done, set `proxy.public_url` in `config/backends.yaml` to `https://console.<domain>` so the console's links and pairing codes use it.
+Set `proxy.public_url` to `https://console.<domain>`. The HTTPS script also configures `auth.<domain>` (`-AuthHostName`, `-AuthBackend`) for the separate issuer; supply its registered URLs and shared secret as described in [OIDC](oidc.md).
 
 ### HTTPS from the server itself
 
@@ -128,7 +190,7 @@ irm http://server:9999/install.ps1 | iex                                        
 & ([scriptblock]::Create((irm http://server:9999/install.ps1))) -Only agent-machine -Service
 ```
 
-The server writes each script for the request: its address as you reached it (checked to be plain URL characters, so a crafted `Host` can't put commands into it), its build's version, and a table of its build's archives. The script works out the computer's system and processor, downloads the archives for it, checks their SHA-256, runs the installer inside them, and signs the programs in to that server, asking for a user and password from the terminal when the server has accounts.
+The server writes each script for the request: its address as you reached it (checked to be plain URL characters, so a crafted `Host` can't put commands into it), its build's version, and a table of its build's archives. The script works out the computer's system and processor, downloads the archives for it, checks their SHA-256, runs the installer inside them, and starts OIDC device authorization. Approve the printed codes in your browser; the installer never asks for your password.
 
 | `install.sh` | `install.ps1` | What it does |
 |---|---|---|

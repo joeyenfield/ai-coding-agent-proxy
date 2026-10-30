@@ -22,10 +22,18 @@ from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import urlparse
 
 import httpx
+from websockets.asyncio.client import connect as _connect
+
+
+class signed_connect(_connect):
+    """Never replay OAuth headers to a WebSocket redirect destination."""
+
+    def process_redirect(self, exc: Exception):
+        return exc
 
 # The server API level these programs speak. The server accepts a range and refuses others
 # with 426 (WebSockets: close 4426); keep it equal to settings.Protocol in client/ and machine/.
-PROTOCOL = 1
+PROTOCOL = 2
 
 DEFAULT_SERVER = "http://127.0.0.1:9999"
 TOKEN_HEADER = "X-AI-Proxy-Token"
@@ -103,11 +111,11 @@ def identify(headers: Dict[str, str], program: Optional[str] = None) -> Dict[str
 def client(timeout: Optional[float] = 30.0, program: Optional[str] = None) -> httpx.Client:
     """An HTTP client that ignores HTTPS_PROXY: started from inside an account agent, it would loop back to itself."""
     headers = identify({}, program) if program else {}
-    return httpx.Client(trust_env=False, timeout=timeout, headers=headers)
+    return httpx.Client(trust_env=False, follow_redirects=False, timeout=timeout, headers=headers)
 
 
 def async_client(timeout: Optional[float] = 30.0) -> httpx.AsyncClient:
-    return httpx.AsyncClient(trust_env=False, timeout=timeout)
+    return httpx.AsyncClient(trust_env=False, follow_redirects=False, timeout=timeout)
 
 
 def health(base: str, timeout: float = 0.75) -> Optional[Dict[str, Any]]:
@@ -195,10 +203,17 @@ class ServerEntry:
     user: str = ""
     token: str = ""
     token_id: str = ""
+    access_token: str = ""
+    refresh_token: str = ""
+    expires_at: int = 0
+    issuer: str = ""
+    client_id: str = ""
+    token_endpoint: str = ""
+    revocation_endpoint: str = ""
 
-    def to_json(self) -> Dict[str, str]:
+    def to_json(self) -> Dict[str, Any]:
         value = {"url": self.url}
-        for key in ("user", "token", "token_id"):
+        for key in ("user", "token", "token_id", "access_token", "refresh_token", "expires_at", "issuer", "client_id", "token_endpoint", "revocation_endpoint"):
             if getattr(self, key):
                 value[key] = getattr(self, key)
         return value
@@ -221,7 +236,7 @@ class Credentials:
             return credentials
         for key, entry in (data.get("servers") or {}).items():
             if isinstance(entry, dict):
-                credentials.servers[key] = ServerEntry(str(entry.get("url") or ""), str(entry.get("user") or ""), str(entry.get("token") or ""), str(entry.get("token_id") or ""))
+                credentials.servers[key] = ServerEntry(**{name: entry[name] for name in ServerEntry.__dataclass_fields__ if name in entry})
         credentials.default = str(data.get("default") or "")
         return credentials
 
@@ -242,7 +257,7 @@ class Upstream:
 
     credentials_path: Callable[[], Path]
     fixed: str = ""
-    # The client honours AI_PROXY_URL and AI_PROXY_TOKEN; agent-machine reads only its own file.
+    # Client and machine credentials and explicit token injection are kept separate.
     use_env: bool = True
 
     def credentials(self) -> Credentials:
@@ -259,10 +274,12 @@ class Upstream:
         return DEFAULT_SERVER
 
     def token(self, server: str) -> str:
-        if self.use_env and os.environ.get("AI_PROXY_TOKEN"):
-            return os.environ["AI_PROXY_TOKEN"]
-        entry = self.credentials().servers.get(normalize(server))
-        return entry.token if entry else ""
+        from .oauth import access_token
+        return access_token(self, server)
+
+    def reject_access_token(self, server: str) -> None:
+        from .oauth import reject_access_token
+        reject_access_token(self, server)
 
     def user(self, server: str) -> str:
         entry = self.credentials().servers.get(normalize(server))

@@ -19,7 +19,6 @@ def register(app: FastAPI, runtime: Runtime) -> None:
     @app.websocket("/api/proxy/tunnel")
     async def tunnel(websocket: WebSocket) -> None:
         await websocket.accept()
-        # With accounts the middleware has already checked the machine's sign-in; this covers local mode.
         if not (remote.same_origin(websocket) and runtime.remote.trusted(websocket)):
             await websocket.close(code=CLOSE_UNAUTHORIZED, reason="Sign this machine in first: agent login <server>")
             return

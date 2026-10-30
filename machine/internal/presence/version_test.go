@@ -17,6 +17,7 @@ import (
 
 func TestTheMachineSaysItsVersionAndHearsTheServers(t *testing.T) {
 	t.Setenv("AI_PROXY_MACHINE_HOME", t.TempDir())
+	t.Setenv("AI_PROXY_MACHINE_TOKEN", "oauth-machine")
 	settings.Version = "0.4.0"
 	t.Cleanup(func() { settings.Version = "dev" })
 	headers := make(chan http.Header, 10)
@@ -88,6 +89,7 @@ func TestTheMachineSaysItsVersionAndHearsTheServers(t *testing.T) {
 
 func TestAServerThatCantTakeThisMachineSaysWhy(t *testing.T) {
 	t.Setenv("AI_PROXY_MACHINE_HOME", t.TempDir())
+	t.Setenv("AI_PROXY_MACHINE_TOKEN", "oauth-machine")
 	upgrader := websocket.Upgrader{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/machines/connect" {

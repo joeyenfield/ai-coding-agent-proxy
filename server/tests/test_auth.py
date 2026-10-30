@@ -16,6 +16,7 @@ from starlette.websockets import WebSocketDisconnect
 from agent_server.app import FIRST_USER, account_command, create_app, ensure_first_user
 from agent_server.auth import UserStore
 from agent_server.config import Backend, Settings
+from oidc_helpers import OAuthTestClient, access_token, issuer
 
 
 BASE = "http://127.0.0.1:8181"
@@ -42,9 +43,8 @@ def org_settings(tmp_path: Path) -> Settings:
 
 
 def signed_in(app, user: str) -> TestClient:
-    client = TestClient(app, base_url=BASE)
-    response = client.post("/api/auth/login", json={"username": user, "password": PASSWORD})
-    assert response.status_code == 200, response.text
+    client = OAuthTestClient(app, base_url=BASE)
+    client.cookies.set("ai_proxy_session", access_token(app, user))
     return client
 
 
@@ -61,33 +61,36 @@ def test_everything_but_sign_in_and_the_console_files_needs_an_account(tmp_path)
     app = create_app(org_settings(tmp_path))
     with TestClient(app, base_url=BASE) as anonymous:
         assert anonymous.get("/health").status_code == 200
-        assert anonymous.get("/api/auth/status").json() == {"required": True, "identity": None, "secure": False}
+        assert anonymous.get("/api/auth/status").json()["required"] is True
+        assert anonymous.get("/api/auth/status").json()["identity"] is None
         assert anonymous.get("/terminals").status_code in (200, 404)  # the console's page, which shows sign-in
         for path in ("/api/sessions", "/api/status", "/api/terminals", "/api/containers", "/docs", "/v1/models", "/api/tags"):
             assert anonymous.get(path).status_code == 401, path
-        assert anonymous.post("/api/auth/login", json={"username": "alice", "password": "nope"}).status_code == 401
+        assert anonymous.post("/api/auth/login", json={"username": "alice", "password": "nope"}).status_code == 410
         alice = signed_in(app, "alice")
         assert alice.get("/api/auth/status").json()["identity"] == {"user": "alice", "via": "cookie", "role": "member", "orgs": ["acme"], "teams": ["acme/core"]}
         assert alice.get("/api/sessions").status_code == 200
         # A page on another site can't use the cookie to change things.
         assert alice.post("/api/sessions", json={"client": "x", "backend": "test"}, headers={"origin": "http://evil.example"}).status_code == 403
-        alice.post("/api/auth/logout")
+        issuer(app).revoke(alice.cookies.get("ai_proxy_session"))
         assert alice.get("/api/sessions").status_code == 401
 
 
-def test_failed_sign_ins_are_limited(tmp_path):
-    app = create_app(org_settings(tmp_path))
+def test_loopback_without_accounts_still_requires_oauth(tmp_path):
+    app = create_app(Settings(log_dir=tmp_path / "logs"))
     with TestClient(app, base_url=BASE) as client:
-        for _ in range(10):
-            assert client.post("/api/auth/login", json={"username": "alice", "password": "wrong"}).status_code == 401
-        assert client.post("/api/auth/login", json={"username": "alice", "password": PASSWORD}).status_code == 429
+        for path in ("/api/status", "/api/sessions", "/v1/models", "/api/terminals"):
+            assert client.get(path).status_code == 401
+        assert client.post("/api/auth/login", json={"username": "alice", "password": PASSWORD}).status_code == 410
+        assert client.post("/api/auth/token", json={"username": "alice", "password": PASSWORD}).status_code == 401
 
 
-def test_separate_console_origin_sign_in_mutations_and_logout(tmp_path):
+def test_separate_console_origin_authenticated_mutations(tmp_path):
     origin = "https://console.example.com"
     settings = org_settings(tmp_path)
     settings.console_origins = [origin]
-    with TestClient(create_app(settings), base_url="https://api.example.com") as client:
+    app = create_app(settings)
+    with TestClient(app, base_url="https://api.example.com") as client:
         preflight = client.options("/api/auth/login", headers={
             "origin": origin, "access-control-request-method": "POST",
             "access-control-request-headers": "content-type",
@@ -95,10 +98,8 @@ def test_separate_console_origin_sign_in_mutations_and_logout(tmp_path):
         assert preflight.status_code == 200
         assert preflight.headers["access-control-allow-origin"] == origin
         assert preflight.headers["access-control-allow-credentials"] == "true"
-        login = client.post("/api/auth/login", json={"username": "alice", "password": PASSWORD}, headers={"origin": origin})
-        assert login.status_code == 200
-        cookie = login.headers["set-cookie"].lower()
-        assert "httponly" in cookie and "secure" in cookie and "samesite=lax" in cookie and "domain=" not in cookie
+        token = access_token(app, "alice")
+        client.cookies.set("ai_proxy_session", token)
         assert client.get("/api/auth/status", headers={"origin": origin}).json()["identity"]["user"] == "alice"
         created = client.post("/api/sessions", json={"client": "x", "backend": "test"}, headers={"origin": origin})
         assert created.status_code == 201
@@ -108,7 +109,7 @@ def test_separate_console_origin_sign_in_mutations_and_logout(tmp_path):
             assert refused.status_code == 403
             assert "access-control-allow-origin" not in refused.headers
             assert client.post("/api/auth/logout", headers={"origin": foreign}).status_code == 403
-        assert client.post("/api/auth/logout", headers={"origin": origin}).status_code == 200
+        issuer(app).revoke(token)
         assert client.get("/api/sessions", headers={"origin": origin}).status_code == 401
         assert client.post("/api/auth/login", json={"username": "alice", "password": PASSWORD}, headers={"origin": "https://evil.example.com"}).status_code == 403
         assert client.options("/api/sessions", headers={"origin": "https://evil.example.com", "access-control-request-method": "POST"}).status_code == 400
@@ -118,8 +119,9 @@ def test_separate_console_origin_terminal_websocket(tmp_path):
     origin = "https://console.example.com"
     settings = org_settings(tmp_path)
     settings.console_origins = [origin]
-    with TestClient(create_app(settings), base_url="https://api.example.com") as client:
-        assert client.post("/api/auth/login", json={"username": "alice", "password": PASSWORD}).status_code == 200
+    app = create_app(settings)
+    with TestClient(app, base_url="https://api.example.com") as client:
+        client.cookies.set("ai_proxy_session", access_token(app, "alice"))
         session_id = client.post("/api/sessions", json={"client": "x", "backend": "test"}).json()["session_id"]
         headers = {"host": "api.example.com", "cookie": f"ai_proxy_session={client.cookies.get('ai_proxy_session')}"}
         # A trusted console reaches the session lookup; other origins fail the terminal's own gate.
@@ -256,7 +258,7 @@ def test_missing_hierarchy_targets_do_not_change_memberships(tmp_path):
         assert admin.get("/api/users").json() == before
 
 
-def test_combined_user_edit_is_atomic_and_password_reset_ends_browser_sessions(tmp_path):
+def test_combined_user_edit_is_atomic_and_password_reset_revokes_access_tokens(tmp_path):
     settings = org_settings(tmp_path)
     app = create_app(settings)
     with TestClient(app, base_url=BASE):
@@ -304,16 +306,16 @@ def test_a_users_file_from_before_organizations_becomes_one_organization(tmp_pat
     assert store.user("joey")["teams"] == ["empty-pockets/core"]
 
 
-def test_launcher_tokens_work_and_can_be_revoked(tmp_path):
+def test_oauth_access_tokens_can_be_revoked_and_legacy_tokens_are_rejected(tmp_path):
     app = create_app(org_settings(tmp_path))
     with TestClient(app, base_url=BASE) as client:
-        issued = client.post("/api/auth/token", json={"username": "alice", "password": PASSWORD, "label": "laptop"}).json()
-        token = {"x-ai-proxy-token": issued["token"]}
+        issued = access_token(app, "alice")
+        token = {"x-ai-proxy-token": issued}
         assert client.get("/api/sessions", headers=token).status_code == 200
-        alice = signed_in(app, "alice")
-        assert [item["label"] for item in alice.get("/api/auth/tokens").json()["tokens"]] == ["laptop"]
-        alice.delete(f"/api/auth/tokens/{issued['id']}")
+        issuer(app).revoke(issued)
         assert client.get("/api/sessions", headers=token).status_code == 401
+        _, legacy = app.state.runtime.auth.store.create_token("alice", "old laptop")
+        assert client.get("/api/sessions", headers={"x-ai-proxy-token": legacy}).status_code == 401
 
 
 def test_the_openapi_document_needs_a_sign_in_and_names_every_operation_once(tmp_path):
@@ -321,7 +323,7 @@ def test_the_openapi_document_needs_a_sign_in_and_names_every_operation_once(tmp
     with TestClient(app, base_url=BASE) as client:
         assert client.get("/openapi.json").status_code == 401
         assert client.get("/redoc").status_code == 401
-        token = {"x-ai-proxy-token": client.post("/api/auth/token", json={"username": "alice", "password": PASSWORD}).json()["token"]}
+        token = {"x-ai-proxy-token": access_token(app, "alice")}
         assert "swagger-ui" in client.get("/docs", headers=token).text
         spec = client.get("/openapi.json", headers=token).json()
     operations = [(path, operation) for path, methods in spec["paths"].items() for operation in methods.values()]
@@ -331,11 +333,11 @@ def test_the_openapi_document_needs_a_sign_in_and_names_every_operation_once(tmp
     assert tag["/api/auth/token"] == ["Accounts"] and tag["/api/machines"] == ["Machines"]
     assert tag["/session/{session_id}/v1/{path}"] == ["Agent APIs"]
     assert {t for tags in tag.values() for t in tags} <= {item["name"] for item in spec["tags"]}
-    assert {"launcherToken", "consoleCookie"} == set(spec["components"]["securitySchemes"])
+    assert {"accessToken", "proxyAccessToken", "consoleCookie"} == set(spec["components"]["securitySchemes"])
     assert "/api/machines/connect" in spec["info"]["description"]  # the WebSockets, which OpenAPI can't list
 
 
-def test_agents_use_their_open_session_as_the_credential(tmp_path):
+def test_agents_need_oauth_and_an_open_controllable_session(tmp_path):
     app = create_app(org_settings(tmp_path))
     seen = []
 
@@ -351,13 +353,15 @@ def test_agents_use_their_open_session_as_the_credential(tmp_path):
             alice = signed_in(app, "alice")
             session = alice.post("/api/sessions", json={"client": "qwen", "backend": "test"}).json()["session_id"]
             body = {"model": "m", "messages": []}
+            assert agent.post(f"/session/{session}/v1/chat/completions", json=body).status_code == 401
+            agent.headers["x-ai-proxy-token"] = access_token(app, "alice")
             # The agent's own Authorization header goes through untouched.
             assert agent.post(f"/session/{session}/v1/chat/completions", json=body, headers={"authorization": "Bearer sk-agent"}).status_code == 200
             assert seen == ["Bearer sk-agent"]
             assert agent.post("/v1/chat/completions", json=body, headers={"x-ai-proxy-session": session}).status_code == 200
-            assert agent.post("/session/not-a-session/v1/chat/completions", json=body).status_code == 401
+            assert agent.post("/session/not-a-session/v1/chat/completions", json=body).status_code == 404
             alice.patch(f"/api/sessions/{session}", json={"ended": True})
-            assert agent.post(f"/session/{session}/v1/chat/completions", json=body).status_code == 401
+            assert agent.post(f"/session/{session}/v1/chat/completions", json=body).status_code == 404
         finally:
             asyncio.run(app.state.runtime.client.aclose())
             app.state.runtime.client = old
@@ -405,8 +409,8 @@ def test_shared_terminals_follow_the_session_sharing(tmp_path):
     with TestClient(app, base_url=BASE) as client:
         alice, bob = signed_in(app, "alice"), signed_in(app, "bob")
         session = alice.post("/api/sessions", json={"client": "claude", "backend": "test", "visibility": "team"}).json()["session_id"]
-        token = client.post("/api/auth/token", json={"username": "alice", "password": PASSWORD}).json()["token"]
-        bob_token = client.post("/api/auth/token", json={"username": "bob", "password": PASSWORD}).json()["token"]
+        token = access_token(app, "alice")
+        bob_token = access_token(app, "bob")
         # Bob may watch it, but can't host (impersonate) its terminal.
         with client.websocket_connect(f"/api/terminals/{session}/host", headers={**HOST, "x-ai-proxy-token": bob_token}) as host:
             with pytest.raises(WebSocketDisconnect):
@@ -435,7 +439,7 @@ def test_shared_terminals_follow_the_session_sharing(tmp_path):
 
 @pytest.mark.parametrize("change, activity", [
     ("team", "input"), ("team", "output"), ("team", "idle"), ("org", "idle"),
-    ("user", "idle"), ("password", "idle"), ("logout", "idle"), ("token", "idle"), ("external", "idle"),
+    ("user", "idle"), ("password", "idle"), ("cookie", "idle"), ("token", "idle"), ("external", "idle"),
 ])
 def test_connected_terminal_viewers_lose_revoked_access(tmp_path, monkeypatch, change, activity):
     from agent_server.routes import terminals
@@ -450,8 +454,8 @@ def test_connected_terminal_viewers_lose_revoked_access(tmp_path, monkeypatch, c
         }).json()["session_id"]
         headers = ws_headers(bob)
         if change == "token":
-            issued = client.post("/api/auth/token", json={"username": "bob", "password": PASSWORD}).json()
-            headers = {**HOST, "x-ai-proxy-token": issued["token"]}
+            issued = access_token(app, "bob")
+            headers = {**HOST, "x-ai-proxy-token": issued}
         with client.websocket_connect(f"/api/terminals/{sid}/host", headers=ws_headers(alice)) as host:
             host.send_json({"type": "hello", "cols": 80, "rows": 24})
             assert host.receive_json()["type"] == "resume"
@@ -471,10 +475,12 @@ def test_connected_terminal_viewers_lose_revoked_access(tmp_path, monkeypatch, c
                     response = client.delete("/api/users/bob", headers=ws_headers(admin))
                 elif change == "password":
                     response = client.put("/api/users/bob", headers=ws_headers(admin), json={"password": "changed password"})
-                elif change == "logout":
-                    response = client.post("/api/auth/logout", headers=headers)
+                elif change == "cookie":
+                    issuer(app).revoke(bob.cookies.get("ai_proxy_session"))
+                    response = None
                 elif change == "token":
-                    response = client.delete(f"/api/auth/tokens/{issued['id']}", headers=ws_headers(bob))
+                    issuer(app).revoke(issued)
+                    response = None
                 else:
                     # A CLI edit uses a different UserStore instance; live checks must reload it too.
                     UserStore(settings.users_path).set_membership("acme", "bob", False, team="core")
@@ -486,7 +492,8 @@ def test_connected_terminal_viewers_lose_revoked_access(tmp_path, monkeypatch, c
                 elif activity == "output":
                     host.send_bytes(b"private output after revocation")
                 message = viewer.receive()
-                assert message["type"] == "websocket.close" and message["code"] == 4403
+                assert message["type"] == "websocket.close"
+                assert message["code"] == (4410 if change in {"user", "password", "cookie", "token"} else 4403)
                 assert sent == []
 
 
@@ -511,12 +518,9 @@ def test_account_commands_create_the_first_admin(tmp_path, monkeypatch, capsys):
     assert account_command("user", ["passwd", "joey"]) == 1
 
 
-def test_a_first_start_on_the_network_creates_an_admin(tmp_path, monkeypatch, capsys):
+def test_a_first_start_creates_an_admin_even_on_loopback(tmp_path, monkeypatch, capsys):
     monkeypatch.delenv("AI_PROXY_USERNAME", raising=False)
     settings = Settings(log_dir=tmp_path / "logs")
-    # On this computer only, it stays a single-user tool without sign-in.
-    assert ensure_first_user(settings) is None and not settings.users_path.exists()
-    settings.host = "0.0.0.0"
     saved = ensure_first_user(settings)
     password = saved.read_text().strip()
     assert password in capsys.readouterr().err

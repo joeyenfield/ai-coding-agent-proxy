@@ -32,7 +32,6 @@ import websockets
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response, StreamingResponse
 from starlette.websockets import WebSocket, WebSocketDisconnect
-from websockets.asyncio.client import connect as ws_connect
 
 from .. import common
 from . import settings
@@ -57,7 +56,7 @@ TERMINAL_HOST = re.compile(r"^/api/terminals/([^/]+)/host$")
 # Not passed on: hop-by-hop headers, and a browser's own credentials and origin (the proxy signs instead).
 SKIPPED = {
     "host", "connection", "keep-alive", "transfer-encoding", "te", "trailer", "upgrade", "content-length",
-    "proxy-authorization", "proxy-connection", "cookie", "origin",
+    "proxy-authorization", "proxy-connection", "cookie", "origin", "x-ai-proxy-token",
 }
 
 # Also dropped from agents' requests, as Go's ReverseProxy drops them: this hop's forwarding headers.
@@ -100,10 +99,9 @@ def refuse() -> JSONResponse:
 async def dial(upstream: common.Upstream, server: str, path: str):
     """A WebSocket to path on server, signed with the machine's sign-in, never through an environment proxy."""
     headers = common.identify({}, settings.PROGRAM)
-    token = upstream.token(server)
-    if token:
-        headers[common.TOKEN_HEADER] = token
-    return await ws_connect(common.websocket_url(server, path), additional_headers=headers, proxy=None, open_timeout=10, max_size=None, compression=None, user_agent_header=None)
+    token = await asyncio.to_thread(upstream.token, server)
+    headers[common.TOKEN_HEADER] = token
+    return await common.signed_connect(common.websocket_url(server, path), additional_headers=headers, proxy=None, open_timeout=10, max_size=None, compression=None, user_agent_header=None)
 
 
 def refused_status(error: BaseException) -> Optional[int]:
@@ -174,9 +172,10 @@ class AgentProxy:
         # Uncompressed, so /api/intercept can be read and rewritten below.
         headers.pop("accept-encoding", None)
         headers.pop("Accept-Encoding", None)
-        token = self.upstream.token(server)
-        if token:
-            headers[common.TOKEN_HEADER] = token
+        try:
+            headers[common.TOKEN_HEADER] = await asyncio.to_thread(self.upstream.token, server)
+        except (RuntimeError, ValueError, OSError, httpx.HTTPError) as error:
+            return JSONResponse({"detail": str(error)}, status_code=401)
         target = server + path + (f"?{request.url.query}" if request.url.query else "")
         try:
             answer = await self.http.request(request.method, target, content=await request.body(), headers=headers)
@@ -194,10 +193,14 @@ class AgentProxy:
         return Response(answer.content, status_code=answer.status_code, headers=kept)
 
     async def agent(self, request: Request) -> Response:
-        """An agent's request, to the same path on the server, streamed both ways. The session id is the credential: no token."""
+        """An agent's request, signed for the server without changing vendor Authorization."""
         server = self.upstream.server()
         target = server + request.url.path + (f"?{request.url.query}" if request.url.query else "")
         headers = common.identify({name: value for name, value in forwarded(request.headers).items() if name.lower() not in FORWARDING})
+        try:
+            headers[common.TOKEN_HEADER] = await asyncio.to_thread(self.upstream.token, server)
+        except (RuntimeError, ValueError, OSError, httpx.HTTPError) as error:
+            return JSONResponse({"detail": str(error)}, status_code=401)
         length = request.headers.get("content-length")
         if length is not None:
             headers["Content-Length"] = length
@@ -240,7 +243,9 @@ class AgentProxy:
             remote = await dial(self.upstream, server, f"/api/terminals/{quote(match.group(1), safe='')}/host")
         except Exception as error:
             status = refused_status(error)
-            if status in (401, 403):
+            if getattr(error, "code", "") == "login_required":
+                await launcher.close(4401, "OAuth sign-in required: run `agent login`")
+            elif status in (401, 403):
                 await launcher.close(4400 + status % 100, "the agent-server refused this machine: run `agent login`")
             elif status:
                 # Anything else (a reverse proxy's 502/503/504 while the server restarts) passes: the
@@ -251,6 +256,13 @@ class AgentProxy:
             return
         code, reason = await relay(launcher, remote)
         await remote.close()
+        if code == 4410:
+            try:
+                await asyncio.to_thread(self.upstream.reject_access_token, server)
+            except (RuntimeError, ValueError, OSError) as error:
+                reason = str(error)
+        if code == 4401:
+            code = 1011  # Expiry on an active socket is retried with a refreshed token.
         if code in RESERVED_CLOSE:
             code = 1011
         try:
@@ -324,6 +336,8 @@ class TunnelServer:
             await read_head(reader)
             if status:
                 await refuse_tunnel(reader, writer, 407 if status in (401, 403) else 502, f"the agent-server answered {status}: run `agent login {server}`")
+            elif getattr(error, "code", "") == "login_required":
+                await refuse_tunnel(reader, writer, 407, "OAuth sign-in required: run `agent login`")
             else:
                 await refuse_tunnel(reader, writer, 502, f"couldn't reach the agent-server at {server}: {error}")
             return
@@ -353,6 +367,8 @@ class TunnelServer:
                 task.exception()
         code, reason = remote.close_code or 0, remote.close_reason or ""
         await remote.close()
+        if code == 4410:
+            await asyncio.to_thread(self.upstream.reject_access_token, server)
         if not state["answered"] and code >= 4000:
             await refuse_tunnel(reader, writer, 407 if code in (4401, 4403) else 502, reason or "the agent-server refused")
 

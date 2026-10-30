@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from oidc_helpers import authenticated_client
 
 from agent_server import version
 from agent_server.app import create_app
@@ -87,7 +88,7 @@ def test_health_says_the_version_and_protocol(tmp_path):
 
 
 def test_programs_on_a_protocol_the_server_doesnt_speak_are_told_to_update(tmp_path):
-    with TestClient(app_with(tmp_path), **LOCAL) as client:
+    with authenticated_client(app_with(tmp_path), **LOCAL) as client:
         ok = {"x-ai-proxy-protocol": str(version.PROTOCOL), "x-ai-proxy-version": VERSION, "user-agent": "agent/" + VERSION}
         assert client.get("/api/status", headers=ok).status_code == 200
         # Browsers and other tools don't say: they pass.

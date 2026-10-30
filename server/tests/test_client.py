@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import socket
 import ssl
@@ -32,6 +33,7 @@ from agent_server import version
 from agent_server.app import create_app
 from agent_server.auth import UserStore
 from agent_server.config import Backend, InterceptSettings, Settings
+from agent_server.issuer import create_auth_app
 
 
 CLIENT = Path(__file__).resolve().parents[2] / "client"
@@ -39,7 +41,7 @@ MACHINE = Path(__file__).resolve().parents[2] / "machine"
 PASSWORD = "correct horse"
 # The client's own variables, and proxies an outer agent may have set: none may leak in.
 CLEARED = (
-    "AI_PROXY_URL", "AI_PROXY_TOKEN", "AI_PROXY_USERNAME", "AI_PROXY_PASSWORD", "AI_PROXY_CONTROL",
+    "AI_PROXY_URL", "AI_PROXY_TOKEN", "AI_PROXY_MACHINE_TOKEN", "AI_PROXY_USERNAME", "AI_PROXY_PASSWORD", "AI_PROXY_PASSWORD_INPUT", "AI_PROXY_CONTROL",
     "HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy", "ALL_PROXY", "all_proxy",
 )
 
@@ -81,7 +83,7 @@ def fleet_machine(m, machine_binary: Path, tmp_path: Path, *settings: list[str],
         done = subprocess.run([str(machine_binary), *args], env=machine_env, capture_output=True, text=True, timeout=30, stdin=subprocess.DEVNULL)
         assert done.returncode == 0, done.stdout + done.stderr
 
-    command("login", m.server)
+    save_credentials(Path(machine_env["AI_PROXY_MACHINE_HOME"]) / "credentials.json", m.server, m.tokens, m.issuer)
     for args in settings:
         command(*args)
     process = subprocess.Popen([str(machine_binary), "run"], env=machine_env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
@@ -89,7 +91,7 @@ def fleet_machine(m, machine_binary: Path, tmp_path: Path, *settings: list[str],
         deadline = time.monotonic() + 20
         listed: list = []
         while time.monotonic() < deadline and not listed:
-            listed = [item for item in httpx.get(f"{m.server}/api/machines").json()["machines"] if item["connected"]]
+            listed = [item for item in httpx.get(f"{m.server}/api/machines", headers=m.headers).json()["machines"] if item["connected"]]
             time.sleep(0.2)
         assert listed, "agent-machine didn't join the fleet"
         status = subprocess.run([str(machine_binary)], env=machine_env, capture_output=True, text=True, timeout=30)
@@ -105,11 +107,11 @@ def free_port() -> int:
         return probe.getsockname()[1]
 
 
-def wait_for(url: str, timeout: float = 20) -> None:
+def wait_for(url: str, timeout: float = 20, path: str = "/health") -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
-            if httpx.get(url + "/health", timeout=0.5).status_code == 200:
+            if httpx.get(url + path, timeout=0.5).status_code == 200:
                 return
         except httpx.HTTPError:
             time.sleep(0.05)
@@ -117,18 +119,28 @@ def wait_for(url: str, timeout: float = 20) -> None:
 
 
 @contextmanager
-def serve(app):
-    port = free_port()
+def serve(app, port=None, path="/health"):
+    port = port or free_port()
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
     base = f"http://127.0.0.1:{port}"
-    wait_for(base)
     try:
+        wait_for(base, path=path)
         yield base
     finally:
         server.should_exit = True
         thread.join(timeout=5)
+
+
+@contextmanager
+def serve_issuer(settings: Settings, port: int):
+    app = create_auth_app(settings)
+    try:
+        with serve(app, port, "/.well-known/openid-configuration") as base:
+            yield base
+    finally:
+        app.state.issuer.state.db.close()
 
 
 def upstream(seen: list[httpx.Request]):
@@ -185,22 +197,61 @@ def agents_file(tmp_path: Path) -> Path:
     return path
 
 
+def approve_device(issuer: str, user_code: str) -> None:
+    with httpx.Client(trust_env=False) as browser:
+        page = browser.get(issuer + "/device")
+        transaction = re.search(r'name="transaction" value="([^"]+)"', page.text).group(1)
+        approved = browser.post(issuer + "/device", data={
+            "transaction": transaction, "username": "dave", "password": PASSWORD,
+            "user_code": user_code, "approve": "yes",
+        }, headers={"origin": issuer})
+        assert approved.status_code == 200, approved.text
+
+
+def issue_device(issuer: str) -> dict:
+    device = httpx.post(issuer + "/device_authorization", data={
+        "client_id": "mesh-cli", "scope": "openid profile offline_access mesh-api",
+    }).json()
+    approve_device(issuer, device["user_code"])
+    response = httpx.post(issuer + "/token", data={
+        "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+        "client_id": "mesh-cli", "device_code": device["device_code"],
+    })
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def save_credentials(path: Path, server: str, tokens: dict, issuer: str) -> None:
+    entry = {
+        "url": server, "user": "dave", "access_token": tokens["access_token"],
+        "refresh_token": tokens["refresh_token"], "expires_at": int(time.time()) + tokens["expires_in"],
+        "issuer": issuer, "client_id": "mesh-cli", "token_endpoint": issuer + "/token",
+        "revocation_endpoint": issuer + "/revoke",
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"servers": {server: entry}, "default": server}))
+
+
 @contextmanager
 def machine(tmp_path, agent_binary, accounts: bool = False, prepare=None):
     """An agent-server, and this machine's agent-proxy (the Go binary) pointed at it.
 
     prepare(env) runs `agent` commands on the machine before its agent-proxy starts.
+    All runs use OAuth; accounts=True leaves the client signed out to test device login.
     """
+    issuer_port = free_port()
     settings = Settings(
         log_dir=tmp_path / "server", backends_file=tmp_path / "backends.yaml",
         default_backend="test", backends={"test": Backend("test", "http://ollama.test")},
         intercept=InterceptSettings(ca_dir=tmp_path / "certs"), agents_file=agents_file(tmp_path), dist_dir=tmp_path / "dist",
+        oidc_issuer=f"http://127.0.0.1:{issuer_port}", oidc_state_dir=tmp_path / "issuer",
+        oidc_introspection_secret="contract-introspection-secret",
     )
-    if accounts:
-        UserStore(settings.users_path).add_user("dave", PASSWORD)
+    UserStore(settings.users_path).add_user("dave", PASSWORD)
     server_app = create_app(settings)
     seen: list[httpx.Request] = []
-    with serve(server_app) as server:
+    with serve_issuer(settings, issuer_port) as issuer, serve(server_app) as server:
+        tokens = issue_device(issuer)
         runtime = server_app.state.runtime
         runtime.client = httpx.AsyncClient(transport=httpx.MockTransport(upstream(seen)))
         # The integration server's providers are mocked; network filtering is tested separately.
@@ -209,13 +260,17 @@ def machine(tmp_path, agent_binary, accounts: bool = False, prepare=None):
         env = {key: value for key, value in os.environ.items() if key not in CLEARED}
         env.update(AI_PROXY_CREDENTIALS=str(tmp_path / "machine" / "credentials.json"), AI_PROXY_URL=server,
                    AI_PROXY_LOCAL_PORT=str(port), AI_PROXY_LOCAL_INTERCEPT_PORT=str(intercept_port))
+        if not accounts:
+            save_credentials(Path(env["AI_PROXY_CREDENTIALS"]), server, tokens, issuer)
         if prepare:
             prepare(env)
         process = subprocess.Popen([str(agent_binary), "proxy"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         proxy = f"http://127.0.0.1:{port}"
         try:
             wait_for(proxy)
-            yield SimpleNamespace(server=server, proxy=proxy, runtime=runtime, seen=seen, intercept_port=intercept_port, env=env, binary=agent_binary)
+            yield SimpleNamespace(server=server, proxy=proxy, runtime=runtime, seen=seen, intercept_port=intercept_port,
+                                  env=env, binary=agent_binary, issuer=issuer, tokens=tokens, token=tokens["access_token"],
+                                  headers={"x-ai-proxy-token": tokens["access_token"]})
         finally:
             process.terminate()
             process.wait(timeout=10)
@@ -225,8 +280,8 @@ def run_agent(m, *args: str, **kwargs) -> subprocess.CompletedProcess:
     return subprocess.run([str(m.binary), *args], env={**m.env, **kwargs.pop("env", {})}, capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL, **kwargs)
 
 
-def new_session(proxy: str, client: str = "qwen", backend: str = "test") -> str:
-    response = httpx.post(f"{proxy}/api/sessions", json={"client": client, "backend": backend})
+def new_session(proxy: str, client: str = "qwen", backend: str = "test", headers: dict | None = None) -> str:
+    response = httpx.post(f"{proxy}/api/sessions", json={"client": client, "backend": backend}, headers=headers)
     assert response.status_code == 201, response.text
     return response.json()["session_id"]
 
@@ -290,9 +345,9 @@ def test_a_controlled_terminal_is_relayed_to_the_server(tmp_path, agent_binary):
             assert json.loads(host.recv(timeout=5)) == {"type": "resume", "from": 0}
             host.send(b"hello from the agent machine\r\n")
             deadline = time.monotonic() + 5
-            while time.monotonic() < deadline and not httpx.get(f"{m.server}/api/terminals").json()["terminals"]:
+            while time.monotonic() < deadline and not httpx.get(f"{m.server}/api/terminals", headers=m.headers).json()["terminals"]:
                 time.sleep(0.05)
-            with connect(m.server.replace("http", "ws") + f"/api/terminals/{session_id}/view", proxy=None) as viewer:
+            with connect(m.server.replace("http", "ws") + f"/api/terminals/{session_id}/view", proxy=None, additional_headers=m.headers) as viewer:
                 assert json.loads(viewer.recv(timeout=5))["terminal"]["cols"] == 100
                 replay = b""
                 while True:
@@ -342,10 +397,10 @@ def test_the_launcher_runs_the_servers_agent_with_the_rendered_environment(tmp_p
         assert missing.returncode == 1 and "unknown agent 'nope'" in missing.stderr
 
 
-def test_with_accounts_the_machine_signs_in_once_for_everything(tmp_path, agent_binary, monkeypatch):
+def test_device_sign_in_authenticates_all_proxy_traffic_and_logout_revokes_it(tmp_path, agent_binary, monkeypatch):
     allow_test_domains(monkeypatch)
     with machine(tmp_path, agent_binary, accounts=True) as m:
-        status = httpx.get(f"{m.proxy}/api/auth/status").json()
+        status = httpx.get(f"{m.server}/api/auth/status").json()
         assert status["required"] and status["identity"] is None
         assert httpx.post(f"{m.proxy}/api/sessions", json={"client": "qwen", "backend": "test"}).status_code == 401
         # Terminals too: the launcher's probe reads this 401 as "run agent login".
@@ -354,24 +409,36 @@ def test_with_accounts_the_machine_signs_in_once_for_everything(tmp_path, agent_
         with httpx.Client(proxy=f"http://127.0.0.1:{m.intercept_port}", verify=False) as agent, pytest.raises(httpx.ProxyError, match="407"):
             agent.get("https://api.anthropic.test/")
         refused = run_agent(m, "fake", str(tmp_path), "--model", "m")
-        assert refused.returncode == 1 and "agent login" in refused.stderr
+        assert refused.returncode == 1 and "login" in refused.stderr
 
-        signed = run_agent(m, "login", m.server, "--user", "dave", env={"AI_PROXY_PASSWORD_INPUT": PASSWORD})
+        process = subprocess.Popen([str(m.binary), "login", m.server], env=m.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            prompt = process.stdout.readline()
+            code = re.search(r"enter code ([A-Z0-9-]+)", prompt).group(1)
+            approve_device(m.issuer, code)
+            stdout, stderr = process.communicate(timeout=30)
+            signed = subprocess.CompletedProcess(process.args, process.returncode, prompt + stdout, stderr)
+        finally:
+            if process.poll() is None:
+                process.terminate()
+                process.wait(timeout=10)
         assert signed.returncode == 0, signed.stderr
         assert httpx.get(f"{m.proxy}/health").json()["user"] == "dave"
         session_id = new_session(m.proxy, "claude-account", "direct")
         assert m.runtime.sessions.get(session_id).tags["owner"] == "dave"
         with httpx.Client(proxy=f"http://{session_id}:agent-proxy@127.0.0.1:{m.intercept_port}", verify=ca_context(m.proxy, tmp_path)) as agent:
             assert agent.post("https://api.anthropic.test/v1/messages", json={"model": "claude-x"}).status_code == 200
-        assert m.runtime.auth.store.tokens("dave")[0]["label"].startswith("agent-proxy on ")
+        saved = json.loads(Path(m.env["AI_PROXY_CREDENTIALS"]).read_text())
+        access = saved["servers"][m.server]["access_token"]
+        assert httpx.get(m.server + "/api/sessions", headers={"x-ai-proxy-token": access}).status_code == 200
         assert run_agent(m, "logout").returncode == 0
-        assert m.runtime.auth.store.tokens("dave") == []
+        assert httpx.get(m.server + "/api/sessions", headers={"x-ai-proxy-token": access}).status_code == 401
 
 
 def test_the_agent_proxy_alone_doesnt_join_the_fleet(tmp_path, agent_binary):
     with machine(tmp_path, agent_binary) as m:
         new_session(m.proxy)
-        assert httpx.get(f"{m.server}/api/machines").json()["machines"] == []
+        assert httpx.get(f"{m.server}/api/machines", headers=m.headers).json()["machines"] == []
         assert "fleet" not in httpx.get(f"{m.proxy}/health").json()
         moved = run_agent(m, "machine", "launches", "on")
         assert moved.returncode == 2 and "agent-machine" in moved.stderr
@@ -386,8 +453,8 @@ def test_a_fleet_machine_runs_an_agent_the_console_starts(tmp_path, agent_binary
         assert box["name"] == "build-box" and box["launches"] is True and "fake" in box["agents"]
         assert f"connected to {m.server}" in fleet.status and "Launches  : on" in fleet.status
         # A folder outside the machine's roots is refused before it's sent.
-        assert httpx.post(f"{m.server}/api/machines/{box['id']}/launch", json={"agent": "fake", "project": str(tmp_path), "model": "m"}).status_code == 400
-        response = httpx.post(f"{m.server}/api/machines/{box['id']}/launch", json={"agent": "fake", "project": str(project), "model": "qwen3.6:35b"}, timeout=90)
+        assert httpx.post(f"{m.server}/api/machines/{box['id']}/launch", headers=m.headers, json={"agent": "fake", "project": str(tmp_path), "model": "m"}).status_code == 400
+        response = httpx.post(f"{m.server}/api/machines/{box['id']}/launch", headers=m.headers, json={"agent": "fake", "project": str(project), "model": "qwen3.6:35b"}, timeout=90)
         assert response.status_code == 201, response.text
         session_id = response.json()["session_id"]
         session = m.runtime.sessions.get(session_id)
@@ -400,7 +467,7 @@ def test_a_fleet_machine_runs_an_agent_the_console_starts(tmp_path, agent_binary
         assert m.runtime.sessions.get(session_id).exit_status == 3
         saved = json.loads((project / "agent-ran.json").read_text())
         assert saved["argv"] == ["qwen3.6:35b"] and saved["env"]["AI_PROXY_SESSION"] == session_id
-        [launch] = httpx.get(f"{m.server}/api/machines/{box['id']}").json()["history"]
+        [launch] = httpx.get(f"{m.server}/api/machines/{box['id']}", headers=m.headers).json()["history"]
         assert launch["session_id"] == session_id and launch["error"] is None
 
 
@@ -408,16 +475,16 @@ def test_a_fleet_machine_runs_the_containers_the_server_asks_for(tmp_path, agent
     docker_state = tmp_path / "docker.json"
     docker = {"AI_PROXY_CONTAINER_COMMAND": json.dumps([sys.executable, str(Path(__file__).with_name("fake_docker.py"))]), "FAKE_DOCKER_STATE": str(docker_state)}
     with machine(tmp_path, agent_binary) as m, fleet_machine(m, machine_binary, tmp_path, ["containers", "on"], env=docker):
-        [box] = httpx.get(f"{m.server}/api/containers").json()["machines"]
+        [box] = httpx.get(f"{m.server}/api/containers", headers=m.headers).json()["machines"]
         assert box["connected"]
         assert box["enabled"] and box["online"] and {engine["id"] for engine in box["engines"]} == {"strata", "ollama"}
-        created = httpx.post(f"{m.server}/api/containers", json={"name": "s1", "machine": box["id"], "engine": "strata", "port": 18555, "env": {"MODEL": "IQ3_XXS"}})
+        created = httpx.post(f"{m.server}/api/containers", headers=m.headers, json={"name": "s1", "machine": box["id"], "engine": "strata", "port": 18555, "env": {"MODEL": "IQ3_XXS"}})
         assert created.status_code == 201, created.text
-        assert httpx.post(f"{m.server}/api/containers/s1/start", json={}, timeout=30).status_code == 202
+        assert httpx.post(f"{m.server}/api/containers/s1/start", headers=m.headers, json={}, timeout=30).status_code == 202
         deadline = time.monotonic() + 30
         item: dict = {}
         while time.monotonic() < deadline:
-            item = httpx.get(f"{m.server}/api/containers/s1", timeout=30).json()
+            item = httpx.get(f"{m.server}/api/containers/s1", headers=m.headers, timeout=30).json()
             if item["job"] and item["job"]["state"] != "running":
                 break
             time.sleep(0.2)
@@ -427,8 +494,8 @@ def test_a_fleet_machine_runs_the_containers_the_server_asks_for(tmp_path, agent
         container = json.loads(docker_state.read_text())["containers"]["ai-proxy-s1"]
         assert container["env"] == {"API_KEY": m.runtime.containers.keys.get("s1"), "MODEL": "IQ3_XXS", "PRESET": "s1"}
         assert container["ports"] == ["127.0.0.1:18555:8080"] and container["volumes"] == ["strata-data:/data"]
-        assert m.runtime.containers.keys.get("s1") not in httpx.get(f"{m.server}/api/containers/s1/log", timeout=30).text
-        assert httpx.delete(f"{m.server}/api/containers/s1", timeout=60).status_code == 200
+        assert m.runtime.containers.keys.get("s1") not in httpx.get(f"{m.server}/api/containers/s1/log", headers=m.headers, timeout=30).text
+        assert httpx.delete(f"{m.server}/api/containers/s1", headers=m.headers, timeout=60).status_code == 200
         assert "ai-proxy-s1" not in json.loads(docker_state.read_text())["containers"]
 
 
@@ -437,16 +504,16 @@ def test_a_fleet_machine_starts_and_stops_strata_when_the_owner_asks(tmp_path, a
     strata_state.write_text(json.dumps({"profiles": {"app-1": "stopped"}}))
     fake = {"AI_PROXY_STRATA_COMMAND": json.dumps([sys.executable, str(Path(__file__).with_name("fake_strata.py"))]), "FAKE_STRATA_STATE": str(strata_state)}
     with machine(tmp_path, agent_binary) as m, fleet_machine(m, machine_binary, tmp_path, ["servers", "on"], env=fake) as fleet:
-        servers = httpx.get(f"{m.server}/api/machines/{fleet.box['id']}").json()["servers"]
+        servers = httpx.get(f"{m.server}/api/machines/{fleet.box['id']}", headers=m.headers).json()["servers"]
         assert servers["enabled"] and servers["strata"]["profiles"] == [{"id": "app-1", "state": "stopped", "url": None, "error": None}]
         assert "Servers   : on" in fleet.status
-        started = httpx.post(f"{m.server}/api/machines/{fleet.box['id']}/servers/strata/start", json={"profile": "app-1"}, timeout=60)
+        started = httpx.post(f"{m.server}/api/machines/{fleet.box['id']}/servers/strata/start", headers=m.headers, json={"profile": "app-1"}, timeout=60)
         assert started.status_code == 200, started.text
         assert started.json()["servers"]["strata"]["profiles"][0]["state"] == "ready"
         assert json.loads(strata_state.read_text())["profiles"]["app-1"] == "ready"
-        refused = httpx.post(f"{m.server}/api/machines/{fleet.box['id']}/servers/strata/start", json={"profile": "other"}, timeout=60)
+        refused = httpx.post(f"{m.server}/api/machines/{fleet.box['id']}/servers/strata/start", headers=m.headers, json={"profile": "other"}, timeout=60)
         assert refused.status_code == 409 and "no Strata profile" in refused.json()["detail"]
-        stopped = httpx.post(f"{m.server}/api/machines/{fleet.box['id']}/servers/strata/stop", json={"profile": "app-1"}, timeout=60)
+        stopped = httpx.post(f"{m.server}/api/machines/{fleet.box['id']}/servers/strata/stop", headers=m.headers, json={"profile": "app-1"}, timeout=60)
         assert stopped.status_code == 200 and stopped.json()["servers"]["strata"]["profiles"][0]["state"] == "stopped"
 
 
@@ -498,31 +565,31 @@ def fake_ollama_server():
 def test_a_fleet_machine_manages_its_model_server_for_the_console(tmp_path, agent_binary, machine_binary):
     with fake_ollama_server() as (port, seen), machine(tmp_path, agent_binary) as m, fleet_machine(m, machine_binary, tmp_path, ["servers", "on"]) as fleet:
         base = f"{m.server}/api/machines/{fleet.box['id']}"
-        state = httpx.get(f"{base}/providers/ollama-{port}", timeout=30).json()
+        state = httpx.get(f"{base}/providers/ollama-{port}", headers=m.headers, timeout=30).json()
         assert state["online"] and state["version"] == "0.12.3", state
         assert [(model["name"], model["loaded"]) for model in state["models"]] == [("gemma3:4b", False), ("qwen3:8b", True)]
         assert state["models"][1]["gpu_percent"] == 50
-        lines = [json.loads(line) for line in httpx.post(f"{base}/providers/ollama-{port}/models/pull", json={"name": "devstral:24b"}, timeout=60).text.splitlines()]
+        lines = [json.loads(line) for line in httpx.post(f"{base}/providers/ollama-{port}/models/pull", headers=m.headers, json={"name": "devstral:24b"}, timeout=60).text.splitlines()]
         assert lines[-1]["status"] == "success" and any(line.get("completed") == 100 for line in lines), lines
-        assert httpx.post(f"{base}/providers/ollama-{port}/models/unload", json={"name": "qwen3:8b"}, timeout=30).status_code == 200
+        assert httpx.post(f"{base}/providers/ollama-{port}/models/unload", headers=m.headers, json={"name": "qwen3:8b"}, timeout=30).status_code == 200
         assert ("POST", "/api/pull", {"model": "devstral:24b", "stream": True}) in seen
         assert any(method == "POST" and path == "/api/generate" and body.get("keep_alive") == 0 for method, path, body in seen)
         # The machine's load, sampled there.
-        metrics = httpx.get(f"{base}/metrics", timeout=30).json()
+        metrics = httpx.get(f"{base}/metrics", headers=m.headers, timeout=30).json()
         assert metrics["memory"]["total"] > 0 and "cpu" in metrics
         # Ollama's settings live on the machine, in agent-machine's folder.
-        settings = httpx.get(f"{base}/servers/ollama", timeout=30).json()
+        settings = httpx.get(f"{base}/servers/ollama", headers=m.headers, timeout=30).json()
         assert "host" not in {setting["key"] for setting in settings["schema"]["settings"]}
-        saved = httpx.put(f"{base}/servers/ollama", json={**settings["config"], "num_parallel": 2}, timeout=30)
+        saved = httpx.put(f"{base}/servers/ollama", headers=m.headers, json={**settings["config"], "num_parallel": 2}, timeout=30)
         assert saved.status_code == 200 and saved.json()["env"]["OLLAMA_NUM_PARALLEL"] == "2"
         assert json.loads((tmp_path / "machine-home" / "ollama.json").read_text())["num_parallel"] == 2
-        refused = httpx.put(f"{base}/servers/ollama", json={**settings["config"], "extra_env": "LD_PRELOAD=/tmp/x.so"}, timeout=30)
+        refused = httpx.put(f"{base}/servers/ollama", headers=m.headers, json={**settings["config"], "extra_env": "LD_PRELOAD=/tmp/x.so"}, timeout=30)
         assert refused.status_code == 409 and "OLLAMA_" in refused.json()["detail"]
         # Off on the machine: it still reports, but changes nothing.
         fleet.command("servers", "off")
-        refused = httpx.post(f"{base}/providers/ollama-{port}/models/delete", json={"name": "gemma3:4b"}, timeout=30)
+        refused = httpx.post(f"{base}/providers/ollama-{port}/models/delete", headers=m.headers, json={"name": "gemma3:4b"}, timeout=30)
         assert refused.status_code == 409 and "agent-machine servers on" in refused.json()["detail"]
-        assert httpx.get(f"{base}/providers/ollama-{port}", timeout=30).json()["online"]
+        assert httpx.get(f"{base}/providers/ollama-{port}", headers=m.headers, timeout=30).json()["online"]
 
 
 def test_the_programs_speak_the_servers_protocol(agent_binary, machine_binary):
@@ -567,21 +634,21 @@ def test_a_machine_the_server_cant_reach_serves_agents_through_its_tunnel(tmp_pa
     docker = {"AI_PROXY_CONTAINER_COMMAND": json.dumps([sys.executable, str(Path(__file__).with_name("fake_docker.py"))]), "FAKE_DOCKER_STATE": str(tmp_path / "docker.json")}
     with fake_ollama_server() as (port, seen), machine(tmp_path, agent_binary) as m, \
             fleet_machine(m, machine_binary, tmp_path, ["containers", "on"], ["address", "203.0.113.9"], env=docker) as fleet:
-        created = httpx.post(f"{m.server}/api/containers", json={"name": "o1", "machine": fleet.box["id"], "engine": "ollama", "port": port})
+        created = httpx.post(f"{m.server}/api/containers", headers=m.headers, json={"name": "o1", "machine": fleet.box["id"], "engine": "ollama", "port": port})
         assert created.status_code == 201, created.text
         assert created.json()["url"] == f"http://203.0.113.9:{port}"
         # The machine learns its containers' ports from the server's requests about them.
-        assert httpx.get(f"{m.server}/api/containers", timeout=30).status_code == 200
+        assert httpx.get(f"{m.server}/api/containers", headers=m.headers, timeout=30).status_code == 200
         assert m.runtime.fleet.machines[fleet.box["id"]].tunnel
         # A real HTTP client this time (machine() mocks the server's upstream): the bytes go through the tunnel.
         m.runtime.client = httpx.AsyncClient(trust_env=False, timeout=30)
-        session = new_session(m.server, backend="o1")
-        listed = httpx.get(f"{m.server}/session/{session}/v1/models", timeout=30)
+        session = new_session(m.server, backend="o1", headers=m.headers)
+        listed = httpx.get(f"{m.server}/session/{session}/v1/models", headers=m.headers, timeout=30)
         assert listed.status_code == 200, listed.text
         assert {"qwen3:8b", "gemma3:4b"} <= {item["id"] for item in listed.json()["data"]}
         assert any(method == "GET" and path == "/api/tags" for method, path, _ in seen)
         # Keep-alive: the next request reuses the tunnel, and it still works.
-        assert httpx.get(f"{m.server}/session/{session}/v1/models", timeout=30).status_code == 200
+        assert httpx.get(f"{m.server}/session/{session}/v1/models", headers=m.headers, timeout=30).status_code == 200
 
 
 def test_an_agent_uses_a_stdio_mcp_server_a_machine_shares_through_its_tunnel(tmp_path, agent_binary, machine_binary):
@@ -613,7 +680,7 @@ def test_an_agent_uses_a_stdio_mcp_server_a_machine_shares_through_its_tunnel(tm
         called = httpx.post(given["url"], json={"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "echo", "arguments": {"x": 1}}}, headers=session, timeout=30)
         assert messages(called)[0]["result"]["content"][0]["text"] == 'hi {"x": 1}'
         assert httpx.delete(given["url"], headers=session, timeout=30).status_code == 200
-        recorded = [json.loads(line) for line in httpx.get(f"{m.server}/api/sessions/{prepared.json()['session']['session_id']}/telemetry").text.splitlines()]
+        recorded = [json.loads(line) for line in httpx.get(f"{m.server}/api/sessions/{prepared.json()['session']['session_id']}/telemetry", headers=m.headers).text.splitlines()]
         assert [record["endpoint"] for record in recorded] == ["initialize", "notifications/initialized", "tools/call echo"]
 
 
@@ -627,21 +694,21 @@ def test_a_fleet_machine_lists_its_folders_and_opens_a_shell_when_commands_are_o
         base = f"{m.server}/api/machines/{fleet.box['id']}"
         assert fleet.box["commands"] is False and "Commands  : off" in fleet.status
         # Neither launches nor commands: its folders stay private, and so does its shell.
-        assert httpx.get(f"{base}/folders", params={"path": str(work)}, timeout=30).status_code == 409
-        refused = httpx.post(f"{base}/shell", json={"project": str(work)}, timeout=30)
+        assert httpx.get(f"{base}/folders", headers=m.headers, params={"path": str(work)}, timeout=30).status_code == 409
+        refused = httpx.post(f"{base}/shell", headers=m.headers, json={"project": str(work)}, timeout=30)
         assert refused.status_code == 409 and "commands on" in refused.json()["detail"]
 
         fleet.command("commands", "on")
         deadline = time.monotonic() + 90
-        while time.monotonic() < deadline and not httpx.get(base).json()["commands"]:
+        while time.monotonic() < deadline and not httpx.get(base, headers=m.headers).json()["commands"]:
             time.sleep(0.5)  # the machine says so in its next update, within a minute
-        assert httpx.get(base).json()["commands"] is True
-        listed = httpx.get(f"{base}/folders", params={"path": str(work)}, timeout=30).json()
+        assert httpx.get(base, headers=m.headers).json()["commands"] is True
+        listed = httpx.get(f"{base}/folders", headers=m.headers, params={"path": str(work)}, timeout=30).json()
         assert [folder["name"] for folder in listed["folders"]] == ["api", "web"] and listed["parent"] is None
-        inside = httpx.get(f"{base}/folders", params={"path": listed["folders"][0]["path"]}, timeout=30).json()
+        inside = httpx.get(f"{base}/folders", headers=m.headers, params={"path": listed["folders"][0]["path"]}, timeout=30).json()
         assert [folder["name"] for folder in inside["folders"]] == ["src"] and Path(inside["parent"]) == work
 
-        opened = httpx.post(f"{base}/shell", json={"project": str(work / "api")}, timeout=90)
+        opened = httpx.post(f"{base}/shell", headers=m.headers, json={"project": str(work / "api")}, timeout=90)
         assert opened.status_code == 201, opened.text
         session_id = opened.json()["session_id"]
         session = m.runtime.sessions.get(session_id)
@@ -649,9 +716,9 @@ def test_a_fleet_machine_lists_its_folders_and_opens_a_shell_when_commands_are_o
         assert Path(session.tags["project_path"]).resolve() == (work / "api").resolve()
         # The console types into it; exit ends the shell, and the session with it.
         deadline = time.monotonic() + 30
-        while time.monotonic() < deadline and not httpx.get(f"{m.server}/api/terminals").json()["terminals"]:
+        while time.monotonic() < deadline and not httpx.get(f"{m.server}/api/terminals", headers=m.headers).json()["terminals"]:
             time.sleep(0.2)
-        with connect(m.server.replace("http", "ws") + f"/api/terminals/{session_id}/view", proxy=None) as viewer:
+        with connect(m.server.replace("http", "ws") + f"/api/terminals/{session_id}/view", proxy=None, additional_headers=m.headers) as viewer:
             viewer.recv(timeout=10)
             time.sleep(2)  # let the shell draw its prompt
             # Still open: a shell that read agent-machine's own stdin (nothing) would have exited by itself.
@@ -661,7 +728,7 @@ def test_a_fleet_machine_lists_its_folders_and_opens_a_shell_when_commands_are_o
             while time.monotonic() < deadline and m.runtime.sessions.get(session_id).ended_at is None:
                 time.sleep(0.2)
         assert m.runtime.sessions.get(session_id).ended_at is not None
-        [record] = httpx.get(base).json()["history"]
+        [record] = httpx.get(base, headers=m.headers).json()["history"]
         assert record["agent"] == "shell" and record["session_id"] == session_id
 
 
@@ -689,14 +756,14 @@ def test_the_console_updates_a_fleet_machine_that_takes_updates(tmp_path, agent_
             # As `agent-machine start` runs it, so the update restarts it itself.
             with fleet_machine(m, installed, tmp_path, env={"AI_PROXY_MACHINE_STARTED": "background"}) as fleet:
                 base = f"{m.server}/api/machines/{fleet.box['id']}"
-                refused = httpx.post(f"{base}/update", json={}, timeout=30)
+                refused = httpx.post(f"{base}/update", headers=m.headers, json={}, timeout=30)
                 assert refused.status_code == 409 and "updates on" in refused.json()["detail"]
                 fleet.command("updates", "on")
                 deadline = time.monotonic() + 90
-                while time.monotonic() < deadline and not httpx.get(base).json()["updates"]:
+                while time.monotonic() < deadline and not httpx.get(base, headers=m.headers).json()["updates"]:
                     time.sleep(0.5)  # the machine says so in its next update, within a minute
                 first = json.loads((home / "status.json").read_text())["pid"]
-                started = httpx.post(f"{base}/update", json={}, timeout=60)
+                started = httpx.post(f"{base}/update", headers=m.headers, json={}, timeout=60)
                 assert started.status_code == 200, started.text
                 assert started.json()["updating"] is True and started.json()["to"] == "9.9.9"
                 # The machine swaps in the server's build, stops itself and starts again on it.
@@ -709,7 +776,7 @@ def test_the_console_updates_a_fleet_machine_that_takes_updates(tmp_path, agent_
                     time.sleep(0.5)
                 assert installed.read_bytes() == new, "the binary wasn't replaced"
                 assert status.get("pid") not in (0, first) and status["state"].startswith("connected"), status
-                assert any(item["connected"] for item in httpx.get(f"{m.server}/api/machines").json()["machines"])
+                assert any(item["connected"] for item in httpx.get(f"{m.server}/api/machines", headers=m.headers).json()["machines"])
             subprocess.run([str(installed), "stop"], env={**m.env, "AI_PROXY_MACHINE_HOME": str(home)}, capture_output=True, timeout=30)
     finally:
         version.current.cache_clear()

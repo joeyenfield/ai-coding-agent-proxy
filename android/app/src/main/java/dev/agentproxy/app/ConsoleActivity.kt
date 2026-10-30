@@ -26,6 +26,8 @@ import android.widget.TextView
 class ConsoleActivity : Activity() {
     private lateinit var web: WebView
     private lateinit var base: Uri
+    private var openingConsole = true
+    private var issuer: String? = null
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -33,14 +35,17 @@ class ConsoleActivity : Activity() {
         setContentView(R.layout.activity_console)
         findViewById<View>(android.R.id.content).padForSystemBars()
         val url = intent.getStringExtra(EXTRA_URL) ?: return finish()
-        base = Uri.parse(url)
+        base = Uri.parse(savedInstanceState?.getString("console_base") ?: url)
+        issuer = savedInstanceState?.getString("oidc_issuer")
+        openingConsole = savedInstanceState == null
         web = findViewById(R.id.web)
         val progress = findViewById<ProgressBar>(R.id.progress)
         val offline = findViewById<View>(R.id.offline)
         findViewById<TextView>(R.id.offline_title).text = getString(R.string.offline_title, intent.getStringExtra(EXTRA_NAME) ?: base.host)
         findViewById<Button>(R.id.retry).setOnClickListener {
             offline.visibility = View.GONE
-            web.reload()
+            openingConsole = true
+            openConsole(url)
         }
         findViewById<Button>(R.id.servers).setOnClickListener { showServers() }
 
@@ -71,7 +76,12 @@ class ConsoleActivity : Activity() {
         web.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val target = request.url
-                if (isInternalUrl(target)) return false
+                if (request.isForMainFrame && isOidcNavigation(url, issuer, target.toString())) return false
+                val launchRedirect = openingConsole && request.isForMainFrame && request.isRedirect && !request.hasGesture()
+                if (isInternalConsoleUrl(base.toString(), target.toString(), launchRedirect)) {
+                    if (launchRedirect) base = target
+                    return false
+                }
                 try {
                     startActivity(Intent(Intent.ACTION_VIEW, target))
                 } catch (_: ActivityNotFoundException) {
@@ -84,23 +94,29 @@ class ConsoleActivity : Activity() {
             }
 
             override fun onPageFinished(view: WebView, url: String) {
+                openingConsole = false
                 // Keep the sign-in across restarts of the app.
                 CookieManager.getInstance().flush()
             }
 
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
-                if (request.isForMainFrame) offline.visibility = View.VISIBLE
+                if (request.isForMainFrame) {
+                    openingConsole = false
+                    offline.visibility = View.VISIBLE
+                }
             }
         }
         if (savedInstanceState != null) {
             web.restoreState(savedInstanceState)
         } else {
-            web.loadUrl(url + (intent.getStringExtra(EXTRA_PATH) ?: "/terminals"))
+            openConsole(url)
         }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
+        outState.putString("console_base", base.toString())
+        outState.putString("oidc_issuer", issuer)
         web.saveState(outState)
     }
 
@@ -114,21 +130,30 @@ class ConsoleActivity : Activity() {
         super.onPause()
     }
 
+    private fun openConsole(url: String) {
+        Thread {
+            try {
+                val discovered = authIssuer(url) ?: throw java.io.IOException(getString(R.string.signin_unavailable))
+                runOnUiThread {
+                    if (!isFinishing && !isDestroyed) {
+                        issuer = discovered
+                        web.loadUrl(url + (intent.getStringExtra(EXTRA_PATH) ?: "/terminals"))
+                    }
+                }
+            } catch (error: java.io.IOException) {
+                runOnUiThread {
+                    if (!isFinishing && !isDestroyed) {
+                        findViewById<TextView>(R.id.offline_title).text = getString(R.string.signin_unavailable)
+                        findViewById<View>(R.id.offline).visibility = View.VISIBLE
+                    }
+                }
+            }
+        }.start()
+    }
+
     private fun showServers() {
         startActivity(Intent(this, ServersActivity::class.java).putExtra(ServersActivity.EXTRA_STAY, true).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP))
         finish()
-    }
-
-    private fun isInternalUrl(target: Uri): Boolean {
-        val targetHost = target.host ?: return false
-        if (!targetHost.equals(base.host ?: return false, ignoreCase = true)) return false
-        val sourceScheme = base.scheme?.lowercase() ?: return false
-        val targetScheme = target.scheme?.lowercase() ?: return false
-        val sourcePort = base.port.takeIf { it >= 0 } ?: if (sourceScheme == "https") 443 else 80
-        val targetPort = target.port.takeIf { it >= 0 } ?: if (targetScheme == "https") 443 else 80
-        if (sourceScheme == targetScheme) return sourcePort == targetPort
-        return sourceScheme == "http" && targetScheme == "https" &&
-            (sourcePort == targetPort || sourcePort == 80 && targetPort == 443)
     }
 
     companion object {

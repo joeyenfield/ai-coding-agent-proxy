@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -36,7 +36,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
 
     def require_trusted(request: Request) -> None:
         if not access.trusted(request):
-            raise HTTPException(status_code=401, detail="Pair this device first: scan the code shown on the computer running the proxy.")
+            raise HTTPException(status_code=401, detail="Sign in through the OIDC authentication service.")
 
     def require_local(request: Request) -> None:
         if not (access.local(request) and remote.same_origin(request)):
@@ -46,7 +46,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
     async def remote_status(request: Request) -> dict[str, Any]:
         local = access.local(request)
         value: dict[str, Any] = {
-            "trusted": access.trusted(request), "local": local, "paired": access.has_key(request) and not access.accounts,
+            "trusted": access.trusted(request), "local": local, "paired": not access.accounts and access.has_key(request),
             # With accounts, phones sign in instead of pairing.
             "accounts": access.accounts,
         }
@@ -66,6 +66,8 @@ def register(app: FastAPI, runtime: Runtime) -> None:
 
     @app.post("/api/remote/pair")
     async def pair(request: Request) -> JSONResponse:
+        if access.accounts:
+            raise HTTPException(status_code=410, detail="Access-key pairing was removed. Sign in through OIDC.")
         if not remote.same_origin(request):
             raise HTTPException(status_code=403, detail="Pair from the console's own page.")
         data = await request.json()
@@ -166,7 +168,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         """A console viewer: gets the history then live output, and may send input."""
         await websocket.accept()
         if not (remote.same_origin(websocket) and access.trusted(websocket)):
-            await websocket.close(code=CLOSE_UNAUTHORIZED, reason="Pair this device first")
+            await websocket.close(code=CLOSE_UNAUTHORIZED, reason="Sign in first")
             return
         identity = auth.request_identity(websocket)
         session = runtime.sessions.get(session_id)
@@ -176,16 +178,21 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             return
         accounts_required = identity is not None
 
-        def permitted(control: bool = False) -> bool:
+        async def permitted(control: bool = False) -> int:
             # Re-read the credential and memberships, not the middleware's connection-time snapshot.
             if accounts_required or runtime.auth.enabled:
-                current = runtime.auth.identify(websocket)
+                try:
+                    current = await asyncio.to_thread(runtime.auth.identify, websocket)
+                except auth.AuthUnavailable:
+                    return 4410
                 trusted = current is not None
             else:
                 current = None
                 trusted = access.trusted(websocket)
             check = sharing.can_control if control else sharing.can_view
-            return trusted and runtime.sessions.get(session_id) is session and check(current, session)
+            if not trusted:
+                return 4410
+            return 0 if runtime.sessions.get(session_id) is session and check(current, session) else 4403
 
         history, queue = hub.subscribe(terminal, identity)
         sender = asyncio.create_task(_send_to_viewer(websocket, terminal, history, queue, permitted))
@@ -196,11 +203,12 @@ def register(app: FastAPI, runtime: Runtime) -> None:
                 except ValueError:
                     continue
                 if isinstance(message, dict) and message.get("type") == "input":
-                    if not permitted():
-                        await websocket.close(code=4403, reason="Terminal access revoked")
+                    denied = await permitted()
+                    if denied:
+                        await websocket.close(code=denied, reason="Renew your sign-in or check terminal access")
                         return
                     # Sharing can change while someone watches, so check on every keystroke.
-                    allowed = permitted(control=True)
+                    allowed = await permitted(control=True) == 0
                     error = await hub.send_input(terminal, message) if allowed else "This session is shared with you to watch, not to type into."
                     if error:
                         try:
@@ -241,13 +249,14 @@ def _control(hub: Any, terminal: Terminal, text: str) -> None:
 
 
 async def _send_to_viewer(
-    websocket: WebSocket, terminal: Terminal, history: bytes, queue: asyncio.Queue, still_allowed: Callable[[], bool],
+    websocket: WebSocket, terminal: Terminal, history: bytes, queue: asyncio.Queue, still_allowed: Callable[[], Awaitable[int]],
 ) -> None:
     """The only task that writes to a viewer's socket, so messages never interleave."""
     async def authorized() -> bool:
-        if still_allowed():
+        denied = await still_allowed()
+        if not denied:
             return True
-        await websocket.close(code=4403, reason="Terminal access revoked")
+        await websocket.close(code=denied, reason="Renew your sign-in or check terminal access")
         return False
 
     try:

@@ -17,7 +17,7 @@ from typing import Any, Callable, Dict, Iterator, List, Tuple
 import httpx
 import pytest
 
-from agent_py import common, login, update
+from agent_py import common, login, oauth, update
 import agent_py.client as client_main
 from agent_py.client import launcher, localproxy
 from agent_py.client import settings as client_settings
@@ -238,7 +238,7 @@ def through(proxy: localproxy.AgentProxy, method: str, path: str, **kwargs: Any)
     return asyncio.run(call())
 
 
-def test_agent_traffic_streams_through_without_the_machines_token(tmp_path, monkeypatch):
+def test_agent_traffic_is_signed_and_preserves_vendor_authorization(tmp_path, monkeypatch):
     monkeypatch.setenv("AI_PROXY_TOKEN", "machine-token")
     with fake_server(lambda *request: (200, {"ok": True})) as (url, seen):
         async def body():
@@ -250,8 +250,8 @@ def test_agent_traffic_streams_through_without_the_machines_token(tmp_path, monk
         assert answer.status_code == 200 and answer.json() == {"ok": True}
         method, path, headers, sent = seen[-1]
         assert (method, path, sent) == ("POST", "/session/s1/v1/chat/completions?x=1", b'{"stream":true}')
-        # The agent's own Authorization goes through (hosted APIs need it); the machine's token and cookies don't.
-        assert headers["authorization"] == "Bearer agent-key" and "x-ai-proxy-token" not in headers and "cookie" not in headers
+        # Vendor Authorization remains independent of the OAuth credential identifying this machine.
+        assert headers["authorization"] == "Bearer agent-key" and headers["x-ai-proxy-token"] == "machine-token" and "cookie" not in headers
         # The agent's own User-Agent, this hop's version, nothing of httpx's or of an earlier hop.
         assert headers["user-agent"] == "claude-cli/2" and headers["x-ai-proxy-version"] == common.VERSION
         assert "x-forwarded-for" not in headers and headers.get("accept-encoding") == "identity"
@@ -277,19 +277,27 @@ def test_launcher_calls_are_signed_and_the_health_is_the_go_ones(tmp_path, monke
 
 def test_login_saves_a_token_and_logout_revokes_it(tmp_path, monkeypatch, capsys):
     credentials = tmp_path / "credentials.json"
-    monkeypatch.setenv("AI_PROXY_PASSWORD_INPUT", "correct horse")
+    monkeypatch.delenv("AI_PROXY_TOKEN", raising=False)
+    monkeypatch.setattr(oauth.time, "sleep", lambda wait: None)
     revoked: List[str] = []
 
     def answer(method, path, headers, body):
         if path == "/api/auth/status":
-            return 200, {"required": True}
-        if path == "/api/auth/token":
-            sent = json.loads(body)
-            if (sent["username"], sent["password"]) != ("alice", "correct horse"):
-                return 401, {"detail": "That username and password don't match."}
-            return 200, {"id": "t1", "token": "aip_secret", "user": "alice"}
-        if method == "DELETE" and path == "/api/auth/tokens/t1":
-            revoked.append(headers.get("x-ai-proxy-token", ""))
+            return 200, {"required": True, "issuer": url, "client_id": "mesh-cli"}
+        if path == "/.well-known/openid-configuration":
+            return 200, {"issuer": url, **{key + "_endpoint": url + "/" + endpoint for key, endpoint in (
+                ("device_authorization", "device_authorization"), ("token", "token"), ("userinfo", "userinfo"), ("revocation", "revoke"),
+            )}}
+        if path == "/device_authorization":
+            return 200, {"device_code": "device", "user_code": "CODE", "verification_uri": url + "/verify", "expires_in": 120, "interval": 1}
+        if path == "/token":
+            return 200, {"access_token": "oauth-access", "refresh_token": "oauth-refresh", "expires_in": 3600, "token_type": "Bearer"}
+        if path == "/userinfo":
+            assert headers["authorization"] == "Bearer oauth-access"
+            return 200, {"sub": "u1", "preferred_username": "alice"}
+        if method == "POST" and path == "/revoke":
+            from urllib.parse import parse_qs
+            revoked.append(parse_qs(body.decode())["token"][0])
             return 200, {}
         return 404, {}
 
@@ -299,27 +307,25 @@ def test_login_saves_a_token_and_logout_revokes_it(tmp_path, monkeypatch, capsys
                            signed_in="This machine's agent-proxy sends everything there from now on (agent logout to stop).")
 
     with fake_server(answer) as (url, _):
-        assert agent_login(url, "--user", "alice") == 0
-        assert f"Signed in to {url} as alice. This machine's agent-proxy sends everything there from now on (agent logout to stop)." in capsys.readouterr().out
-        upstream = common.Upstream(lambda: credentials, use_env=False)
-        assert upstream.server() == url and upstream.token(url) == "aip_secret"
-        assert login.logout([], program="agent", credentials_path=lambda: credentials) == 0 and revoked == ["aip_secret"]
-        assert upstream.token(url) == ""
-        monkeypatch.setenv("AI_PROXY_PASSWORD_INPUT", "wrong")
-        assert agent_login("--user", "alice", url) == 1
-    with fake_server(lambda *request: (200, {"required": False})) as (url, _):
         assert agent_login(url) == 0
-        assert f"{url} doesn't use accounts, so there's no sign-in; this machine's agent-proxy uses it from now on." in capsys.readouterr().out
+        assert f"Signed in to {url} as alice." in capsys.readouterr().out
+        upstream = common.Upstream(lambda: credentials, use_env=False)
+        assert upstream.server() == url and upstream.token(url) == "oauth-access"
+        assert login.logout([], program="agent", credentials_path=lambda: credentials) == 0 and revoked == ["oauth-refresh"]
+        with pytest.raises(oauth.OAuthError, match="sign-in required"):
+            upstream.token(url)
+        assert agent_login("--user", "alice", url) == 2
+    with fake_server(lambda *request: (200, {"required": False})) as (url, _):
+        assert agent_login(url) == 1
 
 
-def test_agent_machines_login_says_how_to_start_it(tmp_path, monkeypatch, capsys):
+def test_agent_machine_keeps_its_own_oauth_sign_in(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("AI_PROXY_MACHINE_HOME", str(tmp_path / "machine-home"))
-    monkeypatch.setenv("AI_PROXY_PASSWORD_INPUT", "pw")
-    token = {"id": "t2", "token": "aip_m", "user": "bob"}
-    with fake_server(lambda method, path, *rest: (200, {"required": True} if path == "/api/auth/status" else token)) as (url, _):
-        assert machine_main.main(["login", url, "--user", "bob"]) == 0
-    assert (f"Signed in to {url} as bob. agent-machine supplies this machine's providers there from now on "
-            "(agent-machine logout to stop). Start it with: agent-machine start") in capsys.readouterr().out
+    monkeypatch.setenv("AI_PROXY_TOKEN", "client-only")
+    monkeypatch.setenv("AI_PROXY_MACHINE_TOKEN", "machine-only")
+    assert machine_main.main(["login", "--user", "bob"]) == 2
+    upstream = common.Upstream(lambda: tmp_path / "machine-home" / "credentials.json", use_env=False)
+    assert upstream.token("https://server.example") == "machine-only"
 
 
 # client/internal/update/update_test.go

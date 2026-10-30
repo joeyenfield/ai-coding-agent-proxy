@@ -16,6 +16,7 @@
     <string name="not_a_server">%1$s answered, but it isn\'t an agent-server.</string>
     <string name="remove_server">Remove %1$s? Its sign-in on this phone is forgotten too.</string>
     <string name="offline_title">Can\'t reach %1$s</string>
+    <string name="signin_unavailable">Sign-in configuration is unavailable. Check the API address and its HTTPS OIDC issuer.</string>
     <string name="offline_detail">Check the phone is on the same network, or on Tailscale, and the server is running.</string>
     <string name="retry">Try again</string>
     <string name="servers">Servers</string>

@@ -507,7 +507,9 @@ def _error_message(body: Any) -> str:
 
 
 def _upstream_headers(headers: Any) -> dict[str, str]:
-    excluded = {"host", "content-length", "connection", "x-ai-proxy-session", "x-ai-proxy-backend", "accept-encoding"}
+    excluded = {"host", "content-length", "connection", "x-ai-proxy-session", "x-ai-proxy-backend", "x-ai-proxy-token", "cookie", "origin", "accept-encoding"}
+    if not headers.get("x-ai-proxy-token") and headers.get("authorization", "").lower().startswith("bearer "):
+        excluded.add("authorization")
     return {key: value for key, value in headers.items() if key.lower() not in excluded}
 
 

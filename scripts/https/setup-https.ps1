@@ -25,10 +25,12 @@ param(
     [string]$HostName = "aicontrolmesh.com",
     [string]$ConsoleHostName = "",
     [string]$ApiHostName = "",
+    [string]$AuthHostName = "",
     [string]$AdditionalHostNames = "aiproxy.hopto.me",
     [string]$Email = "",
     [string]$Root = (Join-Path $env:ProgramData "agent-proxy-https"),
     [string]$Backend = "http://127.0.0.1:9999",
+    [string]$AuthBackend = "http://127.0.0.1:10000",
     [string]$ConsoleBackend = "http://127.0.0.1:8081",
     [string]$SiteBackend = "http://127.0.0.1:8080",
     [int]$HttpPort = 9980,
@@ -48,6 +50,8 @@ if (-not $ConsoleHostName) { $ConsoleHostName = "console.$HostName" }
 $HostNames += $ConsoleHostName
 if (-not $ApiHostName) { $ApiHostName = "api.$HostName" }
 $HostNames += $ApiHostName
+if (-not $AuthHostName) { $AuthHostName = "auth.$HostName" }
+$HostNames += $AuthHostName
 $HostNames = @($HostNames | Select-Object -Unique)
 $wacsHostNames = $HostNames -join ","
 $siteHostNames = @($HostName, "www.$HostName") -join " "
@@ -135,6 +139,7 @@ function Write-Config([bool]$https) {
         $block = $block.Replace("{{HTTPS_LISTEN_DEFAULT}}", $listenDefault).Replace("{{HTTPS_LISTEN}}", $listen)
         $block = $block.Replace("{{SITE_HOSTS}}", $siteHostNames).Replace("{{CONSOLE_HOSTS}}", $consoleHostNames)
         $block = $block.Replace("{{API_HOSTS}}", $apiHostNames).Replace("{{CONSOLE_HOSTNAME}}", $ConsoleHostName)
+        $block = $block.Replace("{{AUTH_HOSTNAME}}", $AuthHostName).Replace("{{AUTH_BACKEND}}", $AuthBackend.TrimEnd("/"))
         $block = $block.Replace("{{CERT}}", (Slash $cert)).Replace("{{KEY}}", (Slash $key))
         $block = $block.Replace("{{BACKEND}}", $Backend.TrimEnd("/")).Replace("{{SITE_BACKEND}}", $SiteBackend.TrimEnd("/")).Replace("{{CONSOLE_BACKEND}}", $ConsoleBackend.TrimEnd("/"))
     }

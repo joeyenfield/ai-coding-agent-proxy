@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 import httpx
-from fastapi.testclient import TestClient
+from oidc_helpers import authenticated_client as TestClient
 
 from agent_server.app import create_app
 from agent_server.chat import Chats, request_turns, response_turn

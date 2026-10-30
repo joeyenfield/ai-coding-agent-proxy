@@ -7,7 +7,7 @@ from pathlib import Path
 import httpx
 import pytest
 import yaml
-from fastapi.testclient import TestClient
+from oidc_helpers import access_token, authenticated_client as TestClient
 
 from agent_server.config import Backend, Settings
 from agent_server.app import create_app
@@ -89,7 +89,10 @@ async def test_cancelling_a_buffered_request_completes_telemetry(tmp_path, path,
     app = create_app(Settings(log_dir=tmp_path, default_backend="test", backends={"test": Backend("test", "http://ollama.test")}))
     async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as backend:
         app.state.runtime.client = backend
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://testserver") as client:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app), base_url="http://testserver",
+            headers={"x-ai-proxy-token": access_token(app)},
+        ) as client:
             session = (await client.post("/api/sessions", json={"client": "review", "backend": "test"})).json()["session_id"]
             task = asyncio.create_task(client.post(f"/session/{session}/{path}", json={"model": "m", "messages": [], "stream": False}))
             await asyncio.wait_for(started.wait(), timeout=5)
@@ -428,7 +431,10 @@ def test_dashboard_clears_data_and_deletes_only_selected_session(tmp_path):
 
 def test_dashboard_rejects_cleanup_during_non_streaming_requests(tmp_path):
     async def handler(request):
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://proxy.test") as api:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://proxy.test",
+            headers={"x-ai-proxy-token": client.headers["x-ai-proxy-token"]},
+        ) as api:
             for suffix in ("/data", ""):
                 response = await api.delete(f"/api/sessions/{session['session_id']}{suffix}")
                 assert response.status_code == 409

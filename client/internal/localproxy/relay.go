@@ -37,9 +37,11 @@ func Dial(upstream settings.Upstream, server, path string) (*websocket.Conn, *ht
 	target := fmt.Sprintf("%s://%s%s%s", scheme, parsed.Host, strings.TrimRight(parsed.Path, "/"), path)
 	header := http.Header{}
 	settings.Identify(header, true)
-	if token := upstream.Token(server); token != "" {
-		header.Set(settings.TokenHeader, token)
+	token, err := upstream.AccessToken(server)
+	if err != nil {
+		return nil, nil, err
 	}
+	header.Set(settings.TokenHeader, token)
 	dialer := websocket.Dialer{Proxy: nil, HandshakeTimeout: 10 * time.Second, EnableCompression: false}
 	return dialer.Dial(target, header)
 }
@@ -58,7 +60,9 @@ func (p *Proxy) terminal(w http.ResponseWriter, r *http.Request, sessionID strin
 	server := p.Upstream.Server()
 	remote, response, err := Dial(p.Upstream, server, "/api/terminals/"+url.PathEscape(sessionID)+"/host")
 	if err != nil {
-		if response != nil && (response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden) {
+		if errors.Is(err, settings.ErrLoginRequired) {
+			closeWith(launcher, 4401, "OAuth sign-in required: run `agent login`")
+		} else if response != nil && (response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden) {
 			closeWith(launcher, 4400+response.StatusCode%100, "the agent-server refused this machine: run `agent login`")
 		} else if response != nil {
 			// Anything else (a reverse proxy's 502/503/504 while the server restarts) passes: the
@@ -72,6 +76,16 @@ func (p *Proxy) terminal(w http.ResponseWriter, r *http.Request, sessionID strin
 	defer remote.Close()
 	code, reason := relay(launcher, remote)
 	closeWith(remote, websocket.CloseNormalClosure, "")
+	if code == 4410 {
+		if err := p.Upstream.RejectAccessToken(server); err != nil {
+			reason = err.Error()
+		}
+	}
+	// A token expiring on an established socket is retryable. The next dial refreshes;
+	// a revoked credential then fails the handshake instead.
+	if code == 4401 {
+		code = 1011
+	}
 	// Pass the server's close on, so the launcher sees a refusal (4401, 4404) for what it is.
 	if code != 0 {
 		if reservedClose[code] {
@@ -159,6 +173,8 @@ func (p *Proxy) tunnel(conn net.Conn) {
 			}
 			reason := fmt.Sprintf("the agent-server answered %d: run `agent login %s`", response.StatusCode, server)
 			p.refuseTunnel(readHead(conn), status, reason)
+		} else if errors.Is(err, settings.ErrLoginRequired) {
+			p.refuseTunnel(readHead(conn), 407, "OAuth sign-in required: run `agent login`")
 		} else {
 			p.refuseTunnel(readHead(conn), 502, fmt.Sprintf("couldn't reach the agent-server at %s: %v", server, err))
 		}
@@ -213,6 +229,11 @@ func (p *Proxy) tunnel(conn net.Conn) {
 	time.Sleep(50 * time.Millisecond)
 	mu.Lock()
 	defer mu.Unlock()
+	if closeCode == 4410 {
+		if err := p.Upstream.RejectAccessToken(server); err != nil {
+			closeReason = err.Error()
+		}
+	}
 	if !answered && closeCode >= 4000 {
 		status := 502
 		if closeCode == 4401 || closeCode == 4403 {

@@ -6,7 +6,6 @@ import { CodeLine } from "../components/CodeLine";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { PartTag } from "../components/PartTag";
 import { TabBar, TabPanel, useTabParam } from "../components/Tabs";
-import { formatDate } from "../format";
 import { useAuth, useClipboard, useStatus, useToast } from "../hooks";
 
 const NAME_PATTERN = "[a-z0-9][a-z0-9._\\-]*";
@@ -27,7 +26,6 @@ export function OrganizationPage() {
           Organizations bring people together. Teams group people within an organization for sharing sessions and machine access.
         </p>
       </header>
-      {auth.data && !auth.data.required && <AccountsOff />}
       {identity && (
         <>
           <TabBar
@@ -58,56 +56,9 @@ export function OrganizationPage() {
   );
 }
 
-function AccountsOff() {
-  return (
-    <section className="panel">
-      <div className="panel-head">
-        <h2>Accounts are off</h2>
-        <p className="subtle">
-          This proxy is set up for one person on one computer: anyone who can reach it can use it. Add a user on the
-          machine running it to share it with others. Everyone then signs in, the first user is an admin, and each session
-          is private until its owner shares it.
-        </p>
-      </div>
-      <CodeLine text="agent-server user add <name> --org <organization>" onCopy={() => navigator.clipboard?.writeText("agent-server user add ")} />
-      <p className="subtle">
-        On other computers, sign the launcher in once with <code>agent login http://&lt;server&gt;:{window.location.port || "80"}</code>.
-      </p>
-    </section>
-  );
-}
-
 function YourAccount({ identity }: { identity: Identity }) {
-  const notify = useToast();
   const copy = useClipboard();
-  const client = useQueryClient();
   const status = useStatus();
-  const tokens = useQuery({ queryKey: ["tokens"], queryFn: api.tokens });
-  const [current, setCurrent] = useState("");
-  const [next, setNext] = useState("");
-  const [label, setLabel] = useState("");
-  const [issued, setIssued] = useState<string | null>(null);
-  const password = useMutation({
-    mutationFn: () => api.changePassword(current, next),
-    onSuccess: () => {
-      notify("Password changed. Other browsers are signed out.");
-      setCurrent("");
-      setNext("");
-    },
-    onError: (error) => notify(error.message),
-  });
-  const create = useMutation({
-    mutationFn: () => api.createToken(label.trim() || "launcher"),
-    onSuccess: (result) => {
-      setIssued(result.token);
-      setLabel("");
-      client.invalidateQueries({ queryKey: ["tokens"] });
-    },
-  });
-  const revoke = useMutation({
-    mutationFn: api.revokeToken,
-    onSuccess: () => client.invalidateQueries({ queryKey: ["tokens"] }),
-  });
   // The address this browser reached the server on works from other machines; the configured URL may be loopback.
   const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname);
   const server = API_ORIGIN || (loopback ? status.data?.proxy_url ?? window.location.origin : window.location.origin);
@@ -122,63 +73,9 @@ function YourAccount({ identity }: { identity: Identity }) {
         </p>
       </div>
       <h3>Start agents from your own computer</h3>
-      <p className="subtle">Sign the launcher in once; it then starts every agent through this server and shares its terminal here.</p>
+      <p className="subtle">Run this command, then approve the device code at the authentication service. The launcher renews its short-lived access tokens automatically.</p>
       <CodeLine text={`agent login ${server}`} onCopy={() => copy(`agent login ${server}`, "Command copied")} />
-      {tokens.data && tokens.data.tokens.length > 0 && (
-        <table className="table compact">
-          <thead>
-            <tr>
-              <th>Launcher token</th>
-              <th>Created</th>
-              <th>Last used</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {tokens.data.tokens.map((token) => (
-              <tr key={token.id}>
-                <td>{token.label}</td>
-                <td>{formatDate(new Date(token.created_at * 1000).toISOString())}</td>
-                <td>{token.last_used_at ? formatDate(new Date(token.last_used_at * 1000).toISOString()) : "Never"}</td>
-                <td>
-                  <button type="button" className="danger" onClick={() => revoke.mutate(token.id)}>
-                    Revoke
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-      <details>
-        <summary>Make a token by hand, for scripts</summary>
-        <form className="inline-form" onSubmit={(event: FormEvent) => (event.preventDefault(), create.mutate())}>
-          <input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="What it's for" aria-label="Token label" />
-          <button type="submit" disabled={create.isPending}>
-            Create token
-          </button>
-        </form>
-        {issued && (
-          <>
-            <p className="warn">Copy it now; it isn't shown again. Send it as the X-AI-Proxy-Token header, or set AI_PROXY_TOKEN for the launcher.</p>
-            <CodeLine text={issued} onCopy={() => copy(issued, "Token copied")} />
-          </>
-        )}
-      </details>
-      <h3>Change your password</h3>
-      <form className="form-grid two" onSubmit={(event: FormEvent) => (event.preventDefault(), password.mutate())}>
-        <label className="field">
-          Current password
-          <input type="password" value={current} onChange={(event) => setCurrent(event.target.value)} autoComplete="current-password" required />
-        </label>
-        <label className="field">
-          New password (8 characters or more)
-          <input type="password" value={next} onChange={(event) => setNext(event.target.value)} autoComplete="new-password" minLength={8} required />
-        </label>
-        <button type="submit" disabled={password.isPending}>
-          Change password
-        </button>
-      </form>
+      <p className="subtle">For automation, an administrator provisions a service account at the issuer. API requests use a Bearer access token, never an ID token. Ask an administrator to reset your account password.</p>
     </section>
   );
 }

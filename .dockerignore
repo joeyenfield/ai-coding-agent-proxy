@@ -2,6 +2,16 @@
 # benchmarks/tests) and agent-sandbox (sandbox/Dockerfile: client/, machine/, sandbox/).
 .git
 .env
+# Local agent, environment and validation output is never part of either image.
+# Some generated directories have private Windows ACLs: exclude them before the
+# Compose provider walks the build context.
+.claude
+.context
+.history
+.venv
+.screenshot*
+.test-*
+.tmp-*
 **/__pycache__
 **/*.py[cod]
 **/*.egg-info

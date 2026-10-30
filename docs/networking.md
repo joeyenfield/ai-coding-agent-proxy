@@ -63,7 +63,7 @@ flowchart LR
 | `agent-machine` | `127.0.0.1:<port>` on its computer | HTTP, TCP | the machine | none (loopback) | Probing and managing its model servers; the far end of tunnels |
 | Server | a model server | HTTP | per request | Strata's key, if Strata | Agent traffic, when the backend isn't tunnelled |
 | Server | hosted API, vendors | HTTPS | per request | the agent's own `Authorization` or sign-in | Hosted pass-through and account agents' traffic |
-| Browser or phone | server | HTTP, server-sent events, WebSocket | the console | the `ai_proxy_session` cookie, or the access key without accounts | The console and API, `/api/live`, terminal viewers on `/api/terminals/<id>/view` |
+| Browser or phone | API / auth issuer | HTTPS, server-sent events, WebSocket | console, PKCE sign-in | Host-only access/refresh cookies | Issuer handles sign-in; API handles resources and terminals |
 
 Every HTTP client and WebSocket dialer in `agent` and `agent-machine` ignores `HTTPS_PROXY` and `HTTP_PROXY` (`Proxy: nil` in Go, `trust_env=False` in Python). They often run inside an intercepted agent's environment, and would otherwise send themselves through their own proxy in a loop.
 
@@ -95,7 +95,7 @@ The `agent-proxy` sorts every request by its path:
 | `POST /shutdown` | Stops itself (`agent proxy stop`, `agent update`). Loopback only. |
 | `/api/terminals/<id>/host` | Relays the launcher's terminal WebSocket to the server, signed. |
 | `/api/…` | Forwards to the server, signed with the computer's token, only if it's on `LauncherAPI`; anything else is 404. |
-| `/session/…`, `/v1/…`, `/anthropic/…` | Streams to the same path on the server, without the token. `Cookie`, `Origin`, `Proxy-Authorization` and `Proxy-Connection` are dropped. |
+| `/session/…`, `/v1/…`, `/anthropic/…` | Streams to the server with an OAuth token in `X-AI-Proxy-Token`. Vendor Authorization is preserved; caller platform headers, cookies, Origin and proxy credentials are dropped. |
 | anything else | 404. |
 
 Every route checks that the request came from this computer: a loopback Host and no other site's `Origin`. A web page in a browser on the same computer can't use the `agent-proxy` to act as you.
@@ -270,7 +270,7 @@ A shared terminal has one host (the launcher) and any number of viewers (console
 
 | Header | Sent by | Meaning |
 | --- | --- | --- |
-| `X-AI-Proxy-Token` | `agent-proxy` (launcher calls, its WebSockets), `agent-machine` | The computer's or machine's sign-in from `agent login` / `agent-machine login`; without accounts, the access key |
+| `X-AI-Proxy-Token` | agent-proxy (all upstream calls), agent-machine | Active OAuth access token; preserves vendor Authorization |
 | `X-AI-Proxy-Version`, `X-AI-Proxy-Protocol` | `agent`, `agent-proxy`, `agent-machine` | Their build and protocol, checked by the server (426 outside its range) |
 | `X-AI-Proxy-Session` | tools using bare `/v1` or `/anthropic` | The session, when it isn't in the path |
 | `X-AI-Proxy-Backend` | tools | Use this backend for this request instead of the session's |
@@ -278,7 +278,7 @@ A shared terminal has one host (the launcher) and any number of viewers (console
 | `X-Request-ID`, `X-Session-ID` | the server, on replies | Which recorded request and session this was |
 | `X-Agent-Proxy-Error` | `agent-proxy`, on a refused `CONNECT` | Why |
 | Cookie `ai_proxy_session` | browsers | A console sign-in (SameSite=Lax) |
-| Cookie `ai_proxy_remote` | browsers without accounts | The terminal access key, after pairing |
+| Cookie `mesh_refresh` | browser, API `/api/auth` only | HttpOnly rotating refresh token; never sent to providers |
 
 ## WebSocket close codes
 

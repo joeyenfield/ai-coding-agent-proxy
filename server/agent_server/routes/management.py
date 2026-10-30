@@ -266,6 +266,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             return not session_id or key.startswith(f"{session_id}:")
 
         async def events():
+            nonlocal visible
             try:
                 snapshot = runtime.live.snapshot(session_id)
                 if visible is not None:
@@ -275,6 +276,16 @@ def register(app: FastAPI, runtime: Runtime) -> None:
                     try:
                         event = await asyncio.wait_for(queue.get(), timeout=15)
                     except asyncio.TimeoutError:
+                        event = {"type": "keep-alive"}
+                    try:
+                        identity = await asyncio.to_thread(runtime.auth.identify, request)
+                    except auth.AuthUnavailable:
+                        return
+                    if identity is None:
+                        return
+                    request.scope["state"]["identity"] = identity
+                    visible = visible_ids(request)
+                    if event is not None and event.get("type") == "keep-alive":
                         yield b": keep-alive\n\n"
                         continue
                     if event is None:

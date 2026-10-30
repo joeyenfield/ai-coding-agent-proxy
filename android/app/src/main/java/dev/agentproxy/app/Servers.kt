@@ -77,8 +77,19 @@ fun check(url: String): Check {
     }
 }
 
+/** Only the chosen API may name the issuer whose sign-in pages stay in the WebView. */
+fun authIssuer(url: String): String? {
+    val response = get("$url/api/auth/status")
+    if (response.first != 200) return null
+    val issuer = response.second.optString("issuer")
+    val parsed = URL(issuer)
+    if (parsed.protocol != "https" || parsed.userInfo != null || parsed.query != null || parsed.ref != null) return null
+    return issuer
+}
+
 private fun get(url: String): Pair<Int, JSONObject> {
     val connection = URL(url).openConnection() as HttpURLConnection
+    connection.instanceFollowRedirects = false
     connection.connectTimeout = 4000
     connection.readTimeout = 4000
     try {

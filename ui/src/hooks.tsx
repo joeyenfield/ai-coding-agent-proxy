@@ -34,7 +34,7 @@ export function useMachine(id: string | undefined) {
 
 /** Whether the proxy has accounts, and who is signed in. */
 export function useAuth() {
-  return useQuery({ queryKey: ["auth"], queryFn: api.authStatus, staleTime: 60000 });
+  return useQuery({ queryKey: ["auth"], queryFn: api.authStatus, staleTime: 30000, refetchInterval: 30000 });
 }
 
 /** The server's build (/health, public): polled now and then, so a restart onto a new build shows. */

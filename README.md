@@ -15,11 +15,18 @@ Run terminal coding agents (Claude Code, GitHub Copilot CLI, OpenAI Codex, Qwen 
   - **Hosted API**: requests passed through to the Anthropic API unchanged.
 - **A fleet of machines.** Every computer running `agent-machine` supplies its model servers, containers and MCP servers to agents anywhere, through its own connection to the server, so it needs no open port. You can also start agents and open terminals on it from the console.
 - **Agents from your phone.** Share an agent's terminal (`--control`), then watch it and type into it from a browser or the Android app, and answer its permission prompts.
-- **One person or a team.** It works as a single-user tool. Add users and it becomes a team server, with organizations, teams, private or shared sessions, and access grants per machine.
+- **One person or a team.** Mandatory OIDC sign-in, organizations, teams, private or shared sessions, and access grants per machine.
 
 ## Quick start
 
+For a local Podman or Docker demo with the server, two machines and Ollama on one machine, run
+`podman compose -f quickstart/compose.yaml up -d --build` (or use `docker compose`). Open http://localhost:19999
+and sign in with **admin** / **secret**. See the [quickstart folder](quickstart/README.md)
+for model setup, logs and reset commands.
+
 On the server's computer, from this checkout (Python 3.11+, Node 20+), or with `docker compose up -d`:
+
+First configure the separate **`agent-auth`** service at **auth.aicontrolmesh.com**, HTTPS, callbacks and the shared introspection secret: [OIDC authentication](docs/oidc.md). API access requires OAuth access tokens, including on loopback.
 
 ```bash
 pip install -e "./server[dev]"
@@ -29,7 +36,7 @@ agent-server                         # the console on http://127.0.0.1:9999
 On each computer where you run agents, install `agent` from the server's **Downloads** page (`http://<server>:9999/get`), or with the one-line installer it serves, then:
 
 ```bash
-agent login http://server:9999       # once; not needed on the server's own computer
+agent login https://api.aicontrolmesh.com  # approve the device code; required on every computer
 agent --list                         # the server's agents, and which are installed here
 agent claude-account .               # Claude Code on your claude.ai login, everything recorded
 agent qwen . --model qwen3.6:35b     # Qwen Code on a local model
@@ -38,7 +45,7 @@ agent qwen . --model qwen3.6:35b     # Qwen Code on a local model
 On each computer that runs models (or MCP servers) for agents:
 
 ```bash
-agent-machine login http://server:9999
+agent-machine login https://api.aicontrolmesh.com
 agent-machine start
 ```
 

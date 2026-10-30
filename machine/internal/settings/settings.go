@@ -22,7 +22,7 @@ import (
 const (
 	// The server before `agent-machine login` names one: an agent-server on this computer.
 	DefaultServer = "http://127.0.0.1:9999"
-	// The header the server reads a sign-in token (or a server's access key) from.
+	// The header the server reads an OAuth access token from.
 	TokenHeader = "X-AI-Proxy-Token"
 )
 
@@ -32,7 +32,7 @@ var Version = "dev"
 // Protocol is the server API level agent-machine speaks. The server accepts a range of
 // them and refuses others with 426; raise it only for a change older servers can't take.
 // The server's and the client's must agree (server/tests/test_client.py checks).
-const Protocol = 1
+const Protocol = 2
 
 // The headers every request to the server carries, so it can refuse a machine it can't serve.
 const (
@@ -59,7 +59,7 @@ func (t identified) RoundTrip(request *http.Request) (*http.Response, error) {
 // ServerClient is Client for requests to the agent-server, with Identify's headers. Model
 // servers and model catalogues get the plain Client: they're not the server's business.
 func ServerClient(timeout time.Duration) *http.Client {
-	return &http.Client{Transport: identified{base: Transport()}, Timeout: timeout}
+	return &http.Client{Transport: identified{base: Transport()}, Timeout: timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 }
 
 // Platform is this build's os-arch as dist names it: 32-bit ARM is armv7.
@@ -129,18 +129,24 @@ func IsLoopbackURL(raw string) bool {
 	return err == nil && loopback[strings.ToLower(parsed.Hostname())]
 }
 
-// Credentials is `agent-machine login`'s file: each server's URL, user and token, and the
-// default server. The password is never stored.
+// Credentials stores agent-machine's separate OAuth credentials, in Python's format.
 type Credentials struct {
 	Servers map[string]*ServerEntry `json:"servers"`
 	Default string                  `json:"default,omitempty"`
 }
 
 type ServerEntry struct {
-	URL     string `json:"url"`
-	User    string `json:"user,omitempty"`
-	Token   string `json:"token,omitempty"`
-	TokenID string `json:"token_id,omitempty"`
+	URL                string `json:"url"`
+	User               string `json:"user,omitempty"`
+	Token              string `json:"token,omitempty"`
+	TokenID            string `json:"token_id,omitempty"`
+	AccessToken        string `json:"access_token,omitempty"`
+	RefreshToken       string `json:"refresh_token,omitempty"`
+	ExpiresAt          int64  `json:"expires_at,omitempty"`
+	Issuer             string `json:"issuer,omitempty"`
+	ClientID           string `json:"client_id,omitempty"`
+	TokenEndpoint      string `json:"token_endpoint,omitempty"`
+	RevocationEndpoint string `json:"revocation_endpoint,omitempty"`
 }
 
 // Normalize is the key a server is stored under.
@@ -194,13 +200,11 @@ func DefaultServerURL() string {
 	return DefaultServer
 }
 
-// Token is the stored token for server: a sign-in token on a server with accounts, or
-// (with `agent-machine login --key`) the access key of one without.
+// Token is retained for compatibility with callers inspecting sign-in state.
+// Requests and dials must use AccessToken to propagate refresh failures.
 func (u Upstream) Token(server string) string {
-	if entry := LoadCredentials().Servers[Normalize(server)]; entry != nil {
-		return entry.Token
-	}
-	return ""
+	token, _ := u.AccessToken(server)
+	return token
 }
 
 func (u Upstream) User(server string) string {

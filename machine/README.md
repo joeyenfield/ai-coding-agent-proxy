@@ -17,7 +17,7 @@ agent-machine                                  # how the fleet sees this machine
 | Command | What it does |
 | --- | --- |
 | `agent-machine` | This machine: its id, server and sign-in, whether it's in the fleet, the model servers found, containers and launches |
-| `agent-machine login [url] [--user name] [--key key]` | Sign in to an agent-server (a token, never your password, is stored) |
+| `agent-machine login [url]` | Sign in with an OIDC device code approved in your browser |
 | `agent-machine logout [url]` | Forget the sign-in and revoke its token |
 | `agent-machine start` / `stop` | Join the fleet in the background, or leave it |
 | `agent-machine run [--server url]` | Stay in the fleet in the foreground (Ctrl+C leaves) |
@@ -33,6 +33,15 @@ agent-machine                                  # how the fleet sees this machine
 | `agent-machine version` | Its version and the server protocol it speaks |
 
 ## How it works
+
+Sign-in is mandatory, including on loopback. URLs require HTTPS except loopback development.
+OAuth access and rotating refresh credentials are kept in the machine's own
+`credentials.json`, separate from `agent login`; concurrent refresh is serialized.
+Logout revokes the refresh credential and removes the local login, reporting revocation
+failures. Password and access-key sign-ins are not supported. For automation obtain a
+service-account OAuth access token directly from the issuer and set
+`AI_PROXY_MACHINE_TOKEN`; use `run --server <url>` to select its API. `AI_PROXY_TOKEN`
+remains the agent command's credential and is never used for the fleet connection.
 
 `agent-machine run` (which `start` runs detached) keeps one WebSocket open to the server
 (`/api/machines/connect`), signed with its token, and reconnects when it drops. Over it:

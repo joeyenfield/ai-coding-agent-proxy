@@ -268,10 +268,12 @@ export interface Identity {
 }
 
 export interface AuthStatus {
-  /** The proxy has accounts, so everyone signs in. */
-  required: boolean;
+  required: true;
   identity: Identity | null;
   secure: boolean;
+  issuer: string;
+  audience: string;
+  client_id: string;
 }
 
 export interface Team {
@@ -994,8 +996,23 @@ export function apiUrl(path: string): string {
   return `${API_ORIGIN}${path}`;
 }
 
-function apiFetch(path: string, init?: RequestInit): Promise<Response> {
-  return fetch(apiUrl(path), { ...init, credentials: "include" });
+let refreshing: Promise<Response> | null = null;
+
+async function refreshSignIn(): Promise<Response> {
+  if (!refreshing) {
+    const renew = () => fetch(apiUrl("/api/auth/refresh"), { method: "POST", credentials: "include" });
+    refreshing = ("locks" in navigator ? navigator.locks.request("mesh-oidc-refresh", renew) : renew()).finally(() => { refreshing = null; });
+  }
+  return refreshing;
+}
+
+async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+  const response = await fetch(apiUrl(path), { ...init, credentials: "include" });
+  if (response.status !== 401 || path.startsWith("/api/auth/")) return response;
+  const refreshed = await refreshSignIn();
+  if (refreshed.ok) return fetch(apiUrl(path), { ...init, credentials: "include" });
+  if (refreshed.status !== 401) throw new ApiError("The authentication service is unavailable", refreshed.status);
+  return response;
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -1127,9 +1144,15 @@ export const api = {
       "/api/server/restart",
       { method: "POST", body: "{}" },
     ),
-  authStatus: () => request<AuthStatus>("/api/auth/status"),
-  login: (username: string, password: string) =>
-    request<{ identity: Identity }>("/api/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }),
+  authStatus: async () => {
+    const status = await request<AuthStatus>("/api/auth/status");
+    if (status.identity) return status;
+    const refreshed = await refreshSignIn();
+    if (refreshed.ok) return request<AuthStatus>("/api/auth/status");
+    if (refreshed.status !== 401) throw new ApiError("The authentication service is unavailable", refreshed.status);
+    return status;
+  },
+  login: () => window.location.assign(apiUrl(`/api/auth/login?return_to=${encodeURIComponent(window.location.origin)}`)),
   logout: () => request<{ identity: null }>("/api/auth/logout", { method: "POST", body: "{}" }),
   changePassword: (current: string, next: string) =>
     request<{ changed: boolean }>("/api/auth/password", { method: "POST", body: JSON.stringify({ current, new: next }) }),

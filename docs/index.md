@@ -58,7 +58,7 @@ How an agent's request reaches a model depends on the agent:
 
 ### What a session is
 
-A session is one run of one agent: its agent, model, provider, project folder, owner and sharing, and everything it sent. The launcher opens it, the agent's URLs contain its id (the id is the agent's credential), and the launcher closes it when the agent exits. Per request the server records timing (time to first token, prompt and generation speed), tokens, sizes and status. With payload capture on (`--trace`), it saves the full request and reply too, and the console reads them back as conversations.
+A session is one run of one agent: its agent, model, provider, project folder, owner, sharing and traffic. Its id selects the session; the agent-proxy authenticates each API request with an OAuth access token. The launcher closes it when the agent exits. Each request records timing, tokens, sizes and status; `--trace` saves full payloads.
 
 ### Watching and typing from anywhere
 
@@ -66,7 +66,7 @@ Start an agent with `--control`, or from a machine's page in the console, and it
 
 ### One person or a team
 
-Without accounts the server is a single-user tool: this computer is trusted, and phones pair with a code. Add a user and it becomes a team server: everyone signs in, sessions are private until shared with a team or an organization, and each machine's owner chooses which organizations and teams may use each of its features.
+Everyone signs in through OIDC, including on loopback. Sessions are private until shared, and machine owners grant individual features to organizations and teams.
 
 ## Guides and reference
 
@@ -80,7 +80,8 @@ Without accounts the server is a single-user tool: this computer is trusted, and
 | [Machines](machines.md) | The fleet and `agent-machine`: every command, its files, launches, terminals, remote updates, tunnels, access grants, services, the sandbox machine, the Python version. |
 | [Providers](providers.md) | Ollama (translation, `models.yaml` tuning, Qwen), Strata, Docker Model Runner, containers machines run, hosted APIs, which agent can use which provider. |
 | [The console](console.md) | Every page of the web console and what each control does, with screenshots. |
-| [Accounts and sharing](accounts.md) | Local and server mode, users, organizations and teams, signing in, session sharing, the terminal access key, phones and the Android app. |
+| [OIDC authentication](oidc.md) | Auth service deployment, browser PKCE, CLI device flow, service accounts, access tokens and migration. |
+| [Accounts and sharing](accounts.md) | Users, organizations and teams, session sharing, phones and the Android app. |
 | [Configuration](configuration.md) | `backends.yaml`, `models.yaml`, `agents.yaml`, every environment variable, secrets, the `agent-server` and `agent-benchmark` commands. |
 | [API](api.md) | Every HTTP endpoint and WebSocket, who may call it, and what it takes and returns. |
 | [Deployment](deployment.md) | Docker, HTTPS, what the server hands out, one-line installers, packages and services, versions and updates, ports. |
@@ -121,6 +122,7 @@ Without accounts the server is a single-user tool: this computer is trusted, and
 | Server settings and restart | `agent-server` | Server settings | [Configuration](configuration.md) |
 | Downloads and installers | `/install.sh`, `/install.ps1` | Downloads | [Deployment](deployment.md) |
 | The server in Docker, HTTPS | `docker compose up -d` | | [Deployment](deployment.md#the-server-in-docker) |
+| Local demo: server, two machines and Ollama | `podman compose -f quickstart/compose.yaml up -d --build` (or `docker compose`) | Sign in as admin / secret on localhost:19999 | [Local container quickstart](deployment.md#local-container-quickstart) |
 | Benchmarks | `agent-benchmark` | | [Configuration](configuration.md#agent-benchmark) |
 | The API | | Server settings › API reference (`/docs`) | [API](api.md) |
 
@@ -140,4 +142,4 @@ Without accounts the server is a single-user tool: this computer is trusted, and
 | **bridge** | agent-machine's loopback HTTP server for the MCP servers it shares. |
 | **launch** | An agent started on a machine from the console. |
 | **trace** | A request's full saved payload (`--trace`). |
-| **access key** | The secret that lets a device use terminals on a server without accounts. |
+| **access token** | Short-lived OAuth credential required for API access; distinct from an ID token, session id or vendor API key. |

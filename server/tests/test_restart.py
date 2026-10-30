@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from agent_server.app import Supervisor, create_app
 from agent_server.config import Backend, Settings
+from oidc_helpers import authenticated_client, access_token
 
 
 LOCAL = {"base_url": "http://127.0.0.1:8181", "client": ("127.0.0.1", 50000)}
@@ -21,7 +22,7 @@ def settings(tmp_path: Path) -> Settings:
 
 
 def test_restart_needs_the_supervisor_and_this_computer(tmp_path):
-    with TestClient(create_app(settings(tmp_path)), **LOCAL) as client:
+    with authenticated_client(create_app(settings(tmp_path)), **LOCAL) as client:
         refused = client.post("/api/server/restart", json={})
         assert refused.status_code == 409 and "--reload" in refused.json()["detail"]
         assert client.get("/api/status").json()["restart"] == {"available": False, "pending": False, "address_pinned": False}
@@ -29,8 +30,8 @@ def test_restart_needs_the_supervisor_and_this_computer(tmp_path):
     app = create_app(settings(tmp_path), restart=restarted.set)
     with TestClient(app) as stranger:
         assert stranger.post("/api/server/restart", json={}).status_code == 401
-    with TestClient(app, **LOCAL) as client:
-        assert client.post("/api/server/restart", json={}, headers={"origin": "http://evil.example"}).status_code == 401
+    with authenticated_client(app, **LOCAL) as client:
+        assert client.post("/api/server/restart", json={}, headers={"origin": "http://evil.example"}).status_code == 403
         accepted = client.post("/api/server/restart", json={})
         assert accepted.status_code == 202 and accepted.json()["waiting_for"] == {"requests": 0}
         assert restarted.wait(5)
@@ -44,6 +45,14 @@ def free_port() -> int:
 
 
 def test_supervisor_serves_again_with_the_configuration_on_disk(tmp_path, monkeypatch):
+    headers = {}
+
+    def app_with_issuer(*args, **kwargs):
+        app = create_app(*args, **kwargs)
+        headers["x-ai-proxy-token"] = access_token(app)
+        return app
+
+    monkeypatch.setattr("agent_server.app.create_app", app_with_issuer)
     first, second = free_port(), free_port()
     config = tmp_path / "backends.yaml"
 
@@ -74,7 +83,7 @@ def test_supervisor_serves_again_with_the_configuration_on_disk(tmp_path, monkey
         before = health(first)["proxy_instance_id"]
         # Change the config on disk, as an editor (or the Settings page) would, then restart from the console.
         write(second, {"laptop": {"type": "ollama", "url": "http://127.0.0.1:9"}, "fresh": {"type": "ollama", "url": "http://127.0.0.1:10"}})
-        accepted = httpx.post(f"http://127.0.0.1:{first}/api/server/restart", json={})
+        accepted = httpx.post(f"http://127.0.0.1:{first}/api/server/restart", json={}, headers=headers)
         # It says where it comes back, so the console can follow it to a new port.
         assert accepted.status_code == 202 and accepted.json()["listen"] == {"host": "127.0.0.1", "port": second}
         deadline = time.monotonic() + 15
@@ -82,7 +91,7 @@ def test_supervisor_serves_again_with_the_configuration_on_disk(tmp_path, monkey
             time.sleep(0.1)
         after = health(second)
         assert after and after["proxy_instance_id"] != before
-        status = httpx.get(f"http://127.0.0.1:{second}/api/status").json()
+        status = httpx.get(f"http://127.0.0.1:{second}/api/status", headers=headers).json()
         assert "fresh" in status["backends"] and status["listen_address"] == f"127.0.0.1:{second}"
         assert health(first) is None
     finally:

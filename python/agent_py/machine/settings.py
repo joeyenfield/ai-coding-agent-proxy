@@ -47,7 +47,7 @@ def machine_path() -> Path:
 
 
 def upstream(fixed: str = "") -> common.Upstream:
-    # Only its own sign-in: AI_PROXY_URL and AI_PROXY_TOKEN are the agent command's.
+    # Only its own sign-in (or AI_PROXY_MACHINE_TOKEN); AI_PROXY_TOKEN belongs to agent.
     return common.Upstream(credentials_path, fixed=fixed, use_env=False)
 
 

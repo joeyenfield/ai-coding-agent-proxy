@@ -1,0 +1,125 @@
+name: ai-control-mesh-quickstart
+
+x-auth: &auth
+  AI_PROXY_OIDC_ISSUER: http://localhost:20000
+  AI_PROXY_OIDC_AUDIENCE: http://localhost:19999
+  AI_PROXY_OIDC_REDIRECT_URIS: http://localhost:19999/api/auth/callback
+  AI_PROXY_OIDC_BROWSER_ORIGINS: http://localhost:19999
+  AI_PROXY_OIDC_INTROSPECTION_SECRET: quickstart-local-introspection-secret
+  AI_PROXY_USERNAME: admin
+  AI_PROXY_PASSWORD: ${QUICKSTART_ADMIN_PASSWORD:-secret}
+
+x-machine: &machine
+  build:
+    context: ..
+    dockerfile: sandbox/Dockerfile
+  image: localhost/ai-control-mesh-quickstart-machine
+  restart: unless-stopped
+  entrypoint: [tini, --, python3, /quickstart/start.py, machine]
+  environment: &machine-env
+    QUICKSTART_PASSWORD: ${QUICKSTART_ADMIN_PASSWORD:-secret}
+    AI_PROXY_URL: http://localhost:19999
+    PYTHONDONTWRITEBYTECODE: "1"
+  depends_on:
+    server:
+      condition: service_healthy
+    auth:
+      condition: service_healthy
+
+services:
+  server:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    image: localhost/ai-control-mesh-quickstart-server
+    restart: unless-stopped
+    entrypoint: [python, /quickstart/start.py, server]
+    environment:
+      <<: *auth
+      AI_PROXY_URL: http://localhost:19999
+    ports:
+      - "127.0.0.1:19999:9999"
+    volumes:
+      - ./start.py:/quickstart/start.py:ro,z
+      - ./backends.yaml:/quickstart/backends.yaml:ro,z
+      - server-config:/app/config
+      - server-logs:/app/logs
+      - server-certs:/app/certs
+
+  auth:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    image: localhost/ai-control-mesh-quickstart-server
+    restart: unless-stopped
+    entrypoint: [agent-auth]
+    environment:
+      <<: *auth
+      AI_PROXY_AUTH_HOST: 0.0.0.0
+      AI_PROXY_AUTH_PORT: "10000"
+      AI_PROXY_OIDC_STATE_DIR: /app/auth-state
+    ports:
+      - "127.0.0.1:20000:10000"
+    volumes:
+      - server-config:/app/config:ro
+      - server-certs:/app/certs:ro
+      - auth-state:/app/auth-state
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:10000/health', timeout=3)"]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+
+  machine-1:
+    <<: *machine
+    hostname: machine-1
+    environment:
+      <<: *machine-env
+      QUICKSTART_OLLAMA: "1"
+    depends_on:
+      server:
+        condition: service_healthy
+      auth:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    volumes:
+      - ./start.py:/quickstart/start.py:ro,z
+      - ./machine.py:/quickstart/machine.py:ro,z
+      - machine-1-home:/home/agent
+      - machine-1-workspace:/workspace
+
+  machine-2:
+    <<: *machine
+    hostname: machine-2
+    volumes:
+      - ./start.py:/quickstart/start.py:ro,z
+      - ./machine.py:/quickstart/machine.py:ro,z
+      - machine-2-home:/home/agent
+      - machine-2-workspace:/workspace
+
+  # Only machine-1 reaches Ollama: start.py relays its loopback port 11434 here, where
+  # agent-machine discovers it. Its own network namespace lets Compose recreate either.
+  ollama:
+    image: docker.io/ollama/ollama:latest
+    restart: unless-stopped
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+    volumes:
+      - ollama-models:/root/.ollama
+    healthcheck:
+      test: [CMD, ollama, list]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  server-config:
+  server-logs:
+  server-certs:
+  auth-state:
+  machine-1-home:
+  machine-1-workspace:
+  machine-2-home:
+  machine-2-workspace:
+  ollama-models:

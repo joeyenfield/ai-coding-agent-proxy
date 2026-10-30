@@ -10,7 +10,7 @@ The server also describes its HTTP routes in OpenAPI:
 | `/docs` | Swagger UI. Use **Authorize** with a launcher token, or just be signed in to the console. |
 | `/redoc` | ReDoc. |
 
-With accounts, these need a sign-in like the rest of the API.
+These always need an OAuth access token or an authenticated browser cookie. See [OIDC authentication](oidc.md) for the separate issuer's endpoints.
 
 With [separate hosting](deployment.md#separate-console-and-api-domains), all these paths live on the API domain, not the static console. The console sends credentials on HTTP and live-stream requests; terminal WebSockets use the API host's cookie. `AI_PROXY_CONSOLE_ORIGINS` explicitly trusts the console origin for CORS, mutations and WebSockets.
 
@@ -19,16 +19,16 @@ With [separate hosting](deployment.md#separate-console-and-api-domains), all the
 | Label | Means |
 |---|---|
 | **Public** | Anyone, always. |
-| **Session** | Model traffic for an open session: in the path (`/session/<id>/...`), or with `X-AI-Proxy-Session` on `/v1` and `/anthropic`. The session id is the credential. MCP uses a separate, launch-only URL capability; a session id by itself cannot call MCP servers. |
-| **Signed in** | With accounts: a browser sign-in (the `ai_proxy_session` cookie) or a launcher token (`X-AI-Proxy-Token`). Without accounts: anyone who reaches the port. |
-| **Admin** | Signed in as an admin: the route is in `auth.ADMIN_ONLY`. Without accounts there are no admins and the label means nothing extra. |
-| **Trusted** | Without accounts: this computer (a loopback client with a loopback `Host`) or a request with the access key (the `ai_proxy_remote` cookie or `X-AI-Proxy-Token`). With accounts: signed in. |
-| **Local** | Without accounts, this computer only. With accounts, refused. |
+| **Session** | Access-token authentication plus control permission for the named open session. MCP additionally requires its launch-only capability. |
+| **Signed in** | Active OAuth access token: `Authorization: Bearer`, `X-AI-Proxy-Token`, or host-only `ai_proxy_session` cookie. |
+| **Admin** | Signed in as an admin; enforced by `auth.ADMIN_ONLY`. |
+| **Trusted** | Signed in. Loopback and old access keys confer no privilege. |
+| **Local** | Legacy pairing operations are refused. |
 | **Same origin** | Unsafe methods and WebSockets require the request's host or an exact console origin in `AI_PROXY_CONSOLE_ORIGINS`. Other origins are refused. |
 | **Machine feature** | The fleet's grants, `fleet.allowed(identity, machine, feature)`: the machine's owner always; admins for `view`, `models` and `update`; organizations and teams the owner granted the feature. Without accounts, everyone. See [Machines](machines.md). |
 | **Machine owner** | The machine's owner, or an admin where it says so. |
 
-With accounts, every path under `/api/`, `/v1/`, `/anthropic/`, `/session/`, `/docs`, `/redoc` and `/openapi.json` needs a sign-in, except `/health`, `/api/auth/status`, `/api/auth/login`, `/api/auth/logout` and `/api/auth/token`, and agent requests that name an open session. A refused request gets `401`, or `403` for another site's unsafe request or a non-admin on an admin route. A refused WebSocket is closed with `4401` or `4403`.
+Every protected path requires authentication, including agent session paths and loopback. Exceptions are `/health` and `/api/auth/{status,login,callback,refresh,logout}`. Refused credentials get 401; forbidden origins/roles get 403; issuer failures get 503. WebSockets initially close 4401/4403 and close 4410 when an established credential needs renewal.
 
 Every endpoint that touches a session checks its sharing (see [Accounts](accounts.md)). A session you can't see answers `404`.
 
@@ -36,7 +36,7 @@ Every endpoint that touches a session checks its sharing (see [Accounts](account
 
 ## Agent-facing APIs
 
-What agents call. On an agent machine they call the same paths on their `agent-proxy` (`http://127.0.0.1:8184`), which streams them to the server without its token. All are **Session**: the scoped paths under `/session/{session_id}/` need an open session; the unscoped ones take `X-AI-Proxy-Session` and `X-AI-Proxy-Backend`. An unscoped request without a session gets a new implicit session on the default backend; with accounts that needs a sign-in, and the session is the user's, private.
+Agents call these paths on their loopback agent-proxy, which authenticates all upstream traffic with `X-AI-Proxy-Token` while preserving vendor Authorization. Session paths require an open session and control permission. Unscoped authenticated traffic can create a private implicit session.
 
 | Method | Path | What it does |
 |---|---|---|
@@ -155,29 +155,27 @@ Shared terminals are a remote shell, so these routes need **Trusted** and **Same
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
-| GET | `/api/remote` | Anyone | Whether this browser is `trusted`, `local`, `paired`, and whether the server has `accounts`. On this computer only, also the access `key`, the bound host and port, and the `addresses` a phone could use (the `public_url` first). |
-| POST | `/api/remote/code` | Local, Same origin | A one-time pairing code (`ABCD-EFGH`), valid for `expires_in` seconds (10 minutes). |
-| POST | `/api/remote/pair` | Same origin | Pairs this browser: `{"key": ...}`, the access key or a pairing code. Sets the `ai_proxy_remote` cookie. `403` when it doesn't match. |
-| POST | `/api/remote/unpair` | Same origin | Removes this browser's cookie. |
-| POST | `/api/remote/rotate` | Admin, Local, Same origin | Replaces the access key, which signs every paired device out. |
+| GET | `/api/remote` | Signed in | `trusted: true`, `accounts: true`; local/paired privileges are disabled. No access key is returned. |
+| POST | `/api/remote/code`, `/api/remote/pair`, `/api/remote/rotate` | Signed in | Legacy pairing is refused; it cannot grant OAuth access. |
+| POST | `/api/remote/unpair` | Signed in, Same origin | Removes only the legacy pairing cookie; use `/api/auth/logout` to sign out. |
 | GET | `/api/terminals` | Trusted | The shared terminals you can see: agent, machine, project, model, backend, state, activity, requests in flight and `attention` (waiting, with the question on screen). |
 
 The two terminal WebSockets are below.
 
 ## Accounts, organizations and users
 
-See [Accounts](accounts.md). Changes answer with the whole directory (`orgs` and `users`) as you may see it. The organization and user routes answer `400` on a server without accounts.
+See [Accounts](accounts.md). Changes answer with the directory (`orgs` and `users`) as you may see it. Authentication is always required.
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
-| GET | `/api/auth/status` | Public | `required` (whether sign-in is on), the signed-in `identity`, and whether the connection is HTTPS. |
-| POST | `/api/auth/login` | Public | `{"username", "password"}`. Sets the `ai_proxy_session` cookie for 30 days. Ten failures in ten minutes from one client answer `429`. |
-| POST | `/api/auth/logout` | Public | Ends this browser's sign-in. |
-| POST | `/api/auth/token` | Public | `agent login`: a username, password and `label` in, a launcher token out (`id`, `token`, `user`). Same failure limit. |
-| GET | `/api/auth/tokens` | Signed in | Your launcher tokens (not the secrets). |
-| POST | `/api/auth/tokens` | Signed in | A new launcher token for you, with a `label`. The token is shown once. |
-| DELETE | `/api/auth/tokens/{token_id}` | Signed in | Revokes one of yours. |
-| POST | `/api/auth/password` | Signed in | `{"current", "new"}`: changes your password and signs you out everywhere. |
+| GET | `/api/auth/status` | Public | Always `required: true`; current identity, HTTPS, issuer, audience and CLI client id. |
+| GET | `/api/auth/login` | Public | Starts PKCE browser authorization; `return_to` must match an allowed console origin. |
+| GET | `/api/auth/callback` | Public | Validates OIDC state, code exchange and nonce; sets access/refresh cookies. |
+| POST | `/api/auth/refresh` | Public, Same origin | Rotates browser refresh token and renews access cookie. |
+| POST | `/api/auth/logout` | Public, Same origin | Revokes browser credential family and clears cookies. |
+| POST | `/api/auth/login` | Public | 410; password sign-in moved to the issuer. |
+| POST | `/api/auth/token`, `/api/auth/password` | Signed in | 410; legacy password grants and account password changes removed. |
+| GET, POST, DELETE | `/api/auth/tokens`, `/api/auth/tokens/{token_id}` | Signed in | 410; launcher keys replaced by OAuth grants. |
 | GET | `/api/orgs` | Signed in | Organizations with their teams and members. Members see only their own. |
 | POST | `/api/orgs` | Admin | `{"id", "name"}`: adds one. |
 | PUT | `/api/orgs/{org}` | Admin | `{"name"}`: renames it. |

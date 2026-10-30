@@ -22,7 +22,7 @@ USAGE = """agent-machine puts this computer in an agent-server's fleet, so the s
 LLM providers it runs (Ollama, Strata, Docker Model Runner, containers) and start agents on it.
 
 Usage: agent-machine                           this machine as the fleet sees it
-       agent-machine login [url] [--user name] [--key access-key]
+       agent-machine login [url]                 (OIDC device sign-in)
        agent-machine logout [url]
        agent-machine start                     join the fleet in the background
        agent-machine stop
@@ -444,12 +444,14 @@ def show(machine: settings.Machine) -> None:
     entry = upstream.credentials().servers.get(common.normalize(server))
     if entry is None:
         signed_in = f"not signed in (agent-machine login {server})"
-    elif entry.user:
+    elif entry.access_token and entry.user:
         signed_in = f"as {entry.user}"
-    elif entry.token:
-        signed_in = "with an access key"
+    elif entry.access_token:
+        signed_in = "with OAuth"
     else:
-        signed_in = "no accounts there"
+        signed_in = f"OAuth sign-in required (agent-machine login {server})"
+    if os.environ.get("AI_PROXY_MACHINE_TOKEN"):
+        signed_in = "with an injected OAuth access token"
     print(f"Machine   : {machine.display_name()} ({machine.id})\nServer    : {server}, {signed_in}")
     status = settings.running()
     if status:

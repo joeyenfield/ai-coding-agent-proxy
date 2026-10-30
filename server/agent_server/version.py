@@ -30,8 +30,8 @@ from typing import Any
 from .config import ROOT
 
 
-PROTOCOL = 1
-MIN_PROTOCOL = 1
+PROTOCOL = 2
+MIN_PROTOCOL = 2
 VERSION_HEADER = "x-ai-proxy-version"
 PROTOCOL_HEADER = "x-ai-proxy-protocol"
 CLOSE_UPGRADE = 4426

@@ -91,7 +91,7 @@ The launcher picks the `anthropic` backend by itself. The proxy sees Claude Code
 agent <agent> [project] [options] [-- agent arguments]
 agent --list
 agent --shell [folder]
-agent login [url] [--user name] [--key key]
+agent login [url]
 agent logout [url]
 agent proxy [--server url] [--port N] [--intercept-port N]
 agent proxy stop
@@ -164,27 +164,27 @@ When someone starts an agent on a machine from the console, `agent-machine` runs
 sequenceDiagram
   actor U as You
   participant L as agent login
-  participant S as agent-server
+  participant S as OIDC issuer
   participant P as agent-proxy
-  U->>L: agent login http://server:9999 --user alice
-  L->>S: POST /api/auth/token (username, password)
-  S-->>L: a launcher token for this computer
+  U->>L: agent login https://api.aicontrolmesh.com
+  L->>S: Begin device authorization
+  S-->>L: Verification URL and short code
+  U->>S: Sign in and approve code in browser
+  S-->>L: Access and rotating refresh tokens
   L->>L: saves it in credentials.json
   Note over P: reads credentials.json on every request: login and logout apply at once
   P->>S: the launcher's calls, with X-AI-Proxy-Token
 ```
 
 ```bash
-agent login http://server:9999            # once per computer
-agent login http://server:9999 --user joey
-agent login http://server:9999 --key <access key>   # a server without accounts
+agent login https://api.aicontrolmesh.com # approve the device code, once per computer
 agent logout                               # the server signed in to last
 agent logout http://server:9999
 ```
 
-`agent login [url]` signs this computer's `agent-proxy` in to a server. The URL defaults to the server it uses now; without a scheme, `http://` is added. On a server with accounts it asks for your username (or takes `--user`/`-u`) and password, and trades them for a launcher token. The password isn't stored. The token appears as `agent-proxy on <hostname>` under **Server → Organizations → Your account**. It warns when the connection isn't HTTPS and the server isn't this computer. For scripts, `AI_PROXY_PASSWORD_INPUT` supplies the password.
+`agent login [url]` signs this computer's `agent-proxy` in through OIDC device authorization. Open the printed verification URL, sign in and approve the displayed code. The CLI never collects your password. Access tokens refresh automatically; see [OIDC authentication](oidc.md).
 
-On a server without accounts there's no sign-in, but the server is remembered as the one to use. `--key` stores that server's access key, so this computer can share terminals with it from another machine.
+Authentication is mandatory. The old `--user`, `--key` and password-input flow no longer grant access.
 
 The sign-in is kept in `credentials.json`: `%APPDATA%\agent-proxy\` on Windows, `$XDG_CONFIG_HOME/agent-proxy/` (or `~/.config/agent-proxy/`) elsewhere, readable only by you. `AI_PROXY_CREDENTIALS` names another file. The last server signed in to is the default. The `agent-proxy` reads the file on every request, so signing in or out applies at once, with no restart.
 
@@ -253,12 +253,11 @@ What the client reads:
 | Variable | What it does |
 |---|---|
 | `AI_PROXY_URL` | The server the `agent-proxy` uses, over the one from `agent login`. |
-| `AI_PROXY_TOKEN` | The token (or a no-accounts server's access key) to sign with, over the stored one. |
+| `AI_PROXY_TOKEN` | A pre-issued OAuth access token, overriding stored credentials. Obtain a replacement before it expires. |
 | `AI_PROXY_CREDENTIALS` | Where `credentials.json` is. Use a Windows path when you set it from Git Bash. |
 | `AI_PROXY_LOCAL_PORT` | The `agent-proxy`'s HTTP port (default 8184). |
 | `AI_PROXY_LOCAL_INTERCEPT_PORT` | The `agent-proxy`'s HTTPS proxy port (default 8183). |
 | `AI_PROXY_CONTROL` | `1` makes `--control` the default. |
-| `AI_PROXY_PASSWORD_INPUT` | The password for `agent login`, instead of asking. |
 | `AI_PROXY_MACHINE_ID`, `AI_PROXY_MACHINE_NAME` | Set by `agent-machine` for launches from the console: tag the session with its fleet machine. |
 
 Every session is also tagged with the computer's hostname, so the server can list agents you start by hand under the fleet machine of the same owner with that hostname. The agent itself gets `AI_PROXY_SESSION`, its session id, along with the variables its definition sets.
@@ -450,9 +449,9 @@ With `--control`, the launcher runs the agent in a pseudo-terminal (ConPTY on Wi
 - **It needs an interactive terminal.** On Windows that's Windows Terminal, PowerShell or cmd, not Git Bash's mintty. Otherwise the launcher prints why sharing is off and runs the agent directly.
 - **Your window stays the main one.** Its size sets the terminal's size, and closing it ends the agent.
 - **History is saved** on the server, in `logs/sessions/<id>/terminal.log` (up to 64 MB), so finished sessions stay readable. If the launcher loses the server, it keeps trying and resends what the server missed when it reconnects; if this computer's `agent-proxy` has stopped (`agent update` stops it), the launcher starts it again.
-- **Agents on other computers** can be shared once the computer is signed in with `agent login <server>`. On a server without accounts, give it the access key: `agent login <server> --key <access key>`, or set `AI_PROXY_TOKEN`.
+- **Agents on other computers** can be shared once signed in with `agent login <server>`. `AI_PROXY_TOKEN` accepts a pre-issued OAuth access token, not a legacy key.
 
-Typing into an agent's terminal is as good as a shell on that computer, so the server only lets trusted viewers watch or type. See [Console](console.md) for the Running agents page and pairing a phone, and [Accounts](accounts.md) for sign-in.
+Typing into an agent's terminal is as good as a shell on that computer. Viewers need an active OIDC sign-in and session permission. See [Console](console.md) and [Accounts](accounts.md).
 
 ### Who can see a session
 

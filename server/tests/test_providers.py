@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi.testclient import TestClient
+from oidc_helpers import authenticated_client as TestClient
 
 from agent_server.app import create_app
 from agent_server.config import Backend, Settings
@@ -80,7 +80,7 @@ def refuse(request: httpx.Request) -> httpx.Response:
 def start(app: Any, machine_id: str = "desk", **hello: Any) -> FakeSocket:
     fleet = app.state.runtime.fleet
     socket = FakeSocket(fleet, machine_id)
-    fleet.connect(socket, None, "127.0.0.1", {
+    fleet.connect(socket, app.state.runtime.auth.identity_for("test-admin", "token"), "127.0.0.1", {
         "id": machine_id, "name": machine_id, "providers": [{"type": "ollama", "port": 11434}, {"type": "strata", "port": 18500}],
         "servers": {"enabled": True, "ollama": {"found": True, "running": True}}, **hello,
     })

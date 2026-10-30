@@ -33,13 +33,14 @@ const MOVED = ["/models", "/hosts", "/server", "/providers", "/strata", "/docker
 
 export function App() {
   const auth = useAuth();
-  if (auth.isPending) return null;
-  if (auth.data?.required && !auth.data.identity) {
-    // The downloads are public, like the files themselves: a phone can get the app before signing in.
+  if (!auth.data?.identity || auth.error) {
     if (window.location.pathname === "/get") return <PublicDownloads />;
-    // So is the documentation: it says how to install and sign in.
     if (window.location.pathname === "/help" || window.location.pathname.startsWith("/help/")) return <PublicDocs />;
-    return <LoginPage secure={auth.data.secure} />;
+  }
+  if (auth.isPending) return null;
+  if (auth.error) return <main className="login"><section className="login-card panel"><h1>Sign-in unavailable</h1><p role="alert" className="bad">{auth.error.message}</p></section></main>;
+  if (!auth.data?.identity) {
+    return <LoginPage />;
   }
   return <Shell identity={auth.data?.identity ?? null} />;
 }

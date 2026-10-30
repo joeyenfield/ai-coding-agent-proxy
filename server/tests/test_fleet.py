@@ -178,7 +178,7 @@ def test_legacy_backends_need_explicit_admin_adoption_with_accounts(tmp_path):
         assert alice.get("/api/machines/m1").json()["backends"] == ["old"]
 
 
-def test_legacy_backends_still_join_automatically_without_accounts(tmp_path):
+def test_legacy_access_key_cannot_join_fleet_without_oauth_accounts(tmp_path):
     from agent_server.config import Settings
 
     settings = Settings(log_dir=tmp_path / "logs", backends_file=tmp_path / "backends.yaml",
@@ -186,10 +186,11 @@ def test_legacy_backends_still_join_automatically_without_accounts(tmp_path):
     app = create_app(settings)
     with TestClient(app, base_url=BASE) as client:
         headers = {**HOST, "x-ai-proxy-token": app.state.runtime.remote.token}
-        with client.websocket_connect("/api/machines/connect", headers=headers) as socket:
-            socket.send_json(hello(address="127.0.0.1"))
-            assert socket.receive_json()["type"] == "welcome"
-            assert settings.backends["old"].machine == "m1"
+        with pytest.raises(Exception):
+            with client.websocket_connect("/api/machines/connect", headers=headers) as socket:
+                socket.send_json(hello(address="127.0.0.1"))
+                socket.receive_json()
+        assert settings.backends["old"].machine is None
 
 
 def test_container_requests_go_to_the_machine_and_its_answer_comes_back(tmp_path):

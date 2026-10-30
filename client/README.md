@@ -10,7 +10,7 @@ Docker, containers) or takes launches from the console, see `agent-machine` in
 | `agent <agent> [project] [options] [-- args]` | Launch an agent through this machine's agent-proxy, in a session on the server |
 | `agent --list` | The server's agents, and whether each is installed here |
 | `agent --shell [folder]` | Your shell ($SHELL, or PowerShell on Windows) in a terminal shared with the server that only you see; agent-machine runs it with `--headless` for terminals from the console |
-| `agent login [url] [--user name] [--key key]` | Sign this machine in to an agent-server (a token, never your password, is stored) |
+| `agent login [url]` | Sign in with an OIDC device code approved in your browser |
 | `agent logout [url]` | Forget the sign-in and revoke its token |
 | `agent proxy` | Run this machine's agent-proxy in the foreground (`agent` starts it in the background when needed) |
 | `agent proxy stop` | Stop the agent-proxy running here; the next `agent` starts it again |
@@ -36,9 +36,16 @@ environment to launch it with all come from the server's API, through the agent-
    (ConPTY on Windows, a pty elsewhere), then closes the session with its exit status.
 
 The agent-proxy listens on loopback only and refuses web pages (it checks the Host and
-Origin headers). It signs only a short list of launcher calls with the machine's token;
-agents' own traffic is passed through with their session id as the credential. It
+Origin headers). It signs the launcher's allowed calls and all agent traffic with the
+machine's OAuth access token, preserving the agent's own vendor Authorization header. It
 doesn't join the server's fleet: that's agent-machine's job.
+
+Sign-in is required even on loopback. URLs must use HTTPS, except loopback development.
+Access and rotating refresh credentials stay in `credentials.json`; refresh is serialized
+across Go/Python processes. `agent logout` revokes the refresh credential and forgets the
+local sign-in, reporting any issuer revocation failure. Old password and access-key
+sign-ins are not accepted. Automation can obtain a service-account OAuth access token
+directly from the issuer and supply it with `AI_PROXY_TOKEN` (and `AI_PROXY_URL`).
 
 **Versions.** Every request the client sends to the server says which client it is:
 `X-AI-Proxy-Version`, `X-AI-Proxy-Protocol` (the server API level, `settings.Protocol`) and

@@ -16,6 +16,7 @@ from agent_server.intercept import (
 )
 from agent_server.runtime import Runtime
 from agent_server.websocket_tap import WebSocketTap, frame
+from oidc_helpers import Issuer
 
 
 ANTHROPIC_STREAM = "".join(
@@ -28,6 +29,13 @@ ANTHROPIC_STREAM = "".join(
         {"type": "message_stop"},
     ]
 )
+
+
+def authenticate(runtime: Runtime) -> str:
+    runtime.auth.store.add_user("alice", "test-only-password")
+    runtime.test_issuer = Issuer(runtime.auth)
+    runtime.test_access_token = runtime.test_issuer.issue("alice")
+    return runtime.test_access_token
 
 
 @pytest.fixture
@@ -46,6 +54,7 @@ async def intercept(tmp_path: Path, monkeypatch):
 
     settings = Settings(log_dir=tmp_path, intercept=InterceptSettings(listen_port=0, ca_dir=tmp_path / "certs"))
     runtime = Runtime(settings)
+    token = authenticate(runtime)
     runtime.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     runtime.intercept_client = runtime.client
     resolve_public_addresses = intercept_module._public_addresses
@@ -59,15 +68,18 @@ async def intercept(tmp_path: Path, monkeypatch):
     proxy = InterceptProxy(runtime)
     await proxy.start()
     port = proxy.server.sockets[0].getsockname()[1]
-    session = runtime.sessions.create({"client": "claude-account", "backend": "direct", "trace": True})
+    session = runtime.sessions.create({"client": "claude-account", "backend": "direct", "trace": True, "tags": {"owner": "alice"}})
     verify = ssl.create_default_context(cafile=str(runtime.ca.cert_path))
-    client = httpx.AsyncClient(proxy=f"http://{session.session_id}:x@127.0.0.1:{port}", verify=verify)
+    client = httpx.AsyncClient(proxy=httpx.Proxy(
+        f"http://{session.session_id}:x@127.0.0.1:{port}", headers={"x-ai-proxy-token": token},
+    ), verify=verify)
     try:
         yield runtime, session, client, seen, port
     finally:
         await client.aclose()
         await proxy.stop()
         await runtime.client.aclose()
+        runtime.auth.client.close()
 
 
 async def test_intercepted_stream_is_forwarded_and_recorded(intercept):
@@ -85,6 +97,7 @@ async def test_intercepted_stream_is_forwarded_and_recorded(intercept):
     assert str(upstream.url) == "https://api.anthropic.test/v1/messages?beta=true"
     assert upstream.headers["authorization"] == "Bearer sk-secret"
     assert "proxy-authorization" not in upstream.headers
+    assert "x-ai-proxy-token" not in upstream.headers
     assert json.loads(upstream.content) == body
 
     [record] = runtime.records(session)
@@ -119,9 +132,13 @@ async def test_token_endpoints_are_redacted_and_errors_pass_through(intercept):
 
 
 async def test_connect_to_private_destination_is_refused_before_tls(intercept):
-    _, _, _, _, port = intercept
+    runtime, session, _, _, port = intercept
     reader, writer = await asyncio.open_connection("127.0.0.1", port)
-    writer.write(b"CONNECT 127.0.0.1:443 HTTP/1.1\r\nHost: 127.0.0.1:443\r\n\r\n")
+    authorization = base64.b64encode(f"{session.session_id}:x".encode()).decode()
+    writer.write(
+        f"CONNECT 127.0.0.1:443 HTTP/1.1\r\nHost: 127.0.0.1:443\r\n"
+        f"Proxy-Authorization: Basic {authorization}\r\nX-AI-Proxy-Token: {runtime.test_access_token}\r\n\r\n".encode()
+    )
     await writer.drain()
     response = await reader.readuntil(b"\r\n\r\n")
     assert response.startswith(b"HTTP/1.1 403 ")
@@ -170,16 +187,17 @@ async def test_intercept_http_transport_refuses_private_destination():
 async def test_plain_http_proxy_returns_bad_gateway_for_private_destination(tmp_path):
     settings = Settings(log_dir=tmp_path, intercept=InterceptSettings(listen_port=0, ca_dir=tmp_path / "certs"))
     runtime = Runtime(settings)
+    token = authenticate(runtime)
     runtime.intercept_client = httpx.AsyncClient(transport=InterceptTransport(), trust_env=False)
     proxy = InterceptProxy(runtime)
     await proxy.start()
-    session = runtime.sessions.create({"client": "test", "backend": "direct"})
+    session = runtime.sessions.create({"client": "test", "backend": "direct", "tags": {"owner": "alice"}})
     authorization = base64.b64encode(f"{session.session_id}:x".encode()).decode()
     try:
         reader, writer = await asyncio.open_connection("127.0.0.1", proxy.server.sockets[0].getsockname()[1])
         writer.write(
             b"GET http://127.0.0.1:1/ HTTP/1.1\r\nHost: 127.0.0.1:1\r\n"
-            + f"Proxy-Authorization: Basic {authorization}\r\nConnection: close\r\n\r\n".encode()
+            + f"Proxy-Authorization: Basic {authorization}\r\nX-AI-Proxy-Token: {token}\r\nConnection: close\r\n\r\n".encode()
         )
         await writer.drain()
         response = await reader.read()
@@ -191,16 +209,18 @@ async def test_plain_http_proxy_returns_bad_gateway_for_private_destination(tmp_
     finally:
         await proxy.stop()
         await runtime.intercept_client.aclose()
+        runtime.auth.client.close()
 
 
-async def test_unknown_proxy_user_goes_to_unattributed_session(intercept):
+async def test_missing_proxy_session_is_refused_without_creating_unattributed_records(intercept):
     runtime, session, _, _, port = intercept
     verify = ssl.create_default_context(cafile=str(runtime.ca.cert_path))
     async with httpx.AsyncClient(proxy=f"http://127.0.0.1:{port}", verify=verify) as anonymous:
-        await anonymous.get("https://auth.example.test/nothing")
+        with pytest.raises(httpx.ProxyError, match="407"):
+            await anonymous.get("https://auth.example.test/nothing")
     assert runtime.records(session) == []
     unattributed = [item for item in runtime.sessions.list() if item.client == "unattributed"]
-    assert len(unattributed) == 1 and unattributed[0].request_count == 1
+    assert unattributed == []
 
 
 def test_intercept_agents_get_proxy_and_ca_environment():
@@ -270,14 +290,16 @@ async def test_websocket_responses_turns_are_recorded(tmp_path, monkeypatch):
     upstream_port = server.sockets[0].getsockname()[1]
     settings = Settings(log_dir=tmp_path, intercept=InterceptSettings(listen_port=0, ca_dir=tmp_path / "certs"))
     runtime = Runtime(settings)
+    token = authenticate(runtime)
     proxy = InterceptProxy(runtime)
     await proxy.start()
-    session = runtime.sessions.create({"client": "codex-account", "backend": "direct", "trace": True})
+    session = runtime.sessions.create({"client": "codex-account", "backend": "direct", "trace": True, "tags": {"owner": "alice"}})
     try:
         reader, writer = await asyncio.open_connection("127.0.0.1", proxy.server.sockets[0].getsockname()[1])
         writer.write(
             f"GET http://127.0.0.1:{upstream_port}/backend-api/codex/responses HTTP/1.1\r\n"
             f"Host: 127.0.0.1:{upstream_port}\r\nProxy-Authorization: Basic {__import__('base64').b64encode(f'{session.session_id}:x'.encode()).decode()}\r\n"
+            f"X-AI-Proxy-Token: {token}\r\n"
             "Upgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: a2V5\r\nSec-WebSocket-Version: 13\r\n"
             "Sec-WebSocket-Extensions: permessage-deflate\r\n\r\n".encode()
         )
@@ -296,8 +318,10 @@ async def test_websocket_responses_turns_are_recorded(tmp_path, monkeypatch):
     finally:
         await proxy.stop()
         server.close()
+        runtime.auth.client.close()
 
     assert "permessage-deflate" not in seen_headers[0]
+    assert "x-ai-proxy-token:" not in seen_headers[0].lower()
     records = {record["kind"]: record for record in runtime.records(session)}
     turn = records["intercept"]
     assert (turn["method"], turn["model"], turn["endpoint"]) == ("WS", "gpt-x", "/backend-api/codex/responses")
@@ -307,7 +331,7 @@ async def test_websocket_responses_turns_are_recorded(tmp_path, monkeypatch):
     assert records["upgrade"]["status"] == 101
 
 
-async def test_with_accounts_only_open_sessions_may_use_the_listener(intercept, tmp_path):
+async def test_listener_requires_oauth_and_an_open_session_the_user_controls(intercept, tmp_path):
     import asyncio
 
     from agent_server.auth import UserStore
@@ -315,9 +339,11 @@ async def test_with_accounts_only_open_sessions_may_use_the_listener(intercept, 
     runtime, session, client, _, port = intercept
     UserStore(runtime.settings.users_path).add_user("joey", "correct horse")
 
-    async def connect(authorization: str | None) -> bytes:
+    async def connect(authorization: str | None, token: str | None = None) -> bytes:
         reader, writer = await asyncio.open_connection("127.0.0.1", port)
         header = f"Proxy-Authorization: {authorization}\r\n" if authorization else ""
+        if token:
+            header += f"X-AI-Proxy-Token: {token}\r\n"
         writer.write(f"CONNECT 127.0.0.1:443 HTTP/1.1\r\nHost: 127.0.0.1:443\r\n{header}\r\n".encode())
         await writer.drain()
         line = await reader.readline()
@@ -330,7 +356,11 @@ async def test_with_accounts_only_open_sessions_may_use_the_listener(intercept, 
         return "Basic " + base64.b64encode(f"{user}:x".encode()).decode()
 
     assert b" 407 " in await connect(None)
-    assert b" 407 " in await connect(basic("not-a-session"))
-    assert b" 403 " in await connect(basic(session.session_id))
-    runtime.sessions.end(session)
+    token = runtime.test_access_token
+    assert b" 407 " in await connect(basic("not-a-session"), token)
     assert b" 407 " in await connect(basic(session.session_id))
+    other_token = runtime.test_issuer.issue("joey")
+    assert b" 407 " in await connect(basic(session.session_id), other_token)
+    assert b" 403 " in await connect(basic(session.session_id), token)
+    runtime.sessions.end(session)
+    assert b" 407 " in await connect(basic(session.session_id), token)

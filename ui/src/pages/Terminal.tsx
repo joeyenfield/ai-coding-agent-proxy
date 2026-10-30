@@ -146,7 +146,21 @@ export function TerminalPage() {
     const typed = terminal.onData((data) => {
       if ((WHEEL.test(data) || !REPLY.test(data)) && !watchOnlyRef.current) send({ keys: data });
     });
-    const connect = () => {
+    const connect = async () => {
+      try {
+        const status = await api.authStatus();
+        if (stopped) return;
+        if (!status.identity) {
+          setConnection("unauthorized");
+          return;
+        }
+      } catch (error) {
+        if (stopped) return;
+        notify(error instanceof Error ? error.message : "Sign-in is unavailable");
+        setConnection("retrying");
+        retry = window.setTimeout(connect, 5000);
+        return;
+      }
       const ws = new WebSocket(terminalSocketUrl(sessionId));
       ws.binaryType = "arraybuffer";
       socket.current = ws;
@@ -253,7 +267,7 @@ export function TerminalPage() {
         <SharingControl sessionId={sessionId} you={summary?.you} />
       </header>
 
-      {connection === "unauthorized" && <PairPanel onPaired={() => window.location.reload()} />}
+      {connection === "unauthorized" && <PairPanel />}
       {connection === "missing" && (
         <div className="empty panel">
           <p>This session has no shared terminal.</p>

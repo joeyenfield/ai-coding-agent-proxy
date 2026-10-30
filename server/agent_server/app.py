@@ -63,6 +63,7 @@ def create_app(settings: Settings | None = None, restart: Any = None, address_pi
         await runtime.client.aclose()
         if runtime.intercept_client:
             await runtime.intercept_client.aclose()
+        runtime.auth.client.close()
         LOGGER.info("proxy stopped instance=%s", runtime.proxy_instance_id)
 
     # /docs (Swagger UI), /redoc and /openapi.json; openapi.install shapes the document.
@@ -213,7 +214,7 @@ def main() -> None:
         ensure_first_user(settings)
         uvicorn.run(
             "agent_server.app:create_app", factory=True, host=settings.host, port=args.port or settings.port,
-            reload=True, **_tls(settings),
+            reload=True, access_log=False, **_tls(settings),
         )
         return
     Supervisor().serve(Settings.load, build=build, host=args.host, port=args.port)
@@ -223,24 +224,18 @@ FIRST_USER = "admin"
 
 
 def ensure_first_user(settings: Settings) -> Path | None:
-    """Create an admin on the first start that listens beyond this computer, so sign-in is on.
-
-    Without a user, anyone who reaches the port can read the recorded traffic and drive the
-    console. It only happens while users.json doesn't exist, so removing every user later
-    keeps sign-in off. The password is saved beside users.json as well as printed, because
-    a launcher that starts the proxy discards its output. Returns the saved file.
-    """
+    """Bootstrap an account on first start; OIDC remains mandatory even with no users."""
     environment_user = os.getenv("AI_PROXY_USERNAME") and os.getenv("AI_PROXY_PASSWORD")
-    if settings.host in remote.LOOPBACK_NAMES or environment_user or settings.users_path.exists():
+    if environment_user or settings.users_path.exists():
         return None
     password = secrets.token_urlsafe(12)
     UserStore(settings.users_path).add_user(FIRST_USER, password)
     saved = settings.users_path.with_name("first-user-password")
     remote.write_secret(saved, password)
     print(
-        f"agent-server: {settings.host} accepts other machines, so sign-in is now on.\n"
+        "agent-server: OIDC sign-in is required on every interface.\n"
         f"  Created the user '{FIRST_USER}', an admin, with the password {password} (saved in {saved}).\n"
-        "  Sign in to the console, change the password on Server › Organizations, then delete that file.\n"
+        "  Start agent-auth, sign in through the console, reset this password with agent-server user passwd admin, then delete that file.\n"
         f"  Sign each agent machine in once with: agent login {settings.public_url or settings.proxy_url}\n"
         f"  Machines that supply models join with: agent-machine login {settings.public_url or settings.proxy_url}, then agent-machine start",
         file=sys.stderr, flush=True,
@@ -283,11 +278,11 @@ class Supervisor:
                 ensure_built(settings.ui_dir)
             settings.host = host or settings.host
             settings.port = port or settings.port
-            # Every round, so switching the listen host to 0.0.0.0 and restarting turns sign-in on too.
+            # Bootstrap is independent of the listen address; authentication is always required.
             ensure_first_user(settings)
             app = create_app(settings, restart=self.restart, address_pinned=bool(host or port))
             # Connections still open after this long are closed, so a restart can't hang.
-            config = uvicorn.Config(app, host=settings.host, port=settings.port, timeout_graceful_shutdown=5, **_tls(settings))
+            config = uvicorn.Config(app, host=settings.host, port=settings.port, access_log=False, timeout_graceful_shutdown=5, **_tls(settings))
             self.server = uvicorn.Server(config)
             self.restart_requested = False
             self.server.run()

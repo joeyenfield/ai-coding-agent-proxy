@@ -115,9 +115,11 @@ func Dial(upstream settings.Upstream, server, path string) (*websocket.Conn, *ht
 	target := fmt.Sprintf("%s://%s%s%s", scheme, parsed.Host, strings.TrimRight(parsed.Path, "/"), path)
 	header := http.Header{}
 	settings.Identify(header)
-	if token := upstream.Token(server); token != "" {
-		header.Set(settings.TokenHeader, token)
+	token, err := upstream.AccessToken(server)
+	if err != nil {
+		return nil, nil, err
 	}
+	header.Set(settings.TokenHeader, token)
 	dialer := websocket.Dialer{Proxy: nil, HandshakeTimeout: 10 * time.Second}
 	return dialer.Dial(target, header)
 }
@@ -154,6 +156,11 @@ func (p *Presence) Run(ctx context.Context) {
 	for attempt := 0; ctx.Err() == nil; attempt++ {
 		started := time.Now()
 		err := p.session(ctx)
+		if websocket.IsCloseError(err, 4410) {
+			if refreshErr := p.Upstream.RejectAccessToken(p.Upstream.Server()); refreshErr != nil {
+				err = refreshErr
+			}
+		}
 		if ctx.Err() != nil {
 			return
 		}
@@ -201,6 +208,9 @@ func (p *Presence) session(ctx context.Context) error {
 		var closed *websocket.CloseError
 		if errors.As(err, &closed) && closed.Code == CloseUpgradeRequired {
 			return fmt.Errorf("the agent-server at %s can't take this agent-machine: %s", server, closed.Text)
+		}
+		if errors.As(err, &closed) && closed.Code == 4410 {
+			return err
 		}
 		if errors.As(err, &closed) {
 			return fmt.Errorf("the agent-server refused this machine: %s", closed.Text)
@@ -405,9 +415,12 @@ func (p *Presence) installedAgents(server string) []string {
 	if err != nil {
 		return nil
 	}
-	if token := p.Upstream.Token(server); token != "" {
-		request.Header.Set(settings.TokenHeader, token)
+	token, err := p.Upstream.AccessToken(server)
+	if err != nil {
+		p.logf("listing installed agents: %v", err)
+		return nil
 	}
+	request.Header.Set(settings.TokenHeader, token)
 	response, err := settings.ServerClient(10 * time.Second).Do(request)
 	if err != nil {
 		return nil

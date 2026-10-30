@@ -10,9 +10,9 @@ without a Go toolchain.
 pip install https://server:9999/downloads/<version>/python/ai_proxy_agent_py-<version>-py3-none-any.whl
                                          # the server's own build: its Downloads page has the exact line
 pip install ./python                     # or from a checkout: pip install -e "./python[dev]"
-agent login http://server:9999           # sign this machine in, once (same file as the Go agent)
+agent login https://server:9999          # approve a device code in your browser (same file as Go)
 agent qwen . --model qwen3.6:35b         # launch an agent through this machine's agent-proxy
-agent-machine login http://server:9999
+agent-machine login https://server:9999
 agent-machine launches on && agent-machine roots add ~/work
 agent-machine start                      # join the fleet in the background
 ```
@@ -32,8 +32,8 @@ pywinpty on Windows. psutil is optional (`[metrics]`) for CPU and memory figures
 `login`/`logout`, `proxy` and `proxy stop`, `version`, with the Go launcher's options
 (`--model`, `--backend`, `--trace`, `--mcp`, `--control`, `--switch`, `--share`, `--team`,
 `--let-others-type`, and `--headless` for launches from the console). The agent-proxy is the
-same: loopback only, Host and Origin checked on every route, only the launcher's short list
-of calls signed with the machine's token, agents' traffic streamed without it, terminals
+same: loopback only, Host and Origin checked on every route, the launcher's short list
+and all agents' traffic signed with the OAuth access token, vendor Authorization preserved, terminals
 relayed, and account agents' HTTPS tunnelled to the server's intercept over a WebSocket each.
 `--control` runs the agent in a POSIX pty from the standard library, or a ConPTY through
 pywinpty on Windows.
@@ -65,6 +65,13 @@ The two programs live in one package and share `common.py` (the protocol, header
 files, HTTP clients) and `login.py`. Each still keeps its own credentials, in the same place as
 its Go version: `agent-proxy/credentials.json` (or `AI_PROXY_CREDENTIALS`) for agent, the
 `agent-machine` folder (or `AI_PROXY_MACHINE_HOME`) for agent-machine.
+
+Sign-in is required even on loopback; password and access-key sign-ins are removed.
+HTTPS is required except loopback development. Rotating refresh is serialized across
+Go and Python processes. Logout revokes the refresh credential, forgets the local login,
+and reports revocation failures. Service-account automation can obtain an access token
+directly from the issuer and inject `AI_PROXY_TOKEN` for agent or the separate
+`AI_PROXY_MACHINE_TOKEN` for agent-machine.
 
 A launch from the console runs `AI_PROXY_AGENT` if it's set, otherwise the Python agent with
 the same Python as agent-machine.

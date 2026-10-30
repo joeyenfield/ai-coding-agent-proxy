@@ -12,6 +12,7 @@ It mirrors the Go programs behaviour for behaviour, and the Go code is the refer
 | --- | --- | --- |
 | `common.py` | `client/internal/settings`, `version.go` | `PROTOCOL`, headers, `client()` (httpx `trust_env=False`, the `Proxy: nil` equivalent), credentials (`Credentials`, `Upstream(use_env=...)`), `look_path`, `checkout_version` (kept in step with `version.py` and `version.go`) |
 | `login.py` | `client/internal/login`, `machine/internal/login` | One implementation, called with each program's credentials path |
+| `oauth.py` | Both Go settings OAuth implementations | Device grants, endpoint validation, cross-process refresh serialization, atomic rotating credential persistence and revocation; no legacy password/key fallback |
 | `update.py` | `internal/update` | Pip-installs the server's wheel (SHA-256 checked), prunes other versions, checks the import in a clean environment from home |
 | `client/launcher.py` | `internal/launcher` | `parse_args`, `ensure_proxy`, `launch`, `run_headless`, `launch_shell`, `ensure_container` |
 | `client/localproxy.py` | `internal/localproxy` | A Starlette/ASGI `AgentProxy` on uvicorn plus an asyncio `TunnelServer` on 8183 in the same loop. `LAUNCHER_API` uses the same regexes as Go's `LauncherAPI`; agents' request bodies stream through |

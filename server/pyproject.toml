@@ -15,6 +15,9 @@ dependencies = [
   "psutil>=5.9",
   "PyYAML>=6.0",
   "cryptography>=42",
+  "Authlib>=1.9,<2",
+  "python-multipart>=0.0.20",
+  "itsdangerous>=2.2",
   "h11>=0.14",
   "uvicorn[standard]>=0.27",
 ]
@@ -27,6 +30,7 @@ dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "websockets>=15", "pywinpty>=3; sy
 # The agent machine's programs (agent, agent-proxy) are the Go client in ../client.
 [project.scripts]
 agent-server = "agent_server.app:main"
+agent-auth = "agent_server.issuer:main"
 agent-benchmark = "agent_server.benchmark:main"
 
 [tool.setuptools.packages.find]

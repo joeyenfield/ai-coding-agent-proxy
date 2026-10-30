@@ -141,9 +141,10 @@ class ServersActivity : Activity() {
     /** Expire the console's cookies for that server, so the next person to add it signs in again. */
     private fun forgetSignIn(server: Server) {
         val cookies = CookieManager.getInstance()
-        for (name in listOf("ai_proxy_session", "ai_proxy_remote")) {
+        for (name in listOf("ai_proxy_session", "ai_proxy_remote", "mesh_oidc_state")) {
             cookies.setCookie(server.url, "$name=; Max-Age=0; Path=/")
         }
+        cookies.setCookie(server.url + "/api/auth", "mesh_refresh=; Max-Age=0; Path=/api/auth")
         cookies.flush()
     }
 

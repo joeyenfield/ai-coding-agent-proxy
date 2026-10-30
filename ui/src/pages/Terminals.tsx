@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { renderSVG } from "uqr";
@@ -152,44 +152,16 @@ function TerminalCard({ terminal }: { terminal: TerminalSummary }) {
   );
 }
 
-/** Shown to a device that isn't this computer and hasn't been paired. */
-export function PairPanel({ onPaired }: { onPaired?: () => void }) {
-  const client = useQueryClient();
-  const [key, setKey] = useState("");
-  const pair = useMutation({
-    mutationFn: () => api.pair(key.trim()),
-    onSuccess: () => (onPaired ? onPaired() : client.invalidateQueries()),
-  });
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    if (key.trim()) pair.mutate();
-  };
+export function PairPanel() {
   return (
     <section className="panel" aria-labelledby="pair-heading">
       <div className="panel-head">
-        <h2 id="pair-heading">Pair this device</h2>
+        <h2 id="pair-heading">Sign in again</h2>
         <p className="subtle">
-          Watching and typing into agents is limited to the computer running the proxy and devices paired with it. On
-          that computer, open <strong>Agents → Running agents</strong> and scan the QR code with this device's camera,
-          or type the short code shown there.
+          Your sign-in has expired or you no longer have permission. Sign in through the authentication service.
         </p>
       </div>
-      <form className="pair-form" onSubmit={submit}>
-        <label className="field">
-          Pairing code
-          <input
-            value={key}
-            onChange={(event) => setKey(event.target.value)}
-            autoComplete="off"
-            autoCapitalize="characters"
-            spellCheck={false}
-          />
-        </label>
-        <button type="submit" className="primary" disabled={!key.trim() || pair.isPending}>
-          {pair.isPending ? "Pairing…" : "Pair"}
-        </button>
-      </form>
-      {pair.isError && <p className="bad">{pair.error.message}</p>}
+      <button type="button" className="primary" onClick={() => api.login()}>Sign in</button>
     </section>
   );
 }

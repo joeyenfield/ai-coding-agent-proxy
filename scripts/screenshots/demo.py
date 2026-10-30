@@ -5,6 +5,7 @@ sessions (Claude Code, Copilot CLI, Codex) shaped like real captured traffic
 but with made-up content, then starts agent-proxy against them, shares three
 made-up agent terminals with it and keeps real traffic streaming through it.
 Nothing touches your real logs, config, accounts or access key.
+The isolated issuer listens on :18200. Sign in as demo / demo-screenshot-password.
 
     python scripts/screenshots/demo.py                # proxy on http://127.0.0.1:8199
     node scripts/screenshots/capture.mjs http://127.0.0.1:8199 docs/screenshots
@@ -19,10 +20,10 @@ import json
 import os
 import random
 import re
+import secrets
 import shutil
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -36,15 +37,112 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from agent_server.sessions import SessionStore
-from agent_server.version import build_version
+from agent_server.auth import UserStore
+from agent_server.config import Settings
+from agent_server.issuer import Issuer
+from agent_server.version import PROTOCOL, build_version
 from agent_server.telemetry import RequestTelemetry
 
 ROOT = Path(__file__).resolve().parents[2]
 PROXY_PORT = 8199
 INTERCEPT_PORT = 18199
+AUTH_PORT = 18200
 LAPTOP, DESKTOP, ANTHROPIC, DOCKER = 18434, 18435, 18436, 18437
 PROXY = f"http://127.0.0.1:{PROXY_PORT}"
+AUTH = f"http://127.0.0.1:{AUTH_PORT}"
+DEMO_USER, DEMO_PASSWORD = "demo", "demo-screenshot-password"
 GB = 1024**3
+
+
+class DemoCredentials(httpx.Auth):
+    """Only genuine issuer credentials, renewed before their five-minute expiry."""
+
+    def __init__(self, secret: str):
+        self.secret = secret
+        self.token, self.expires = "", 0.0
+        self.lock = threading.Lock()
+
+    def headers(self) -> dict[str, str]:
+        with self.lock:
+            if time.monotonic() >= self.expires:
+                with httpx.Client(trust_env=False, timeout=10) as client:
+                    response = client.post(AUTH + "/token", data={"grant_type": "client_credentials", "scope": "mesh-api"},
+                                           auth=("screenshot-demo", self.secret))
+                    response.raise_for_status()
+                    result = response.json()
+                self.token = result["access_token"]
+                self.expires = time.monotonic() + result["expires_in"] - 60
+            return {"X-AI-Proxy-Token": self.token, "X-AI-Proxy-Protocol": str(PROTOCOL)}
+
+    def auth_flow(self, request):
+        request.headers.update(self.headers())
+        yield request
+
+
+credentials: DemoCredentials
+
+
+def api_client(timeout: float = 10) -> httpx.Client:
+    return httpx.Client(auth=credentials, timeout=timeout, trust_env=False)
+
+
+class DemoSocket:
+    """Reconnect fake hosts and fleet members with a fresh credential every four minutes."""
+
+    def __init__(self, url: str, hello: dict):
+        self.url, self.hello = url, hello
+        self.lock = threading.RLock()
+        self.closed = False
+        self.socket = None
+        self._connect()
+
+    def _connect(self):
+        from websockets.sync.client import connect
+
+        if self.socket:
+            self.socket.close()
+        self.socket = connect(self.url, proxy=None, max_size=None, additional_headers=credentials.headers())
+        self.socket.send(json.dumps({"type": "hello", **self.hello}))
+        self.socket.recv(timeout=10)
+        self.renew = credentials.expires + 5
+
+    def send(self, data):
+        from websockets.exceptions import ConnectionClosed
+
+        with self.lock:
+            if self.closed:
+                return
+            try:
+                self.socket.send(data)
+            except (ConnectionClosed, OSError):
+                self._connect()
+                self.socket.send(data)
+
+    def close(self):
+        with self.lock:
+            self.closed = True
+            self.socket.close()
+
+    def __iter__(self):
+        from websockets.exceptions import ConnectionClosed
+
+        while not self.closed:
+            try:
+                if time.monotonic() >= self.renew:
+                    with self.lock:
+                        self._connect()
+                yield self.socket.recv(timeout=1)
+            except TimeoutError:
+                continue
+            except (ConnectionClosed, OSError):
+                if not self.closed:
+                    time.sleep(1)
+                    try:
+                        with self.lock:
+                            self._connect()
+                    except (ConnectionClosed, OSError):
+                        continue
+
 
 # --------------------------------------------------------------------------- fake upstreams
 
@@ -257,7 +355,8 @@ class Seeder:
 
     def session(self, client: str, project: str, minutes_ago: float, ended: bool = True):
         session = self.store.create({"client": client, "backend": "direct", "project": project, "trace": True,
-                                     "tags": {"project_path": f"/home/dev/{project}"}})
+                                     "tags": {"project_path": f"/home/dev/{project}", "owner": DEMO_USER,
+                                              "visibility": "private", "access": "control"}})
         session.started_at = iso(datetime.now(timezone.utc) - timedelta(minutes=minutes_ago))
         self.clock = datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)
         self.current = session
@@ -469,12 +568,8 @@ class FakeLauncher:
     the server as the Go client sends it, and what the console types comes back to typed."""
 
     def __init__(self, session_id: str, command: str, size: tuple[int, int], typed: Any):
-        from websockets.sync.client import connect
-
         url = PROXY.replace("http", "ws", 1) + f"/api/terminals/{session_id}/host"
-        self.socket = connect(url, proxy=None, max_size=None)
-        self.socket.send(json.dumps({"type": "hello", "cols": size[0], "rows": size[1], "command": command}))
-        self.socket.recv(timeout=10)  # resume
+        self.socket = DemoSocket(url, {"cols": size[0], "rows": size[1], "command": command})
         self.lock = threading.Lock()
         self.typed = typed
         threading.Thread(target=self._receive, daemon=True).start()
@@ -500,7 +595,7 @@ class FakeLauncher:
 
 def share_terminals() -> None:
     """Agents' terminals, shared the way the launcher shares them: one waiting, one working, one finished."""
-    client = httpx.Client(timeout=10)
+    client = api_client()
 
     def typed(text: str, terminal: FakeLauncher) -> None:
         if text not in {"\r", "\x1b"}:
@@ -804,12 +899,9 @@ def search(request: dict) -> dict:
 
 def join_fleet() -> None:
     """The made-up machines, joined the way the client's agent-proxy joins: build-box takes launches, two run containers."""
-    from websockets.sync.client import connect
-
     def member(hello: dict) -> None:
-        socket = connect(PROXY.replace("http", "ws", 1) + "/api/machines/connect", proxy=None)
-        socket.send(json.dumps({"type": "hello", **hello}))
-        socket.recv(timeout=10)
+        socket = DemoSocket(PROXY.replace("http", "ws", 1) + "/api/machines/connect", {**hello, "protocol": PROTOCOL})
+        client = api_client()
         containers = FakeContainers()
         providers = FakeProviders(hello["id"])
         servers = json.loads(json.dumps(hello.get("servers") or {"enabled": False}))
@@ -854,7 +946,7 @@ def join_fleet() -> None:
                 continue
             if request.get("type") == "shell":
                 # A terminal on the machine, as `agent --shell` opens: a prompt that echoes what's typed.
-                session_id = httpx.post(f"{PROXY}/api/sessions", json={
+                session_id = client.post(f"{PROXY}/api/sessions", json={
                     "client": "shell", "backend": "direct", "project": request["project"].rstrip("/").rsplit("/", 1)[-1],
                     "tags": {"machine": hello["id"], "machine_name": hello["name"], "launch": request["launch"], "project_path": request["project"]},
                 }).json()["session_id"]
@@ -866,7 +958,7 @@ def join_fleet() -> None:
             if request.get("type") != "launch":
                 continue
             # Started "remotely": a session with a made-up terminal, as the client would open.
-            session_id = httpx.post(f"{PROXY}/api/sessions", json={
+            session_id = client.post(f"{PROXY}/api/sessions", json={
                 "client": request["agent"], "model": request.get("model") or None, "backend": "direct" if request["agent"].endswith("-account") else "laptop",
                 "project": request["project"].rstrip("/").rsplit("/", 1)[-1], "tags": {"machine": hello["id"], "machine_name": hello["name"], "launch": request["launch"]},
             }).json()["session_id"]
@@ -877,22 +969,25 @@ def join_fleet() -> None:
     for hello in FLEET:
         threading.Thread(target=member, args=(hello,), daemon=True).start()
     # Wait until they're in, so the containers below have their machines.
-    for _ in range(100):
-        listed = httpx.get(f"{PROXY}/api/machines").json().get("machines", [])
-        if sum(machine["connected"] for machine in listed) == len(FLEET):
-            break
-        time.sleep(0.1)
+    with api_client() as client:
+        for _ in range(100):
+            listed = client.get(f"{PROXY}/api/machines").json().get("machines", [])
+            if sum(machine["connected"] for machine in listed) == len(FLEET):
+                break
+            time.sleep(0.1)
+        else:
+            raise RuntimeError("The demo machines did not join the authenticated fleet")
 
 
 def run_containers() -> None:
     """Start two containers the way the console does; strata-coder stays off, waiting to switch in."""
-    client = httpx.Client(timeout=30)
+    client = api_client(timeout=30)
     for name in ("strata-iq3", "ollama-cpu"):
         client.post(f"{PROXY}/api/containers/{name}/start", json={})
 
 
 def drive() -> None:
-    client = httpx.Client(timeout=600)
+    client = api_client(timeout=600)
 
     def session(agent: str, model: str, backend: str, project: str) -> str:
         return client.post(f"{PROXY}/api/sessions", json={"client": agent, "model": model, "backend": backend,
@@ -924,13 +1019,29 @@ def drive() -> None:
 def main() -> None:
     import socket
 
-    for port in (PROXY_PORT, INTERCEPT_PORT, LAPTOP, DESKTOP, ANTHROPIC, DOCKER):
+    global credentials
+    for port in (PROXY_PORT, AUTH_PORT, INTERCEPT_PORT, LAPTOP, DESKTOP, ANTHROPIC, DOCKER):
         with socket.socket() as probe:
             if probe.connect_ex(("127.0.0.1", port)) == 0:
                 sys.exit(f"Port {port} is already in use; is another demo still running?")
     random.seed(7)
-    work = Path(tempfile.mkdtemp(prefix="agent-proxy-demo-"))
+    work = ROOT / f".screenshot-demo-{secrets.token_hex(6)}"
+    work.mkdir(mode=0o700)
     logs = work / "logs"
+    settings = Settings(log_dir=logs, remote_key_file=work / "remote-access-key",
+                        oidc_issuer=AUTH, oidc_audience=PROXY, oidc_state_dir=work / "oidc",
+                        oidc_redirect_uris=[PROXY + "/api/auth/callback"], oidc_browser_origins=[PROXY],
+                        oidc_introspection_secret=secrets.token_urlsafe(48))
+    users = UserStore(settings.users_path)
+    users.add_user("demo-admin", secrets.token_urlsafe(32), role="admin")
+    users.add_user(DEMO_USER, DEMO_PASSWORD, role="member")
+    issuer = Issuer(settings)
+    try:
+        with issuer.state.transaction():
+            credentials = DemoCredentials(issuer.provision("screenshot-demo", DEMO_USER))
+    finally:
+        issuer.auth.client.close()
+        issuer.state.db.close()
     seed_accounts(logs)
     backends = {
         # A made-up public name, so Running agents shows how a phone pairs from anywhere.
@@ -956,17 +1067,33 @@ def main() -> None:
                      {"qwen3.8:latest": 1.0, "qwen3.6:27b-coding": 0.82}, delay=0.05), DESKTOP)
     serve(anthropic_app(), ANTHROPIC)
     serve(model_runner_app(), DOCKER)
-    env = {**os.environ, "AI_PROXY_BACKENDS": str(work / "backends.yaml"), "AI_PROXY_LOG_DIR": str(logs),
-           "AI_PROXY_CA_DIR": str(work / "certs"), "AI_PROXY_REMOTE_KEY_FILE": str(work / "remote-access-key")}
-    proxy = subprocess.Popen([sys.executable, "-m", "agent_server.app", "--port", str(PROXY_PORT), "--no-build"], env=env, cwd=ROOT)
+    env = {**{key: value for key, value in os.environ.items() if not key.startswith("AI_PROXY_")},
+           "AI_PROXY_BACKENDS": str(work / "backends.yaml"), "AI_PROXY_LOG_DIR": str(logs),
+           "AI_PROXY_CA_DIR": str(work / "certs"), "AI_PROXY_REMOTE_KEY_FILE": str(work / "remote-access-key"),
+           "AI_PROXY_OIDC_ISSUER": AUTH, "AI_PROXY_OIDC_AUDIENCE": PROXY,
+           "AI_PROXY_OIDC_REDIRECT_URIS": PROXY + "/api/auth/callback", "AI_PROXY_OIDC_BROWSER_ORIGINS": PROXY,
+           "AI_PROXY_OIDC_STATE_DIR": str(work / "oidc"), "AI_PROXY_OIDC_INTROSPECTION_SECRET": settings.oidc_introspection_secret,
+           "AI_PROXY_AUTH_HOST": "127.0.0.1", "AI_PROXY_AUTH_PORT": str(AUTH_PORT)}
+    children = []
     try:
-        for _ in range(50):
-            try:
-                if httpx.get(f"{PROXY}/health", timeout=0.5).status_code == 200:
-                    break
-            except httpx.HTTPError:
-                time.sleep(0.2)
+        children.append(subprocess.Popen([sys.executable, "-m", "agent_server.issuer"], env=env, cwd=ROOT))
+        children.append(subprocess.Popen([sys.executable, "-m", "agent_server.app", "--port", str(PROXY_PORT), "--no-build"], env=env, cwd=ROOT))
+        with httpx.Client(trust_env=False, timeout=0.5) as client:
+            for url in (AUTH + "/.well-known/openid-configuration", PROXY + "/health"):
+                for _ in range(100):
+                    if any(child.poll() is not None for child in children):
+                        raise RuntimeError("A demo service exited during startup")
+                    try:
+                        if client.get(url).status_code == 200:
+                            break
+                    except httpx.HTTPError:
+                        pass
+                    time.sleep(0.2)
+                else:
+                    raise RuntimeError(f"Demo service did not become ready: {url}")
+        credentials.headers()
         print(f"demo proxy on {PROXY} (data in {work})", flush=True)
+        print(f"isolated demo sign-in: {DEMO_USER} / {DEMO_PASSWORD}; issuer {AUTH}", flush=True)
         share_terminals()
         join_fleet()
         run_containers()
@@ -974,8 +1101,14 @@ def main() -> None:
     except KeyboardInterrupt:
         pass
     finally:
-        proxy.terminate()
-        proxy.wait(timeout=10)
+        for child in reversed(children):
+            if child.poll() is None:
+                child.terminate()
+                try:
+                    child.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    child.kill()
+                    child.wait(timeout=5)
         shutil.rmtree(work, ignore_errors=True)
 
 

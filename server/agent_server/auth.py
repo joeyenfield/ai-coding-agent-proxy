@@ -1,37 +1,19 @@
-"""Accounts, for running the proxy as a server that other machines and people use.
+"""Account directory and mandatory OAuth access-token authentication for the API.
 
-With no account, the proxy works as before: a tool on your own computer, where
-this computer is trusted and phones pair with the access key. Once an account
-exists (`agent-server user add <name>`, or AI_PROXY_USERNAME and AI_PROXY_PASSWORD),
-everyone signs in:
-
-  users          the people who sign in; a user can be in several organizations
-  organizations  groups of users, each with its own teams
-  teams          groups of an organization's users, named <org>/<team>; a user can
-                 be in several, and only in teams of their organizations
-  roles          admin (manages the server, organizations and users) or member (uses it)
-  sessions       owned by whoever started them, shared privately, with a team or
-                 with one of the owner's organizations (see access.py)
-
-How requests prove who they are:
-
-  console and management API   a browser sign-in (cookie) or a launcher token
-                               (X-AI-Proxy-Token, from `agent login`)
-  /session/<id>/...            the open session's id is the credential, so agents
-                               keep their own Authorization headers for hosted APIs
-
-Users, organizations, browser sign-ins and launcher tokens live in users.json next
-to the access key, with only hashes of passwords and tokens. A file from before
-organizations (one organization, the server, with its teams) loads as a single
-organization holding those teams and every user.
+The separate issuer owns OAuth credentials. This resource server introspects them,
+then reloads current roles and memberships from the existing account directory.
+Legacy stored sessions and launcher keys remain readable but cannot authenticate.
 """
 
 from __future__ import annotations
 
 import base64
+import asyncio
 import hashlib
 import hmac
 import json
+import logging
+import math
 import os
 import re
 import secrets
@@ -42,6 +24,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import httpx
+import anyio
 from starlette.requests import HTTPConnection
 
 from .remote import same_origin
@@ -398,6 +382,13 @@ class UserStore:
             return False
         return check_password(password, str(record.get("password") or ""))
 
+    def account_version(self, name: str) -> str | None:
+        with self._lock:
+            record = self._load()["users"].get(name)
+            if record is None:
+                return None
+            return _digest(json.dumps([record.get("created_at"), record.get("password")]))
+
     # Browser sign-ins
 
     def start_session(self, name: str, agent: str) -> str:
@@ -477,9 +468,11 @@ def _checked_password(password: str) -> str:
 class Auth:
     """Whether accounts are on, who a request comes from, and the sign-in attempt limit."""
 
-    def __init__(self, store: UserStore, access_key: Any = None):
+    def __init__(self, store: UserStore, access_key: Any = None, settings: Any = None):
         self.store = store
         self.access_key = access_key
+        self.settings = settings
+        self.client = httpx.Client(timeout=5, trust_env=False, follow_redirects=False)
         self._failures: dict[str, deque[float]] = defaultdict(deque)
 
     @property
@@ -489,7 +482,14 @@ class Auth:
 
     @property
     def enabled(self) -> bool:
-        return self.environment_user is not None or bool(self.store.users())
+        return True
+
+    def account_version(self, user: str) -> str | None:
+        version = self.store.account_version(user)
+        if version:
+            return version
+        environment = self.environment_user
+        return _digest(environment[1]) if environment and user == environment[0] else None
 
     def identity_for(self, user: str, via: str) -> Identity | None:
         environment = self.environment_user
@@ -502,18 +502,45 @@ class Auth:
         return None
 
     def identify(self, connection: HTTPConnection) -> Identity | None:
-        cookie = connection.cookies.get(COOKIE)
-        if cookie:
-            user = self.store.session_user(cookie)
-            identity = self.identity_for(user, "cookie") if user else None
-            if identity:
-                return identity
         token = connection.headers.get(HEADER, "")
-        if token:
-            user = self.store.token_user(token)
-            if user:
-                return self.identity_for(user, "token")
-        return None
+        authorization = connection.headers.get("authorization", "")
+        if not token and authorization:
+            scheme, _, value = authorization.partition(" ")
+            if scheme.lower() == "bearer":
+                token = value
+        via = "token"
+        if not token:
+            token = connection.cookies.get(COOKIE, "")
+            via = "cookie"
+        if not token or len(token) > 8192:
+            return None
+        if not self.settings or not self.settings.oidc_introspection_secret:
+            raise AuthUnavailable("OIDC introspection credentials are not configured")
+        try:
+            response = self.client.post(
+                self.settings.oidc_issuer + "/introspect", data={"token": token},
+                auth=(self.settings.oidc_introspection_client, self.settings.oidc_introspection_secret),
+            )
+            response.raise_for_status()
+            claims = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            logging.getLogger(__name__).warning("OIDC introspection is unavailable (%s)", type(exc).__name__)
+            raise AuthUnavailable("The authentication service is unavailable") from exc
+        if not isinstance(claims, dict) or claims.get("active") is not True:
+            return None
+        audience = claims.get("aud")
+        audiences = audience if isinstance(audience, list) else [audience]
+        expires = claims.get("exp")
+        if (
+            claims.get("iss") != self.settings.oidc_issuer
+            or self.settings.oidc_audience not in audiences
+            or str(claims.get("token_type", "")).lower() != "bearer"
+            or "mesh-api" not in str(claims.get("scope", "")).split()
+            or not isinstance(expires, (int, float)) or not math.isfinite(expires) or expires <= time.time()
+            or not isinstance(claims.get("username"), str)
+        ):
+            return None
+        return self.identity_for(claims["username"], via)
 
     def check_password(self, user: str, password: str) -> bool:
         user = user.strip().lower()
@@ -538,7 +565,8 @@ class Auth:
 
 # Reachable without signing in: health checks, signing in itself, and the console's files
 # (the app shows its sign-in page). Everything under the protected prefixes needs a credential.
-PUBLIC_PATHS = {"/health", "/api/auth/status", "/api/auth/login", "/api/auth/token", "/api/auth/logout"}
+PUBLIC_PATHS = {"/health", "/api/auth/status", "/api/auth/login", "/api/auth/callback", "/api/auth/refresh", "/api/auth/logout"}
+CREDENTIAL_CHECK_INTERVAL = 15
 PROTECTED_PREFIXES = ("/api/", "/v1/", "/anthropic/", "/session/", "/docs", "/redoc", "/openapi.json")
 # Unscoped agent endpoints that may name their session in X-AI-Proxy-Session instead of the path.
 AGENT_PREFIXES = ("/v1/", "/anthropic/")
@@ -561,7 +589,7 @@ def admin_only(method: str, path: str) -> bool:
 
 
 class AuthMiddleware:
-    """Once accounts exist: a signed-in user for the console and API, an open session for agents."""
+    """Require an active access token and preserve session, role and sharing checks."""
 
     def __init__(self, app: Any, runtime: Any):
         self.app = app
@@ -573,37 +601,66 @@ class AuthMiddleware:
             return
         path = scope["path"]
         connection = HTTPConnection(scope)
-        if not path.startswith(PROTECTED_PREFIXES) or self._session_capability(path, connection):
+        if not path.startswith(PROTECTED_PREFIXES):
             await self.app(scope, receive, send)
             return
         method = scope.get("method", "GET")
-        if scope["type"] == "http" and method in UNSAFE_METHODS and not same_origin(connection):
+        if (scope["type"] == "websocket" or method in UNSAFE_METHODS) and not same_origin(connection):
             await _deny(scope, receive, send, 403, "Requests from other sites aren't allowed.")
             return
         if path in PUBLIC_PATHS:
             await self.app(scope, receive, send)
             return
-        identity = self.runtime.auth.identify(connection)
+        try:
+            identity = await asyncio.to_thread(self.runtime.auth.identify, connection)
+        except AuthUnavailable as exc:
+            await _deny(scope, receive, send, 503, str(exc))
+            return
         if identity is None:
             await _deny(scope, receive, send, 401, "Sign in first.")
             return
         if scope["type"] == "http" and admin_only(method, path) and not identity.admin:
             await _deny(scope, receive, send, 403, "Only an admin can change this.")
             return
-        scope.setdefault("state", {})["identity"] = identity
-        await self.app(scope, receive, send)
+        session_id = path.split("/", 3)[2] if path.startswith("/session/") else connection.headers.get("x-ai-proxy-session") if path.startswith(AGENT_PREFIXES) else None
+        if session_id:
+            from .access import can_control
 
-    def _session_capability(self, path: str, connection: HTTPConnection) -> bool:
-        """An agent's request in an open session: the session id, from the launcher, is its credential."""
-        session_id = None
-        if path.startswith("/session/"):
-            session_id = path.split("/", 3)[2]
-        elif path.startswith(AGENT_PREFIXES):
-            session_id = connection.headers.get("x-ai-proxy-session")
-        if not session_id:
-            return False
-        session = self.runtime.sessions.get(session_id)
-        return session is not None and session.ended_at is None
+            session = self.runtime.sessions.get(session_id)
+            if session is None or session.ended_at is not None or not can_control(identity, session):
+                await _deny(scope, receive, send, 404, "No open session with that id")
+                return
+        scope.setdefault("state", {})["identity"] = identity
+        if scope["type"] != "websocket":
+            await self.app(scope, receive, send)
+            return
+
+        renewal_required = False
+
+        async def credential_valid() -> None:
+            nonlocal renewal_required
+            while True:
+                await asyncio.sleep(CREDENTIAL_CHECK_INTERVAL)
+                try:
+                    current = await asyncio.to_thread(self.runtime.auth.identify, connection)
+                except AuthUnavailable:
+                    renewal_required = True
+                    group.cancel_scope.cancel()
+                    return
+                if current is None or current.user != identity.user:
+                    renewal_required = True
+                    group.cancel_scope.cancel()
+                    return
+                scope["state"]["identity"] = current
+
+        async with anyio.create_task_group() as group:
+            group.start_soon(credential_valid)
+            try:
+                await self.app(scope, receive, send)
+            finally:
+                group.cancel_scope.cancel()
+        if renewal_required:
+            await send({"type": "websocket.close", "code": 4410, "reason": "Renew your OAuth access token and reconnect"})
 
 
 async def _deny(scope: dict[str, Any], receive: Any, send: Any, status: int, message: str) -> None:
@@ -612,10 +669,17 @@ async def _deny(scope: dict[str, Any], receive: Any, send: Any, status: int, mes
         await send({"type": "websocket.close", "code": 4400 + status % 100, "reason": message})
         return
     body = json.dumps({"detail": message}).encode()
-    await send({"type": "http.response.start", "status": status, "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode())]})
+    headers = [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode()), (b"cache-control", b"no-store")]
+    if status == 401:
+        headers.append((b"www-authenticate", b'Bearer realm="ai-control-mesh"'))
+    await send({"type": "http.response.start", "status": status, "headers": headers})
     await send({"type": "http.response.body", "body": body})
 
 
 def request_identity(request: Any) -> Identity | None:
-    """The identity the middleware attached; None when accounts are off."""
+    """The identity attached by middleware; never None inside a protected handler."""
     return request.scope.get("state", {}).get("identity")
+
+
+class AuthUnavailable(RuntimeError):
+    """Authentication infrastructure failed; never interpret this as local access."""

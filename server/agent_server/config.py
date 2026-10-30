@@ -114,7 +114,7 @@ class InterceptSettings:
     enabled: bool = True
     # Agents reach it through the agent-proxy on their own machine, which tunnels here, so
     # the server listens itself only when listen_port is set (tests, the demo). Kept on
-    # loopback by default: the listener is an open forward proxy for whoever can reach it.
+    # loopback by default; direct connections still require OAuth and a controllable session.
     listen_host: str = "127.0.0.1"
     listen_port: int | None = None
     # Host patterns tunnelled without decryption (recorded as a connection only).
@@ -157,16 +157,24 @@ class Settings:
     dist_dir: Path = field(default_factory=lambda: ROOT / "dist")
     # The documentation (docs/: Markdown pages and their screenshots), which the console shows under /help.
     docs_dir: Path = field(default_factory=lambda: ROOT / "docs")
-    # Access key for watching and typing into agents' terminals from other devices.
+    # Legacy key location anchors the account/container-state directory, not authentication.
     # Settings built in code (tests) keep it under log_dir; see remote_key_path.
     remote_key_file: Path | None = None
     # HTTPS for the console and API (proxy.tls in backends.yaml): certificate and key files.
     tls_cert: Path | None = None
     tls_key: Path | None = None
-    # Where other devices reach the console (proxy.public_url), such as a DNS name the
-    # router forwards here. Pairing links use it ahead of this computer's own addresses.
+    # The public console address (proxy.public_url), ahead of discovered LAN addresses.
     public_url: str | None = None
     console_origins: list[str] = field(default_factory=list)
+    oidc_issuer: str = "https://auth.aicontrolmesh.com"
+    oidc_audience: str = "https://api.aicontrolmesh.com"
+    oidc_console_client: str = "mesh-console"
+    oidc_cli_client: str = "mesh-cli"
+    oidc_redirect_uris: list[str] = field(default_factory=lambda: ["https://api.aicontrolmesh.com/api/auth/callback"])
+    oidc_browser_origins: list[str] = field(default_factory=lambda: ["https://console.aicontrolmesh.com"])
+    oidc_introspection_client: str = "mesh-api"
+    oidc_introspection_secret: str = field(default="", repr=False)
+    oidc_state_dir: Path | None = None
     serve_ui: bool = True
     default_backend: str = "laptop"
     backends: dict[str, Backend] = field(default_factory=dict)
@@ -177,6 +185,22 @@ class Settings:
     intercept: "InterceptSettings" = field(default_factory=lambda: InterceptSettings(enabled=False))
 
     def __post_init__(self) -> None:
+        issuer = urlparse(self.oidc_issuer)
+        if issuer.scheme != "https" and not (issuer.scheme == "http" and issuer.hostname in {"localhost", "127.0.0.1", "::1"}):
+            raise ValueError("The OIDC issuer must use HTTPS (HTTP is allowed only on loopback for development)")
+        if not issuer.hostname or issuer.username or issuer.password or issuer.path or issuer.query or issuer.fragment:
+            raise ValueError("The OIDC issuer must be an exact origin without credentials, path, query or fragment")
+        ids = [self.oidc_console_client, self.oidc_cli_client, self.oidc_introspection_client]
+        if not all(ids) or len(set(ids)) != 3:
+            raise ValueError("OIDC client identifiers must be nonempty and distinct")
+        for value in self.oidc_browser_origins + self.oidc_redirect_uris:
+            parsed = urlparse(value)
+            if not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment or "*" in value or (
+                parsed.scheme != "https" and not (parsed.scheme == "http" and parsed.hostname in {"localhost", "127.0.0.1", "::1"})
+            ):
+                raise ValueError("OIDC browser origins and callbacks must be exact HTTPS URLs (loopback HTTP is allowed for development)")
+            if value in self.oidc_browser_origins and parsed.path:
+                raise ValueError("OIDC console return origins must not contain a path")
         for origin in self.console_origins:
             parsed = urlparse(origin)
             if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password or parsed.path or parsed.query or parsed.fragment or "*" in origin:
@@ -219,6 +243,15 @@ class Settings:
             docs_dir=Path(os.getenv("AI_PROXY_DOCS_DIR", str(ROOT / "docs"))).resolve(),
             remote_key_file=Path(os.getenv("AI_PROXY_REMOTE_KEY_FILE", str(ROOT / "certs" / "remote-access-key"))).resolve(),
             console_origins=[origin.strip() for origin in os.getenv("AI_PROXY_CONSOLE_ORIGINS", "").split(",") if origin.strip()],
+            oidc_issuer=os.getenv("AI_PROXY_OIDC_ISSUER", "https://auth.aicontrolmesh.com"),
+            oidc_audience=os.getenv("AI_PROXY_OIDC_AUDIENCE", "https://api.aicontrolmesh.com"),
+            oidc_console_client=os.getenv("AI_PROXY_OIDC_CONSOLE_CLIENT", "mesh-console"),
+            oidc_cli_client=os.getenv("AI_PROXY_OIDC_CLI_CLIENT", "mesh-cli"),
+            oidc_redirect_uris=[value.strip() for value in os.getenv("AI_PROXY_OIDC_REDIRECT_URIS", "https://api.aicontrolmesh.com/api/auth/callback").split(",") if value.strip()],
+            oidc_browser_origins=[value.strip() for value in os.getenv("AI_PROXY_OIDC_BROWSER_ORIGINS", "https://console.aicontrolmesh.com").split(",") if value.strip()],
+            oidc_introspection_client=os.getenv("AI_PROXY_OIDC_INTROSPECTION_CLIENT", "mesh-api"),
+            oidc_introspection_secret=os.getenv("AI_PROXY_OIDC_INTROSPECTION_SECRET", ""),
+            oidc_state_dir=Path(os.environ["AI_PROXY_OIDC_STATE_DIR"]).expanduser().resolve() if os.getenv("AI_PROXY_OIDC_STATE_DIR") else None,
             serve_ui=os.getenv("AI_PROXY_SERVE_UI", "1") != "0",
         )
         settings.default_backend = os.getenv(

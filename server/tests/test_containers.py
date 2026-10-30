@@ -16,6 +16,7 @@ import httpx
 import pytest
 import yaml
 from fastapi.testclient import TestClient
+from oidc_helpers import authenticated_client
 
 from agent_server import containers, strata
 from agent_server.app import create_app
@@ -87,7 +88,7 @@ def make_settings(tmp_path: Path, **backends: Backend) -> Settings:
 def join(app: Any, machine_id: str = "m1", address: str = "127.0.0.1", enabled: bool = True) -> FakeMachine:
     """Put a machine that runs containers in the fleet, as if its agent-proxy had connected."""
     fleet = app.state.runtime.fleet
-    machine = Machine(id=machine_id, name=f"box-{machine_id}", address=address, providers=[{"type": "ollama", "port": 11434, "version": "", "models": 0}],
+    machine = Machine(id=machine_id, name=f"box-{machine_id}", owner="test-admin", address=address, providers=[{"type": "ollama", "port": 11434, "version": "", "models": 0}],
                       containers={"enabled": enabled, "cli": "docker", "found": True, "online": True, "version": "27.1", "error": None, "engines": ENGINES})
     fleet.machines[machine_id] = machine
     fleet.sockets[machine_id] = object()
@@ -116,7 +117,7 @@ def test_specs_accept_only_the_engines_settings_and_plain_images():
 
 def test_create_start_switch_and_delete_containers_on_a_machine(tmp_path):
     app = create_app(make_settings(tmp_path))
-    with TestClient(app, **LOCAL) as client:
+    with authenticated_client(app, **LOCAL) as client:
         machine = join(app)
         overview = client.get("/api/containers").json()
         assert overview["containers"] == []
@@ -171,7 +172,7 @@ def test_create_start_switch_and_delete_containers_on_a_machine(tmp_path):
 
 def test_containers_on_another_machine_listen_where_the_server_reaches_them(tmp_path):
     app = create_app(make_settings(tmp_path))
-    with TestClient(app, **LOCAL) as client:
+    with authenticated_client(app, **LOCAL) as client:
         machine = join(app, address="192.168.1.20")
         created = client.post("/api/containers", json={"name": "box", "machine": "m1", "engine": "ollama", "port": 11500})
         assert created.json()["url"] == "http://192.168.1.20:11500"
@@ -182,7 +183,7 @@ def test_containers_on_another_machine_listen_where_the_server_reaches_them(tmp_
 def test_a_machine_that_is_away_or_has_containers_off_says_so(tmp_path):
     spec = {"engine": "ollama", "image": "ollama/ollama:latest", "port": 11500, "gpus": "all", "env": {}}
     app = create_app(make_settings(tmp_path, box=Backend("box", "http://127.0.0.1:11500", machine="m1", container=spec)))
-    with TestClient(app, **LOCAL) as client:
+    with authenticated_client(app, **LOCAL) as client:
         assert "isn't in the fleet" in client.get("/api/containers/box").json()["problem"]
         join(app, enabled=False)
         assert "containers off" in client.get("/api/containers/box").json()["problem"]
@@ -198,10 +199,10 @@ def test_containers_need_a_trusted_device_and_settings_saves_keep_them(tmp_path)
     with TestClient(app) as stranger:
         assert stranger.get("/api/containers").status_code == 401
         assert stranger.post("/api/containers/box/start", json={}).status_code == 401
-    with TestClient(app, **LOCAL) as client:
+    with authenticated_client(app, **LOCAL) as client:
         join(app)
         refused = client.post("/api/containers/box/start", json={}, headers={"origin": "http://evil.example"})
-        assert refused.status_code == 401
+        assert refused.status_code == 403
         config = client.get("/api/config").json()["config"]
         assert config["backends"]["box"]["container"] == spec and config["backends"]["box"]["machine"] == "m1"
         # The Settings page can't add or change a container block or a machine, but saving keeps them.
@@ -240,7 +241,7 @@ def test_strata_requests_carry_the_container_key_and_failures_come_back(tmp_path
         seen["authorization"] = request.headers.get("authorization")
         return httpx.Response(200, json={"choices": [{"message": {"content": "hi"}}], "usage": {"prompt_tokens": 1, "completion_tokens": 1}})
 
-    with TestClient(app, **LOCAL) as client:
+    with authenticated_client(app, **LOCAL) as client:
         machine = join(app)
 
         async def busy(*args: Any, **fields: Any) -> dict[str, Any]:

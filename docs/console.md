@@ -42,9 +42,13 @@ The rail on the left has three parts, in the order a request flows:
 
 ## Signing in
 
-Once the server has accounts (see [Accounts and sharing](accounts.md)), the console shows **Sign in** instead of its pages until you sign in with your username and password. The sign-in page links to **Downloads**, which is public.
+The console always requires sign-in. **Sign in** redirects to the separate OIDC issuer using authorization code + PKCE; passwords are entered only there. Access renews automatically through host-only HttpOnly cookies. **Downloads** and documentation remain public.
 
-Without accounts there is no sign-in: anyone who can open the console uses it, and terminals are limited to this computer and paired devices (see [Pairing a phone](#pairing-a-phone)).
+An unavailable authentication service shows an error, never an unsigned console. See [OIDC authentication](oidc.md).
+
+![OIDC sign-in](screenshots/login.png)
+
+![Sign-in on a phone](screenshots/login-phone.png)
 
 ## Overview
 
@@ -111,7 +115,7 @@ Opening one (`/terminals/<session>`) shows the agent's live terminal (xterm.js) 
 
 ### Use it from your phone
 
-On this computer, **Running agents** also shows **Use it from your phone**: the addresses a phone on your network can use, and **Pair this device** with a QR-style link and **Show the pairing code**. See [Pairing a phone](#pairing-a-phone).
+On a phone, open the console and sign in through OIDC. Legacy pairing codes no longer grant access.
 
 ## Live
 
@@ -196,7 +200,7 @@ Saving rewrites `backends.yaml`, so comments in it are lost. **API reference** l
 
 - **Organizations**: search and select an organization. Its **Teams** tab lists its teams; open one to add or remove members, create a user in it, or rename or delete it in **Team settings**. **Members** manages everyone in the organization, including users not assigned to a team. Add existing users before placing them in teams, or create an account directly in either view. **Settings** renames or deletes the organization.
 - **User directory**: search accounts and filter by organization, including **No organization** for unassigned users. Admins can create accounts, **Edit user** to change their server role, memberships or password, and **Delete account**. Removing someone from a team or organization is separate from deleting their account.
-- **Your account**: your user, role, organizations and teams, **Change your password**, and **Start agents from your own computer**: the `agent login` command for this server. **Make a token by hand, for scripts** creates a launcher token with a label. Your tokens are listed with when they were created and last used, and you can revoke each.
+- **Your account**: your identity and OIDC sign-in instructions. CLI sign-in uses device approval; scripts use explicitly provisioned service clients ([OIDC](oidc.md)). Admins reset account passwords in User directory or with `agent-server user passwd`.
 - Without accounts the page says **Accounts are off** and how to turn them on (`agent-server user add ...`).
 
 Members see only their organizations and the people in them; all management controls require a server admin. Removing an organization membership also removes that user's team memberships there. Deleting a team or organization keeps people's accounts. Destructive changes ask for confirmation.
@@ -303,13 +307,7 @@ For its owner and admins: which organizations and teams may use each feature (se
 
 ## Pairing a phone
 
-Terminals are a remote shell, so without accounts only this computer and paired devices may use them. On this computer, **Running agents** shows **Pair this device**:
-
-1. On the phone, open one of the addresses shown (the computer's address on your network).
-2. Open the pairing link, or enter the **Pairing code** (single use, valid for 10 minutes).
-3. The phone keeps a cookie and can watch and type into terminals from then on.
-
-`/pair#<key>` pairs the device that opens it. With accounts, signing in is enough. See [Accounts and sharing](accounts.md#the-terminal-access-key-and-pairing).
+Pairing keys and codes no longer grant access. Open the console on the phone and sign in through OIDC. Terminal access follows session sharing. Old `/pair` links redirect to Running agents after sign-in.
 
 ## Documentation
 

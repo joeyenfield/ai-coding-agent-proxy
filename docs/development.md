@@ -65,6 +65,7 @@ Vite on 5173 proxies `/api` (WebSockets included) and `/health` to the server on
 |---|---|
 | `cd server && python -m pytest -q` | The server: every area, against mocked upstreams. `test_client.py` builds `../client` and `../machine` and runs them against a real server on free ports (skipped without Go). No network beyond 127.0.0.1. |
 | `cd python && python -m pytest -q` | The Python `agent` and `agent-machine` against a real server, including `server/tests/test_client.py`'s contract. |
+| `python -m pytest -q quickstart/tests` | End to end against the running [quickstart](deployment.md#local-container-quickstart) stack: browser and device sign-in through the real issuer, refused passwords and origins, admin-only routes, machines shared through organization grants, and a removed user's sign-in ending. Skipped when the stack isn't running (`QUICKSTART_E2E=1` makes that a failure). The issuer allows 10 password attempts per address per 10 minutes; the suite makes 7, so `podman compose restart auth` before a quick rerun. |
 | `cd client && go test ./...` | The client's unit tests. |
 | `cd client && go vet ./... && GOOS=linux go vet ./...` | Both pseudo-terminal paths (ConPTY and POSIX). |
 | `cd machine && go test ./...` | agent-machine's unit tests. Vet it for Windows and Linux too. |

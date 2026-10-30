@@ -7,14 +7,14 @@
 # The agent machines don't use this image: they run the Go client (client/).
 
 # The console (ui/), built once here; the server only serves its files.
-FROM node:22-alpine AS console
+FROM docker.io/library/node:22-alpine AS console
 WORKDIR /ui
 COPY ui/package.json ui/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY ui/ ./
 RUN npm run build
 
-FROM python:3.13-slim
+FROM docker.io/library/python:3.13-slim
 # The build's version (VERSION, below; there's no git here): --build-arg AI_PROXY_VERSION=...
 # names it exactly, such as the dist/<version>/ mounted for downloads.
 ARG AI_PROXY_VERSION=
@@ -43,8 +43,8 @@ COPY server/docker/entrypoint.sh /usr/local/bin/agent-server-entrypoint
 RUN sed -i 's/\r$//' /usr/local/bin/agent-server-entrypoint \
     && chmod 755 /usr/local/bin/agent-server-entrypoint \
     && useradd --system --uid 10001 --home-dir /app agent \
-    && mkdir -p /app/config /app/logs /app/certs \
-    && chown -R agent:agent /app/config /app/logs /app/certs
+    && mkdir -p /app/config /app/logs /app/certs /app/auth-state \
+    && chown -R agent:agent /app/config /app/logs /app/certs /app/auth-state
 USER agent
 # config/: backends, models, agents (the console's Settings page rewrites backends.yaml).
 # logs/: sessions, traces, terminals. certs/: the HTTPS intercept CA, users and keys.

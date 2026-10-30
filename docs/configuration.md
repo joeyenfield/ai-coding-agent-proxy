@@ -183,8 +183,10 @@ Secrets never go in `config/`.
 |---|---|
 | `certs/ca.pem`, `certs/ca-key.pem` | The HTTPS capture CA and its private key, made on first use. Only the agent processes the launcher starts trust it. |
 | `certs/bundle.pem` | Common root certificates plus the CA, for tools that take one CA file. |
-| `certs/remote-access-key` | The terminal access key, for pairing phones on a server without accounts. |
-| `certs/users.json` | Users, organizations and teams, browser sign-ins and launcher tokens. Passwords and tokens are stored only as hashes. |
+| `certs/remote-access-key` | Legacy state location; no longer an authentication credential. |
+| `certs/users.json` | Users, organizations, teams and password hashes. OAuth state is separate. |
+| `certs/oidc-browser-key` | Private signing secret for short-lived browser authorization state. |
+| `certs/oidc/` | Issuer SQLite database and private signing key; `AI_PROXY_OIDC_STATE_DIR` overrides it. Back up privately. |
 | `certs/first-user-password` | The password of the `admin` user made on the first start that listens on the network. Delete it once you've changed the password. |
 | `certs/container-keys.json` | The API keys the server made for the Strata containers its machines run. |
 | `logs/machines.json` | The fleet: machines seen, their owners, grants, launch history and removed machines. No keys. |
@@ -240,7 +242,7 @@ agent-server user list
 
 Names use lowercase letters, numbers, `.`, `_` and `-`, up to 40 characters. Passwords need at least 8 characters. Set `AI_PROXY_NEW_PASSWORD` to skip the prompt.
 
-Removing every user turns sign-in off again. The `admin` user isn't created a second time, because `users.json` exists.
+Removing every user never disables authentication. The `admin` user is not recreated while `users.json` exists. OIDC settings and all issuer environment variables are documented in [OIDC authentication](oidc.md#settings-and-persistence).
 
 ## agent-benchmark
 
@@ -274,4 +276,4 @@ Each test is a folder with `prompt.md` (the prompt) and `test.yaml`:
 
 Each run opens its own session (`POST /api/sessions`), streams one OpenAI chat completion through `/session/<id>/v1/chat/completions`, ends the session and reads its telemetry. Results go to `benchmarks/results/<timestamp>/`: a JSON and Markdown file per run in a folder per test, and `summary.json` and `summary.md` with the average, minimum and maximum of each metric (tokens, time to first token, prompt and generation times and rates).
 
-On a server with accounts, set `AI_PROXY_TOKEN` to a launcher token. Without accounts it sends this computer's access key, if it finds one.
+Set `AI_PROXY_TOKEN` to an active OAuth access token for benchmarks. Legacy launcher/access keys are not accepted.

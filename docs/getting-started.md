@@ -10,6 +10,8 @@ You need whichever of these you want to try:
 
 For how the pieces fit together, see [Architecture](architecture.md).
 
+**Authentication prerequisite:** run the separate `agent-auth` issuer and configure HTTPS, callback URLs and the shared introspection secret as described in [OIDC authentication](oidc.md). API authentication is mandatory, including on loopback.
+
 ## 1. Install the server
 
 The server is `agent-server`, a Python program. It holds the API, the web console, accounts and every recording. Pick one way to run it.
@@ -47,22 +49,19 @@ docker compose up -d                  # console on http://<this host>:9999
 docker compose logs agent-server      # shows the first admin's password on the first start
 ```
 
-The container keeps its state in three volumes: `config` (the YAML files, filled with the image's defaults on the first start), `logs` (sessions, traces and terminals) and `certs` (the HTTPS capture's CA, users and keys). Keep `certs` private. Inside the container, `127.0.0.1` is the container itself, so the default `backends.yaml` reaches an Ollama on the Docker host as `host.docker.internal:11434`. See [Deployment](deployment.md) for more.
+The API keeps its state in `config` (the YAML files, filled with the image's defaults on the first start), `logs` (sessions, traces and terminals) and `certs` (the HTTPS capture's CA, users and keys). The issuer has a separate `agent-auth-state` volume. Keep account, key and issuer state private. Inside the container, `127.0.0.1` is the container itself, so the default `backends.yaml` reaches an Ollama on the Docker host as `host.docker.internal:11434`. See [Deployment](deployment.md) for more.
 
 ## 2. Sign in to the console
 
-The server has two modes:
+The console always requires OIDC sign-in. **Sign in** redirects to `auth.aicontrolmesh.com`; enter your password only there.
 
-- **Local mode, without accounts.** Nobody signs in. This computer is trusted, and phones pair with an access key (see [Accounts](accounts.md)).
-- **Server mode, with accounts.** Once there's a user, everyone signs in: the console shows a sign-in page and the API needs an account.
+On first start, including loopback, the API creates `admin` if no accounts file or environment account exists. Its random password is printed and saved in `first-user-password` beside `users.json`.
 
-When `agent-server` starts listening beyond loopback (as the repository's config and the Docker image do) and no `users.json` exists yet, it creates a user called `admin` with a random password, so your recorded traffic isn't open to the network. It prints the password and saves it in `first-user-password` beside `users.json` (in `certs/`). It doesn't do this when you set `AI_PROXY_USERNAME` and `AI_PROXY_PASSWORD`, which give the server an admin from the environment instead.
-
-1. Open `http://<server>:9999` and sign in as `admin` with that password.
-2. Change the password on **Server › Organizations**.
+1. Open your configured HTTPS console and sign in as `admin` through the issuer.
+2. Reset the password with `agent-server user passwd admin`.
 3. Delete `first-user-password`.
 
-The admin is created only while `users.json` doesn't exist. If you remove every user later, sign-in stays off.
+The admin is created only while `users.json` does not exist. Removing all users never disables authentication.
 
 ### Adding users from the shell
 
@@ -97,7 +96,7 @@ The console's **Organizations** page does the same.
 
 ### With the one-line installer
 
-A running server serves an installer written for its own address and build. It downloads the archives for the computer's system and processor, checks them against their SHA-256, installs `agent` (with `agent-proxy`) and `agent-machine`, and signs them in to the server, asking for your username and password when it has accounts.
+A running server serves an installer for its address and build. It verifies downloaded archives, installs the programs and starts OIDC device sign-in. Approve the printed codes in your browser; the installer never collects your password.
 
 ```bash
 curl -fsSL http://server:9999/install.sh | sh                        # Linux, macOS, FreeBSD
@@ -134,10 +133,10 @@ A computer without a Go build can use the Python port instead. It installs the s
 On any computer other than the server, sign in once:
 
 ```bash
-agent login http://server:9999
+agent login https://api.aicontrolmesh.com
 ```
 
-It asks for your username and password and trades them for a token for this computer's `agent-proxy`. Your password isn't stored. On the server's own computer you need this too once the server has accounts: `agent login http://127.0.0.1:9999`. Without accounts there's no sign-in, and `agent login` only records which server to use. A server without accounts used from another computer needs its access key: `agent login http://server:9999 --key <access key>`.
+Open the printed OIDC verification URL in your browser and approve the device code. Sign-in is required on the server's own computer too. Access refreshes automatically; legacy access-key and password options are removed.
 
 `agent login` and `agent logout` take effect at once, with no restart. The token shows up as `agent-proxy on <host>` on the **Organizations** page.
 
@@ -175,7 +174,7 @@ The launcher gives only the agent's own processes the server's CA, so nothing is
 Local models come from **machines**: computers in the server's fleet, running `agent-machine`. On the computer that runs Ollama (it can be the server's, or the one you work on):
 
 ```bash
-agent-machine login http://server:9999      # once (the one-line installer does this and the next step)
+agent-machine login https://api.aicontrolmesh.com # approve its separate device code
 agent-machine start                         # join the fleet in the background
 agent-machine                               # how the fleet sees this machine
 ```
@@ -218,6 +217,6 @@ On disk, each session is a folder on the server, `logs/sessions/<id>/`, with `se
 - [Providers](providers.md): Ollama tuning, Strata, Docker Model Runner and containers.
 - [MCP](mcp.md): sharing a machine's MCP servers with agents.
 - [Console](console.md): every page of the console.
-- [Accounts](accounts.md): users, organizations, teams, sharing and pairing a phone.
+- [Accounts](accounts.md): users, organizations, teams, sharing and phone sign-in.
 - [Configuration](configuration.md): `backends.yaml`, `models.yaml`, `agents.yaml` and environment variables.
 - [Deployment](deployment.md): Docker, HTTPS, services and packages.

@@ -74,7 +74,7 @@ type Proxy struct {
 }
 
 func New(upstream settings.Upstream, interceptPort int, logger *log.Logger) *Proxy {
-	p := &Proxy{Upstream: upstream, InterceptPort: interceptPort, Logger: logger, client: &http.Client{Transport: settings.ServerTransport(false)}}
+	p := &Proxy{Upstream: upstream, InterceptPort: interceptPort, Logger: logger, client: &http.Client{Transport: settings.ServerTransport(false), CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 	p.agents = &httputil.ReverseProxy{
 		Rewrite: p.rewriteAgent,
 		// Identified, so the server can refuse a client too old for it; the agent keeps its own User-Agent.
@@ -109,7 +109,12 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			refuse(w)
 			return
 		}
-		// The session id in the path (or X-AI-Proxy-Session) is the credential: no token.
+		token, err := p.Upstream.AccessToken(p.Upstream.Server())
+		if err != nil {
+			writeJSON(w, http.StatusUnauthorized, map[string]any{"detail": err.Error()})
+			return
+		}
+		r.Header.Set(settings.TokenHeader, token)
 		p.agents.ServeHTTP(w, r)
 	default:
 		writeJSON(w, http.StatusNotFound, map[string]any{"detail": "Not found"})
@@ -140,9 +145,13 @@ func (p *Proxy) launcherAPI(w http.ResponseWriter, r *http.Request) {
 	copyHeaders(request.Header, r.Header)
 	// Uncompressed, so /api/intercept can be read and rewritten below.
 	request.Header.Del("Accept-Encoding")
-	if token := p.Upstream.Token(server); token != "" {
-		request.Header.Set(settings.TokenHeader, token)
+	request.Header.Del(settings.TokenHeader)
+	token, tokenErr := p.Upstream.AccessToken(server)
+	if tokenErr != nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]any{"detail": tokenErr.Error()})
+		return
 	}
+	request.Header.Set(settings.TokenHeader, token)
 	response, err := p.client.Do(request)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"detail": fmt.Sprintf("agent-proxy couldn't reach the agent-server at %s: %v", server, err)})

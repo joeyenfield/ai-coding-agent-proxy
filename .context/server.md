@@ -28,7 +28,8 @@ flowchart LR
 - **Middleware order** puts the version check before auth, so old programs get 426 (WebSocket close 4426) before a 401.
 - **Split console/API**: `Settings.console_origins` (`AI_PROXY_CONSOLE_ORIGINS`) is the exact origin allowlist for credentialed CORS and `remote.same_origin`, shared by auth mutations and route/WebSocket gates. Cookies stay host-only on the API; no parent-domain cookie or wildcard origin.
 - **Restart** (`POST /api/server/restart` → `Runtime.request_restart`): waits up to 30 s for in-flight requests (`Runtime.active`; container jobs run on machines and aren't waited for), then `_restart_when_idle` closes live streams, terminals, fleet sockets, tunnels and intercept tunnels, and the Supervisor serves again with a fresh `Settings.load()`. **A new long-lived connection must be closed there.** There's no Supervisor with `--reload` or in tests.
-- `ensure_first_user` runs in `main()`/`Supervisor`, never in `create_app`, so tests stay in local mode.
+- `ensure_first_user` runs in `main()`/`Supervisor`, including loopback, never in `create_app`. Tests must authenticate explicitly; no anonymous local mode remains.
+- `issuer.py` runs the separate `agent-auth` Authlib service: PKCE, device and service grants, hashed transactional SQLite token state, discovery/JWKS, introspection and revocation. It reads but never mutates API accounts. API `Auth` uses a dedicated introspection client; browser `routes/auth.py` manages host-only access/refresh cookies. See `auth.md`.
 
 ## Module map
 
@@ -77,7 +78,7 @@ sequenceDiagram
 - `MESSAGES_BACKENDS` (anthropic, strata, docker) take Anthropic Messages as they are; Ollama gets them translated.
 - **Every upstream URL comes from `await runtime.tunnels.base_url(backend)`.** It tunnels when the machine reports `tunnel`, is connected and isn't loopback: a loopback listener per `(machine, port)`. Each connection sends `{"type":"tunnel"}` on the fleet socket and waits for the machine to dial `WS /api/machines/tunnel/<id>`.
 
-**Account interception**: `WS /api/proxy/tunnel` → `InterceptProxy.serve_tunnel` → a socketpair into the unchanged `_accept` (`start_tls` needs a real transport). CONNECT hosts in `intercept.passthrough` are piped through untouched; the rest are decrypted with `ca.server_context(host)` and forwarded with `runtime.client`, with credentials redacted from the record. With accounts, a `Proxy-Authorization` that doesn't name an open session gets 407; in local mode such traffic goes to an `unattributed` session.
+**Account interception**: authenticated `WS /api/proxy/tunnel` → `InterceptProxy.serve_tunnel` → a socketpair into `_accept` (`start_tls` needs a real transport). CONNECT must name an open session or gets 407. Allowed passthrough hosts pipe untouched; others are decrypted and recorded with credential redaction. No anonymous unattributed mode remains.
 
 **Fleet socket** (`/api/machines/connect`): the first text frame is the hello → `Fleet.connect` (4400 bad id, 4403 removed or someone else's id, 4409 replaces an older socket) → `claim` backends → `welcome`. Then:
 
@@ -110,16 +111,16 @@ sequenceDiagram
 
 | In memory | On disk |
 | --- | --- |
-| `Runtime.active`/`recent`, `LiveHub`, fleet sockets and pending asks, `Machine.keys`/`mcp_key`, tunnel listeners, terminal viewers, pairing code, sign-in failure counters | `logs/sessions/<id>/` (`session.json`, `requests.jsonl`, `traces/NNNNNN.json`, `terminal.log`, `terminal.json`), `logs/chat-index.json`, `logs/machines.json`, `logs/proxy/proxy.log` |
-| | Beside the access key (`certs/` for a real server, `log_dir/remote/` in code-built Settings): `remote-access-key`, `users.json` (scrypt hashes, orgs and teams, sign-in sessions, `aip_` tokens), `container-keys.json`, `first-user-password` |
+| `Runtime.active`/`recent`, `LiveHub`, fleet sockets and pending asks, `Machine.keys`/`mcp_key`, tunnel listeners, terminal viewers, sign-in failure counters | `logs/sessions/<id>/` (`session.json`, `requests.jsonl`, `traces/NNNNNN.json`, `terminal.log`, `terminal.json`), `logs/chat-index.json`, `logs/machines.json`, `logs/proxy/proxy.log` |
+| | Account state (`certs/` for a real server, `log_dir/remote/` in code-built Settings): `users.json` (scrypt hashes, orgs and teams; obsolete sign-ins/tokens do not authenticate), `oidc-browser-key`, `container-keys.json`, `first-user-password`. Separate issuer state contains the OAuth database and private signing key. |
 | | `certs/`: `ca.pem`, `ca-key.pem`, `bundle.pem`. `config/backends.yaml` is rewritten with `yaml.safe_dump` from the console, so its comments are lost |
 
 ## Security model
 
 The summary; `auth.md` has the whole of it (credentials, the middleware's order, roles, what must never change).
 
-- **Local mode** (no users): `RemoteAccess.trusted` = loopback client **and** a loopback Host, or the access key (`x-ai-proxy-token` header or `ai_proxy_remote` cookie). Only terminals, remote, containers, machines and restart check it; management and compat don't.
-- **Accounts mode** (`users.json` has users, or `AI_PROXY_USERNAME`/`AI_PROXY_PASSWORD`): `AuthMiddleware` covers `/api/`, `/v1/`, `/anthropic/`, `/session/` and `/docs`. An open session id is a capability for agent paths. Otherwise it needs a cookie (`ai_proxy_session`) or a launcher token (`aip_…`). Unsafe methods with a foreign Origin are refused, and `ADMIN_ONLY` routes need an admin.
+- **Mandatory OIDC**: `AuthMiddleware` covers `/api/`, `/v1/`, `/anthropic/`, `/session/` and API documentation, except explicit public authentication endpoints. Active access tokens are introspected at the separate issuer; identity and permissions come from current accounts. Loopback, session ids and legacy keys never authenticate.
+- **Browser and role checks**: unsafe methods require the API's exact origin or an explicitly allowed console origin, and `ADMIN_ONLY` routes need an admin. WebSockets periodically revalidate credentials and close with retryable 4410 when renewal is required.
 - **Sessions** (`access.py`): owner or `launched_by`; private/team/org visibility; view or control. A session you can't see is a 404. Clients can't set `SERVER_TAGS`. Shell sessions are forced private. Narrowing sharing drops terminal viewers.
 - **Machines** (`fleet.allowed`): the owner always; admins only `ADMIN_FEATURES` (view, models, update); others through org or team grants in `Machine.access`. Launches and folders are checked against roots on both sides. Creating, editing or removing a container needs the owner, plus ADMIN_ONLY with accounts.
 
@@ -140,4 +141,4 @@ The summary; `auth.md` has the whole of it (credentials, the middleware's order,
 ## Known gaps
 
 - `containers._answers` probes `backend.url + health_path` directly, not through the tunnel, so readiness can be wrong for a machine behind NAT.
-- With accounts, `/api/remote/rotate` can't succeed (`require_local` is false).
+- Legacy `/api/remote` pairing/rotation operations are intentionally refused.

@@ -10,7 +10,7 @@ A **machine** is a computer that has joined the server's **fleet** with `agent-m
 ## Quick start
 
 ```bash
-agent-machine login http://server:9999   # once
+agent-machine login https://api.aicontrolmesh.com # approve its device code
 agent-machine start                      # join the fleet in the background
 agent-machine                            # how the fleet sees this machine
 ```
@@ -35,7 +35,7 @@ Settings changes reach the server within a minute, with the machine's next updat
 | Command | What it does |
 |---|---|
 | `agent-machine` (or `agent-machine status`) | Shows the machine as the fleet sees it. See [The status display](#the-status-display). |
-| `agent-machine login [url] [--user name] [--key access-key]` | Signs the machine in to a server. |
+| `agent-machine login [url]` | Signs the machine in using OIDC device authorization. |
 | `agent-machine logout [url]` | Forgets a sign-in and revokes its token on the server. |
 | `agent-machine start` | Joins the fleet in the background. |
 | `agent-machine stop` | Stops the background run. The machine leaves the fleet. |
@@ -60,8 +60,7 @@ Settings changes reach the server within a minute, with the machine's next updat
 
 `agent-machine login` signs this machine in. The URL defaults to the server signed in to last, or `http://127.0.0.1:9999`. A URL without a scheme gets `http://`.
 
-- **A server with accounts.** It asks for your username (unless you pass `--user` or `-u`) and your password, and trades them for a token labelled `agent-machine on <hostname>`. The password isn't stored. Set `AI_PROXY_PASSWORD_INPUT` to pass the password without a prompt, as the sandbox does. Over plain HTTP to another computer, it warns that the password crosses the network in the clear.
-- **A server without accounts.** There's nothing to sign in to, so it only remembers the server. `--key` stores the server's access key, so this machine can use a server on another computer.
+Open the printed OIDC verification URL in your browser, sign in and approve the displayed device code. The CLI never collects your password. Access tokens refresh automatically using rotating credentials. Authentication is mandatory; old password and access-key options are removed. See [OIDC authentication](oidc.md).
 
 The machine belongs to whoever signed it in: that user is its **owner**. A machine id already registered to another user is refused, so one user can't take over another's machine.
 
@@ -122,7 +121,7 @@ A binary installed by a package manager (`/usr/bin`, `Program Files`) belongs to
 `agent-machine` with no arguments shows:
 
 - **Machine**: its name and id.
-- **Server**: the server, and how it's signed in (as a user, with an access key, or a server without accounts).
+- **Server**: its server and OIDC sign-in.
 - **Fleet**: whether it's running, connected or not, and its process id. When the server runs another version, it says so and suggests `agent-machine update`.
 - **Address**, when set.
 - **Providers**: the model servers answering here, by type and port.
@@ -141,7 +140,7 @@ agent-machine keeps everything in one folder:
 
 | File | What it holds |
 |---|---|
-| `credentials.json` | Each server's URL, user, token and token id, and the default server. No passwords. |
+| `credentials.json` | Each server's URL, user, access token, rotating refresh token, expiry and issuer endpoints, plus the default server. No passwords. Keep it private. |
 | `machine.json` | The machine's id and settings: name, address, launches, roots, containers and the container CLI, servers, commands, updates. |
 | `status.json` | How the running agent-machine is doing: process id, server, state, the server's version, and how it was started. |
 | `agent-machine.log` | Its log. A run in a terminal also prints it there. |
@@ -158,7 +157,6 @@ Files are written readable by this user only. The machine's id is made the first
 |---|---|
 | `AI_PROXY_MACHINE_HOME` | agent-machine's folder |
 | `APPDATA`, `XDG_CONFIG_HOME` | Where the folder is by default |
-| `AI_PROXY_PASSWORD_INPUT` | The password for `agent-machine login`, without a prompt |
 | `AI_PROXY_AGENT` | The `agent` program launches and terminals run, instead of `agent` from PATH |
 | `AI_PROXY_LOCAL_PORT` | The port of this computer's agent-proxy (default 8184), to check which server it carries traffic to |
 | `STRATA_API_KEY` | The key for Strata here, before the one in Strata's profile |
@@ -386,28 +384,27 @@ The `agent-machine` deb, rpm and Arch packages include a systemd user unit, not 
 2. signs both agent-machine and agent in to the server, unless their credentials already name it;
 3. copies SSH keys from `/ssh`, sets git's user, and clones `AGENT_REPOS`;
 4. sets the machine's name, turns launches on with the workspace as its only root, and turns containers and servers off;
-5. removes the password and key from the environment, then runs `agent-machine run`.
+5. runs `agent-machine run` with rotating OAuth credentials.
 
 Agents you start on it run inside the container, so they can't touch the computer it runs on beyond `/workspace`.
 
 ```bash
 docker build -f sandbox/Dockerfile -t agent-sandbox .     # from the repository root
 docker run -d --name agent-sandbox --restart unless-stopped \
-  -e AI_PROXY_SERVER=http://server:9999 -e AI_PROXY_USER=joey -e AI_PROXY_PASSWORD=... \
+  -e AI_PROXY_SERVER=https://api.aicontrolmesh.com \
   -v agent-sandbox-home:/home/agent -v agent-sandbox-workspace:/workspace agent-sandbox
 ```
 
 Or beside the server in `compose.yaml`, with its `sandbox` profile:
 
 ```bash
-AI_PROXY_USER=joey AI_PROXY_PASSWORD=... docker compose --profile sandbox up -d
+docker compose --profile sandbox up -d
+docker compose logs -f agent-sandbox
 ```
 
 | Setting | What it does |
 |---|---|
 | `AI_PROXY_SERVER` | The server to join (required) |
-| `AI_PROXY_USER`, `AI_PROXY_PASSWORD` (or `AI_PROXY_PASSWORD_FILE`) | Who signs it in. The machine is that user's. |
-| `AI_PROXY_KEY` | Instead, the access key of a server without accounts |
 | `AI_PROXY_MACHINE_NAME` | The name on **Machines** (default: the container's hostname) |
 | `AGENT_WORKSPACE` | Where agents may start (default `/workspace`) |
 | `-v <folder>:/ssh:ro` | SSH keys for git (and optionally `config` and `known_hosts`), copied into `~/.ssh` on every start |
@@ -415,7 +412,7 @@ AI_PROXY_USER=joey AI_PROXY_PASSWORD=... docker compose --profile sandbox up -d
 | `AGENT_REPOS` | Git URLs to clone into the workspace on start, space-separated. Ones already there are left alone. |
 | `--build-arg AGENTS="..."` | The npm packages of the agents to install |
 
-- **Sign-ins.** The tokens are kept in `/home/agent`, with the machine's id. With that as a volume, later starts skip the sign-in, so you can leave the password out.
+- **Sign-ins.** On first start, open the verification URL printed in the logs and approve each of the two device codes. Credentials and the machine id persist in `/home/agent`; subsequent starts renew automatically. Password/key environment bootstrap is removed.
 - **Git over SSH.** The keys are copied rather than used in place, because a mount from Windows or macOS usually has permissions ssh refuses. Without your own `config`, a host's key is trusted the first time it's seen, so a clone doesn't stop at a question nobody can answer. Agents in the sandbox can read the key: use a deploy key or one made for the sandbox.
 - **Account agents.** Their sign-ins (Claude, Copilot, ChatGPT) also live in `/home/agent`. Sign in once from the agent's terminal in the console.
 - **Podman** takes the same commands. A server on the same computer is reached at `host.docker.internal` (Docker, with `--add-host=host.docker.internal:host-gateway`) or `host.containers.internal` (Podman).

@@ -23,11 +23,12 @@ flowchart TB
   App -- "/get" --> PD["PublicDownloads"]
   App -- "/help/*" --> PH["PublicDocs"]
   App -- "else" --> Login["LoginPage"]
-  App -- "signed in or no accounts" --> Shell["Shell: rail, top bar, Routes"]
+  App -- "signed in" --> Shell["Shell: rail, top bar, Routes"]
 ```
 
 - `main.tsx`: queries retry once, never on a 401; any 401 invalidates `["auth"]`, which drops back to sign-in.
-- `App.tsx`: the auth gate reads `window.location.pathname`, not the router. `/pair` is a Shell route, so it needs a sign-in when accounts are on.
+- `App.tsx`: the mandatory auth gate reads `window.location.pathname`, not the router. `/pair` is a Shell route and requires sign-in.
+- Authentication is mandatory and fail-closed. Login redirects to the API's PKCE flow; only the issuer collects passwords. `api.ts` renews access cookies and serializes refreshes per tab and through Web Locks; auth status polls every 30 seconds. Terminal reconnects check status before dialing. Legacy `/pair` links redirect to terminals; expired permissions show sign-in, never a key form.
 - `Shell`: the rail is built from `PARTS`, with All machines and Add a machine rather than individual machine entries. It shows counts (in-flight requests, terminals, machines, agents waiting for their user), the version, the user and the theme picker. Below 900 px it becomes a top bar with a slide-in menu. Opening the menu pushes a history entry, so Back (Android's included) closes it.
 - Old addresses (`/models`, `/strata`, `/docker`, `/containers`, ...) redirect to `/machines`.
 
@@ -41,7 +42,7 @@ flowchart TB
 - **Provider addressing**: `/api/machines/{id}/providers/{kind}-{port}`. A `ProviderRef` is `{machine, provider}`. `MACHINE_TYPES = ["ollama","strata","docker"]`.
 - **Query keys**: shared ones in `hooks.tsx` (`useStatus` `["status"]` every 2 s, `useSessions`, `useRequests` `["requests", revision]`, `useModels`, `useMachines` every 5 s, `useAgents`, `useAuth`, `useVersion` `["health"]`). Per machine: `["provider", m, p]`, `["metrics", m]`, `["ollama-settings", id]`, `["provider-log", m, p, source]`, `["container-log", name]`, `["machine-folders", id, path]`. After a mutation, invalidate the keys it affects. Sign-in, logout and adopt invalidate everything.
 - **Live**: only `live.ts` `useLive(sessionId?)` opens the EventSource. It folds the `snapshot`/`start`/`summary`/`delta`/`end` events into a ref and publishes once per animation frame.
-- **Terminal viewer** (`pages/Terminal.tsx`, lazy-loaded because it pulls in xterm): binary frames go straight to xterm; the JSON messages are `state`, `replayed`, `resize` and `error`. Close 4401 shows pairing; 4404 is retried every 1.5 s for the first minute (a launch opens the page as soon as its session exists, a moment before its launcher shares the terminal), then means gone; anything else reconnects after 2 s and replays. Input is `{type:"input", keys}` or `{text, enter:true}`. xterm's automatic replies (`REPLY`) are dropped because the real terminal answers them. Wheel reports (`WHEEL`) pass, so alternate-screen agents can scroll. The on-screen key row exists for phones.
+- **Terminal viewer** (`pages/Terminal.tsx`, lazy-loaded because it pulls in xterm): binary frames go straight to xterm; the JSON messages are `state`, `replayed`, `resize` and `error`. Close 4410 triggers credential renewal before reconnecting; 4403 means permission was removed; 4404 is retried every 1.5 s for the first minute (a launch opens the page as soon as its session exists, a moment before its launcher shares the terminal), then means gone; anything else reconnects after 2 s and replays. Input is `{type:"input", keys}` or `{text, enter:true}`. xterm's automatic replies (`REPLY`) are dropped because the real terminal answers them. Wheel reports (`WHEEL`) pass, so alternate-screen agents can scroll. The on-screen key row exists for phones.
 
 ## Machine page (`pages/Machine.tsx`)
 
@@ -54,7 +55,7 @@ The design rule: **everything about a model server is on its machine's page**, o
 
 ## Organization workspace (`pages/Organization.tsx`)
 
-- `/organization` has URL-backed tabs (`tab`): Organizations (default), User directory (`users`), Your account (`account`). Personal password and token controls are separate from directory management.
+- `/organization` has URL-backed tabs (`tab`): Organizations (default), User directory (`users`), Your account (`account`). Your account explains OIDC/device/service sign-in; legacy password and launcher-token controls are removed.
 - Organizations uses a responsive master/detail layout. `org` selects the organization; `orgTab` selects Teams (default), Members or Settings; `team` opens a team's members and settings. Switching organizations clears the nested selection.
 - `Members` is shared by organization and team views. Its mutations use the scoped `setOrgMember`/`setTeamMember` API calls, not replacement membership arrays. Removing a member or deleting a team/organization asks for confirmation; none deletes the user's account.
 - `CreateUser` supports a scoped organization/team creation form and the global directory form. `UserRow` edits role, memberships and optional password together, without browser prompts. `useDirectoryChange` replaces the org/user query caches and invalidates auth, machines and sessions.
@@ -79,5 +80,5 @@ The design rule: **everything about a model server is on its machine's page**, o
 ## Gotchas
 
 - The auth gate and public pages work from `window.location`; add a route to `PublicDocs`/`PublicDownloads` only if it must work signed out.
-- The Shell's terminal and machine polls stop after an error until the page is reloaded (an unpaired device gets 401).
+- The Shell's terminal and machine polls stop after an error until the page is reloaded (an unauthenticated device gets 401).
 - UI text: plain sentence case, providers named through `providerLabel()`.
