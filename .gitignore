@@ -17,3 +17,5 @@ machine/bin/
 .playwright-mcp/
 scripts/deploy.sh
 scripts/deploy.ps1
+# scripts/screenshots/demo.py's temporary home, left behind if it is killed
+.screenshot-demo-*/

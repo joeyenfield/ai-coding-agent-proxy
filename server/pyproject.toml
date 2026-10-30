@@ -19,6 +19,8 @@ dependencies = [
   "itsdangerous>=2.2",
   "h11>=0.14",
   "uvicorn[standard]>=0.27",
+  # The server computer's CPU, memory and disk use (stats.py).
+  "psutil>=5.9",
 ]
 
 [project.optional-dependencies]

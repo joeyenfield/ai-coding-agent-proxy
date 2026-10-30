@@ -16,7 +16,7 @@ export function formatDuration(ms: number | null | undefined): string {
 
 export function formatBytes(bytes: number | null | undefined): string {
   if (bytes == null) return "–";
-  const units = ["B", "KB", "MB", "GB"];
+  const units = ["B", "KB", "MB", "GB", "TB"];
   let value = bytes;
   let unit = 0;
   while (value >= 1024 && unit < units.length - 1) {

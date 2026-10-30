@@ -132,6 +132,29 @@ def test_separate_console_origin_terminal_websocket(tmp_path):
             assert closed.value.code == code
 
 
+def test_only_admins_see_the_server_computers_stats(tmp_path):
+    settings = org_settings(tmp_path)
+    settings.dist_dir = tmp_path / "dist"
+    (settings.dist_dir / "1.0.0").mkdir(parents=True)
+    (settings.dist_dir / "1.0.0" / "agent").write_bytes(b"x" * 1000)
+    app = create_app(settings)
+    with TestClient(app, base_url=BASE):
+        alice, dave = signed_in(app, "alice"), signed_in(app, "dave")
+        assert alice.get("/api/server/stats").status_code == 403
+        stats = dave.get("/api/server/stats").json()
+        assert 0 <= stats["memory"]["percent"] <= 100 and stats["memory"]["total"] > 0 and stats["cpu"]["count"] > 0
+        assert stats["process"]["rss"] > 0 and stats["disks"] and stats["disks"][0]["total"] > 0
+        # Both folders are on the test's drive, which is listed once.
+        assert len(stats["disks"]) == 1 and len(stats["disks"][0]["folders"]) == 2
+        # Folder sizes are measured in the background; the first answer may not have them yet.
+        deadline = time.monotonic() + 10
+        while stats["folders_measured_at"] is None and time.monotonic() < deadline:
+            time.sleep(0.05)
+            stats = dave.get("/api/server/stats").json()
+        builds = next(folder for folder in stats["folders"] if folder["path"] == str(settings.dist_dir))
+        assert builds["bytes"] == 1000
+
+
 def test_only_admins_change_the_server_organizations_and_users(tmp_path):
     app = create_app(org_settings(tmp_path))
     with TestClient(app, base_url=BASE):

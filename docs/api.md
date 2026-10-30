@@ -63,6 +63,7 @@ its in-flight entry and records `client_closed`.
 | GET | `/api/status` | Signed in | Totals, requests in flight, recent requests, intercept state, `default_backend`, whether a restart is needed for the listen address, and each machine backend's `provider`. With accounts, only sessions you can see. |
 | GET | `/api/config` | Signed in | The editable network settings (`proxy.listen_host`, `listen_port`, `url`, `default_backend`, `backends`) and `restart_required`. |
 | PUT | `/api/config` | Admin | Saves them to `backends.yaml`. Can remove local backends and add or edit hosted ones; refuses new or moved local ones. Without `backends`, leaves them alone. See [Configuration](configuration.md). |
+| GET | `/api/server/stats` | Admin | The server computer's load and disk use, read when asked (nothing is saved): `hostname`, `platform`, `boot_time`; `cpu` (`percent`, `count`, `load_average`, null on Windows); `memory` and `swap` (bytes, `percent`); `process` (agent-server's `pid`, `rss`, `cpu_percent` of one core, `threads`, `started_at`); `disks`, each filesystem holding the log or build folder once (`mountpoint`, `total`, `used`, `free`, `percent`, `folders`); `folders` (`name`, `path`, `bytes`), measured in the background every five minutes, so `bytes` is null until `folders_measured_at` is set. |
 | POST | `/api/server/restart` | Admin, Trusted, Same origin | Restarts with the configuration on disk once in-flight requests finish (up to 30 s). Answers `202` with `waiting_for` and the address it comes back on. `409` when the server can't restart itself (`--reload`). |
 
 ## Sessions and requests
@@ -237,12 +238,12 @@ OpenAPI can't describe these. All need **Trusted** (a sign-in; machines send the
 
 ## Check
 
-This page lists all 105 routes the app registers, from `app.routes` of a server built in a temporary folder: 100 HTTP routes, the 5 WebSockets above, plus the `/assets` static mount.
+This page lists all 114 routes the app registers, from `app.routes` of a server built in a temporary folder: 109 HTTP routes, the 5 WebSockets above, plus the `/assets` static mount.
 
 | Area | Routes |
 |---|---|
 | Agent-facing | 10 (5 paths, each unscoped and under `/session/{session_id}/`) plus the MCP relay |
-| Health and the server | 5 |
+| Health and the server | 6 |
 | Sessions and requests | 13 |
 | Live traffic | 2 |
 | Agents and models | 4 (with `/api/mcp`) |
@@ -250,10 +251,10 @@ This page lists all 105 routes the app registers, from `app.routes` of a server 
 | Machines and providers | 18, plus 2 WebSockets |
 | Containers | 7 |
 | Terminals and pairing | 6, plus 2 WebSockets |
-| Accounts | 18 |
+| Accounts | 26 |
 | Downloads | 6 |
 | Console | 3 (with the documentation's files) |
 | OpenAPI | 4 |
 | Proxy tunnel | 1 WebSocket |
 
-That is 10 + 1 + 5 + 13 + 2 + 4 + 3 + 20 + 7 + 8 + 18 + 6 + 3 + 4 + 1 = 105. Each is in a table above.
+That is 10 + 1 + 6 + 13 + 2 + 4 + 3 + 20 + 7 + 8 + 26 + 6 + 3 + 4 + 1 = 114. Each is in a table above.

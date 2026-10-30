@@ -13,6 +13,7 @@ The screenshots come from the demo (`python scripts/screenshots/demo.py`), which
 - [Server: Traffic](#traffic)
 - [Server: Requests](#requests)
 - [Server: Sessions](#sessions)
+- [Server: Server stats](#server-stats)
 - [Server: Server settings](#server-settings)
 - [Server: Organizations](#organizations)
 - [Server: Downloads](#downloads)
@@ -179,6 +180,15 @@ Account agents' other calls (sign-in, telemetry, MCP) aren't shown here; they're
 - **Requests**: its requests, as on Traffic.
 
 **Open in Traffic** shows its requests there, and **Streaming now** shows what's in flight.
+
+## Server stats
+
+`/server-stats` (admins only) shows how hard the computer running the server is working and how full its disks are. It asks the server every 2 seconds while it's open and keeps the last five minutes on the page; nothing is saved. A machine's own load is on its [Load tab](#load).
+
+- **The computer**: its name, system, how long it's been up and how long the server has been running.
+- **CPU and memory**: charts of the computer's CPU (with the load average outside Windows) and memory, and of the server's own share of the CPU. Bars show the server's own memory and, when there is one, swap.
+- **Disks**: each disk the server keeps its files on, with how much is used and free and which of its folders are there.
+- **What the server keeps**: the size of the recorded traffic and logs (`logs/`) and the builds it hands out (`dist/`), measured every five minutes. Deleting sessions on the [Sessions](#sessions) page removes recorded traffic; old builds (folders named like `1.2.0+abc1234`) can be deleted by hand, since the server only hands out its own version's.
 
 ## Server settings
 

@@ -1022,6 +1022,8 @@ const sessionUrl = (id: string) => `/api/sessions/${encodeURIComponent(id)}`;
 
 export const api = {
   status: () => request<Status>("/api/status"),
+  /** The server computer's CPU, memory and disks (admins only). */
+  serverStats: () => request<ServerStats>("/api/server/stats"),
   health: () => request<Health>("/health", { cache: "no-store" }),
   helpPage,
   // Served outside /api (public, for machines that aren't signed in yet); the console's page is /get.
@@ -1298,6 +1300,24 @@ export interface GpuSample {
 }
 
 /** CPU, memory and GPU use of a machine, sampled by its agent-machine. */
+/** GET /api/server/stats: the computer agent-server runs on, sampled when asked (stats.py). */
+export interface ServerStats {
+  timestamp: number;
+  hostname: string;
+  platform: string;
+  boot_time: number;
+  cpu: { percent: number; count: number; load_average: number[] | null };
+  memory: { total: number; used: number; available: number; percent: number };
+  swap: { total: number; used: number; percent: number };
+  process: { pid: number; rss: number; cpu_percent: number; threads: number; started_at: number };
+  /** Each filesystem holding one of the folders below, with their names. */
+  disks: { mountpoint: string; total: number; used: number; free: number; percent: number; folders: string[] }[];
+  /** bytes is null until first measured (in the background, every few minutes) or when the folder doesn't exist. */
+  folders: { name: string; path: string; bytes: number | null }[];
+  folders_measured_at: number | null;
+  folders_measuring: boolean;
+}
+
 export interface MachineSample {
   hostname: string;
   platform: string;

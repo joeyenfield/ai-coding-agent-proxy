@@ -62,6 +62,7 @@ export const PARTS: Part[] = [
       { to: "/traffic", label: "Traffic", icon: "arrows" },
       { to: "/requests", label: "Requests", icon: "list" },
       { to: "/sessions", label: "Sessions", icon: "layers" },
+      { to: "/server-stats", label: "Server stats", icon: "cpu" },
       { to: "/settings", label: "Server settings", icon: "settings" },
       { to: "/organization", label: "Organizations", icon: "users" },
       // Not /downloads: the server serves the files themselves there.

@@ -19,6 +19,7 @@ from ..config import DIRECT_BACKEND, LOCAL_PROXY_URL, ModelProfile, serves
 from ..fleet import PROVIDER_TYPES, SHELL_CLIENT, FleetError, parse_provider, provider_id, provider_request
 from ..runtime import Runtime
 from ..sessions import Session
+from ..stats import ServerStats
 
 
 LOGGER = logging.getLogger("agent-proxy")
@@ -28,6 +29,7 @@ STALE_SESSION_SECONDS = 15 * 60
 
 def register(app: FastAPI, runtime: Runtime) -> None:
     settings = runtime.settings
+    stats = ServerStats(settings)
 
     def viewable(session_id: str, request: Request) -> Session:
         """A session this user may see; others look missing, so their ids aren't confirmed."""
@@ -65,12 +67,17 @@ def register(app: FastAPI, runtime: Runtime) -> None:
     async def status(request: Request) -> dict[str, Any]:
         return runtime.status(visible_ids(request))
 
+    @app.get("/api/server/stats")
+    async def server_stats() -> dict[str, Any]:
+        """The server computer's CPU, memory and disk use (admins only, auth.ADMIN_ONLY)."""
+        return await asyncio.to_thread(stats.sample)
+
     @app.post("/api/server/restart", status_code=202)
     async def restart(request: Request) -> dict[str, Any]:
         """Restart with the configuration on disk, after in-flight requests finish (up to 30 s)."""
-        # With accounts only admins get here (auth.ADMIN_ONLY); without, only this computer or a paired device.
+        # Only admins get here (auth.ADMIN_ONLY).
         if not runtime.remote.trusted(request) or not remote.same_origin(request):
-            raise HTTPException(status_code=401, detail="Only this computer or a paired device can restart the proxy.")
+            raise HTTPException(status_code=401, detail="Sign in as an admin to restart the server.")
         try:
             return runtime.request_restart()
         except RuntimeError as exc:

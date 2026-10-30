@@ -485,6 +485,7 @@ ADMIN_ONLY = [
     (re.compile(r"POST"), re.compile(r"/api/containers")),
     (re.compile(r"PUT|DELETE"), re.compile(r"/api/containers/[^/]+")),
     (re.compile(r"POST"), re.compile(r"/api/server/restart")),
+    (re.compile(r"GET"), re.compile(r"/api/server/stats")),
     (re.compile(r"POST"), re.compile(r"/api/machines/[^/]+/providers/adopt")),
     (re.compile(r"POST|PUT|DELETE"), re.compile(r"/api/orgs(/.*)?")),
     (re.compile(r"POST|PUT|DELETE"), re.compile(r"/api/users(/.*)?")),

@@ -13,6 +13,7 @@ import { RequestPage } from "./pages/Request";
 import { SessionsPage } from "./pages/Sessions";
 import { SessionPage } from "./pages/Session";
 import { AgentsPage } from "./pages/Agents";
+import { ServerStatsPage } from "./pages/ServerStats";
 import { SettingsPage } from "./pages/Settings";
 import { TerminalsPage } from "./pages/Terminals";
 import { PairPage } from "./pages/Pair";
@@ -230,6 +231,7 @@ function Shell({ identity }: { identity: Identity | null }) {
           {MOVED.map((path) => (
             <Route key={path} path={path} element={<Navigate to="/machines" replace />} />
           ))}
+          <Route path="/server-stats" element={<ServerStatsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/organization" element={<OrganizationPage />} />
           <Route path="/get" element={<DownloadsPage />} />

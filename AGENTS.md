@@ -105,7 +105,8 @@ server/agent_server/        Python package (FastAPI)
   installer.py install/     The one-line installers (/install.sh, /install.ps1): templates filled in with the server's address and its build's archives
   openapi.py                /openapi.json, /docs, /redoc: tags each route by its module (TAGS), unique operation ids, sign-in schemes, the WebSockets in the description
   routes/compat.py          Agent-facing APIs: /v1, /anthropic, /api, plus /session/<id>/... versions
-  routes/management.py      Console API: status, config, sessions, requests, traces, live, agents, models, intercept
+  routes/management.py      Console API: status, server stats, config, sessions, requests, traces, live, agents, models, intercept
+  stats.py                  The server computer's CPU, memory, disks and folder sizes (psutil) for /api/server/stats
   routes/machines.py        WS /api/machines/connect, /api/machines (list, launch, adopt a model server, forget), and every LLM provider
                             operation, relayed to the machine: providers/{kind}-{port} (status, models, log), metrics, catalog, servers
   routes/terminals.py       /api/remote (status; pairing removed), /api/terminals, WebSockets .../{id}/host (launcher) and .../{id}/view (console)
@@ -161,7 +162,8 @@ ui/src/                     THE CONSOLE: React 19 + TypeScript + Vite + TanStack
                             Shared queries, theme, toasts, clipboard; live SSE; traffic classification; formatting
   pages/                    One file per page; Docs.tsx (/help: docs/*.md rendered with marked, public), Machine.tsx (a machine and its model servers), Downloads.tsx (/get, public),
                             Terminals.tsx (list, sign-in), Terminal.tsx (xterm.js viewer, lazy-loaded), Pair.tsx (legacy-link redirect),
-                            Login.tsx (shown instead of the console until signed in), Organization.tsx (organizations, user directory, your account)
+                            Login.tsx (shown instead of the console until signed in), Organization.tsx (organizations, user directory, your account),
+                            ServerStats.tsx (/server-stats, admins: the server computer's load and disks)
   components/               Shared pieces (Tabs, CodeLine, ConfirmDialog, ModelSearch/usePull, AddBackendForm, ProviderState, PartTag, LogPanel, ...)
   styles.css                The only stylesheet: CSS variables, light and dark themes, no CSS framework
 config/                     backends.yaml, models.yaml, agents.yaml
