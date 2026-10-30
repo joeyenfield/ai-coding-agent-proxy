@@ -293,6 +293,8 @@ Each model server has its own tab, named after its provider (or `Ollama :11434` 
 - **Strata**: **Overview** (state, profile, engine, uptime, model, context, prompt and generation speed, speculative decoding), **Hardware**, **Models** (load and unload), **Connect agents** (the agent commands for it) and **Log** (server and engine logs, key blanked).
 - **Docker Model Runner**: **Models**, **Get models** (search Docker Hub's `ai/` models and their tags, or pull by name) and **Connect agents**.
 
+When the machine doesn't report an Ollama or Strata running, its tab says why at the top and what to do: **Start Ollama**, or **Start** a Strata profile, when it's installed there and you may manage the machine's servers (`agent-machine servers on`); otherwise whether it isn't installed, or how to let the console start it.
+
 Changing models needs `agent-machine servers on` there; without it the tab shows the models but doesn't change them.
 
 ### Ollama server

@@ -1196,3 +1196,8 @@ code { background: var(--ground); border: 1px solid var(--line); padding: 0 5px;
 .device-request, .device-result { display: flex; flex-direction: column; gap: 14px; }
 .device-code-shown { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: 0.14em; }
 .device-result h2 { margin: 0; }
+
+/* A model server's tab when its machine doesn't report it running (pages/Machine.tsx OfflineServer) */
+.offline-server { margin-bottom: 14px; }
+.offline-server .row { align-items: center; gap: 10px; }
+.offline-server p { margin: 0; }

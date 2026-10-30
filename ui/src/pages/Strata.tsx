@@ -179,7 +179,7 @@ function StatusCard({ state, busy, onAction }: { state: StrataState; busy: boole
       {!state.online && (
         <div className="callout">
           <p className="bad">{state.error}</p>
-          <p>Start Strata on its machine (from its app, or from Machines), then this page picks it up.</p>
+          <p>Once Strata is running on its machine, this page picks it up.</p>
         </div>
       )}
       {state.key.state === "missing" && (

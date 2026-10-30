@@ -136,6 +136,7 @@ function ProviderView({ machine, provider }: { machine: FleetMachine; provider: 
   return (
     <>
       <ProviderHead machine={machine} provider={provider} />
+      <OfflineServer machine={machine} provider={provider} />
       {provider.kind === "ollama" && <OllamaProvider target={target} label={label} backend={provider.backend} manageable={manageable} />}
       {provider.kind === "strata" && <StrataProvider target={target} label={label} backend={provider.backend} manageable={manageable} />}
       {provider.kind === "docker" && <DockerProvider target={target} label={label} backend={provider.backend} manageable={manageable} />}
@@ -756,11 +757,10 @@ function MachineSessions({ machine }: { machine: FleetMachine }) {
 
 type ServerAction = { kind: "ollama" | "strata"; action: "start" | "stop"; profile?: string };
 
-/** Ollama and Strata installed on the machine, which its owner can start and stop from here (agent-machine servers on). */
-function InstalledServers({ machine }: { machine: FleetMachine }) {
+/** Starting and stopping the Ollama or a Strata profile installed on a machine, and the button for it. */
+function useServerAction(machine: FleetMachine) {
   const client = useQueryClient();
   const notify = useToast();
-  const servers = machine.servers ?? {};
   const act = useMutation({
     mutationFn: ({ kind, action, profile }: ServerAction) => api.machineServer(machine.id, kind, action, profile),
     onSuccess: (_, { kind, action, profile }) => {
@@ -768,9 +768,82 @@ function InstalledServers({ machine }: { machine: FleetMachine }) {
       notify(action === "start" ? `${what} started on ${machine.name}.` : `${what} stopped on ${machine.name}.`);
       client.invalidateQueries({ queryKey: ["machines"] });
       client.invalidateQueries({ queryKey: ["models"] });
+      client.invalidateQueries({ queryKey: ["provider", machine.id] });
     },
     onError: (error: Error) => notify(error.message),
   });
+  const allowed = machine.connected && Boolean(machine.servers?.enabled) && Boolean(machine.you.servers);
+  const busy = (kind: string, profile?: string) => act.isPending && act.variables?.kind === kind && act.variables?.profile === profile;
+  const button = (request: ServerAction, label: string, primary = false) => (
+    <button type="button" className={`small ${primary ? "primary" : ""}`} disabled={!allowed || act.isPending} onClick={() => act.mutate(request)}>
+      {busy(request.kind, request.profile) ? (request.action === "start" ? "Starting…" : "Stopping…") : label}
+    </button>
+  );
+  return { allowed, button };
+}
+
+/**
+ * Above a model server's own tab when the machine doesn't report it running: why, and the way
+ * to start it from here when agent-machine can (servers on, and you may manage them).
+ */
+function OfflineServer({ machine, provider }: { machine: FleetMachine; provider: MachineProvider }) {
+  const { allowed, button } = useServerAction(machine);
+  if (provider.detected || provider.container || (provider.kind !== "ollama" && provider.kind !== "strata")) return null;
+  const servers = machine.servers ?? {};
+  const name = provider.kind === "ollama" ? "Ollama" : "Strata";
+  let body: ReactNode;
+  if (!machine.connected) {
+    body = <p>{machine.name} isn't connected, so it can't start {name} now.</p>;
+  } else if (!servers.enabled) {
+    body = (
+      <p>
+        {name} isn't running on {machine.name}. Start it there, or run <code>agent-machine servers on</code> there to start it from here.
+      </p>
+    );
+  } else if (provider.kind === "ollama") {
+    const ollama = servers.ollama;
+    body = ollama?.found ? (
+      <div className="row wrap">
+        <p>Ollama is installed on {machine.name} but not running.</p>
+        {button({ kind: "ollama", action: "start" }, "Start Ollama", true)}
+      </div>
+    ) : (
+      <p>
+        Ollama isn't installed on {machine.name}. Install it there from <a href="https://ollama.com/download" target="_blank" rel="noreferrer">ollama.com</a>, then
+        start it from here.
+      </p>
+    );
+  } else {
+    const strata = servers.strata;
+    const stopped = strata?.profiles.filter((profile) => profile.state === "stopped") ?? [];
+    body = !strata?.found ? (
+      <p>
+        Strata isn't installed on {machine.name}: agent-machine can't find the <code>strata</code> command there. Install it, or remove this
+        provider in Server settings if it's gone for good.
+      </p>
+    ) : stopped.length ? (
+      <div className="row wrap">
+        <p>Strata isn't running on {machine.name}. Start one of its profiles:</p>
+        {stopped.map((profile) => (
+          <span key={profile.id}>{button({ kind: "strata", action: "start", profile: profile.id }, `Start ${profile.id}`, true)}</span>
+        ))}
+      </div>
+    ) : (
+      <p>{strata.error ?? `Strata is installed on ${machine.name} but has no saved profile: set one up with strata launch there.`}</p>
+    );
+  }
+  return (
+    <div className="callout offline-server">
+      {body}
+      {servers.enabled && machine.connected && !allowed && <p className="subtle">Starting it from here needs the machine's servers permission.</p>}
+    </div>
+  );
+}
+
+/** Ollama and Strata installed on the machine, which its owner can start and stop from here (agent-machine servers on). */
+function InstalledServers({ machine }: { machine: FleetMachine }) {
+  const servers = machine.servers ?? {};
+  const { button } = useServerAction(machine);
   if (!servers.enabled) {
     return machine.you.owner ? (
       <p className="subtle">
@@ -779,13 +852,6 @@ function InstalledServers({ machine }: { machine: FleetMachine }) {
       </p>
     ) : null;
   }
-  const allowed = machine.connected && Boolean(machine.you.servers);
-  const busy = (kind: string, profile?: string) => act.isPending && act.variables?.kind === kind && act.variables?.profile === profile;
-  const button = (request: ServerAction, label: string, primary = false) => (
-    <button type="button" className={`small ${primary ? "primary" : ""}`} disabled={!allowed || act.isPending} onClick={() => act.mutate(request)}>
-      {busy(request.kind, request.profile) ? (request.action === "start" ? "Starting…" : "Stopping…") : label}
-    </button>
-  );
   const ollama = servers.ollama;
   const strata = servers.strata;
   return (
