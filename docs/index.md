@@ -81,6 +81,7 @@ Everyone signs in through OIDC, including on loopback. Sessions are private unti
 | [Providers](providers.md) | Ollama (translation, model tuning, Qwen), Strata, Docker Model Runner, containers machines run, hosted APIs, which agent can use which provider. |
 | [The console](console.md) | Every page of the web console and what each control does, with screenshots. |
 | [OIDC authentication](oidc.md) | Auth service deployment, browser PKCE, CLI device flow, service accounts, access tokens and migration. |
+| [Security](security.md) | Device approval step by step and what protects it, tokens and where they're kept, which connections are encrypted, where plain HTTP appears and why, and a checklist for a public server. |
 | [Accounts and sharing](accounts.md) | Users, organizations and teams, session sharing, phones and the Android app. |
 | [Configuration](configuration.md) | The database, the stored settings (providers, agents, model tuning, retention), `agent-server config export` and `import`, every environment variable, secrets, the `agent-server` and `agent-benchmark` commands. |
 | [API](api.md) | Every HTTP endpoint and WebSocket, who may call it, and what it takes and returns. |

@@ -47,6 +47,8 @@ flowchart LR
 
 ## Every connection
 
+Which of these are encrypted, and why the few plain-HTTP ones stay on one computer, is on [Security](security.md#encryption-in-transit).
+
 | From | To | Transport | Opened by | Credential | Carries |
 | --- | --- | --- | --- | --- | --- |
 | Agent | `agent-proxy` `127.0.0.1:8184` | HTTP | the agent | session id for model calls; launch-only URL capability for MCP | Model calls: `/session/<id>/v1/…`, `/session/<id>/anthropic/…`, `/session/<id>/api/…`; MCP at `/session/<id>/mcp/<machine>/<name>?key=…` |

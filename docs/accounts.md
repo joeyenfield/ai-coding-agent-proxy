@@ -48,6 +48,8 @@ The full list of commands is on [Configuration](configuration.md#users-organizat
 
 ## Signing in
 
+How a computer's device sign-in works, and what keeps it safe, is on [Security](security.md).
+
 | Who | How | What it carries |
 |---|---|---|
 | A browser | Console redirects through `GET /api/auth/login` to the issuer; authorization code + PKCE | Short-lived HttpOnly access cookie and a rotating refresh cookie |
