@@ -333,7 +333,7 @@ For its owner and admins: which organizations and teams may use each feature (se
 
 ## Pairing a phone
 
-Pairing keys and codes no longer grant access. Open the console on the phone and sign in through OIDC. Terminal access follows session sharing. Old `/pair` links redirect to Running agents after sign-in.
+Pairing keys and codes no longer grant access. Open the console on the phone and sign in through OIDC. Terminal access follows session sharing. Old `/pair` links redirect to Running agents after sign-in. See [Security](security.md#pairing-how-each-device-joins) for how phones, the Android app and computers pair now.
 
 ## Documentation
 

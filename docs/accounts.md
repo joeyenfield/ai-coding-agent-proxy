@@ -119,7 +119,7 @@ Containers stay the owner's (and admins'). See [Machines](machines.md) for the d
 
 ## The terminal access key and pairing
 
-Access-key pairing has been removed. Old keys, short codes and `/pair` links no longer authenticate. Phones sign in through OIDC like other browsers; loopback has no special privilege.
+Access-key pairing has been removed. Old keys, short codes and `/pair` links no longer authenticate. Phones sign in through OIDC like other browsers; loopback has no special privilege. How each kind of device pairs now (computers, fleet machines, browsers, the Android app, scripts) and why the old way went is on [Security](security.md#pairing-how-each-device-joins).
 
 ## Running agents on your phone
 
