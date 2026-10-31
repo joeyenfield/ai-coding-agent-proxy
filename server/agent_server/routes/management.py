@@ -56,6 +56,10 @@ def register(app: FastAPI, runtime: Runtime) -> None:
 
         return visible
 
+    def usable(request: Request) -> Any:
+        """A test of backends for this user's agents: their tenant's, and the shared hosted ones."""
+        return runtime.fleet.usable_by(auth.request_identity(request))
+
     def described(session: Session, request: Request) -> dict[str, Any]:
         machine = runtime.fleet.machine_for(session.tags)
         return {**session.public(), "machine": machine.id if machine else None, "you": access.viewer(auth.request_identity(request), session)}
@@ -67,7 +71,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
 
     @app.get("/api/status")
     async def status(request: Request) -> dict[str, Any]:
-        return runtime.status(visible_ids(request))
+        return runtime.status(visible_ids(request), usable(request))
 
     @app.get("/api/server/stats")
     async def server_stats() -> dict[str, Any]:
@@ -204,7 +208,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         data = await request.json()
         try:
             if data.get("backend") != DIRECT_BACKEND:
-                settings.backend(data.get("backend"))
+                data = {**data, "backend": settings.backend(data.get("backend"), usable(request)).name}
             return described(runtime.sessions.create({**data, "tags": _new_tags(data, data.get("tags"), request)}), request)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -264,7 +268,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         cutoff = time.time() - STALE_SESSION_SECONDS
         deleted, cleared, skipped = 0, 0, []
         for session in runtime.sessions.list():
-            if not (access.is_owner(identity, session) or (session.tags.get("owner") is None and identity is not None and identity.admin)):
+            if not (access.is_owner(identity, session) or (session.tags.get("owner") is None and identity is not None and identity.admin and access.in_tenant(identity, session))):
                 continue
             if session.session_id in busy:
                 skipped.append(session.session_id)
@@ -415,7 +419,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         return details
 
     @app.get("/api/agents")
-    async def list_agents() -> list[dict[str, Any]]:
+    async def list_agents(request: Request) -> list[dict[str, Any]]:
         try:
             agents = runtime.agents()
         except ValueError as exc:
@@ -423,16 +427,17 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         # The backends each agent's protocol works with, so the UI offers only those, and the
         # one a launch picks when none is named (the client asks for it, not re-deriving it).
         listed = []
+        mine = usable(request)
         for agent in agents.values():
             backends = [] if agent.intercept else [
-                name for name, backend in settings.backends.items() if serves(backend, agent.backend_type, agent.protocol)
+                name for name, backend in settings.backends.items() if serves(backend, agent.backend_type, agent.protocol) and mine(backend)
             ]
-            listed.append({**agent.public(), "backends": backends, "default_backend": DIRECT_BACKEND if agent.intercept else _default_backend(agent)})
+            listed.append({**agent.public(), "backends": backends, "default_backend": DIRECT_BACKEND if agent.intercept else _default_backend(agent, mine)})
         return listed
 
-    def _default_backend(agent: Any) -> str | None:
+    def _default_backend(agent: Any, mine: Any) -> str | None:
         try:
-            return settings.backend_for(agent.backend_type, None, agent.protocol).name
+            return settings.backend_for(agent.backend_type, None, agent.protocol, mine).name
         except ValueError:
             return None
 
@@ -473,7 +478,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             raise HTTPException(status_code=400, detail=f"{agent.name} can't take MCP servers")
         mcp_token, mcp_token_hash = mcp.issue_token() if chosen else (None, None)
         try:
-            backend = DIRECT_BACKEND if agent.intercept else settings.backend_for(agent.backend_type, data.get("backend") or None, agent.protocol).name
+            backend = DIRECT_BACKEND if agent.intercept else settings.backend_for(agent.backend_type, data.get("backend") or None, agent.protocol, usable(request)).name
             tags = {**access.client_tags(data.get("tags")), "prepared_by": "agent" if data.get("launcher") else "ui"}
             if project_path:
                 tags["project_path"] = project_path
@@ -529,13 +534,16 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         return PlainTextResponse(runtime.ca.bundle_path.read_text(encoding="utf-8"), media_type="application/x-pem-file")
 
     @app.get("/api/models")
-    async def list_models(backend: str | None = None) -> dict[str, Any]:
-        """The models agents can use on each backend, with the profile the server applies to them.
+    async def list_models(request: Request, backend: str | None = None) -> dict[str, Any]:
+        """The models agents can use on each backend of the user's tenant, with the profile the server applies to them.
 
         Each machine's backends are listed by that machine (agent-machine); the server
         doesn't contact a model server for anything but agents' traffic.
         """
-        names = [backend] if backend else list(settings.backends)
+        mine = usable(request)
+        if backend is not None and (backend not in settings.backends or not mine(settings.backends[backend])):
+            raise HTTPException(status_code=404, detail="No such backend")
+        names = [backend] if backend else [name for name, item in settings.backends.items() if mine(item)]
         results = await asyncio.gather(*(_backend_models(runtime, name) for name in names))
         return {
             "backends": dict(zip(names, results)),

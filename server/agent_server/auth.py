@@ -40,6 +40,10 @@ HEADER = "x-ai-proxy-token"
 SCRYPT = {"n": 2**14, "r": 8, "p": 1}
 ROLES = ("admin", "member")
 NAME = re.compile(r"[a-z0-9][a-z0-9._-]{0,39}")
+# The organization above every other: only site admins are in it. Every other organization is a
+# tenant under it, and everything else (users, machines, providers, sessions and their recordings)
+# belongs to exactly one tenant. Nothing is shared between tenants, and the root sees none of theirs.
+ROOT_TENANT = "root"
 
 
 def hash_password(password: str) -> str:
@@ -82,34 +86,75 @@ def team_org(key: str) -> str:
 
 @dataclass(frozen=True)
 class Identity:
-    """Who a request comes from: a user, their role, their organizations and their teams (<org>/<team>)."""
+    """Who a request comes from: a user, their role in their organization (their tenant), and their teams there (<org>/<team>).
+
+    A user is in exactly one organization. admin means an admin of that organization; a site admin is
+    an admin of the root organization, who runs the server itself and its organizations, but sees
+    nothing inside another organization.
+    """
 
     user: str
     via: str  # cookie | token
     role: str = "member"
     teams: tuple[str, ...] = field(default_factory=tuple)
-    orgs: tuple[str, ...] = field(default_factory=tuple)
+    tenant: str = ROOT_TENANT
 
     @property
     def admin(self) -> bool:
         return self.role == "admin"
 
+    @property
+    def site_admin(self) -> bool:
+        return self.role == "admin" and self.tenant == ROOT_TENANT
+
+    @property
+    def orgs(self) -> tuple[str, ...]:
+        """The organizations they're in: their tenant, only."""
+        return (self.tenant,)
+
     def public(self) -> dict[str, Any]:
-        return {"user": self.user, "via": self.via, "role": self.role, "orgs": list(self.orgs), "teams": list(self.teams)}
+        return {
+            "user": self.user, "via": self.via, "role": self.role, "tenant": self.tenant, "site_admin": self.site_admin,
+            "orgs": list(self.orgs), "teams": list(self.teams),
+        }
+
+
+def same_tenant(identity: Identity | None, tenant: str | None) -> bool:
+    """Whether something of this tenant is identity's to reach at all. Anything without a tenant is nobody's."""
+    return identity is not None and bool(tenant) and identity.tenant == tenant
+
+
+def administers(identity: Identity | None, tenant: str | None) -> bool:
+    """Who manages an organization's users and teams: its admins, and site admins (who set organizations up)."""
+    return identity is not None and identity.admin and (identity.site_admin or identity.tenant == tenant)
+
+
+def tenant_of(record: dict[str, Any]) -> str:
+    """A stored user's tenant: its own, else (rows from before tenants) its first organization, else the root."""
+    tenant = record.get("tenant")
+    if tenant:
+        return str(tenant)
+    orgs = sorted(str(item) for item in record.get("orgs") or [])
+    return orgs[0] if orgs else ROOT_TENANT
 
 
 def write_directory(connection: Any, users: dict[str, Any], orgs: dict[str, Any]) -> None:
     """Replace the stored users and organizations with these (UserStore's and the legacy import's)."""
     connection.execute(schema.users.delete())
     connection.execute(schema.orgs.delete())
+    orgs = {ROOT_TENANT: {"name": "Site administration", "created_at": time.time(), "teams": {}}, **orgs}
     for name, record in users.items():
+        tenant = tenant_of(record)
+        orgs.setdefault(tenant, {"name": tenant, "created_at": time.time(), "teams": {}})
         connection.execute(schema.users.insert().values(
             name=name, password=str(record.get("password") or ""), role=record.get("role", "member"),
-            created_at=record.get("created_at"), orgs=list(record.get("orgs", [])), teams=list(record.get("teams", [])),
+            created_at=record.get("created_at"), tenant=tenant, orgs=[tenant],
+            teams=[team for team in record.get("teams", []) if team_org(team) == tenant],
         ))
     for org, record in orgs.items():
         connection.execute(schema.orgs.insert().values(
             id=org, name=record.get("name") or org, created_at=record.get("created_at"), teams=dict(record.get("teams") or {}),
+            parent=None if org == ROOT_TENANT else ROOT_TENANT,
         ))
 
 
@@ -174,13 +219,13 @@ class UserStore:
             current = kv.get_meta(connection, "accounts_version", 0)
             if self._data is not None and current == self._version:
                 return
-            users = {
-                row["name"]: {
-                    "password": row["password"], "role": row["role"], "orgs": list(row["orgs"] or []),
-                    "teams": list(row["teams"] or []), "created_at": row["created_at"],
-                }
-                for row in connection.execute(select(schema.users)).mappings()
-            }
+            users = {}
+            for row in connection.execute(select(schema.users)).mappings():
+                record = {"password": row["password"], "role": row["role"], "orgs": list(row["orgs"] or []),
+                          "teams": list(row["teams"] or []), "created_at": row["created_at"], "tenant": row["tenant"]}
+                record["tenant"] = tenant_of(record)
+                record["teams"] = [team for team in record["teams"] if team_org(team) == record["tenant"]]
+                users[row["name"]] = record
             orgs = {
                 row["id"]: {"name": row["name"], "created_at": row["created_at"], "teams": dict(row["teams"] or {})}
                 for row in connection.execute(select(schema.orgs)).mappings()
@@ -210,14 +255,14 @@ class UserStore:
         with self.db.read() as connection:
             return bool(kv.get_meta(connection, "accounts_initialized"))
 
-    # Organizations and their teams
+    # Organizations (tenants) and their teams
 
     def orgs(self, viewer: Identity | None = None) -> list[dict[str, Any]]:
-        """Every organization, or with a member's identity only theirs (admins see them all)."""
+        """Every organization, or with an identity only theirs (site admins see them all, without what's inside)."""
         with self._locked():
             data = self._load()
-            mine = None if viewer is None or viewer.admin else set(viewer.orgs)
-            return [self._org_public(org) for org in sorted(data["orgs"]) if mine is None or org in mine]
+            mine = None if viewer is None or viewer.site_admin else {viewer.tenant}
+            return [self._org_public(org) for org in sorted(data["orgs"], key=lambda key: (key != ROOT_TENANT, key)) if mine is None or org in mine]
 
     def org(self, org: str) -> dict[str, Any] | None:
         with self._locked():
@@ -228,7 +273,8 @@ class UserStore:
         users = self._load()["users"]
         return {
             "id": org, "name": record.get("name") or org, "created_at": record.get("created_at"),
-            "members": sorted(name for name, user in users.items() if org in user.get("orgs", [])),
+            "root": org == ROOT_TENANT, "parent": None if org == ROOT_TENANT else ROOT_TENANT,
+            "members": sorted(name for name, user in users.items() if user["tenant"] == org),
             "teams": [
                 {
                     "id": team, "key": team_key(org, team), "name": value.get("name") or team,
@@ -239,10 +285,11 @@ class UserStore:
         }
 
     def add_org(self, org: str, name: str | None = None) -> str:
+        """A new tenant, under the root organization."""
         org = valid_name(org, "organization")
         with self._locked():
             orgs = self._load()["orgs"]
-            if org in orgs:
+            if org in orgs or org == ROOT_TENANT:
                 raise ValueError(f"There's already an organization called {org}")
             orgs[org] = {"name": (name or org).strip()[:80] or org, "created_at": time.time(), "teams": {}}
             self._save()
@@ -257,14 +304,17 @@ class UserStore:
             self._save()
 
     def remove_org(self, org: str) -> None:
-        """Delete an organization: its teams go, and its members leave it (their accounts stay)."""
+        """Delete an organization that has no users left: everything of a tenant is its users', so they go first."""
         with self._locked():
             data = self._load()
-            if data["orgs"].pop(org, None) is None:
+            if org == ROOT_TENANT:
+                raise ValueError("The root organization can't be removed")
+            if org not in data["orgs"]:
                 raise KeyError(org)
-            for record in data["users"].values():
-                record["orgs"] = [item for item in record.get("orgs", []) if item != org]
-                record["teams"] = [item for item in record.get("teams", []) if team_org(item) != org]
+            members = sorted(name for name, user in data["users"].items() if user["tenant"] == org)
+            if members:
+                raise ValueError(f"Remove {org}'s users first ({', '.join(members)}): users can't move to another organization")
+            del data["orgs"][org]
             self._save()
 
     def add_team(self, org: str, team: str, name: str | None = None) -> str:
@@ -300,52 +350,44 @@ class UserStore:
             self._save()
 
     def set_membership(self, org: str, name: str, member: bool, *, team: str | None = None) -> None:
-        """Change one membership under the lock, preserving memberships outside this scope."""
+        """Join or leave a team of the user's own organization. Users never join or leave an organization:
+        they're made in one and stay there (everything they own belongs to it)."""
         with self._locked():
             data = self._load()
             organization = data["orgs"].get(org)
             if organization is None or name not in data["users"]:
                 raise KeyError(org if organization is None else name)
-            if team is not None and team not in organization.get("teams", {}):
-                raise KeyError(team)
             record = data["users"][name]
-            orgs, teams = set(record.get("orgs", [])), set(record.get("teams", []))
             if team is None:
-                if member:
-                    orgs.add(org)
-                else:
-                    orgs.discard(org)
-                    teams = {key for key in teams if team_org(key) != org}
-            elif member:
-                orgs.add(org)
+                if member and record["tenant"] == org:
+                    return
+                raise ValueError("A user belongs to the organization they were made in; add them to another one as a new user")
+            if team not in organization.get("teams", {}):
+                raise KeyError(team)
+            if record["tenant"] != org:
+                raise ValueError(f"{name} isn't in {org}")
+            teams = set(record.get("teams", []))
+            if member:
                 teams.add(team_key(org, team))
             else:
                 teams.discard(team_key(org, team))
-            self.update_user(name, orgs=sorted(orgs), teams=sorted(teams))
+            self.update_user(name, teams=sorted(teams))
 
-    def _team_keys(self) -> set[str]:
-        return {team_key(org, team) for org, record in self._load()["orgs"].items() for team in record.get("teams", {})}
-
-    def _membership(self, orgs: list[str] | None, teams: list[str] | None, current: dict[str, Any]) -> tuple[list[str], list[str]]:
-        """A user's organizations and teams, checked: joining a team joins its organization, leaving one leaves its teams."""
-        data = self._load()
-        wanted_orgs = set(current.get("orgs", []) if orgs is None else orgs)
-        wanted_teams = set(current.get("teams", []) if teams is None else teams)
-        unknown = sorted(org for org in wanted_orgs if org not in data["orgs"])
+    def _teams(self, tenant: str, teams: list[str] | None, current: list[str]) -> list[str]:
+        """A user's teams, checked: teams of their own organization only."""
+        if teams is None:
+            return sorted(current)
+        wanted = {str(team) for team in teams}
+        known = {team_key(tenant, team) for team in self._load()["orgs"].get(tenant, {}).get("teams", {})}
+        unknown = sorted(wanted - known)
         if unknown:
-            raise ValueError(f"No organization called {', '.join(unknown)}")
-        unknown = sorted(wanted_teams - self._team_keys())
-        if unknown:
-            raise ValueError(f"No team called {', '.join(unknown)} (teams are named <organization>/<team>)")
-        if teams is not None:
-            wanted_orgs |= {team_org(team) for team in wanted_teams}
-        wanted_teams = {team for team in wanted_teams if team_org(team) in wanted_orgs}
-        return sorted(wanted_orgs), sorted(wanted_teams)
+            raise ValueError(f"No team called {', '.join(unknown)} in {tenant} (teams are named <organization>/<team>)")
+        return sorted(wanted)
 
     def _user_public(self, name: str) -> dict[str, Any]:
         record = self._load()["users"][name]
         return {
-            "name": name, "role": record.get("role", "member"), "orgs": list(record.get("orgs", [])),
+            "name": name, "role": record.get("role", "member"), "tenant": record["tenant"], "orgs": [record["tenant"]],
             "teams": list(record.get("teams", [])), "created_at": record.get("created_at"),
         }
 
@@ -360,17 +402,28 @@ class UserStore:
             return self._user_public(name) if name in self._load()["users"] else None
 
     def user_list(self, viewer: Identity | None = None) -> list[dict[str, Any]]:
-        """Every user, or for a member those who share an organization with them (and themselves)."""
+        """Every user, or for an identity those of their own organization (site admins: everyone, to set organizations up)."""
         with self._locked():
             users = [self._user_public(name) for name in sorted(self._load()["users"])]
-        if viewer is None or viewer.admin:
+        if viewer is None or viewer.site_admin:
             return users
-        mine = set(viewer.orgs)
-        return [user for user in users if user["name"] == viewer.user or mine & set(user["orgs"])]
+        return [user for user in users if user["tenant"] == viewer.tenant]
 
-    def add_user(self, name: str, password: str, role: str | None = None, teams: list[str] | None = None, orgs: list[str] | None = None) -> dict[str, Any]:
-        """A new user. The first user is an admin, so someone can manage the rest."""
+    def add_user(
+        self, name: str, password: str, role: str | None = None, teams: list[str] | None = None, orgs: list[str] | None = None,
+        tenant: str | None = None,
+    ) -> dict[str, Any]:
+        """A new user in one organization (tenant), for good. The first user is an admin of the root, so someone can run the server.
+
+        orgs is the older way to name it: one organization at most. Without either it's the organization of
+        their teams; without teams either, only an admin can be made, in the root.
+        """
         name = valid_name(name, "user")
+        named = sorted({str(item) for item in orgs or []} | ({tenant} if tenant else set()))
+        if not named:
+            named = sorted({team_org(str(team)) for team in teams or []})
+        if len(named) > 1:
+            raise ValueError("A user belongs to one organization; name only one")
         with self._locked():
             data = self._load()
             if name in data["users"]:
@@ -378,10 +431,14 @@ class UserStore:
             role = role or ("admin" if not data["users"] else "member")
             if role not in ROLES:
                 raise ValueError(f"Role must be one of: {', '.join(ROLES)}")
-            member_of, in_teams = self._membership(orgs or [], teams or [], {})
+            home = named[0] if named else ROOT_TENANT
+            if home not in data["orgs"]:
+                raise ValueError(f"No organization called {home}")
+            if home == ROOT_TENANT and role != "admin":
+                raise ValueError("The root organization is for site admins only; name the organization this user belongs to")
             data["users"][name] = {
-                "password": hash_password(_checked_password(password)), "role": role,
-                "orgs": member_of, "teams": in_teams, "created_at": time.time(),
+                "password": hash_password(_checked_password(password)), "role": role, "tenant": home, "orgs": [home],
+                "teams": self._teams(home, teams or [], []), "created_at": time.time(),
             }
             self._save()
             return self._user_public(name)
@@ -392,24 +449,29 @@ class UserStore:
             record = data["users"].get(name)
             if record is None:
                 raise KeyError(name)
+            tenant = record["tenant"]
+            if orgs is not None and sorted({str(item) for item in orgs}) != [tenant]:
+                raise ValueError("A user stays in the organization they were made in")
             if role is not None:
                 if role not in ROLES:
                     raise ValueError(f"Role must be one of: {', '.join(ROLES)}")
-                if record.get("role") == "admin" and role != "admin" and self._admins() == [name]:
+                if tenant == ROOT_TENANT and role != "admin":
+                    raise ValueError("The root organization is for site admins only")
+                if record.get("role") == "admin" and role != "admin" and self._admins(tenant) == [name]:
                     raise ValueError("That's the last admin; make someone else an admin first")
-            member_of, in_teams = self._membership(orgs, teams, record)
+            in_teams = self._teams(tenant, teams, record.get("teams", []))
             encoded = hash_password(_checked_password(password)) if password is not None else None
             if role is not None:
                 record["role"] = role
-            record["orgs"], record["teams"] = member_of, in_teams
+            record["teams"] = in_teams
             if encoded is not None:
                 record["password"] = encoded
                 data["sessions"] = {key: value for key, value in data["sessions"].items() if value.get("user") != name}
             self._save()
             return self._user_public(name)
 
-    def _admins(self) -> list[str]:
-        return [name for name, record in self._load()["users"].items() if record.get("role") == "admin"]
+    def _admins(self, tenant: str) -> list[str]:
+        return [name for name, record in self._load()["users"].items() if record.get("role") == "admin" and record["tenant"] == tenant]
 
     def set_password(self, name: str, password: str) -> None:
         self.update_user(name, password=password)
@@ -419,7 +481,9 @@ class UserStore:
             data = self._load()
             if name not in data["users"]:
                 return False
-            if data["users"][name].get("role") == "admin" and self._admins() == [name] and len(data["users"]) > 1:
+            tenant = data["users"][name]["tenant"]
+            others = [other for other, record in data["users"].items() if other != name and record["tenant"] == tenant]
+            if data["users"][name].get("role") == "admin" and self._admins(tenant) == [name] and others:
                 raise ValueError("That's the last admin; make someone else an admin first")
             del data["users"][name]
             for kind in ("sessions", "tokens"):
@@ -474,10 +538,10 @@ class Auth:
         environment = self.environment_user
         record = self.store.user(user)
         if record:
-            return Identity(user, via, record["role"], tuple(record["teams"]), tuple(record["orgs"]))
+            return Identity(user, via, record["role"], tuple(record["teams"]), record["tenant"])
         if environment and user == environment[0]:
-            # The account from the environment manages the server.
-            return Identity(user, via, "admin", ())
+            # The account from the environment manages the server: a site admin.
+            return Identity(user, via, "admin", (), ROOT_TENANT)
         return None
 
     @staticmethod
@@ -558,15 +622,23 @@ PROTECTED_PREFIXES = ("/api/", "/v1/", "/anthropic/", "/session/", "/docs", "/re
 # Unscoped agent endpoints that may name their session in X-AI-Proxy-Session instead of the path.
 AGENT_PREFIXES = ("/v1/", "/anthropic/")
 UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
-# Changes to the server itself: only admins make them. Members use the server.
-ADMIN_ONLY = [
-    (re.compile(r"PUT"), re.compile(r"/api/config")),
+# The server itself (its settings, agents, model tuning, restarts, its computer's load) and which
+# organizations exist: only site admins (admins of the root organization).
+SITE_ADMIN_ONLY = [
+    (re.compile(r"GET|PUT"), re.compile(r"/api/config")),
     # The stored settings themselves: agents, model tuning, retention, export and import.
     (re.compile(r"GET|POST|PUT|DELETE"), re.compile(r"/api/config/.+")),
-    (re.compile(r"POST"), re.compile(r"/api/containers")),
-    (re.compile(r"PUT|DELETE"), re.compile(r"/api/containers/[^/]+")),
     (re.compile(r"POST"), re.compile(r"/api/server/restart")),
     (re.compile(r"GET"), re.compile(r"/api/server/stats")),
+    (re.compile(r"POST"), re.compile(r"/api/orgs")),
+    (re.compile(r"DELETE"), re.compile(r"/api/orgs/[^/]+")),
+]
+# Changes inside an organization: its admins (and site admins, for the users and teams of any).
+# The routes check which organization: these only need an admin of some organization.
+ADMIN_ONLY = [
+    *SITE_ADMIN_ONLY,
+    (re.compile(r"POST"), re.compile(r"/api/containers")),
+    (re.compile(r"PUT|DELETE"), re.compile(r"/api/containers/[^/]+")),
     (re.compile(r"POST"), re.compile(r"/api/machines/[^/]+/providers/adopt")),
     (re.compile(r"POST|PUT|DELETE"), re.compile(r"/api/orgs(/.*)?")),
     (re.compile(r"POST|PUT|DELETE"), re.compile(r"/api/users(/.*)?")),
@@ -575,6 +647,10 @@ ADMIN_ONLY = [
 
 def admin_only(method: str, path: str) -> bool:
     return any(methods.fullmatch(method) and paths.fullmatch(path) for methods, paths in ADMIN_ONLY)
+
+
+def site_admin_only(method: str, path: str) -> bool:
+    return any(methods.fullmatch(method) and paths.fullmatch(path) for methods, paths in SITE_ADMIN_ONLY)
 
 
 class AuthMiddleware:
@@ -608,6 +684,9 @@ class AuthMiddleware:
         if identity is None:
             await _deny(scope, receive, send, 401, "Sign in first.")
             return
+        if scope["type"] == "http" and site_admin_only(method, path) and not identity.site_admin:
+            await _deny(scope, receive, send, 403, "Only a site admin can do this.")
+            return
         if scope["type"] == "http" and admin_only(method, path) and not identity.admin:
             await _deny(scope, receive, send, 403, "Only an admin can change this.")
             return
@@ -636,7 +715,7 @@ class AuthMiddleware:
                     renewal_required = True
                     group.cancel_scope.cancel()
                     return
-                if current is None or current.user != identity.user:
+                if current is None or current.user != identity.user or current.tenant != identity.tenant:
                     renewal_required = True
                     group.cancel_scope.cancel()
                     return

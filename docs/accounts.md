@@ -1,50 +1,60 @@
 # Accounts and sharing
 
-Everyone signs in through the separate OIDC issuer at **auth.aicontrolmesh.com**, including on loopback. People share sessions and machines through organizations and teams. See [OIDC authentication](oidc.md) for deployment, access tokens, device sign-in and automation.
+Everyone signs in through the separate OIDC issuer at **auth.aicontrolmesh.com**, including on loopback. Every user, machine, provider and session belongs to one organization, and nothing is shared between organizations. Inside one, people share sessions and machines with the whole organization or its teams. See [OIDC authentication](oidc.md) for deployment, access tokens, device sign-in and automation.
 
 This page covers accounts, who can see and control what, and using the console from a phone.
 
 ## Authentication is always required
 
-On the first start against a new database, if there is no environment account, the API creates `admin` with a random password, including on loopback. It prints the password and saves it in the file `first-user-password` (in `certs/` normally). Reset it with `agent-server user passwd admin`, then delete that file. Removing every user does not disable authentication.
+On the first start against a new database, if there is no environment account, the API creates `admin`, a site admin, with a random password, including on loopback. It prints the password and saves it in the file `first-user-password` (in `certs/` normally). Reset it with `agent-server user passwd admin`, then delete that file. Removing every user does not disable authentication.
 
-## Users, roles, organizations and teams
+## Organizations are tenants
 
-| | What it is |
-|---|---|
-| **User** | Someone who signs in. Names use lowercase letters, numbers, `.`, `_` and `-`, up to 40 characters. Passwords need at least 8 characters. |
-| **Role** | `admin` manages the server, organizations and users; `member` uses it. The first user is always an admin. The last admin can't be made a member or removed while others remain. |
-| **Organization** | A group of users, each with its own teams. A user can be in several. |
-| **Team** | A group of an organization's users, named `<org>/<team>`. Joining a team joins its organization; leaving an organization leaves its teams. |
-
-Members see their own organizations and the people in them. Admins see and change everything.
+Each organization is a tenant: a separate part of the server that shares nothing with the others. There is one **root** organization above all the rest, which holds only the site admins. Every other organization lives under it.
 
 ```mermaid
 flowchart TD
-  Organization --> Teams
-  Organization --> Members["Users in the organization"]
-  Teams --> TeamMembers["Users in each team"]
+  Root["root (site admins)"] --> A["Organization (tenant)"]
+  Root --> B["Organization (tenant)"]
+  A --> Users["Its users and teams"]
+  A --> Machines["Its machines and their providers"]
+  A --> Sessions["Its sessions, requests, traces and terminals"]
 ```
 
-In **Server → Organizations**, choose an organization, then open a team to manage its members. **Members** manages everyone in that organization, including people not yet in a team. Add an existing user or **Create user** directly in the organization or team. A user can belong to multiple teams and organizations; they still have one account.
+- **A user belongs to one organization, for good.** They're made in it and can't join another or be moved. To give someone access to another organization, add them there as a new user.
+- **A machine belongs to the organization of the user who signed it in** (`agent-machine login`), from the first time it connects. Another organization's user can't take over its id.
+- **A provider belongs to its machine's organization.** A model server added as a provider, and a container a machine runs, can only be used by that organization's agents. Other organizations don't see it in their agents' backends, `/api/models` or `/api/status`, and naming it (`--backend`, `X-AI-Proxy-Backend`) answers as an unknown backend. Hosted APIs (Anthropic) are the exception: site admins add them in **Server settings** for everyone, and agents bring their own credentials to them. A model server added before machines did this belongs to the root.
+- **A session belongs to its owner's organization**, and so do its request records, traces, chats, live traffic and terminal. The server sets it; clients can't. Nobody outside it sees or controls the session, site admins included.
 
-Removing a team member keeps their organization membership. Removing an organization member also removes their memberships in that organization's teams. Neither deletes the account or memberships elsewhere. Membership changes apply to subsequent session and machine access checks. Deleting a team keeps its people in the organization; renaming its display name keeps its sharing key.
+## Users, roles and teams
 
-**User directory** manages accounts, server roles, password resets and memberships. **Your account** shows your identity and sign-in instructions. An Admin role is server-wide, not a team role. Only server admins can change organizations, teams or other users.
+| | What it is |
+|---|---|
+| **User** | Someone who signs in, in one organization. Names use lowercase letters, numbers, `.`, `_` and `-`, up to 40 characters, and are unique on the server. Passwords need at least 8 characters. |
+| **Role** | Within the user's organization: `admin` manages it (its users, teams, and the admin side of its machines); `member` uses it. An organization's last admin can't be made a member or removed while others remain. |
+| **Site admin** | An admin of the root organization. Site admins run the server (its settings, agents, model tuning, restarts) and set organizations up: they make and remove organizations and add users to any of them. They don't see what's inside another organization: its sessions, machines or providers. The root takes only admins. |
+| **Team** | A group of an organization's users, named `<org>/<team>`. Only users of that organization can join it. |
+
+Members see their own organization and the people in it. Its admins change them. Site admins see every organization and user.
+
+In **Server → Organizations**, choose an organization, then open a team to manage its members. Add people to an organization by creating them there. Deleting a team keeps its people in the organization; renaming its display name keeps its sharing key. An organization can only be deleted once it has no users left, and the root can't be deleted. Membership changes apply to subsequent session and machine access checks.
 
 Manage them from the console (**Server → Organizations**), the API (`/api/orgs`, `/api/users`; see [API](api.md)), or the server's shell:
 
 ```bash
 agent-server org add pockets --name "Empty Pockets"
-agent-server user add joey --org pockets --team core   # the first user is an admin; it asks for a password
-agent-server user add sam --team pockets/core          # joining a team joins its organization
+agent-server user add joey --org pockets --admin        # an admin of pockets; it asks for a password
+agent-server user add sam --team pockets/core           # a member of pockets, in its core team
+agent-server user add ops --admin                       # no --org: a site admin, in the root
 agent-server team add pockets infra --name "Infrastructure"
 agent-server user list
 ```
 
-The full list of commands is on [Configuration](configuration.md#users-organizations-and-teams). They change the accounts in the server's database, which a running server and the issuer pick up straight away.
+The full list of commands is on [Configuration](configuration.md#users-organizations-and-teams). They change the accounts in the server's database, which a running server and the issuer pick up straight away. If no site admin is left, the server says so when it starts; make one with `agent-server user add <name> --admin`.
 
-**An account from the environment.** Set `AI_PROXY_USERNAME` and `AI_PROXY_PASSWORD` on the server and that account is an admin, without an account in the database. Use it for servers set up by script. It can't change its password through the console.
+**An account from the environment.** Set `AI_PROXY_USERNAME` and `AI_PROXY_PASSWORD` on the server and that account is a site admin, without an account in the database. Use it for servers set up by script. It can't change its password through the console.
+
+**Upgrading from before organizations were tenants.** On the first start of this version, each user goes to their first organization (by id), keeping their role there, and leaves their teams of other organizations. An admin in no organization becomes a site admin; a member in none goes to a new organization, `main`. Sessions and machines go to their owner's organization, and those without an owner to the root. Anything a user shared with another of their old organizations is no longer shared.
 
 ## Signing in
 
@@ -70,16 +80,22 @@ Passwords are hashed in the server's database; OAuth tokens and grant state are 
 
 ## What only admins can change
 
-Changes to the server itself are admin-only. The list is `ADMIN_ONLY` in `server/agent_server/auth.py`:
+The lists are `SITE_ADMIN_ONLY` and `ADMIN_ONLY` in `server/agent_server/auth.py`.
 
-- saving the server's settings (`PUT /api/config`);
+Only site admins:
+
+- read and save the server's settings (`GET`/`PUT /api/config`), which include every backend;
 - everything under `/api/config/...`, reading included: the stored agents, the Ollama model tuning, storage and retention, and settings export and import;
-- restarting the server (`POST /api/server/restart`) and reading its computer's stats (`GET /api/server/stats`);
-- adding, changing or deleting containers (`POST /api/containers`, `PUT`/`DELETE /api/containers/{name}`);
-- adding a machine's model server as a provider (`POST /api/machines/{id}/providers/adopt`);
-- changing organizations, teams and users (`/api/orgs/...`, `/api/users/...`).
+- restart the server (`POST /api/server/restart`) and read its computer's stats (`GET /api/server/stats`);
+- make and remove organizations (`POST /api/orgs`, `DELETE /api/orgs/{org}`).
 
-Everything else is open to any signed-in user, limited by session sharing and machine grants.
+An organization's admins (and site admins, for the users and teams of any organization), within that organization only:
+
+- rename it, and change its teams and users (`/api/orgs/{org}/...`, `/api/users/...`);
+- add, change or delete containers on its machines (`POST /api/containers`, `PUT`/`DELETE /api/containers/{name}`);
+- add one of its machines' model servers as a provider (`POST /api/machines/{id}/providers/adopt`).
+
+Everything else is open to any signed-in user, limited to their organization, session sharing and machine grants. Another organization's sessions, machines, users and teams answer `404`, as if they didn't exist.
 
 ## Session sharing
 
@@ -87,7 +103,7 @@ Whoever starts a session owns it and decides who else gets it. The sharing lives
 
 | Setting | Values |
 |---|---|
-| Visibility | `private`: only the owner, admins included. `team`: members of one of the owner's teams. `org`: members of one of the owner's organizations. |
+| Visibility | `private`: only the owner, admins included. `team`: members of one of the owner's teams. `org`: everyone in the owner's organization. Never anyone in another organization. |
 | Access | `view`: others read its traffic and watch its terminal. `control`: they can also type into its terminal, end it, switch capture, and clear or delete it. |
 
 From the launcher:
@@ -97,14 +113,14 @@ agent claude-account . --share team --team pockets/core --control
 agent qwen . --model qwen3.6:35b --share org --control --let-others-type
 ```
 
-`--share` is `private` (the default), `team` or `org`. `--team` names which of your teams, or with `--share org` which of your organizations; you can leave it out if you're in only one. `--let-others-type` gives them `control`. The console's **Start an agent** page and each session's page offer the same; only the owner can change who a session is shared with (`PATCH /api/sessions/{id}`).
+`--share` is `private` (the default), `team` or `org`. `--team` names which of your teams (with `--share org` it may name your organization, the only one there is); you can leave it out if you're in only one team. `--let-others-type` gives them `control`. The console's **Start an agent** page and each session's page offer the same; only the owner can change who a session is shared with (`PATCH /api/sessions/{id}`).
 
 Rules worth knowing:
 
 - A session you can't see answers `404`, not `403`, so its id isn't confirmed.
 - Changes apply straight away: the live view checks every event, and terminal viewers who lose access are disconnected.
-- Sessions from before accounts have no owner. Admins see and control those.
-- Clients can't set `owner`, `visibility`, `team`, `org`, `access`, `launched_by` or `mcp` tags themselves.
+- Sessions from before accounts have no owner. Their organization's admins see and control those.
+- Clients can't set `owner`, `visibility`, `team`, `org`, `access`, `tenant`, `launched_by` or `mcp` tags themselves.
 - **Launches on someone else's machine.** An agent the console starts on a machine runs under that machine's sign-in, so its owner owns the session. When someone else the machine lets in started it, the server tags it `launched_by` them, and they can view and control it too.
 - **Shells stay private.** A terminal opened on a machine (`POST /api/machines/{id}/shell`, or `agent --shell`) is a real shell. Its session is always private with view access, and the server refuses to widen it.
 
@@ -114,9 +130,9 @@ Terminal viewers use their current sign-in and memberships. Removing a user's ac
 revoking their token, signing them out or resetting their browser sign-in stops further
 terminal input and output. An idle viewer is disconnected within about one second.
 
-A machine belongs to whoever signed it in with `agent-machine login`. Its owner (or an admin) can let organizations and teams use each of its features: `view`, `launch`, `terminal`, `models`, `servers`, `update` and `mcp`. Any grant includes `view`. Admins can always `view`, manage `models` and `update` a machine; starting agents, terminals and MCP servers there needs a grant even for them. Members can grant only organizations and teams they're in.
+A machine belongs to whoever signed it in with `agent-machine login`, and to their organization. Nobody outside that organization can see or use it. Its owner (or an admin of its organization) can let the whole organization, or its teams, use each of its features: `view`, `launch`, `terminal`, `models`, `servers`, `update` and `mcp`. Any grant includes `view`. Grants never name another organization. The organization's admins can always `view`, manage `models` and `update` a machine; starting agents, terminals and MCP servers there needs a grant even for them. Members can grant only teams they're in.
 
-Containers stay the owner's (and admins'). See [Machines](machines.md) for the details and the **Access** tab.
+Containers stay the owner's (and their organization's admins'). See [Machines](machines.md) for the details and the **Access** tab.
 
 ## The terminal access key and pairing
 

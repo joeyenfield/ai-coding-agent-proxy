@@ -4,7 +4,7 @@ import { api, ApiError, type StoredAgent } from "../api";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { formatBytes } from "../format";
 
-/** The Server settings page's sections for what used to be config files: storage, agents and model tuning (admins). */
+/** The Server settings page's sections for what used to be config files: storage, agents and model tuning (site admins). */
 
 const NEW_AGENT = `name: My agent
 executable: my-agent

@@ -68,7 +68,7 @@ async def intercept(tmp_path: Path, monkeypatch):
     proxy = InterceptProxy(runtime)
     await proxy.start()
     port = proxy.server.sockets[0].getsockname()[1]
-    session = runtime.sessions.create({"client": "claude-account", "backend": "direct", "trace": True, "tags": {"owner": "alice"}})
+    session = runtime.sessions.create({"client": "claude-account", "backend": "direct", "trace": True, "tags": {"owner": "alice", "tenant": "root"}})
     verify = ssl.create_default_context(cafile=str(runtime.ca.cert_path))
     client = httpx.AsyncClient(proxy=httpx.Proxy(
         f"http://{session.session_id}:x@127.0.0.1:{port}", headers={"x-ai-proxy-token": token},
@@ -191,7 +191,7 @@ async def test_plain_http_proxy_returns_bad_gateway_for_private_destination(tmp_
     runtime.intercept_client = httpx.AsyncClient(transport=InterceptTransport(), trust_env=False)
     proxy = InterceptProxy(runtime)
     await proxy.start()
-    session = runtime.sessions.create({"client": "test", "backend": "direct", "tags": {"owner": "alice"}})
+    session = runtime.sessions.create({"client": "test", "backend": "direct", "tags": {"owner": "alice", "tenant": "root"}})
     authorization = base64.b64encode(f"{session.session_id}:x".encode()).decode()
     try:
         reader, writer = await asyncio.open_connection("127.0.0.1", proxy.server.sockets[0].getsockname()[1])
@@ -293,7 +293,7 @@ async def test_websocket_responses_turns_are_recorded(tmp_path, monkeypatch):
     token = authenticate(runtime)
     proxy = InterceptProxy(runtime)
     await proxy.start()
-    session = runtime.sessions.create({"client": "codex-account", "backend": "direct", "trace": True, "tags": {"owner": "alice"}})
+    session = runtime.sessions.create({"client": "codex-account", "backend": "direct", "trace": True, "tags": {"owner": "alice", "tenant": "root"}})
     try:
         reader, writer = await asyncio.open_connection("127.0.0.1", proxy.server.sockets[0].getsockname()[1])
         writer.write(
@@ -337,7 +337,7 @@ async def test_listener_requires_oauth_and_an_open_session_the_user_controls(int
     from agent_server.auth import UserStore
 
     runtime, session, client, _, port = intercept
-    UserStore(runtime.settings.open_database()).add_user("joey", "correct horse")
+    UserStore(runtime.settings.open_database()).add_user("joey", "correct horse", role="admin")
 
     async def connect(authorization: str | None, token: str | None = None) -> bytes:
         reader, writer = await asyncio.open_connection("127.0.0.1", port)

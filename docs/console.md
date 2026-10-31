@@ -71,14 +71,14 @@ If the console can't reach the server, the page says so (**Can't reach the proxy
 
 ![Start an agent, for an account agent](screenshots/agents.png)
 
-`/agents` lists every agent the server knows (its stored agent definitions, which admins change on [Server settings](#server-settings)), grouped by route: **Your accounts**, **Local models** and **Hosted API**. Each shows whether it's installed on the server's computer and which API it speaks. Pick one to see its launch panel:
+`/agents` lists every agent the server knows (its stored agent definitions, which site admins change on [Server settings](#server-settings)), grouped by route: **Your accounts**, **Local models** and **Hosted API**. Each shows whether it's installed on the server's computer and which API it speaks. Pick one to see its launch panel:
 
 - **Install**: the install command for Linux, macOS, Windows or WSL. The console remembers your choice.
 - **Provider and model** (local and hosted agents): the backends this agent can use, with the one the server picks by default, and the models on that backend (aliases from the Ollama model tuning included). An offline backend says why.
 - **Capture full request and response payloads**: saves every request and reply in full (`--trace`). Account agents redact credentials.
 - **Watch and type into it from Running agents** (`--control`): shares the agent's terminal with the server.
 - **MCP servers**: the MCP servers your machines share that you may use. Ticking one adds `--mcp` to the command. Agents that can't take MCP servers (Aider) say so. See [MCP servers](mcp.md).
-- **Sharing** (with accounts): **Only me**, a team or an organization, and whether they may type into it.
+- **Sharing** (with accounts): **Only me**, one of your teams or everyone in your organization, and whether they may type into it.
 - **Run it from your project folder**: the full `agent` command, ready to copy.
 - **Set it up by hand instead**: opens a session now and prints the environment for the agent in PowerShell or bash, for when you can't use the launcher. Started this way, its terminal isn't shared. For MCP servers it lists the URLs to add to the agent's own settings.
 
@@ -214,7 +214,7 @@ Claude Code signed in to its account sends most calls with only what's new, nami
 
 ![Server stats](screenshots/server-stats.png)
 
-`/server-stats` (admins only) shows how hard the computer running the server is working and how full its disks are. It asks the server every 2 seconds while it's open and keeps the last five minutes on the page; nothing is saved. A machine's own load is on its [Load tab](#load).
+`/server-stats` (site admins only) shows how hard the computer running the server is working and how full its disks are. It asks the server every 2 seconds while it's open and keeps the last five minutes on the page; nothing is saved. A machine's own load is on its [Load tab](#load).
 
 - **The computer**: its name, system, how long it's been up and how long the server has been running.
 - **CPU and memory**: charts of the computer's CPU (with the load average outside Windows) and memory, and of the server's own share of the CPU. Bars show the server's own memory and, when there is one, swap.
@@ -225,7 +225,7 @@ Claude Code signed in to its account sends most calls with only what's new, nami
 
 ![Server settings](screenshots/settings.png)
 
-`/settings` changes the server's stored settings (admins only). They're kept in its database, and most changes apply right away:
+`/settings` changes the server's stored settings (site admins only). They're kept in its database, and most changes apply right away:
 
 - **Server**: **Listen host**, **Listen port**, **Address agent machines use** (shown for `agent login`) and **Public console address** (`public_url`, optional: where people open the console from anywhere, shown ahead of the addresses the server finds itself). A changed listen address needs a restart.
 - **Providers**: every backend, with its type, address and machine. Choose the **Default**, or remove one. **Add hosted API** adds an Anthropic API backend (name, type, URL). Local providers can't be added here: they come from machines (see [Providers](providers.md)). **Save changes** saves this section and the one above.
@@ -240,13 +240,13 @@ To copy the settings to another server or keep them in version control, use `age
 
 ![An organization and its teams](screenshots/organization.png)
 
-`/organization` separates the directory from your own account. Its tabs and selected organization and team stay in the URL, so you can link to them:
+`/organization` separates the directory from your own account. Each organization is a tenant: everything in it (people, machines, providers, sessions) is its own, and nothing is shared with another one ([Accounts](accounts.md#organizations-are-tenants)). Its tabs and selected organization and team stay in the URL, so you can link to them:
 
-- **Organizations**: search and select an organization. Its **Teams** tab lists its teams; open one to add or remove members, create a user in it, or rename or delete it in **Team settings**. **Members** manages everyone in the organization, including users not assigned to a team. Add existing users before placing them in teams, or create an account directly in either view. **Settings** renames or deletes the organization.
-- **User directory**: search accounts and filter by organization, including **No organization** for unassigned users. Admins can create accounts, **Edit user** to change their server role, memberships or password, and **Delete account**. Removing someone from a team or organization is separate from deleting their account.
-- **Your account**: your identity and OIDC sign-in instructions. CLI sign-in uses device approval; scripts use explicitly provisioned service clients ([OIDC](oidc.md)). Admins reset account passwords in User directory or with `agent-server user passwd`.
+- **Your organization** (site admins: **Organizations**): its **Teams** tab lists its teams; open one to put its people in or out of it, create a user in it, or rename or delete it. **People** lists everyone in the organization and, for its admins, creates users there. **Settings** renames it. Site admins see every organization (the root as **Site administration**), create organizations, and delete one once it has no users left.
+- **People**: search the people you can see (your organization's; site admins: everyone). Admins can create accounts in their organization (site admins: in any; the root takes only site admins), **Edit user** to change their role, teams or password, and **Delete account**. People belong to one organization and can't be moved: to give someone access to another, add them there as a new user.
+- **Your account**: your identity, role and organization, and OIDC sign-in instructions. CLI sign-in uses device approval; scripts use explicitly provisioned service clients ([OIDC](oidc.md)). Admins reset account passwords in People or with `agent-server user passwd`.
 
-Members see only their organizations and the people in them; all management controls require a server admin. Removing an organization membership also removes that user's team memberships there. Deleting a team or organization keeps people's accounts. Destructive changes ask for confirmation.
+Members see their organization and its people, read-only. Its admins manage them; site admins manage organizations and server settings, but don't see what's inside another organization. Removing someone from a team keeps their account. Deleting a team keeps its people. Destructive changes ask for confirmation.
 
 See [Accounts and sharing](accounts.md).
 
@@ -277,7 +277,7 @@ Each row marks **Agents**, **Terminals**, **Model servers**, **Server management
 
   ![Add a machine](screenshots/add-machine.png)
 - **Or run a sandbox machine in a container**: the Docker or Podman command for the sandbox image, which runs agents in a container (see [Machines](machines.md#a-sandbox-machine-in-docker)).
-- **Removed**: machines taken off the server, which you (their owner or an admin) can allow back.
+- **Removed**: machines taken off the server, which you (their owner or an admin of their organization) can allow back.
 
 ## Approve a device
 
@@ -319,7 +319,7 @@ Cards for its state, last contact, agent-machine version and running agents. **W
 
 ![A machine's model servers](screenshots/machine-model-servers.png)
 
-The model servers it runs (Ollama, Strata, Docker Model Runner, and the containers it runs for the server), each with its address, version and whether it's a provider yet. A model server that isn't a provider has **Add as a provider** (admins); after that, every agent that speaks its API can use it.
+The model servers it runs (Ollama, Strata, Docker Model Runner, and the containers it runs for the server), each with its address, version and whether it's a provider yet. A model server that isn't a provider has **Add as a provider** (admins of the machine's organization); after that, every agent of that organization that speaks its API can use it.
 
 ### One tab per model server
 
@@ -363,7 +363,7 @@ The MCP servers the machine shares, by name, with how each runs (a command or a 
 
 ![A machine's Access tab](screenshots/machine-access.png)
 
-For its owner and admins: which organizations and teams may use each feature (see it, start agents, open terminals, change models, run model servers, update it, use MCP servers), and which of the machine's own switches each also needs. See [Machines](machines.md#who-may-use-a-machine).
+For its owner and its organization's admins: whether the whole organization, or which of its teams, may use each feature (see it, start agents, open terminals, change models, run model servers, update it, use MCP servers), and which of the machine's own switches each also needs. See [Machines](machines.md#who-may-use-a-machine).
 
 ## Pairing a phone
 

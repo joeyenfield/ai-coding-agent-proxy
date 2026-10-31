@@ -86,7 +86,7 @@ def make_settings(tmp_path: Path, **backends: Backend) -> Settings:
 def join(app: Any, machine_id: str = "m1", address: str = "127.0.0.1", enabled: bool = True) -> FakeMachine:
     """Put a machine that runs containers in the fleet, as if its agent-proxy had connected."""
     fleet = app.state.runtime.fleet
-    machine = Machine(id=machine_id, name=f"box-{machine_id}", owner="test-admin", address=address, providers=[{"type": "ollama", "port": 11434, "version": "", "models": 0}],
+    machine = Machine(id=machine_id, name=f"box-{machine_id}", owner="test-admin", tenant="root", address=address, providers=[{"type": "ollama", "port": 11434, "version": "", "models": 0}],
                       containers={"enabled": enabled, "cli": "docker", "found": True, "online": True, "version": "27.1", "error": None, "engines": ENGINES})
     fleet.machines[machine_id] = machine
     fleet.sockets[machine_id] = object()
@@ -182,7 +182,8 @@ def test_a_machine_that_is_away_or_has_containers_off_says_so(tmp_path):
     spec = {"engine": "ollama", "image": "ollama/ollama:latest", "port": 11500, "gpus": "all", "env": {}}
     app = create_app(make_settings(tmp_path, box=Backend("box", "http://127.0.0.1:11500", machine="m1", container=spec)))
     with authenticated_client(app, **LOCAL) as client:
-        assert "isn't in the fleet" in client.get("/api/containers/box").json()["problem"]
+        # A container whose machine isn't in the fleet belongs to no organization, so nobody reaches it.
+        assert client.get("/api/containers/box").status_code == 404
         join(app, enabled=False)
         assert "containers off" in client.get("/api/containers/box").json()["problem"]
         assert client.post("/api/containers", json={"name": "x", "machine": "m1", "engine": "ollama"}).status_code == 409
@@ -220,7 +221,7 @@ def test_only_the_machines_owner_creates_containers_on_it(tmp_path):
     dave, carol = signed_in(app, "dave"), signed_in(app, "carol")
     with dave, carol:
         machine = join(app)
-        machine.machine.owner = "carol"
+        machine.machine.owner, machine.machine.tenant = "carol", "acme"
         # dave is an admin but not the owner; carol owns it but isn't an admin, and a container is a new backend.
         assert dave.post("/api/containers", json={"name": "x", "machine": "m1", "engine": "ollama"}).status_code == 403
         assert carol.post("/api/containers", json={"name": "x", "machine": "m1", "engine": "ollama"}).status_code == 403

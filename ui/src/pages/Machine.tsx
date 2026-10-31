@@ -166,7 +166,8 @@ function AdoptButton({ machine, provider }: { machine: FleetMachine; provider: M
   const client = useQueryClient();
   const notify = useToast();
   const identity = useAuth().data?.identity;
-  const admin = !identity || identity.role === "admin";
+  // Admins of the machine's organization add its model servers as providers (site admins don't reach other organizations).
+  const admin = Boolean(identity && identity.role === "admin" && (!machine.tenant || machine.tenant === identity.tenant));
   const adopt = useMutation({
     mutationFn: () => api.adoptProvider(machine.id, provider.kind),
     onSuccess: (result) => {
@@ -175,7 +176,7 @@ function AdoptButton({ machine, provider }: { machine: FleetMachine; provider: M
     },
     onError: (error: Error) => notify(error.message),
   });
-  if (!admin) return <p className="callout">Agents can use it once an admin adds it as a provider.</p>;
+  if (!admin) return <p className="callout">Agents can use it once an admin of its organization adds it as a provider.</p>;
   return (
     <div className="callout row wrap">
       <span>Agents can't use it yet. Add it as a provider and every agent that speaks its API can.</span>
@@ -407,7 +408,7 @@ function MachineSummary({ machine, providers }: { machine: FleetMachine; provide
             tab={machine.containers.enabled ? "containers" : undefined}
             on={Boolean(machine.containers.enabled)}
             you={machine.you.owner}
-            detail={machine.containers.enabled ? `${machine.containers.cli ?? "docker"}${machine.containers.online ? "" : ", not answering"} · its owner and admins run them` : off("agent-machine containers on")}
+            detail={machine.containers.enabled ? `${machine.containers.cli ?? "docker"}${machine.containers.online ? "" : ", not answering"} · its owner runs them, if an admin of its organization` : off("agent-machine containers on")}
           />
           <Feature machine={machine} name="Updates from here" on={Boolean(machine.updates)} you={machine.you.update} detail={machine.updates ? "Update now, when it's on another build than this server" : off("agent-machine updates on")} />
           <Feature machine={machine} name="Tunnel" on={Boolean(machine.tunnel)} detail={machine.tunnel ? "Agents reach its model servers through its own connection: no port forward needed" : "Agents reach its model servers at its address"} />

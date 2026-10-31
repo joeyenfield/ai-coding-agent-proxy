@@ -276,25 +276,26 @@ They use the same database as the server (`AI_PROXY_DATABASE_URL`, or the SQLite
 
 ### Users, organizations and teams
 
-`agent-server user|org|team ...` change the accounts in the database from the server's shell. A running server, and agent-auth, pick the change up straight away.
+`agent-server user|org|team ...` change the accounts in the database from the server's shell. A running server, and agent-auth, pick the change up straight away. Each organization is a tenant under the root one, and each user belongs to exactly one, for good ([Accounts](accounts.md#organizations-are-tenants)).
 
 ```bash
 agent-server org add pockets --name "Empty Pockets"
-agent-server user add joey --org pockets --team core    # the first user is an admin
-agent-server user add sam --team pockets/core           # joining a team joins its organization
+agent-server user add joey --org pockets --admin        # an admin of pockets
+agent-server user add sam --team pockets/core           # a member of pockets, in its core team
+agent-server user add ops --admin                       # a site admin (the root organization)
 agent-server user passwd sam
 agent-server user list
 ```
 
 | Command | What it does |
 |---|---|
-| `user add NAME [--admin] [--org ORG]... [--team TEAM]...` | Adds a user and asks for a password. The first user is always an admin. `--org` and `--team` repeat; a team is `<org>/<team>`, or just `<team>` with one `--org`. Organizations and teams that don't exist yet are created. |
+| `user add NAME [--admin] [--org ORG] [--team TEAM]...` | Adds a user to one organization and asks for a password. Without `--org`, the organization of their teams; with neither, only `--admin` works, and makes a site admin (the root). The first user is always a site admin. `--team` repeats; a team is `<org>/<team>`, or just `<team>` with `--org`. Organizations and teams that don't exist yet are created. |
 | `user passwd NAME` | Sets a user's password and signs them out everywhere. |
-| `user remove NAME` | Removes a user. Their tokens stop working. The last admin can't be removed while other users remain. |
-| `user list` | Users with their role, organizations and teams. |
-| `org add ID [--name NAME]` | Adds an organization. |
+| `user remove NAME` | Removes a user. Their tokens stop working. An organization's last admin can't be removed while other users remain in it. |
+| `user list` | Users with their role, organization and teams. |
+| `org add ID [--name NAME]` | Adds an organization (a tenant, under the root). |
 | `org rename ID NAME` | Changes its display name. |
-| `org remove ID` | Removes it and its teams. Its members keep their accounts. |
+| `org remove ID` | Removes an organization with no users left, and its teams. The root can't be removed. |
 | `org list` | Organizations and their members. |
 | `team add ORG ID [--name NAME]` | Adds a team to an organization. |
 | `team remove ORG ID` | Removes a team. |

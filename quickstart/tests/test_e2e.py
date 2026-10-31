@@ -116,10 +116,12 @@ def admin():
 
 @pytest.fixture(scope="module")
 def member(admin):
-    """A fresh member, signed in once for the module and removed afterwards."""
+    """A fresh member of a fresh organization (a tenant of its own), signed in once for the module and removed afterwards."""
     name = "e2e-" + secrets.token_hex(4)
+    org = name + "-org"
     password = secrets.token_urlsafe(16)
-    created = admin.api("POST", "/api/users", json={"name": name, "password": password, "role": "member"})
+    assert admin.api("POST", "/api/orgs", json={"id": org, "name": "E2E"}).status_code == 201
+    created = admin.api("POST", "/api/users", json={"name": name, "password": password, "role": "member", "tenant": org})
     assert created.status_code == 201, created.text
     browser = Browser()
     try:
@@ -128,6 +130,7 @@ def member(admin):
     finally:
         browser.close()
         admin.api("DELETE", f"/api/users/{name}")
+        admin.api("DELETE", f"/api/orgs/{org}")
 
 
 @pytest.fixture(scope="module")
@@ -211,36 +214,28 @@ def test_members_cannot_change_the_server(admin, member):
     assert browser.api("POST", "/api/orgs", json={"id": "e2e-nope"}).status_code == 403
 
 
-def test_machines_are_shared_only_through_grants(admin, member, machines):
+def test_machines_never_cross_organizations(admin, member, machines):
+    """The quickstart's machines are the site admin's, in the root organization: another organization never sees them."""
     name, password, browser = member
-    org = "e2e-" + secrets.token_hex(4)
     target = machines["machine-2"]
     before = target["access"]
+    org = browser.identity()["tenant"]
     try:
-        # The admin's machines are invisible to others until shared: 404, not 403.
+        # Another organization's machines are invisible: 404, not 403.
         assert browser.api("GET", "/api/machines").json()["machines"] == []
         assert browser.api("GET", f"/api/machines/{target['id']}").status_code == 404
-
-        assert admin.api("POST", "/api/orgs", json={"id": org, "name": "E2E"}).status_code == 201
-        assert admin.api("PUT", f"/api/orgs/{org}/members/{name}").status_code == 200
-        granted = admin.api("PUT", f"/api/machines/{target['id']}/access", json={"access": {**before, "view": {"orgs": [org], "teams": []}}})
-        assert granted.status_code == 200, granted.text
-
-        # Permissions are reloaded on every request, so the grant applies without signing in again.
-        seen = browser.api("GET", "/api/machines").json()["machines"]
-        assert [machine["name"] for machine in seen] == ["machine-2"]
-        you = seen[0]["you"]
-        assert you["view"] and not you["owner"] and not you["manage"]
-        assert not you["launch"] and not you["terminal"]
-        assert browser.api("POST", f"/api/machines/{target['id']}/shell", json={"folder": "/workspace"}).status_code == 403
-        assert browser.api("PUT", f"/api/machines/{target['id']}/access", json={"access": {}}).status_code == 403
+        # And they can't be shared with it.
+        refused = admin.api("PUT", f"/api/machines/{target['id']}/access", json={"access": {**before, "view": {"orgs": [org], "teams": []}}})
+        assert refused.status_code == 400, refused.text
+        assert browser.api("GET", "/api/machines").json()["machines"] == []
+        assert browser.api("POST", f"/api/machines/{target['id']}/shell", json={"folder": "/workspace"}).status_code == 404
+        assert browser.api("PUT", f"/api/machines/{target['id']}/access", json={"access": {}}).status_code == 404
+        # Nor its providers.
+        assert all(backend.get("machine") is None for backend in browser.api("GET", "/api/status").json()["backends"].values())
     finally:
         admin.api("PUT", f"/api/machines/{target['id']}/access", json={"access": before})
-        admin.api("DELETE", f"/api/orgs/{org}")
-    assert browser.api("GET", "/api/machines").json()["machines"] == []
 
 
-# Keep this last: it removes the module's member.
 def test_removing_a_user_ends_their_sign_in(admin, member):
     name, password, browser = member
     token = device_token(name, password)

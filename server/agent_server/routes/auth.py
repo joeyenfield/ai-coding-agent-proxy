@@ -213,8 +213,10 @@ def register(app: FastAPI, runtime: Runtime) -> None:
     async def change_password(request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=410, detail="Password sign-in moved to the issuer. Ask an administrator to reset your account password.")
 
-    # Organizations and users: everyone signed in sees their own organizations and the people in them,
-    # admins see and change everything (the middleware checks ADMIN_ONLY). Changes answer with the whole directory.
+    # Organizations (tenants) and users. Everyone signed in sees their own organization and the people in it.
+    # Its admins change its teams and users; site admins (the root organization's) also make and remove
+    # organizations and set up the users of any (the middleware checks SITE_ADMIN_ONLY and ADMIN_ONLY;
+    # these check which organization). Another organization looks missing. Changes answer with the whole directory.
 
     def directory(request: Request) -> dict[str, Any]:
         viewer = auth.request_identity(request)
@@ -229,6 +231,17 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return directory(request)
 
+    def administered(request: Request, org: str) -> None:
+        """An organization this user manages; any other answers as missing."""
+        if accounts.store.org(org) is None or not auth.administers(auth.request_identity(request), org):
+            raise HTTPException(status_code=404, detail="No such organization")
+
+    def user_administered(request: Request, name: str) -> dict[str, Any]:
+        record = accounts.store.user(name)
+        if record is None or not auth.administers(auth.request_identity(request), record["tenant"]):
+            raise HTTPException(status_code=404, detail="No such user")
+        return record
+
     @app.get("/api/orgs")
     async def orgs(request: Request) -> dict[str, Any]:
         return {"orgs": accounts.store.orgs(auth.request_identity(request))}
@@ -240,6 +253,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
 
     @app.put("/api/orgs/{org}")
     async def rename_org(org: str, request: Request) -> dict[str, Any]:
+        administered(request, org)
         data = await request.json()
         return change(request, lambda: accounts.store.rename_org(org, str(data.get("name") or "")), "No such organization")
 
@@ -249,26 +263,34 @@ def register(app: FastAPI, runtime: Runtime) -> None:
 
     @app.post("/api/orgs/{org}/teams", status_code=201)
     async def add_team(org: str, request: Request) -> dict[str, Any]:
+        administered(request, org)
         data = await request.json()
         return change(request, lambda: accounts.store.add_team(org, str(data.get("id") or ""), data.get("name")), "No such organization")
 
     @app.put("/api/orgs/{org}/members/{name}")
     @app.delete("/api/orgs/{org}/members/{name}")
     async def org_member(org: str, name: str, request: Request) -> dict[str, Any]:
+        """Users can't join or leave an organization: they belong to the one they're made in."""
+        administered(request, org)
+        user_administered(request, name)
         return change(request, lambda: accounts.store.set_membership(org, name, request.method == "PUT"), "No such organization or user")
 
     @app.put("/api/orgs/{org}/teams/{team}")
     async def rename_team(org: str, team: str, request: Request) -> dict[str, Any]:
+        administered(request, org)
         data = await request.json()
         return change(request, lambda: accounts.store.rename_team(org, team, str(data.get("name") or "")), "No such team")
 
     @app.put("/api/orgs/{org}/teams/{team}/members/{name}")
     @app.delete("/api/orgs/{org}/teams/{team}/members/{name}")
     async def team_member(org: str, team: str, name: str, request: Request) -> dict[str, Any]:
+        administered(request, org)
+        user_administered(request, name)
         return change(request, lambda: accounts.store.set_membership(org, name, request.method == "PUT", team=team), "No such organization, team or user")
 
     @app.delete("/api/orgs/{org}/teams/{team}")
     async def remove_team(org: str, team: str, request: Request) -> dict[str, Any]:
+        administered(request, org)
         return change(request, lambda: accounts.store.remove_team(org, team), "No such team")
 
     @app.get("/api/users")
@@ -277,14 +299,23 @@ def register(app: FastAPI, runtime: Runtime) -> None:
 
     @app.post("/api/users", status_code=201)
     async def add_user(request: Request) -> dict[str, Any]:
+        """A user in one organization: an organization admin's own; a site admin names any (the root takes only admins)."""
+        identity = auth.request_identity(request)
         data = await request.json()
+        named = sorted({str(item) for item in data.get("orgs") or []} | ({str(data["tenant"])} if data.get("tenant") else set()))
+        if len(named) > 1:
+            raise HTTPException(status_code=400, detail="A user belongs to one organization; name only one")
+        tenant = named[0] if named else (None if identity is None or identity.site_admin else identity.tenant)
+        if tenant is not None:
+            administered(request, tenant)
         return change(request, lambda: accounts.store.add_user(
             str(data.get("name") or ""), str(data.get("password") or ""), data.get("role") or "member",
-            list(data.get("teams") or []), list(data.get("orgs") or []),
+            list(data.get("teams") or []), tenant=tenant,
         ), "")
 
     @app.put("/api/users/{name}")
     async def update_user(name: str, request: Request) -> dict[str, Any]:
+        user_administered(request, name)
         data = await request.json()
 
         def update() -> None:
@@ -300,6 +331,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         identity = auth.request_identity(request)
         if identity and identity.user == name:
             raise HTTPException(status_code=400, detail="You can't remove your own account.")
+        user_administered(request, name)
 
         def remove() -> None:
             if not accounts.store.remove_user(name):

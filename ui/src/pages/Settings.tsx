@@ -5,7 +5,7 @@ import { api, apiUrl, MACHINE_TYPES, type NetworkConfig } from "../api";
 import { Icon } from "../components/Icon";
 import { PartTag } from "../components/PartTag";
 import { RestartButton } from "../components/Restart";
-import { useStatus } from "../hooks";
+import { useAuth, useStatus } from "../hooks";
 import { machinePath } from "./Machine";
 import { AgentDefinitions, ModelTuningEditor, StorageSettings } from "./SettingsStored";
 
@@ -38,6 +38,22 @@ interface Row {
 let nextId = 0;
 
 export function SettingsPage() {
+  const identity = useAuth().data?.identity;
+  if (identity && !identity.site_admin) {
+    return (
+      <div className="page">
+        <header className="page-head">
+          <PartTag />
+          <h1>Server settings</h1>
+        </header>
+        <p className="empty">Only a site admin can change the server's settings. Your organization's people and teams are on Organizations.</p>
+      </div>
+    );
+  }
+  return <ServerSettings />;
+}
+
+function ServerSettings() {
   const config = useQuery({ queryKey: ["config"], queryFn: api.config });
   const status = useStatus();
   const client = useQueryClient();

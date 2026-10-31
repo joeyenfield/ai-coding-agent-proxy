@@ -20,6 +20,10 @@ from agent_server.app import create_app
 from agent_server.config import Backend, Settings, serves
 from agent_server.fleet import Fleet
 from agent_server.db import schema
+from agent_server.auth import Identity
+
+# Who the tests' machines sign in as: a site admin, so they're the root organization's, as the tests' sessions are.
+ROOT_ADMIN = Identity("test-admin", "token", "admin", (), "root")
 from oidc_helpers import database, stored_backends, stored_rows
 
 
@@ -41,7 +45,7 @@ def make_app(tmp_path: Path, handler):
     client = TestClient(app)
     client.__enter__()
     # The machine's hello: its Strata on 18500, with the key from Strata's files there.
-    app.state.runtime.fleet.connect(object(), None, "127.0.0.1", {"id": "desk", "providers": [{"type": "strata", "port": 18500, "api_key": KEY}]})
+    app.state.runtime.fleet.connect(object(), ROOT_ADMIN, "127.0.0.1", {"id": "desk", "providers": [{"type": "strata", "port": 18500, "api_key": KEY}]})
     old = app.state.runtime.client
     app.state.runtime.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     return app, client, old
@@ -182,7 +186,7 @@ def test_launcher_puts_a_local_agent_on_strata_when_asked(tmp_path, install):
 def test_key_comes_from_the_container_the_environment_or_the_machine(tmp_path, install, monkeypatch):
     fleet = Fleet(database(tmp_path))
     monkeypatch.setattr(strata, "fleet", fleet)
-    fleet.connect(object(), None, "10.0.0.5", {"id": "desk", "providers": [{"type": "strata", "port": 18500, "api_key": KEY}, {"type": "ollama", "port": 11434, "api_key": "x"}]})
+    fleet.connect(object(), ROOT_ADMIN, "10.0.0.5", {"id": "desk", "providers": [{"type": "strata", "port": 18500, "api_key": KEY}, {"type": "ollama", "port": 11434, "api_key": "x"}]})
     assert strata.key_for(Backend("s", "http://10.0.0.5:18500", type="strata", machine="desk")) == (KEY, "machine")
     assert strata.key_for(Backend("s", "http://10.0.0.5:18501", type="strata", machine="desk")) == (None, None)
     assert strata.key_for(Backend("s", "http://10.0.0.5:18500", type="strata")) == (None, None)

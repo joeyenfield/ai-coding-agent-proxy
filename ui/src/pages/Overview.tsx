@@ -7,7 +7,7 @@ import { RouteBadge } from "../components/RouteBadge";
 import { RoutingMap } from "../components/RoutingMap";
 import { ThroughputChart } from "../components/ThroughputChart";
 import { formatBytes, formatCompact, formatDuration, formatNumber, formatRelative } from "../format";
-import { useAgents, useMachines, useModels, useRequests, useSessions, useStatus } from "../hooks";
+import { useAgents, useAuth, useMachines, useModels, useRequests, useSessions, useStatus } from "../hooks";
 import { isGroup, PARTS, type NavLinkItem, type Part } from "../navigation";
 import { providerLabel, ROUTE_ORDER, ROUTES, routeOf, type RouteKind } from "../routes";
 
@@ -127,6 +127,7 @@ function PartCards({ status }: { status: Status }) {
   const agents = useAgents();
   const models = useModels();
   const machines = useMachines();
+  const siteAdmin = Boolean(useAuth().data?.identity?.site_admin);
   const [agentsPart, serverPart, machinesPart] = PARTS;
   const fleet = machines.data?.machines ?? [];
   const installed = (agents.data ?? []).filter((agent) => agent.installed).length;
@@ -166,7 +167,7 @@ function PartCards({ status }: { status: Status }) {
         links={[
           { to: "/live", label: "Live" },
           { to: "/traffic", label: "Traffic" },
-          { to: "/settings", label: "Server settings" },
+          siteAdmin ? { to: "/settings", label: "Server settings" } : { to: "/sessions", label: "Sessions" },
         ]}
       >
         <dl>

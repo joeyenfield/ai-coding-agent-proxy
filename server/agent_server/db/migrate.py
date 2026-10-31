@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from sqlalchemy import MetaData, Table, select, text
+from sqlalchemy import MetaData, Table, inspect, select, text
 from sqlalchemy.engine import Connection
 
 from . import API_SCHEMA, AUTH_SCHEMA, Database
@@ -23,7 +23,68 @@ def _create(metadata: MetaData) -> Step:
     return step
 
 
-API_STEPS: list[Step] = [_create(schema.api)]
+def _add_column(connection: Connection, table: Table, column: str, kind: str) -> None:
+    """ALTER TABLE ... ADD COLUMN, unless step 1 already made it (a new database gets today's schema.py)."""
+    sqlite = connection.dialect.name == "sqlite"
+    existing = {item["name"] for item in inspect(connection).get_columns(table.name, schema=None if sqlite else API_SCHEMA)}
+    if column not in existing:
+        qualified = f'"{table.name}"' if sqlite else f'"{API_SCHEMA}"."{table.name}"'
+        connection.execute(text(f'ALTER TABLE {qualified} ADD COLUMN "{column}" {kind}'))
+
+
+ROOT_TENANT = "root"
+# Members from before tenants who were in no organization: the root is for site admins only.
+UNASSIGNED_TENANT = "main"
+
+
+def _tenants(connection: Connection) -> None:
+    """Step 2: every organization becomes a tenant under the root one, and everything gets one tenant.
+
+    A user's tenant is their first organization (by id); an admin in none goes to the root (a site
+    admin), a member in none to "main". Teams outside their tenant are dropped. Sessions and machines
+    belong to their owner's tenant; those without an owner to the root, which only site admins see.
+    Frozen here, as migrations are: later changes to auth.py don't change what this step did.
+    """
+    _add_column(connection, schema.users, "tenant", "VARCHAR(40)")
+    _add_column(connection, schema.orgs, "parent", "VARCHAR(40)")
+    orgs = {row["id"]: row for row in connection.execute(select(schema.orgs)).mappings()}
+    users = list(connection.execute(select(schema.users)).mappings())
+    tenants: dict[str, str] = {}
+    for user in users:
+        named = sorted(str(item) for item in user["orgs"] or [] if str(item) in orgs and str(item) != ROOT_TENANT)
+        tenant = user["tenant"] or (named[0] if named else ROOT_TENANT if user["role"] == "admin" else UNASSIGNED_TENANT)
+        tenants[user["name"]] = tenant
+    for tenant in {ROOT_TENANT, *tenants.values()} - set(orgs):
+        name = "Site administration" if tenant == ROOT_TENANT else "Members from before organizations"
+        connection.execute(schema.orgs.insert().values(id=tenant, name=name, created_at=None, teams={}, parent=None))
+    connection.execute(schema.orgs.update().where(schema.orgs.c.id != ROOT_TENANT).values(parent=ROOT_TENANT))
+    connection.execute(schema.orgs.update().where(schema.orgs.c.id == ROOT_TENANT).values(parent=None))
+    for user in users:
+        tenant = tenants[user["name"]]
+        teams = [team for team in user["teams"] or [] if str(team).split("/", 1)[0] == tenant]
+        connection.execute(schema.users.update().where(schema.users.c.name == user["name"]).values(tenant=tenant, orgs=[tenant], teams=teams))
+    for table in (schema.sessions, schema.machines, schema.machines_removed):
+        key = table.c.id
+        for row_id, data in connection.execute(select(key, table.c.data)).all():
+            if not isinstance(data, dict):
+                continue
+            if table is schema.sessions:
+                tags = dict(data.get("tags") or {})
+                if tags.get("tenant"):
+                    continue
+                tags["tenant"] = tenants.get(str(tags.get("owner") or ""), ROOT_TENANT)
+                data = {**data, "tags": tags}
+            else:
+                if data.get("tenant"):
+                    continue
+                data = {**data, "tenant": tenants.get(str(data.get("owner") or ""), ROOT_TENANT)}
+            connection.execute(table.update().where(key == row_id).values(data=data))
+    # Every process re-reads the accounts.
+    from . import kv
+    kv.put_meta(connection, "accounts_version", int(kv.get_meta(connection, "accounts_version", 0) or 0) + 1)
+
+
+API_STEPS: list[Step] = [_create(schema.api), _tenants]
 AUTH_STEPS: list[Step] = [_create(schema.auth)]
 
 # One lock id per component, so two processes starting at once don't both migrate.

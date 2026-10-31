@@ -104,7 +104,7 @@ class TunnelHub:
         machine_id, future = entry
         machine = self.fleet.machines.get(machine_id)
         # Only the machine that was asked (signed in as its owner) can take its tunnel.
-        if machine is None or (identity is not None and machine.owner not in (None, identity.user)) or future.done():
+        if machine is None or (identity is not None and (machine.owner not in (None, identity.user) or machine.tenant not in (None, identity.tenant))) or future.done():
             if not future.done():
                 future.set_exception(ConnectionError("the wrong machine dialled back"))
             return False

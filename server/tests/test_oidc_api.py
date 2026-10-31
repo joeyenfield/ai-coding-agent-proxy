@@ -28,7 +28,8 @@ def api_app(tmp_path):
     )
     store = UserStore(settings.open_database())
     store.add_user("admin", "test password")
-    store.add_user("alice", "test password")
+    store.add_org("acme")
+    store.add_user("alice", "test password", tenant="acme")
     app = create_app(settings)
     runtime = app.state.runtime
     claims = {
@@ -135,7 +136,7 @@ def test_websocket_origin_is_enforced_before_the_handler(api_app, origin, allowe
 def test_account_tunnel_cannot_use_another_users_session(api_app):
     client, runtime, _ = api_app
     runtime.intercept = InterceptProxy(runtime)
-    session = runtime.sessions.create({"client": "claude", "backend": "direct", "tags": {"owner": "admin"}})
+    session = runtime.sessions.create({"client": "claude", "backend": "direct", "tags": {"owner": "admin", "tenant": "root"}})
     authorization = base64.b64encode((session.session_id + ":agent-proxy").encode()).decode()
     with client.websocket_connect("/api/proxy/tunnel", headers={"Authorization": "Bearer access"}) as websocket:
         websocket.send_bytes((

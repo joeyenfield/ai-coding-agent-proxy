@@ -263,14 +263,15 @@ class SessionStore:
         found = {(session_id, request_id) for session_id, request_id in rows}
         return found & set(wanted)
 
-    def totals(self) -> tuple[int, int]:
-        """Input and output tokens of every recorded request."""
+    def totals(self) -> dict[str, list[int]]:
+        """Input and output tokens of every recorded request, by session (status adds up the ones its caller may see)."""
         self.db.writer.flush()
+        requests = schema.requests
         with self.db.read() as connection:
-            row = connection.execute(select(
-                func.coalesce(func.sum(schema.requests.c.input_tokens), 0), func.coalesce(func.sum(schema.requests.c.output_tokens), 0),
-            )).one()
-        return int(row[0]), int(row[1])
+            rows = connection.execute(select(
+                requests.c.session_id, func.coalesce(func.sum(requests.c.input_tokens), 0), func.coalesce(func.sum(requests.c.output_tokens), 0),
+            ).group_by(requests.c.session_id)).all()
+        return {str(row[0]): [int(row[1]), int(row[2])] for row in rows}
 
     def recent(self, limit: int = 100) -> list[dict[str, Any]]:
         """The newest request records, oldest first."""

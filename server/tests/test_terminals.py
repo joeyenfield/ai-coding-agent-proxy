@@ -224,7 +224,7 @@ def test_running_agents_say_their_machine_and_when_they_wait_for_you(tmp_path, m
     app = create_app(settings(tmp_path))
     with local_client(tmp_path, app) as client:
         fleet = app.state.runtime.fleet
-        fleet.machines["m1"] = Machine(id="m1", name="Build box", hostname="BUILD-01")
+        fleet.machines["m1"] = Machine(id="m1", name="Build box", hostname="BUILD-01", tenant="root")
         by_hand = client.post("/api/sessions", json={"client": "claude", "backend": "test", "tags": {"hostname": "build-01", "machine_name": "build-01"}}).json()["session_id"]
         elsewhere = client.post("/api/sessions", json={"client": "claude", "backend": "test", "tags": {"machine_name": "laptop"}}).json()["session_id"]
         with open_host(client, by_hand) as (ws, _), open_host(client, elsewhere) as (other, _):

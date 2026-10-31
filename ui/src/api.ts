@@ -275,7 +275,13 @@ export interface SessionYou {
 export interface Identity {
   user: string;
   via: "cookie" | "token";
+  /** admin: an admin of their own organization (their tenant). */
   role: "admin" | "member";
+  /** The one organization the user belongs to, for good. Nothing crosses organizations. */
+  tenant: string;
+  /** An admin of the root organization: manages the server's settings and sets up organizations and their users. */
+  site_admin: boolean;
+  /** Always [tenant]. */
   orgs: string[];
   /** Teams as <org>/<team>. */
   teams: string[];
@@ -298,9 +304,16 @@ export interface Team {
   members: string[];
 }
 
+/** The organization above all others; it holds only site admins. */
+export const ROOT_ORG = "root";
+
 export interface Org {
   id: string;
   name: string;
+  /** The root organization: site administration, admins only. */
+  root: boolean;
+  /** "root" for every other organization; null for root itself. */
+  parent: string | null;
   created_at: number | null;
   members: string[];
   teams: Team[];
@@ -309,9 +322,18 @@ export interface Org {
 export interface User {
   name: string;
   role: "admin" | "member";
+  /** The organization the user belongs to; they can't be moved. */
+  tenant: string;
+  /** Always [tenant]. */
   orgs: string[];
   teams: string[];
   created_at: number | null;
+}
+
+/** "Site admin", "Organization admin" or "Member", for an identity or a user. */
+export function roleLabel(who: { role: "admin" | "member"; tenant: string; site_admin?: boolean }): string {
+  if (who.site_admin || (who.role === "admin" && who.tenant === ROOT_ORG)) return "Site admin";
+  return who.role === "admin" ? "Organization admin" : "Member";
 }
 
 /** What changes to organizations and users answer with: everything the signed-in user can see. */
@@ -485,6 +507,8 @@ export interface FleetMachine {
   id: string;
   name: string;
   owner: string | null;
+  /** The organization it belongs to; only people in it see it. */
+  tenant?: string;
   os: string;
   arch: string;
   version: string;
@@ -1186,7 +1210,7 @@ const sessionUrl = (id: string) => `/api/sessions/${encodeURIComponent(id)}`;
 
 export const api = {
   status: () => request<Status>("/api/status"),
-  /** The server computer's CPU, memory and disks (admins only). */
+  /** The server computer's CPU, memory and disks (site admins only). */
   serverStats: () => request<ServerStats>("/api/server/stats"),
   health: () => request<Health>("/health", { cache: "no-store" }),
   helpPage,
@@ -1229,7 +1253,7 @@ export const api = {
   config: () => request<ConfigResponse>("/api/config"),
   saveConfig: (config: NetworkConfig) =>
     request<ConfigResponse>("/api/config", { method: "PUT", body: JSON.stringify(config) }),
-  // The stored settings beyond the network ones (admins). Definitions travel as YAML text (JSON is YAML too).
+  // The stored settings beyond the network ones (site admins). Definitions travel as YAML text (JSON is YAML too).
   storedAgents: () => request<StoredAgent[]>("/api/config/agents"),
   saveAgent: (id: string, yaml: string) =>
     request<StoredAgent>(`/api/config/agents/${encodeURIComponent(id)}`, { method: "PUT", body: yaml, headers: { "content-type": "application/yaml" } }),
@@ -1327,12 +1351,11 @@ export const api = {
   removeTeam: (org: string, id: string) => request<Directory>(`/api/orgs/${encodeURIComponent(org)}/teams/${encodeURIComponent(id)}`, { method: "DELETE" }),
   renameTeam: (org: string, id: string, name: string) =>
     request<Directory>(`/api/orgs/${encodeURIComponent(org)}/teams/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ name }) }),
-  setOrgMember: (org: string, user: string, member: boolean) =>
-    request<Directory>(`/api/orgs/${encodeURIComponent(org)}/members/${encodeURIComponent(user)}`, { method: member ? "PUT" : "DELETE" }),
   setTeamMember: (org: string, team: string, user: string, member: boolean) =>
     request<Directory>(`/api/orgs/${encodeURIComponent(org)}/teams/${encodeURIComponent(team)}/members/${encodeURIComponent(user)}`, { method: member ? "PUT" : "DELETE" }),
   users: () => request<{ users: User[] }>("/api/users"),
-  addUser: (body: { name: string; password: string; role: string; orgs: string[]; teams: string[] }) =>
+  /** tenant names the user's organization (an organization admin's own when left out; root for a site admin, admins only). */
+  addUser: (body: { name: string; password: string; role: string; tenant?: string; teams: string[] }) =>
     request<Directory>("/api/users", { method: "POST", body: JSON.stringify(body) }),
   updateUser: (name: string, body: { role?: string; orgs?: string[]; teams?: string[]; password?: string }) =>
     request<Directory>(`/api/users/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify(body) }),

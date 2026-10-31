@@ -82,7 +82,7 @@ export function SharingControl({ sessionId, you }: { sessionId: string; you?: Se
         />
         They can type into its terminal and end it
       </label>
-      {identity.orgs.length === 0 && <small className="subtle">You aren't in an organization yet; an admin adds you on Organizations.</small>}
+      {identity.teams.length === 0 && <small className="subtle">You aren't in a team yet; an admin of your organization can add you to one.</small>}
     </div>
   );
 }
@@ -91,12 +91,12 @@ export function SharingControl({ sessionId, you }: { sessionId: string; you?: Se
 export function shareArgs(identity: Identity | null | undefined, value: string, control: boolean): string[] {
   if (!identity || value === "private") return [];
   const [visibility, target] = value.split(":");
-  // The launcher names the team, or the organization with --share org, in --team; with only one there's no need.
-  const choices = visibility === "team" ? identity.teams : identity.orgs;
+  // The launcher names the team in --team; with only one there's no need. An organization is always the user's own.
+  const choices = visibility === "team" ? identity.teams : [identity.tenant];
   return ["--share", visibility, ...(target && choices.length > 1 ? ["--team", target] : []), ...(control ? ["--let-others-type"] : [])];
 }
 
-/** The choices of who sees a session: only its owner, one of their teams, or one of their organizations. */
+/** The choices of who sees a session: only its owner, one of their teams, or everyone in their organization. Nothing is shared outside it. */
 function ShareOptions({ identity }: { identity: Identity }) {
   return (
     <>
@@ -106,11 +106,7 @@ function ShareOptions({ identity }: { identity: Identity }) {
           Team {team}
         </option>
       ))}
-      {identity.orgs.map((org) => (
-        <option key={org} value={`org:${org}`}>
-          Everyone in {org}
-        </option>
-      ))}
+      <option value={`org:${identity.tenant}`}>Everyone in {identity.tenant}</option>
     </>
   );
 }

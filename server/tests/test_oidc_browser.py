@@ -24,7 +24,8 @@ def browser(tmp_path, monkeypatch):
     )
     store = UserStore(settings.open_database())
     store.add_user("admin", "admin-password")
-    store.add_user("alice", "alice-password", role="member")
+    store.add_org("acme")
+    store.add_user("alice", "alice-password", role="member", tenant="acme")
     issuer_app = create_auth_app(settings)
     with TestClient(issuer_app, base_url=settings.oidc_issuer) as issuer:
         def transport(request):

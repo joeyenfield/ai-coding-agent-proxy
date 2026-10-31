@@ -45,7 +45,7 @@ def session_for_launch(app, request: dict, session_id: str | None = None):
     """The session the real launcher opens before reporting a successful launch."""
     return app.state.runtime.sessions.create({
         "session_id": session_id, "client": request.get("agent", "shell"), "backend": "test",
-        "tags": {"owner": "alice", "machine": "m1", "launch": request["launch"]},
+        "tags": {"owner": "alice", "tenant": "acme", "machine": "m1", "launch": request["launch"]},
     })
 
 
@@ -70,7 +70,7 @@ def test_machines_are_seen_by_their_owner_and_admins_only(tmp_path):
         assert bob.get("/api/machines").json()["machines"] == []
         assert bob.get("/api/machines/m1").status_code == 404
         # An admin sees it, but can't start programs on it.
-        [seen] = dave.get("/api/machines").json()["machines"]
+        [seen] = [item for item in dave.get("/api/machines").json()["machines"] if item["id"] == "m1"]
         assert seen["you"]["launch"] is False
         assert dave.post("/api/machines/m1/launch", json={"agent": "qwen", "project": ROOT, "model": "m"}).status_code == 403
         # Another user can't take the machine's id over.
@@ -150,7 +150,7 @@ def test_an_admin_adds_a_machines_model_server_as_a_backend(tmp_path):
         assert name == "laptop" and settings.backends[name].type == "ollama"
         saved = stored_backends(settings)[name]
         assert saved["url"].endswith(":11434") and saved["machine"] == "m1"
-        [listed] = dave.get("/api/machines").json()["machines"]
+        [listed] = [item for item in dave.get("/api/machines").json()["machines"] if item["id"] == "m1"]
         assert listed["providers"][0]["backend"] == "laptop" and listed["backends"] == ["laptop"]
         assert dave.post("/api/machines/m1/providers/adopt", json={"type": "ollama"}).status_code == 409
         assert dave.post("/api/machines/m1/providers/adopt", json={"type": "strata"}).status_code == 404
@@ -160,9 +160,9 @@ def test_legacy_backends_need_explicit_admin_adoption_with_accounts(tmp_path):
     settings = org_settings(tmp_path)
     settings.backends = {**settings.backends, "old": Backend("old", "http://localhost:11434/")}
     app = create_app(settings)
-    alice, dave = signed_in(app, "alice"), signed_in(app, "dave")
-    # The machine is this computer, so its Ollama is http://127.0.0.1:11434: the same server.
-    with alice, dave, machine(alice, hello(address="127.0.0.1")) as socket:
+    alice, dave, sally = signed_in(app, "alice"), signed_in(app, "dave"), signed_in(app, "sally")
+    # The machines are this computer, so their Ollama is http://127.0.0.1:11434: the same server.
+    with alice, dave, sally, machine(alice, hello(address="127.0.0.1")) as socket:
         assert settings.backends["old"].machine is None
         assert dave.get("/api/machines/m1").json()["providers"][0]["backend"] is None
         socket.send_json({"type": "update", "address": "192.0.2.25"})
@@ -171,11 +171,17 @@ def test_legacy_backends_need_explicit_admin_adoption_with_accounts(tmp_path):
         socket.send_json({"type": "update", "address": "127.0.0.1"})
         assert alice.get("/api/machines/m1").status_code == 200
         assert alice.post("/api/machines/m1/providers/adopt", json={"type": "ollama"}).status_code == 403
-        adopted = dave.post("/api/machines/m1/providers/adopt", json={"type": "ollama"})
-        assert adopted.status_code == 201 and adopted.json()["backend"] == "old", adopted.text
-        assert settings.backends["old"].machine == "m1" and settings.backends["test"].machine is None
-        assert stored_backends(settings)["old"]["machine"] == "m1"
-        assert alice.get("/api/machines/m1").json()["backends"] == ["old"]
+        # A backend from before machines is the root's: another organization's admin can't take it onto their machine.
+        assert dave.post("/api/machines/m1/providers/adopt", json={"type": "ollama"}).status_code == 409
+        assert settings.backends["old"].machine is None
+        # The root's own admin can, onto one of the root's machines.
+        with machine(sally, hello("m2", address="127.0.0.1")):
+            adopted = sally.post("/api/machines/m2/providers/adopt", json={"type": "ollama"})
+            assert adopted.status_code == 201 and adopted.json()["backend"] == "old", adopted.text
+            assert settings.backends["old"].machine == "m2" and settings.backends["test"].machine == "acme-box"
+            assert stored_backends(settings)["old"]["machine"] == "m2"
+            assert sally.get("/api/machines/m2").json()["backends"] == ["old"]
+            assert dave.get("/api/machines/m2").status_code == 404
 
 
 LEGACY_ACCESS_KEY = "Hb3xQ2v9mK1tW7pL0sZ4rN8cF6yJ5dA_eG-uI2oT3qE"
@@ -488,13 +494,16 @@ def test_the_owner_lets_teams_use_each_feature_of_a_machine(tmp_path):
 
 def test_an_admin_grants_any_team_but_starts_nothing_without_a_grant(tmp_path):
     app = create_app(org_settings(tmp_path))
-    alice, dave, frank = signed_in(app, "alice"), signed_in(app, "dave"), signed_in(app, "frank")
-    with alice, dave, frank, machine(alice):
+    alice, dave, carol, frank = signed_in(app, "alice"), signed_in(app, "dave"), signed_in(app, "carol"), signed_in(app, "frank")
+    with alice, dave, carol, frank, machine(alice):
         assert dave.get("/api/machines/m1").json()["you"]["launch"] is False
-        saved = dave.put("/api/machines/m1/access", json={"access": {"models": {"orgs": ["globex"]}}})
+        # Never to another organization.
+        assert dave.put("/api/machines/m1/access", json={"access": {"models": {"orgs": ["globex"]}}}).status_code == 400
+        saved = dave.put("/api/machines/m1/access", json={"access": {"models": {"teams": ["acme/ops"]}}})
         assert saved.status_code == 200, saved.text
-        assert frank.get("/api/machines/m1").json()["you"]["models"] is True
-        assert frank.post("/api/machines/m1/servers/ollama/start").status_code == 403
+        assert carol.get("/api/machines/m1").json()["you"]["models"] is True
+        assert carol.post("/api/machines/m1/servers/ollama/start").status_code == 403
+        assert frank.get("/api/machines/m1").status_code == 404
 
 
 @pytest.mark.parametrize("wrong", ["owner", "machine", "launch", "client", "missing"])

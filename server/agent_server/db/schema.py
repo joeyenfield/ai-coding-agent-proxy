@@ -55,6 +55,9 @@ users = Table(
     Column("password", Text, nullable=False),
     Column("role", String(20), nullable=False),
     Column("created_at", Float),
+    # The one organization (tenant) the user belongs to, for good; "root" for site admins.
+    # orgs is kept as [tenant] for older readers.
+    Column("tenant", String(40)),
     Column("orgs", JSON, nullable=False),
     Column("teams", JSON, nullable=False),
 )
@@ -65,6 +68,8 @@ orgs = Table(
     Column("name", Text, nullable=False),
     Column("created_at", Float),
     Column("teams", JSON, nullable=False),
+    # Every organization is a tenant under the root one ("root", whose parent is None).
+    Column("parent", String(40)),
 )
 
 # Generated secrets: the browser state key, the intercept CA, Strata containers' API keys.

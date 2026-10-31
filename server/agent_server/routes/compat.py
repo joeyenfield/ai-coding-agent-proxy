@@ -50,9 +50,9 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         session = runtime.sessions.get(session_id or "")
         backend_name = x_ai_proxy_backend or (session.backend if session else None)
         if path == "models" and request.method == "GET":
-            return await _list_models(runtime, backend_name)
+            return await _list_models(runtime, request, backend_name)
         # Only Ollama needs translating; Strata and Docker Model Runner take OpenAI requests as they are.
-        if path == "chat/completions" and request.method == "POST" and _backend(runtime, backend_name).type == "ollama":
+        if path == "chat/completions" and request.method == "POST" and _backend(runtime, request, backend_name).type == "ollama":
             payload = _json(await request.body())
             profile = runtime.settings.profile(payload.get("model") or _session_model(runtime, session_id))
             if profile.translate_openai:
@@ -92,7 +92,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         payload = _json(await request.body())
         session_id = session_id or x_ai_proxy_session
         session = runtime.sessions.get(session_id or "")
-        backend = _backend(runtime, x_ai_proxy_backend or (session.backend if session else None))
+        backend = _backend(runtime, request, x_ai_proxy_backend or (session.backend if session else None))
         if backend.type in MESSAGES_BACKENDS:
             return await _forward(runtime, request, session_id, "/v1/messages", x_ai_proxy_backend)
         profile = runtime.settings.profile(payload.get("model") or _session_model(runtime, session_id))
@@ -115,7 +115,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
     ):
         session_id = session_id or x_ai_proxy_session
         session = runtime.sessions.get(session_id or "")
-        backend = _backend(runtime, x_ai_proxy_backend or (session.backend if session else None))
+        backend = _backend(runtime, request, x_ai_proxy_backend or (session.backend if session else None))
         if backend.type in MESSAGES_BACKENDS:
             return await _forward(runtime, request, session_id, "/v1/messages/count_tokens", x_ai_proxy_backend)
         return {"input_tokens": estimate_tokens(_json(await request.body()))}
@@ -133,7 +133,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
     ):
         session_id = session_id or x_ai_proxy_session
         session = runtime.sessions.get(session_id or "")
-        backend = _backend(runtime, x_ai_proxy_backend or (session.backend if session else None))
+        backend = _backend(runtime, request, x_ai_proxy_backend or (session.backend if session else None))
         if backend.type != "anthropic":
             raise HTTPException(status_code=404, detail=f"/{path} is only available with a hosted Anthropic backend")
         return await _forward(runtime, request, session_id, f"/{path}", x_ai_proxy_backend)
@@ -153,8 +153,8 @@ async def _native_chat(
     media_type: str,
 ):
     """Send a translated request to Ollama's /api/chat and translate the reply back."""
-    session = runtime.resolve_session(session_id, original, backend_override, _owner(request))
-    backend = _backend(runtime, backend_override or session.backend)
+    session = runtime.resolve_session(session_id, original, backend_override, auth.request_identity(request))
+    backend = _backend(runtime, request, backend_override or session.backend)
     if backend.type != "ollama":
         raise HTTPException(status_code=400, detail="Ollama translation requires an Ollama backend")
     request_id = await runtime.sessions.next_request_id(session)
@@ -295,8 +295,8 @@ async def _forward(
     body = await request.body()
     payload = _json(body)
     original_payload = json.loads(json.dumps(payload))
-    session = runtime.resolve_session(session_id, payload, backend_override, _owner(request))
-    backend = _backend(runtime, backend_override or session.backend)
+    session = runtime.resolve_session(session_id, payload, backend_override, auth.request_identity(request))
+    backend = _backend(runtime, request, backend_override or session.backend)
     if backend.type == "anthropic" and "/anthropic/" not in request.url.path:
         raise HTTPException(status_code=400, detail="Anthropic backends are only reachable through the /anthropic endpoints")
     if backend.type == "strata" and upstream_path.startswith("/api/"):
@@ -441,8 +441,8 @@ async def _stream_upstream(
         runtime.complete(session, telemetry, request_payload, response_objects, upstream_request)
 
 
-async def _list_models(runtime: Runtime, backend_name: str | None) -> JSONResponse:
-    backend = _backend(runtime, backend_name)
+async def _list_models(runtime: Runtime, request: Request, backend_name: str | None) -> JSONResponse:
+    backend = _backend(runtime, request, backend_name)
     assert runtime.client
     if backend.type in {"strata", "docker"}:
         path = model_runner.upstream_path("/v1/models") if backend.type == "docker" else "/v1/models"
@@ -466,9 +466,12 @@ async def _list_models(runtime: Runtime, backend_name: str | None) -> JSONRespon
     return JSONResponse({"object": "list", "data": models}, status_code=response.status_code)
 
 
-def _backend(runtime: Runtime, name: str | None):
+def _backend(runtime: Runtime, request: Request, name: str | None):
+    """The backend named (a session's, or X-AI-Proxy-Backend), if it's one the caller's tenant may use:
+    another tenant's model servers look as unknown as ones that don't exist."""
+    identity = auth.request_identity(request)
     try:
-        return runtime.settings.backend(name)
+        return runtime.settings.backend(name, usable=runtime.fleet.usable_by(identity))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -512,8 +515,3 @@ def _upstream_headers(headers: Any) -> dict[str, str]:
         excluded.add("authorization")
     return {key: value for key, value in headers.items() if key.lower() not in excluded}
 
-
-def _owner(request: Request) -> str | None:
-    """The signed-in user behind a request without a session, who then owns the one it gets."""
-    identity = auth.request_identity(request)
-    return identity.user if identity else None

@@ -29,7 +29,8 @@ def issuer(tmp_path, monkeypatch):
                         oidc_introspection_secret="api-introspection-secret")
     store = UserStore(settings.open_database())
     store.add_user("admin", "admin-password")
-    store.add_user("alice", "alice-password", role="member")
+    store.add_org("acme")
+    store.add_user("alice", "alice-password", role="member", tenant="acme")
     app = create_auth_app(settings)
     with TestClient(app, base_url=settings.oidc_issuer) as client:
         yield client, app.state.issuer, store
@@ -379,7 +380,7 @@ def test_password_changes_deleted_accounts_and_access_expiry(issuer):
         service.state.put("access", digest(token), data)
     assert introspect(client, service, token).json() == {"active": False}
     store.remove_user("alice")
-    store.add_user("alice", "new-alice-password", role="member")
+    store.add_user("alice", "new-alice-password", role="member", tenant="acme")
     assert client.post("/token", data={"grant_type": "client_credentials"}, auth=("automation", secret)).status_code == 400
 
 

@@ -71,8 +71,8 @@ class Runtime:
         self.config_lock = asyncio.Lock()
         # Set AI_PROXY_LIVE=0 to stop streaming request text to the UI (counts still stream).
         self.live = LiveHub(enabled=os.getenv("AI_PROXY_LIVE", "1") != "0")
-        self.total_input_tokens = 0
-        self.total_output_tokens = 0
+        # Input and output tokens recorded, by session.
+        self.tokens: dict[str, list[int]] = {}
         # Set by the app's lifespan when the intercept proxy is enabled.
         self.intercept: Any = None
         # Set by `agent-server`'s supervisor: restarts the server with freshly loaded settings.
@@ -110,7 +110,7 @@ class Runtime:
         return load_agents(self.db)
 
     def reload_history(self) -> None:
-        self.total_input_tokens, self.total_output_tokens = self.sessions.totals()
+        self.tokens = self.sessions.totals()
         self.recent.clear()
         self.recent.extend(self.sessions.recent(self.recent.maxlen or 100))
 
@@ -139,10 +139,21 @@ class Runtime:
                 LOGGER.exception("deleting old recordings failed")
             await asyncio.sleep(3600)
 
-    def status(self, visible: Any = None) -> dict[str, Any]:
-        """Totals and traffic; with visible (a session-id test), only the sessions it allows."""
+    @property
+    def total_input_tokens(self) -> int:
+        return sum(item[0] for item in self.tokens.values())
+
+    @property
+    def total_output_tokens(self) -> int:
+        return sum(item[1] for item in self.tokens.values())
+
+    def status(self, visible: Any = None, usable: Any = None) -> dict[str, Any]:
+        """Totals and traffic; with visible (a session-id test), only the sessions it allows, and with
+        usable (fleet.usable_by), only the backends the caller's tenant may use."""
         sessions = [item for item in self.sessions.list() if visible is None or visible(item.session_id)]
         allowed = (lambda record: True) if visible is None else (lambda record: visible(record.get("session_id", "")))
+        backends = {name: backend for name, backend in self.settings.backends.items() if usable is None or usable(backend)}
+        counted = [self.tokens.get(item.session_id, [0, 0]) for item in sessions]
         return {
             "proxy_instance_id": self.proxy_instance_id,
             "status": "ok",
@@ -152,18 +163,18 @@ class Runtime:
             "restart_required": (
                 self.bound_host != self.settings.host or self.bound_port != self.settings.port
             ),
-            "default_backend": self.settings.default_backend,
+            "default_backend": self.settings.default_backend if self.settings.default_backend in backends else None,
             # Each with the machine that runs it, by name, and its model server there ("ollama-11434"), for the console.
             "backends": {
                 name: {**backend.public(), "machine_name": self._machine_name(backend.machine), "provider": provider_id(backend)}
-                for name, backend in self.settings.backends.items()
+                for name, backend in backends.items()
             },
             "intercept": self.intercept_info(),
             "active_sessions": sum(item.ended_at is None for item in sessions),
             "total_sessions": len(sessions),
             "total_requests": sum(item.request_count for item in sessions),
-            "total_input_tokens": self.total_input_tokens,
-            "total_output_tokens": self.total_output_tokens,
+            "total_input_tokens": sum(item[0] for item in counted),
+            "total_output_tokens": sum(item[1] for item in counted),
             "started_at": self.started_at,
             "restart": {"available": self.restart_hook is not None, "pending": self.restarting, "address_pinned": self.address_pinned},
             "current_requests": [record for record in self.active.values() if allowed(record)],
@@ -224,17 +235,18 @@ class Runtime:
                 detail="This session has requests in flight. Wait for them to finish before clearing or deleting it.",
             )
 
-    def resolve_session(self, session_id: str | None, payload: dict[str, Any], backend: str | None, owner: str | None = None) -> Session:
+    def resolve_session(self, session_id: str | None, payload: dict[str, Any], backend: str | None, identity: Any = None) -> Session:
         if session_id:
             return self.require_session(session_id)
         tags: dict[str, Any] = {"implicit": True}
-        if owner:
-            # A signed-in user's request without a session: theirs, private.
-            tags.update(owner=owner, visibility="private", access="view")
-        return self.sessions.create({
-            "client": "unregistered", "model": payload.get("model"),
-            "backend": backend or self.settings.default_backend, "tags": tags,
-        })
+        if identity is not None:
+            # A signed-in user's request without a session: theirs, private, in their tenant.
+            tags.update(owner=identity.user, visibility="private", access="view", tenant=identity.tenant)
+        try:
+            chosen = self.settings.backend(backend, usable=self.fleet.usable_by(identity)).name
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return self.sessions.create({"client": "unregistered", "model": payload.get("model"), "backend": chosen, "tags": tags})
 
     def track(self, telemetry: RequestTelemetry) -> None:
         self.active[_key(telemetry)] = {
@@ -286,8 +298,9 @@ class Runtime:
         self.sessions.append_request(session, record)
         self.sessions.touch(session)
         self.recent.append(record)
-        self.total_input_tokens += record["input_tokens"]
-        self.total_output_tokens += record["output_tokens"]
+        counted = self.tokens.setdefault(record["session_id"], [0, 0])
+        counted[0] += record["input_tokens"]
+        counted[1] += record["output_tokens"]
         if session.trace:
             trace = {
                 "metadata": {"proxy_instance_id": self.proxy_instance_id, **record},

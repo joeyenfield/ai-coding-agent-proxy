@@ -15,7 +15,7 @@ agent-machine start                      # join the fleet in the background
 agent-machine                            # how the fleet sees this machine
 ```
 
-The machine shows up on **Machines** in the console, with its own page. Ollama, Strata and Docker Model Runner running on it are found by themselves. An admin turns each one into a provider with **Add as a provider**.
+The machine shows up on **Machines** in the console, with its own page. It belongs to your organization, from the first time it connects: nobody in another organization sees it or anything it runs, site admins included. Ollama, Strata and Docker Model Runner running on it are found by themselves. An admin of your organization turns each one into a provider with **Add as a provider**; that provider is for your organization's agents only.
 
 Everything that runs programs on the machine is off until you turn it on there:
 
@@ -323,7 +323,7 @@ A machine on the server's own computer is reached directly. So is one that isn't
 
 A machine's owner may use all its features. Others get them through grants on the machine's **Access** tab. The machine's own switches (`launches on`, `servers on`, ...) apply on top of any grant.
 
-| Feature | What it allows | Admins without a grant |
+| Feature | What it allows | Its organization's admins without a grant |
 |---|---|---|
 | `view` | See it: its model servers, their models and logs, its load and the agents running there | Yes |
 | `launch` | Start agents there, and browse its launch folders | No |
@@ -333,11 +333,11 @@ A machine's owner may use all its features. Others get them through grants on th
 | `update` | Update agent-machine and agent there to this server's build | Yes |
 | `mcp` | Use the MCP servers it shares in the agents they start | No |
 
-- **Grants** go to organizations and teams (named `<organization>/<team>`). The owner or an admin sets them (`PUT /api/machines/{id}/access`). Members can only grant organizations and teams they're in; admins can grant any.
+- **Grants** go to the machine's own organization, or its teams (named `<organization>/<team>`). Never to another organization. The owner or an admin of its organization sets them (`PUT /api/machines/{id}/access`). Members can only grant teams they're in.
 - **Any grant includes view.** Someone who may use one feature can see the machine.
 - **Starting programs stays private.** Admins can't launch agents or open terminals on someone else's machine without a grant.
 - **Launched by.** Agents and terminals run under the machine's own sign-in, its owner's. When someone else starts one, the server tags the session `launched_by` them, so they can watch and use what they started. Clients can't set that tag.
-- **Containers** stay with the owner, who must also be an admin to add, change or delete them (see [Containers machines run](providers.md#containers-machines-run)).
+- **Containers** stay with the owner, who must also be an admin of the organization to add, change or delete them (see [Containers machines run](providers.md#containers-machines-run)).
 
 See [Accounts and sharing](accounts.md) for organizations, teams and roles.
 
@@ -345,7 +345,7 @@ See [Accounts and sharing](accounts.md) for organizations, teams and roles.
 
 The owner or an admin can remove a machine from its **Summary** tab (`DELETE /api/machines/{id}`), connected or not. The server closes its connection (code 4403) and refuses it when it connects again. What it ran for the server stops reaching agents.
 
-Removed machines are listed under **Removed** on **Machines**, for their owner and for admins. **Allow back** (`POST /api/machines/{id}/restore`) lets it join again. It comes back as a new machine, owned by whoever it signs in as.
+Removed machines are listed under **Removed** on **Machines**, for their owner and their organization's admins. **Allow back** (`POST /api/machines/{id}/restore`) lets it join again. It comes back as a new machine, owned by whoever it signs in as.
 
 ## Running agent-machine as a service
 

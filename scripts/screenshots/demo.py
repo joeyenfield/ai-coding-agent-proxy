@@ -52,6 +52,7 @@ LAPTOP, DESKTOP, ANTHROPIC, DOCKER = 18434, 18435, 18436, 18437
 PROXY = f"http://127.0.0.1:{PROXY_PORT}"
 AUTH = f"http://127.0.0.1:{AUTH_PORT}"
 DEMO_USER, DEMO_PASSWORD = "demo", "demo-screenshot-password"
+DEMO_ORG = "demo-team"
 DEMO_ADMIN_PASSWORD = "demo-admin-screenshot-password"
 GB = 1024**3
 
@@ -357,7 +358,7 @@ class Seeder:
 
     def session(self, client: str, project: str, minutes_ago: float, ended: bool = True):
         session = self.store.create({"client": client, "backend": "direct", "project": project, "trace": True,
-                                     "tags": {"project_path": f"/home/dev/{project}", "owner": DEMO_USER,
+                                     "tags": {"project_path": f"/home/dev/{project}", "owner": DEMO_USER, "tenant": DEMO_ORG,
                                               "visibility": "private", "access": "control"}})
         session.started_at = iso(datetime.now(timezone.utc) - timedelta(minutes=minutes_ago))
         self.clock = datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)
@@ -1113,8 +1114,10 @@ def main() -> None:
     db = settings.open_database()
     users = UserStore(db)
     # The admin capture.mjs signs in as for admin-only pages (Server settings, Server stats).
-    users.add_user("demo-admin", DEMO_ADMIN_PASSWORD, role="admin")
-    users.add_user(DEMO_USER, DEMO_PASSWORD, role="member")
+    users.add_user("demo-admin", DEMO_ADMIN_PASSWORD, role="admin")  # a site admin, in the root organization
+    # The demo's user, machines and sessions are one organization's (tenant's).
+    users.add_org(DEMO_ORG, "Demo team")
+    users.add_user(DEMO_USER, DEMO_PASSWORD, role="member", tenant=DEMO_ORG)
     issuer = Issuer(settings)
     try:
         with issuer.state.transaction():

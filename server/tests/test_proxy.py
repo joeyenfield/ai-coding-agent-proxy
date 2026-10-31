@@ -14,6 +14,7 @@ from agent_server.db import legacy
 from agent_server.sessions import SessionStore
 from agent_server.config import Backend, Settings
 from agent_server.app import create_app
+from agent_server.fleet import Machine
 
 
 def make_app(tmp_path: Path, handler, **settings_args):
@@ -359,8 +360,8 @@ def test_request_history_includes_all_sessions_and_saved_traces(tmp_path):
     settings = Settings(log_dir=tmp_path, default_backend="test", backends={"test": Backend("test", "http://ollama.test")})
     app = create_app(settings)
     store = app.state.runtime.sessions
-    traced = store.create({"client": "review", "backend": "test", "trace": False})
-    other = store.create({"client": "other", "backend": "test", "trace": True})
+    traced = store.create({"client": "review", "backend": "test", "trace": False, "tags": {"tenant": "root"}})
+    other = store.create({"client": "other", "backend": "test", "trace": True, "tags": {"tenant": "root"}})
     for index in range(105):
         store.append_request(traced, {"request_id": f"{index:06d}", "timestamp": f"2026-10-03T00:00:{index:03d}Z"})
     payload = {"request": {"messages": [{"role": "user", "content": "complete payload " * 1000}]}, "response": [{"message": {"content": "complete response"}}]}
@@ -463,7 +464,11 @@ def test_dashboard_updates_and_persists_network_config(tmp_path):
         },
     )
     proxy = {"listen_host": "0.0.0.0", "listen_port": 9191, "url": "http://10.0.0.5:9191/"}
-    with TestClient(create_app(settings)) as client:
+    app = create_app(settings)
+    # The machines the model servers are on, the root organization's: a backend is usable only while its machine is in the fleet.
+    for machine_id in ("m1", "m2"):
+        app.state.runtime.fleet.machines[machine_id] = Machine(id=machine_id, name=machine_id, tenant="root")
+    with TestClient(app) as client:
         assert client.get("/").status_code == 200
         # Backends can be kept, removed and given a default; a hosted API can be added.
         response = client.put("/api/config", json={

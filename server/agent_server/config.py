@@ -7,7 +7,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlparse
 
 from sqlalchemy import select
@@ -373,26 +373,30 @@ class Settings:
         """Where versions before the database kept their Strata containers' keys: read once, by the legacy import."""
         return self.remote_key_path.parent / "container-keys.json"
 
-    def backend(self, name: str | None) -> Backend:
+    def backend(self, name: str | None, usable: Callable[[Backend], bool] | None = None) -> Backend:
+        """The named backend (else the default). With usable (the caller's tenant's, fleet.usable_by),
+        backends it refuses are as unknown as missing ones, and aren't listed as choices."""
         selected = name or self.default_backend
-        try:
-            backend = self.backends[selected]
-        except KeyError as exc:
-            choices = ", ".join(sorted(self.backends)) or "none configured"
-            raise ValueError(f"Unknown backend '{selected}'. Available: {choices}") from exc
+        backend = self.backends.get(selected)
+        if backend is None or (usable is not None and not usable(backend)):
+            choices = ", ".join(sorted(key for key, value in self.backends.items() if usable is None or usable(value))) or "none configured"
+            raise ValueError(f"Unknown backend '{selected}'. Available: {choices}")
         if backend.type not in BACKEND_TYPES:
             raise ValueError(f"Unsupported backend type: {backend.type}")
         return backend
 
-    def backend_for(self, backend_type: str, name: str | None = None, protocol: str | None = None) -> Backend:
+    def backend_for(
+        self, backend_type: str, name: str | None = None, protocol: str | None = None, usable: Callable[[Backend], bool] | None = None,
+    ) -> Backend:
         """The named backend, checked against what the agent needs, or the best one that serves it.
 
         Prefers the default backend when it serves the agent, then a backend of
         exactly the declared type, then any other that serves it (Strata or
-        Docker Model Runner for a local-model agent).
+        Docker Model Runner for a local-model agent). usable limits all of it to
+        the caller's tenant's backends (fleet.usable_by).
         """
         if name:
-            backend = self.backend(name)
+            backend = self.backend(name, usable)
             if not serves(backend, backend_type, protocol):
                 reason = (
                     f" (it speaks native Ollama, which {PROVIDER_NAMES[backend.type]} doesn't have)"
@@ -401,9 +405,9 @@ class Settings:
                 raise ValueError(f"Backend '{name}' is {backend.type}; this agent needs a backend of type {backend_type}{reason}")
             return backend
         default = self.backends.get(self.default_backend)
-        if default and serves(default, backend_type, protocol):
+        if default and serves(default, backend_type, protocol) and (usable is None or usable(default)):
             return default
-        candidates = [backend for backend in self.backends.values() if serves(backend, backend_type, protocol)]
+        candidates = [backend for backend in self.backends.values() if serves(backend, backend_type, protocol) and (usable is None or usable(backend))]
         if candidates:
             return min(candidates, key=lambda item: item.type != backend_type)
         raise ValueError(f"No {backend_type} backend is configured (Server settings, or a machine's model servers)")

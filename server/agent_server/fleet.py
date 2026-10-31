@@ -20,6 +20,10 @@ the machine itself.
 Running containers on a machine is as powerful as a shell there, so it's off until
 `agent-machine containers on`, and the machine checks every request itself.
 
+Every machine belongs to one tenant (organization): that of the user who registered it, set when
+it first connects and never changed. Nobody outside that tenant sees it or uses anything it runs,
+site admins included, and its model servers are backends only that tenant's agents can use.
+
 Starting an agent on a machine runs a program there as its owner, so:
   - the machine has to switch it on itself (`agent-machine launches on`), and lists the
     folders agents may start in (`agent-machine roots add <dir>`);
@@ -44,7 +48,8 @@ from typing import Any
 from sqlalchemy import select
 
 from . import access, strata, version
-from .auth import Identity
+from .auth import ROOT_TENANT, Identity, same_tenant
+from .config import MACHINE_TYPES
 from .db import Database, kv, schema
 from .sessions import SessionStore
 
@@ -67,6 +72,8 @@ class Machine:
     id: str
     name: str
     owner: str | None = None
+    # The tenant (organization) it belongs to: its owner's when it first connected. None is nobody's.
+    tenant: str | None = None
     # The computer's own name, which agents started there by hand report (their sessions' hostname tag).
     hostname: str = ""
     os: str = ""
@@ -134,19 +141,21 @@ ADMIN_FEATURES = frozenset({"view", "models", "update"})
 
 def owns(identity: Identity | None, machine: Machine) -> bool:
     """Its owner. No identity (never the case behind the sign-in middleware) owns nothing."""
-    return identity is not None and machine.owner == identity.user
+    return identity is not None and same_tenant(identity, machine.tenant) and machine.owner == identity.user
 
 
 def granted(identity: Identity, machine: Machine, feature: str) -> bool:
+    """A grant to identity's organization or one of its teams; only ever within the machine's tenant."""
     grant = machine.access.get(feature) or {}
-    return bool(set(grant.get("orgs") or []) & set(identity.orgs) or set(grant.get("teams") or []) & set(identity.teams))
+    teams = {team for team in grant.get("teams") or [] if team.split("/", 1)[0] == machine.tenant}
+    return machine.tenant in (set(grant.get("orgs") or []) & set(identity.orgs)) or bool(teams & set(identity.teams))
 
 
 def allowed(identity: Identity | None, machine: Machine, feature: str) -> bool:
-    """Whether identity may use one of the machine's features: its owner always, admins the ADMIN_FEATURES,
-    and the organizations and teams the owner granted it. Any grant includes seeing the machine.
-    No identity may use nothing."""
-    if identity is None:
+    """Whether identity may use one of the machine's features: nobody outside its tenant; inside, its owner
+    always, the tenant's admins the ADMIN_FEATURES, and the organization and teams the owner granted it.
+    Any grant includes seeing the machine. No identity may use nothing."""
+    if identity is None or not same_tenant(identity, machine.tenant):
         return False
     if owns(identity, machine):
         return True
@@ -158,8 +167,8 @@ def allowed(identity: Identity | None, machine: Machine, feature: str) -> bool:
 
 
 def can_manage(identity: Identity | None, machine: Machine) -> bool:
-    """Who sets a machine's grants: its owner, or an admin (who may grant any organization or team)."""
-    return owns(identity, machine) or bool(identity and identity.admin)
+    """Who sets a machine's grants: its owner, or an admin of its tenant."""
+    return owns(identity, machine) or bool(identity and identity.admin and same_tenant(identity, machine.tenant))
 
 
 def can_see(identity: Identity | None, machine: Machine) -> bool:
@@ -174,11 +183,13 @@ def can_update(identity: Identity | None, machine: Machine) -> bool:
     return allowed(identity, machine, "update")
 
 
-def checked_access(identity: Identity | None, requested: Any, store: Any) -> dict[str, dict[str, list[str]]]:
-    """A machine's grants as asked for, checked: known features, organizations and teams that exist, and
-    (unless an admin asks) only ones the asker is in, as with sharing a session. Raises ValueError."""
+def checked_access(identity: Identity | None, requested: Any, store: Any, tenant: str | None = None) -> dict[str, dict[str, list[str]]]:
+    """A machine's grants as asked for, checked: known features, and only the machine's own organization
+    (tenant) and its teams (unless an admin asks, only teams the asker is in, as with sharing a session).
+    Raises ValueError."""
     if identity is None:
         raise ValueError("Sign in first")
+    tenant = tenant or identity.tenant
     if not isinstance(requested, dict):
         raise ValueError("Send the grants as {feature: {orgs: [...], teams: [...]}}")
     access: dict[str, dict[str, list[str]]] = {}
@@ -189,15 +200,13 @@ def checked_access(identity: Identity | None, requested: Any, store: Any) -> dic
         orgs = sorted({str(item) for item in grant.get("orgs") or []})
         teams = sorted({str(item) for item in grant.get("teams") or []})
         for org in orgs:
-            if store.org(org) is None:
-                raise ValueError(f"No organization {org}")
-            if not identity.admin and org not in identity.orgs:
-                raise ValueError(f"You aren't in the organization {org}")
+            if org != tenant:
+                raise ValueError(f"No organization {org}: a machine is only ever shared within its own organization ({tenant})")
         for team in teams:
             org, _, name = team.partition("/")
-            known = store.org(org)
+            known = store.org(org) if org == tenant else None
             if known is None or not any(item["id"] == name for item in known["teams"]):
-                raise ValueError(f"No team {team} (name it as <organization>/<team>)")
+                raise ValueError(f"No team {team} in {tenant} (name it as <organization>/<team>)")
             if not identity.admin and team not in identity.teams:
                 raise ValueError(f"You aren't in the team {team}")
         if orgs or teams:
@@ -278,11 +287,13 @@ class Fleet:
         existing = self.machines.get(machine_id)
         # The route only connects signed-in machines; tests register ownerless ones directly.
         owner = identity.user if identity else None
-        if existing and existing.owner and owner and existing.owner != owner:
-            # Another user's machine id: refuse rather than take the machine over.
+        tenant = identity.tenant if identity else None
+        if existing and existing.owner and owner and (existing.owner != owner or existing.tenant != tenant):
+            # Another user's (or another tenant's) machine id: refuse rather than take the machine over.
             raise FleetError(4403, "That machine is registered to another user")
-        machine = existing or Machine(id=machine_id, name=machine_id, first_seen=time.time())
+        machine = existing or Machine(id=machine_id, name=machine_id, first_seen=time.time(), tenant=tenant)
         machine.owner = owner or machine.owner
+        machine.tenant = machine.tenant or tenant
         self._update(machine, hello, client_host)
         old = self.sockets.get(machine_id)
         self.sockets[machine_id] = socket
@@ -466,9 +477,10 @@ class Fleet:
         the client, so a session only joins a machine of its own owner.
         """
         owner = tags.get("owner")
+        tenant = tags.get("tenant")
 
         def ours(machine: Machine) -> bool:
-            return not owner or not machine.owner or machine.owner == owner
+            return machine.tenant == tenant and (not owner or not machine.owner or machine.owner == owner)
 
         named = self.machines.get(str(tags.get("machine") or ""))
         if named is not None:
@@ -492,7 +504,7 @@ class Fleet:
         machine = self.machines.pop(machine_id, None)
         if machine is None:
             raise FleetError(404, "No such machine")
-        self.removed[machine_id] = {"name": machine.name, "owner": machine.owner, "at": time.time(), "by": identity.user if identity else None}
+        self.removed[machine_id] = {"name": machine.name, "owner": machine.owner, "tenant": machine.tenant, "at": time.time(), "by": identity.user if identity else None}
         socket = self.sockets.pop(machine_id, None)
         self._save()
         if socket is not None:
@@ -505,11 +517,33 @@ class Fleet:
         self._save()
 
     def removed_for(self, identity: Identity | None) -> list[dict[str, Any]]:
-        """The removed machines someone may allow back: their owner's, and every one for admins."""
+        """The removed machines someone may allow back: of their own tenant, their own, and every one for its admins."""
         return [
             {"id": machine_id, **record} for machine_id, record in sorted(self.removed.items(), key=lambda item: -float(item[1].get("at") or 0))
-            if identity is not None and (identity.admin or record.get("owner") == identity.user)
+            if identity is not None and same_tenant(identity, record.get("tenant")) and (identity.admin or record.get("owner") == identity.user)
         ]
+
+    # Which tenant's agents may use a backend
+
+    SHARED = "*"
+
+    def backend_tenant(self, backend: Any) -> str | None:
+        """The tenant whose agents may use a backend: its machine's (nobody's once the machine is removed);
+        the root's for a model server from before machines; SHARED for a hosted API, which site admins
+        set up for everyone (agents bring their own credentials to it)."""
+        if backend.machine:
+            machine = self.machines.get(backend.machine)
+            return machine.tenant if machine else None
+        return ROOT_TENANT if backend.type in MACHINE_TYPES else self.SHARED
+
+    def usable_by(self, identity: Identity | None) -> Any:
+        """A test of backends for identity's agents: their tenant's and the shared hosted ones. No identity, none."""
+        def usable(backend: Any) -> bool:
+            if identity is None:
+                return False
+            tenant = self.backend_tenant(backend)
+            return tenant == self.SHARED or same_tenant(identity, tenant)
+        return usable
 
     # What the console sees
 
@@ -633,6 +667,7 @@ class Fleet:
             if (
                 session is None or session.client != agent
                 or session.tags.get("owner") != machine.owner
+                or session.tags.get("tenant") != machine.tenant
                 or session.tags.get("machine") != machine.id
                 or session.tags.get("launch") != launch_id
             ):

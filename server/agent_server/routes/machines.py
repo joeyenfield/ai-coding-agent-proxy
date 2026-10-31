@@ -180,7 +180,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             raise HTTPException(status_code=403, detail="Only the machine's owner or an admin can change who can use it.")
         data = await request.json()
         try:
-            target.access = checked_access(identity, (data or {}).get("access") if isinstance(data, dict) else None, runtime.auth.store)
+            target.access = checked_access(identity, (data or {}).get("access") if isinstance(data, dict) else None, runtime.auth.store, target.tenant)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         fleet._save()
@@ -219,7 +219,8 @@ def register(app: FastAPI, runtime: Runtime) -> None:
 
     @app.post("/api/machines/{machine_id}/providers/adopt", status_code=201)
     async def adopt(machine_id: str, request: Request) -> dict[str, Any]:
-        """Add a model server the machine runs as a backend (admins only, through auth.ADMIN_ONLY)."""
+        """Add a model server the machine runs as a backend, for the agents of the machine's tenant (its admins only:
+        auth.ADMIN_ONLY, and visible() keeps out every other tenant's)."""
         require_trusted(request)
         target = visible(machine_id, request)
         data = await request.json()
@@ -231,7 +232,8 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         async with runtime.config_lock:
             existing = next((backend for backend in runtime.settings.backends.values() if backend.type == kind and normal_url(backend.url) == normal_url(url)), None)
             if existing is not None:
-                if existing.machine:
+                # A backend from before machines is the root tenant's: only its own admins may move it onto one of its machines.
+                if existing.machine or fleet.backend_tenant(existing) != target.tenant:
                     raise HTTPException(status_code=409, detail="A backend already uses it")
                 # Explicit, admin-authorized adoption keeps the legacy backend's name and settings.
                 runtime.settings.save_backend(existing.name, {**existing.public(), "machine": target.id})

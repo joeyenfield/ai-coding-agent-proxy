@@ -72,7 +72,7 @@ export function ServerStatsPage() {
         </p>
       </header>
       {stats.isPending && <p className="empty">Asking the server…</p>}
-      {forbidden && <p className="empty">Only an admin can see the server's stats.</p>}
+      {forbidden && <p className="empty">Only a site admin can see the server's stats.</p>}
       {stats.isError && !forbidden && <p className="bad">Couldn't read the server's stats: {stats.error.message}</p>}
       {sample && (
         <>

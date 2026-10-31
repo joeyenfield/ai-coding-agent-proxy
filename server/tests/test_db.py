@@ -127,11 +127,12 @@ def test_the_config_routes_are_for_admins(tmp_path):
     from oidc_helpers import access_token
     from fastapi.testclient import TestClient
 
-    app.state.runtime.auth.store.add_user("bob", "bob-password", role="member")
+    app.state.runtime.auth.store.add_org("acme")
+    app.state.runtime.auth.store.add_user("bob", "bob-password", role="member", tenant="acme")
     with TestClient(app, headers={"x-ai-proxy-token": access_token(app, "bob")}) as member:
         assert member.get("/api/config/agents").status_code == 403
         assert member.get("/api/config/export").status_code == 403
-        assert member.get("/api/config").status_code == 200
+        assert member.get("/api/config").status_code == 403  # every backend of every organization: site admins only
 
 
 def test_requests_page_newest_first_and_old_recordings_go(tmp_path):
@@ -148,7 +149,7 @@ def test_requests_page_newest_first_and_old_recordings_go(tmp_path):
     after = store.query_requests([old.session_id, new.session_id], limit=2, before=page[-1]["timestamp"])
     assert [item["request_id"] for item in after] == ["000003", "000002"]
     assert len(store.query_requests(model="m")) == 5 and store.query_requests([]) == []
-    assert store.totals() == (10, 5)
+    assert store.totals() == {old.session_id: [10, 0], new.session_id: [0, 5]}
     assert store.read_trace(old, "000003") == {"request": {"n": 3}}
     old.last_activity_at = "2020-01-01T00:00:05Z"
     new.last_activity_at = "2030-01-01T00:00:00Z"
@@ -193,7 +194,7 @@ def test_the_issuer_reads_accounts_but_never_writes_them(tmp_path):
     readonly = UserStore(settings.open_database(), readonly=True)
     assert readonly.account_version("alice") == store.account_version("alice")
     with pytest.raises(PermissionError):
-        readonly.add_user("eve", "eve-password")
+        readonly.add_user("eve", "eve-password", role="admin")
     # Another process's change shows at once.
     store.update_user("alice", role="admin")
     assert readonly.user("alice")["role"] == "admin"

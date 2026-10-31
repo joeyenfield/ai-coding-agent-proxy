@@ -18,6 +18,8 @@ export interface NavLinkItem {
   label: string;
   icon?: IconName;
   end?: boolean;
+  /** Only site admins can use it (the server's own settings and stats); hidden from everyone else. */
+  siteAdmin?: boolean;
 }
 
 /** A provider with several pages, shown as a label with its pages indented beneath. */
@@ -63,8 +65,8 @@ export const PARTS: Part[] = [
       { to: "/traffic", label: "Traffic", icon: "arrows" },
       { to: "/requests", label: "Requests", icon: "list" },
       { to: "/sessions", label: "Sessions", icon: "layers" },
-      { to: "/server-stats", label: "Server stats", icon: "cpu" },
-      { to: "/settings", label: "Server settings", icon: "settings" },
+      { to: "/server-stats", label: "Server stats", icon: "cpu", siteAdmin: true },
+      { to: "/settings", label: "Server settings", icon: "settings", siteAdmin: true },
       { to: "/organization", label: "Organizations", icon: "users" },
       // Not /downloads: the server serves the files themselves there.
       { to: "/get", label: "Downloads", icon: "download" },
@@ -85,6 +87,16 @@ export const PARTS: Part[] = [
 ];
 
 export const isGroup = (item: NavItem): item is NavGroupItem => "items" in item;
+
+/** The parts with only the pages this person can use: the server's own pages are for site admins. */
+export function visibleParts(siteAdmin: boolean): Part[] {
+  if (siteAdmin) return PARTS;
+  const keep = (item: NavItem) => isGroup(item) || !item.siteAdmin;
+  return PARTS.map((part) => ({
+    ...part,
+    items: part.items.filter(keep).map((item) => (isGroup(item) ? { ...item, items: item.items.filter((link) => !link.siteAdmin) } : item)),
+  }));
+}
 
 const matches = (pathname: string, to: string) => pathname === to || pathname.startsWith(`${to}/`);
 

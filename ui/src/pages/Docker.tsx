@@ -425,7 +425,7 @@ function ConnectTab({ state }: { state: DockerView }) {
   if (!state.backend) {
     return (
       <div className="callout">
-        <p>Agents can use it once it's a provider: add it from its machine's overview (admins).</p>
+        <p>Agents can use it once it's a provider: add it from its machine's overview (admins of its organization).</p>
       </div>
     );
   }

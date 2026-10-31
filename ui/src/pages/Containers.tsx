@@ -5,7 +5,7 @@ import { api, ApiError, freeBackendName, type ContainerEngine, type ContainerHos
 import { CodeLine } from "../components/CodeLine";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ALL_LINES, LogPanel, PROBLEMS, type LogTone } from "../components/LogPanel";
-import { useClipboard, useToast } from "../hooks";
+import { useAuth, useClipboard, useToast } from "../hooks";
 import { PairPanel } from "./Terminals";
 
 const POLL_MS = 3000;
@@ -373,8 +373,10 @@ function ContainerForm({
 function AddContainer({ overview, host: machine }: { overview: ContainersOverview; host: ContainerHost }) {
   const client = useQueryClient();
   const notify = useToast();
-  // Containers can be added on your own machine, connected, with containers on.
-  const host = machine.enabled && machine.connected && machine.you.owner && machine.engines.length ? machine : undefined;
+  // Containers can be added on your own machine, connected, with containers on, by an admin of its organization
+  // (docker run is root there). The server lists only machines in your organization.
+  const orgAdmin = useAuth().data?.identity?.role === "admin";
+  const host = machine.enabled && machine.connected && machine.you.owner && orgAdmin && machine.engines.length ? machine : undefined;
   const [engineId, setEngineId] = useState("strata");
   const engines = host?.engines ?? [];
   const engine = engines.find((item) => item.id === engineId) ?? engines[0];
@@ -384,7 +386,8 @@ function AddContainer({ overview, host: machine }: { overview: ContainersOvervie
   if (!host || !engine) {
     return machine.enabled ? (
       <p className="subtle">
-        To add a container, the machine has to be yours and connected, with <code>agent-machine containers on</code>.
+        To add a container, the machine has to be yours and connected, with <code>agent-machine containers on</code>, and you an admin
+        of your organization.
       </p>
     ) : null;
   }

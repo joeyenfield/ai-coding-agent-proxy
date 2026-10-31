@@ -29,8 +29,16 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         if not runtime.remote.trusted(request) or (change and not remote.same_origin(request)):
             raise HTTPException(status_code=401, detail="Containers can only be managed from this computer, a paired device or a signed-in account.")
 
-    def managed(name: str) -> None:
-        if name not in manager.managed():
+    def mine(request: Request) -> list[str]:
+        """The containers on machines this user sees: only ever their own tenant's."""
+        identity = auth.request_identity(request)
+        return [
+            name for name, backend in manager.managed().items()
+            if (machine := fleet.machines.get(backend.machine or "")) is not None and can_see(identity, machine)
+        ]
+
+    def managed(name: str, request: Request) -> None:
+        if name not in mine(request):
             raise HTTPException(status_code=404, detail=f"{name} isn't a container a machine runs")
 
     def owned_machine(machine_id: str, request: Request) -> Any:
@@ -66,12 +74,13 @@ def register(app: FastAPI, runtime: Runtime) -> None:
                 "engines": machine.containers.get("engines") or [],
             })
         hosts.sort(key=lambda item: (not (item["connected"] and item["enabled"]), item["name"].lower()))
-        return {"machines": hosts, "containers": await manager.status(runtime.client)}
+        names = mine(request)
+        return {"machines": hosts, "containers": await manager.status(runtime.client, names) if names else []}
 
     @app.get("/api/containers/{name}")
     async def one(name: str, request: Request) -> dict[str, Any]:
         require_trusted(request)
-        managed(name)
+        managed(name, request)
         return (await manager.status(runtime.client, [name]))[0]
 
     @app.post("/api/containers", status_code=201)
@@ -95,7 +104,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
     @app.put("/api/containers/{name}")
     async def update(name: str, request: Request) -> dict[str, Any]:
         require_trusted(request, change=True)
-        managed(name)
+        managed(name, request)
         current = settings.backends[name]
         machine = owned_machine(current.machine or "", request)
         data = await request.json()
@@ -115,7 +124,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
     @app.delete("/api/containers/{name}")
     async def delete(name: str, request: Request) -> dict[str, Any]:
         require_trusted(request, change=True)
-        managed(name)
+        managed(name, request)
         backend = settings.backends[name]
         if backend.machine in fleet.machines:
             # Still in the fleet: the container goes too, which needs the machine there.
@@ -135,7 +144,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
     @app.post("/api/containers/{name}/{action}", status_code=202)
     async def act(name: str, action: str, request: Request) -> Any:
         require_trusted(request, change=True)
-        managed(name)
+        managed(name, request)
         if action not in {"start", "stop", "restart"}:
             raise HTTPException(status_code=404, detail="Unknown action")
         body = await request.json() if request.headers.get("content-length") not in (None, "0") else {}
@@ -158,7 +167,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
     @app.get("/api/containers/{name}/log")
     async def log(name: str, request: Request, tail: int = 400) -> PlainTextResponse:
         require_trusted(request)
-        managed(name)
+        managed(name, request)
         try:
             return PlainTextResponse(await manager.logs(name, max(10, min(tail, 5000))))
         except FleetError as exc:

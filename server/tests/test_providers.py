@@ -19,6 +19,10 @@ from oidc_helpers import authenticated_client as TestClient
 
 from agent_server.app import create_app
 from agent_server.config import Backend, Settings
+from agent_server.auth import Identity
+
+# Who the tests' machines sign in as: a site admin, so they're the root organization's, as the tests' sessions are.
+ROOT_ADMIN = Identity("test-admin", "token", "admin", (), "root")
 from test_auth import org_settings, signed_in
 
 
@@ -80,7 +84,7 @@ def refuse(request: httpx.Request) -> httpx.Response:
 def start(app: Any, machine_id: str = "desk", **hello: Any) -> FakeSocket:
     fleet = app.state.runtime.fleet
     socket = FakeSocket(fleet, machine_id)
-    fleet.connect(socket, app.state.runtime.auth.identity_for("test-admin", "token"), "127.0.0.1", {
+    fleet.connect(socket, ROOT_ADMIN, "127.0.0.1", {
         "id": machine_id, "name": machine_id, "providers": [{"type": "ollama", "port": 11434}, {"type": "strata", "port": 18500}],
         "servers": {"enabled": True, "ollama": {"found": True, "running": True}}, **hello,
     })
@@ -191,7 +195,7 @@ def test_a_machine_going_away_ends_its_waiting_requests(tmp_path):
     with TestClient(app, **LOCAL) as client:
         with_refusing_client(app)
         fleet = app.state.runtime.fleet
-        fleet.connect(Silent(fleet, "desk"), None, "127.0.0.1", {"id": "desk", "providers": [{"type": "ollama", "port": 11434}]})
+        fleet.connect(Silent(fleet, "desk"), ROOT_ADMIN, "127.0.0.1", {"id": "desk", "providers": [{"type": "ollama", "port": 11434}]})
         response = client.get("/api/machines/desk/providers/ollama-11434")
         assert response.status_code == 502 and "lost the connection" in response.json()["detail"]
 
@@ -227,7 +231,8 @@ def test_the_server_no_longer_manages_model_servers_itself(tmp_path):
             ("GET", "/api/docker"), ("GET", "/api/docker-hub/search"), ("GET", "/api/hosts/desk"), ("GET", "/api/host/metrics"),
         ]:
             assert client.request(method, path).status_code in {404, 405}, path
-        # Agents' native Ollama calls still go through; managing calls don't.
+        # Agents' native Ollama calls still go through; managing calls don't. (A backend is usable only while its machine is in the fleet.)
+        start(app)
         session = client.post("/api/sessions", json={"client": "aider", "backend": "desk"}).json()["session_id"]
         for path in ("pull", "delete", "create", "copy", "push"):
             refused = client.post(f"/session/{session}/api/{path}", json={"model": "qwen3:8b"})

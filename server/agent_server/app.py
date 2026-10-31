@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Red
 from fastapi.staticfiles import StaticFiles
 
 from . import installer, openapi, remote, version
-from .auth import AuthMiddleware, UserStore
+from .auth import ROOT_TENANT, AuthMiddleware, UserStore
 from .config import Settings
 from .downloads import Downloads
 from .intercept import InterceptProxy, InterceptTransport
@@ -252,7 +252,15 @@ def ensure_first_user(settings: Settings) -> Path | None:
     """Bootstrap an account on first start; OIDC remains mandatory even with no users."""
     environment_user = os.getenv("AI_PROXY_USERNAME") and os.getenv("AI_PROXY_PASSWORD")
     store = UserStore(settings.open_database())
-    if environment_user or store.initialized():
+    if environment_user:
+        return None
+    if store.initialized():
+        if not any(user["role"] == "admin" and user["tenant"] == ROOT_TENANT for user in store.user_list()):
+            print(
+                "agent-server: no site admin (an admin of the root organization) is left, so nobody can change the server's settings.\n"
+                "  Make one with: agent-server user add <name> --admin",
+                file=sys.stderr, flush=True,
+            )
         return None
     password = secrets.token_urlsafe(12)
     store.add_user(FIRST_USER, password)
@@ -328,9 +336,9 @@ def account_command(kind: str, argv: list[str]) -> int:
     if kind == "user":
         add = commands.add_parser("add", help="Add a user (the first one is an admin)")
         add.add_argument("name")
-        add.add_argument("--admin", action="store_true", help="Can manage the server, organizations and users")
-        add.add_argument("--org", action="append", default=[], help="An organization to join (created if new); repeat for more")
-        add.add_argument("--team", action="append", default=[], help="A team to join, as <org>/<team> or just <team> with one --org (created if new); repeat for more")
+        add.add_argument("--admin", action="store_true", help="An admin of their organization; without --org, a site admin (the root organization), who runs the server and its organizations")
+        add.add_argument("--org", action="append", default=[], help="The one organization (tenant) they belong to, for good (created if new); members need one")
+        add.add_argument("--team", action="append", default=[], help="A team of their organization to join, as <org>/<team> or just <team> (created if new); repeat for more")
         passwd = commands.add_parser("passwd", help="Set a user's password (signs them out everywhere)")
         passwd.add_argument("name")
         remove = commands.add_parser("remove", help="Remove a user")
@@ -353,7 +361,7 @@ def account_command(kind: str, argv: list[str]) -> int:
         rename = commands.add_parser("rename", help="Rename an organization")
         rename.add_argument("id")
         rename.add_argument("name")
-        remove = commands.add_parser("remove", help="Remove an organization (its members keep their accounts)")
+        remove = commands.add_parser("remove", help="Remove an organization that has no users left")
         remove.add_argument("id")
         commands.add_parser("list", help="List organizations and their members")
     args = parser.parse_args(argv)

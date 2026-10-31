@@ -21,15 +21,16 @@ With [separate hosting](deployment.md#separate-console-and-api-domains), all the
 | **Public** | Anyone, always. |
 | **Session** | Access-token authentication plus control permission for the named open session. MCP additionally requires its launch-only capability. |
 | **Signed in** | Active OAuth access token: `Authorization: Bearer`, `X-AI-Proxy-Token`, or host-only `ai_proxy_session` cookie. |
-| **Admin** | Signed in as an admin; enforced by `auth.ADMIN_ONLY`. |
+| **Site admin** | Signed in as an admin of the root organization; enforced by `auth.SITE_ADMIN_ONLY`. |
+| **Admin** | Signed in as an admin of an organization, and only for that organization's things (site admins: also the users and teams of any organization); enforced by `auth.ADMIN_ONLY` and the route. |
 | **Trusted** | Signed in. Loopback and old access keys confer no privilege. |
 | **Same origin** | Unsafe methods and WebSockets require the request's host or an exact console origin in `AI_PROXY_CONSOLE_ORIGINS`. Other origins are refused. |
-| **Machine feature** | The fleet's grants, `fleet.allowed(identity, machine, feature)`: the machine's owner always; admins for `view`, `models` and `update`; organizations and teams the owner granted the feature. See [Machines](machines.md). |
-| **Machine owner** | The machine's owner, or an admin where it says so. |
+| **Machine feature** | The fleet's grants, `fleet.allowed(identity, machine, feature)`, only ever inside the machine's organization: the machine's owner always; its organization's admins for `view`, `models` and `update`; the organization or teams the owner granted the feature. See [Machines](machines.md). |
+| **Machine owner** | The machine's owner, or an admin of its organization where it says so. |
 
 Every protected path requires authentication, including agent session paths and loopback. Exceptions are `/health` and `/api/auth/{status,login,callback,refresh,logout}`. Refused credentials get 401; forbidden origins/roles get 403; issuer failures get 503. WebSockets initially close 4401/4403 and close 4410 when an established credential needs renewal.
 
-Every endpoint that touches a session checks its sharing (see [Accounts](accounts.md)). A session you can't see answers `404`.
+Everything belongs to one organization (tenant): users, machines, providers, sessions and their records. No endpoint reaches another organization's, site admins included; they answer `404` as if missing, and lists leave them out. Every endpoint that touches a session checks its sharing (see [Accounts](accounts.md)). A session you can't see answers `404`.
 
 **Versions.** `agent` and `agent-machine` send `X-AI-Proxy-Version` and `X-AI-Proxy-Protocol` with every request. A protocol outside the server's `MIN_PROTOCOL..PROTOCOL` gets `426 Upgrade Required` with how to update (WebSockets close with `4426`). Requests without the header, such as browsers', aren't checked.
 
@@ -60,21 +61,21 @@ its in-flight entry and records `client_closed`.
 | Method | Path | Who | What it does |
 |---|---|---|---|
 | GET | `/health` | Public | `status`, the running instance's id, the server's `version`, `protocol` and `min_protocol`. |
-| GET | `/api/status` | Signed in | Totals, requests in flight, recent requests, intercept state, `default_backend`, whether a restart is needed for the listen address, and each machine backend's `provider`. Only sessions you can see. |
-| GET | `/api/config` | Signed in | The editable network settings (`proxy.listen_host`, `listen_port`, `url`, `public_url`, `default_backend`, `backends`) and `restart_required`. |
-| PUT | `/api/config` | Admin | Stores them. Can remove local backends and add or edit hosted ones; refuses new or moved local ones. Without `backends`, leaves them alone; without `proxy.public_url`, leaves it as it is (`null` clears it). See [Configuration](configuration.md). |
-| GET | `/api/config/export` | Admin | Every setting as one YAML document (`proxy`, `default_backend`, `intercept`, `retention_days`, `backends`, `models`, `agents`); `?format=json` for JSON. |
-| POST | `/api/config/import` | Admin | Stores a settings document (YAML or JSON body): the parts it has, or with `?replace=true` every part. Everything is checked first. Answers `changed` and `restart_required`. |
-| GET | `/api/config/agents` | Admin | Every stored agent: `id`, `definition`, `yaml` (the definition as YAML, to edit), `builtin` (it ships with the server) and `edited` (changed since). |
-| PUT | `/api/config/agents/{agent_id}` | Admin | Adds or changes an agent; the body is its definition, YAML or JSON. A shipped one stops following the server's updates. `400` with the reason when it isn't valid. |
-| DELETE | `/api/config/agents/{agent_id}` | Admin | Removes an agent (`204`). A shipped one stays removed through updates, until it's added again or reset. |
-| POST | `/api/config/agents/{agent_id}/reset` | Admin | A shipped agent back to this version's definition, following updates again. `404` for others. |
-| GET | `/api/config/models` | Admin | Ollama model tuning: `defaults`, `profiles`, `aliases`. `?format=yaml` for YAML. |
-| PUT | `/api/config/models` | Admin | Stores the model tuning document (YAML or JSON body). |
-| GET | `/api/config/storage` | Admin | `database` (`kind`: `sqlite` or `postgresql`, `url` with its password hidden, `size` in bytes) and `retention_days`. |
-| PUT | `/api/config/storage` | Admin | `{"retention_days": days}` (1 to 36500), or `null` to keep recordings until deleted. Old recordings go at once. |
-| GET | `/api/server/stats` | Admin | The server computer's load and disk use, read when asked (nothing is saved): `hostname`, `platform`, `boot_time`; `cpu` (`percent`, `count`, `load_average`, null on Windows); `memory` and `swap` (bytes, `percent`); `process` (agent-server's `pid`, `rss`, `cpu_percent` of one core, `threads`, `started_at`); `disks`, each filesystem holding the log or build folder once (`mountpoint`, `total`, `used`, `free`, `percent`, `folders`); `folders` (`name`, `path`, `bytes`) and `database` (`kind`, `bytes`), measured in the background every five minutes, so `bytes` is null until `folders_measured_at` is set. |
-| POST | `/api/server/restart` | Admin, Trusted, Same origin | Restarts with the stored settings once in-flight requests finish (up to 30 s). Answers `202` with `waiting_for` and the address it comes back on. `409` when the server can't restart itself (`--reload`). |
+| GET | `/api/status` | Signed in | Totals, requests in flight, recent requests, intercept state, `default_backend`, whether a restart is needed for the listen address, and each machine backend's `provider`. Only sessions you can see (their token totals too), and only the backends your organization's agents may use. |
+| GET | `/api/config` | Site admin | The editable network settings (`proxy.listen_host`, `listen_port`, `url`, `public_url`, `default_backend`, `backends`) and `restart_required`. |
+| PUT | `/api/config` | Site admin | Stores them. Can remove local backends and add or edit hosted ones; refuses new or moved local ones. Without `backends`, leaves them alone; without `proxy.public_url`, leaves it as it is (`null` clears it). See [Configuration](configuration.md). |
+| GET | `/api/config/export` | Site admin | Every setting as one YAML document (`proxy`, `default_backend`, `intercept`, `retention_days`, `backends`, `models`, `agents`); `?format=json` for JSON. |
+| POST | `/api/config/import` | Site admin | Stores a settings document (YAML or JSON body): the parts it has, or with `?replace=true` every part. Everything is checked first. Answers `changed` and `restart_required`. |
+| GET | `/api/config/agents` | Site admin | Every stored agent: `id`, `definition`, `yaml` (the definition as YAML, to edit), `builtin` (it ships with the server) and `edited` (changed since). |
+| PUT | `/api/config/agents/{agent_id}` | Site admin | Adds or changes an agent; the body is its definition, YAML or JSON. A shipped one stops following the server's updates. `400` with the reason when it isn't valid. |
+| DELETE | `/api/config/agents/{agent_id}` | Site admin | Removes an agent (`204`). A shipped one stays removed through updates, until it's added again or reset. |
+| POST | `/api/config/agents/{agent_id}/reset` | Site admin | A shipped agent back to this version's definition, following updates again. `404` for others. |
+| GET | `/api/config/models` | Site admin | Ollama model tuning: `defaults`, `profiles`, `aliases`. `?format=yaml` for YAML. |
+| PUT | `/api/config/models` | Site admin | Stores the model tuning document (YAML or JSON body). |
+| GET | `/api/config/storage` | Site admin | `database` (`kind`: `sqlite` or `postgresql`, `url` with its password hidden, `size` in bytes) and `retention_days`. |
+| PUT | `/api/config/storage` | Site admin | `{"retention_days": days}` (1 to 36500), or `null` to keep recordings until deleted. Old recordings go at once. |
+| GET | `/api/server/stats` | Site admin | The server computer's load and disk use, read when asked (nothing is saved): `hostname`, `platform`, `boot_time`; `cpu` (`percent`, `count`, `load_average`, null on Windows); `memory` and `swap` (bytes, `percent`); `process` (agent-server's `pid`, `rss`, `cpu_percent` of one core, `threads`, `started_at`); `disks`, each filesystem holding the log or build folder once (`mountpoint`, `total`, `used`, `free`, `percent`, `folders`); `folders` (`name`, `path`, `bytes`) and `database` (`kind`, `bytes`), measured in the background every five minutes, so `bytes` is null until `folders_measured_at` is set. |
+| POST | `/api/server/restart` | Site admin | Restarts with the stored settings once in-flight requests finish (up to 30 s). Answers `202` with `waiting_for` and the address it comes back on. `409` when the server can't restart itself (`--reload`). |
 
 ## Sessions and requests
 
@@ -82,7 +83,7 @@ its in-flight entry and records `client_closed`.
 |---|---|---|---|
 | POST | `/api/sessions` | Signed in | Opens a session for other tools: `client`, `project`, `model`, `backend` (or `direct`), `trace`, `tags`, and sharing: `visibility`, `team`, `org`, `access`. A `shell` client is always private. |
 | GET | `/api/sessions` | Signed in | The sessions you can see, each with its `machine` and what `you` may do. |
-| DELETE | `/api/sessions` | Signed in | Deletes all saved traffic. Ended sessions and open ones idle for 15 minutes are deleted; recently active ones keep running but lose their data; ones with requests in flight are skipped. Only your own (and admins: sessions without an owner). |
+| DELETE | `/api/sessions` | Signed in | Deletes all saved traffic. Ended sessions and open ones idle for 15 minutes are deleted; recently active ones keep running but lose their data; ones with requests in flight are skipped. Only your own (and your organization's admins: its sessions without an owner). |
 | GET | `/api/sessions/{session_id}` | Signed in, can view | One session. |
 | PATCH | `/api/sessions/{session_id}` | Signed in, can control | Ends it (`ended`, `exit_status`), switches capture (`trace`), or for its owner changes its sharing (`visibility`, `team`, `org`, `access`). Narrowing the sharing drops terminal viewers who lose access. A shell can't be shared. |
 | DELETE | `/api/sessions/{session_id}` | Signed in, can control | Deletes it. `409` while requests are in flight. |
@@ -107,9 +108,9 @@ its in-flight entry and records `client_closed`.
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
-| GET | `/api/agents` | Signed in | Every agent the server stores, with the `backends` it can use and the `default_backend` a launch picks (`direct` for account agents). |
+| GET | `/api/agents` | Signed in | Every agent the server stores, with the `backends` it can use (your organization's and the shared hosted ones) and the `default_backend` a launch picks (`direct` for account agents). |
 | POST | `/api/agents/{agent_id}/sessions` | Signed in | Opens a session for an agent and returns `session`, the rendered `env`, `command` and `files`, `container` (whether its backend is a container to start first), `mcp` (the shared MCP servers it got, with their URLs) and `shell` (the same as bash and PowerShell lines). Takes `model`, `backend`, `trace`, `project`, `project_path`, `mcp`, sharing, `tags`; the launcher adds `launcher: true`, its `proxy_url`, its `intercept` paths and `files_dir`. `409` for an account agent when capture is off. |
-| GET | `/api/models` | Signed in | The models on each backend (or `?backend=` for one), asked of the backend's machine, with the profile the server applies, plus the `aliases` from its Ollama model tuning. |
+| GET | `/api/models` | Signed in | The models on each backend your organization's agents may use (or `?backend=` for one; another organization's answers `404`), asked of the backend's machine, with the profile the server applies, plus the `aliases` from its Ollama model tuning. |
 | GET | `/api/mcp` | Signed in | The MCP servers machines share that you may give agents. |
 
 ## HTTPS capture
@@ -130,12 +131,12 @@ Every machine route needs **Trusted**. A machine you may not see answers `404`. 
 | GET | `/api/machines/{machine_id}` | Trusted, `view` | One machine: what it runs and reports, its backends, launch history filtered by session access (plus your own pending/failed launches), and what `you` may do. |
 | DELETE | `/api/machines/{machine_id}` | Owner or admin, Same origin | Removes it from the fleet, connected or not. It's refused when it connects again until restored. |
 | POST | `/api/machines/{machine_id}/restore` | Owner or admin, Same origin | Lets a removed machine join again. |
-| PUT | `/api/machines/{machine_id}/access` | Owner or admin, Same origin | Sets which organizations and teams may use each feature: `{"access": {feature: {"orgs": [...], "teams": [...]}}}`. Members grant only their own organizations and teams. |
+| PUT | `/api/machines/{machine_id}/access` | Owner or admin, Same origin | Sets who in the machine's organization may use each feature: `{"access": {feature: {"orgs": [<its organization>], "teams": ["<org>/<team>", ...]}}}`. Another organization or its teams are refused (`400`). Members grant only teams they're in. |
 | POST | `/api/machines/{machine_id}/launch` | `launch`, Same origin | Starts an agent there in a shared terminal: `agent`, `project` (inside one of its roots), `model`, `backend`, `trace`, `visibility`, `team`, `access`, `mcp`. Needs `agent-machine launches on`. Answers `201` once the session is open; someone other than the owner is tagged `launched_by`. |
 | POST | `/api/machines/{machine_id}/shell` | `terminal`, Same origin | Opens a shell there in a private terminal: `project` (a folder in its roots; default the first root). Needs `agent-machine commands on`. |
 | POST | `/api/machines/{machine_id}/update` | `update`, Same origin | Has the machine update `agent-machine` (and with `"agent": true`, `agent`) to the server's build, then restart. Needs `agent-machine updates on`. |
 | GET | `/api/machines/{machine_id}/folders` | `launch` or `terminal` | Folder names inside one of its launch folders, `?path=`. Without a path, its roots. |
-| POST | `/api/machines/{machine_id}/providers/adopt` | Admin | Adds a model server the machine runs as a backend: `{"type": "ollama"}`. A matching legacy backend without a machine is linked in place, retaining its name and settings. `409` if a backend already assigned to a machine uses it. |
+| POST | `/api/machines/{machine_id}/providers/adopt` | Admin | Adds a model server the machine runs as a backend, for its organization's agents only: `{"type": "ollama"}`. A matching legacy backend without a machine (the root's) is linked in place, only for a machine in the root, retaining its name and settings. `409` if a backend already assigned to a machine uses it. |
 | GET | `/api/machines/{machine_id}/providers/{provider_id}` | `view` | The model server as the machine sees it now (models, what's loaded, status), its backend, and the traffic agents sent it. |
 | POST | `/api/machines/{machine_id}/providers/{provider_id}/models/{action}` | `models`, Same origin | `pull`, `delete`, `load` or `unload` a model: `{"name": ...}`. Strata only loads and unloads. `pull` streams the machine's progress as NDJSON lines, ending with `{"status": "success"}` or `{"status": "error"}`. |
 | GET | `/api/machines/{machine_id}/providers/{provider_id}/log` | `view` | The end of its log on the machine: `?source=server` or `engine` (Strata), `?tail=` bytes. |
@@ -151,7 +152,7 @@ Containers the fleet's machines run as backends. See [Machines](machines.md). Ch
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
-| GET | `/api/containers` | Trusted | The machines you can see that could run containers (their CLI, whether it answers, the engines they offer), and every container's state. |
+| GET | `/api/containers` | Trusted | The machines you can see that could run containers (their CLI, whether it answers, the engines they offer), and the state of the containers on them. Another organization's containers answer `404` everywhere. |
 | GET | `/api/containers/{name}` | Trusted | One container's state. |
 | POST | `/api/containers` | Admin, machine owner | Creates one on a connected machine with `agent-machine containers on`: `name`, `machine`, `engine`, and `image`, `port`, `gpus`, `env`, `volume`. Saves it as a backend. |
 | PUT | `/api/containers/{name}` | Admin, machine owner | Changes its settings; they apply when it next starts. The engine can't change. |
@@ -188,18 +189,18 @@ See [Accounts](accounts.md). Changes answer with the directory (`orgs` and `user
 | POST | `/api/auth/login` | Public | 410; password sign-in moved to the issuer. |
 | POST | `/api/auth/token`, `/api/auth/password` | Signed in | 410; legacy password grants and account password changes removed. |
 | GET, POST, DELETE | `/api/auth/tokens`, `/api/auth/tokens/{token_id}` | Signed in | 410; launcher keys replaced by OAuth grants. |
-| GET | `/api/orgs` | Signed in | Organizations with their teams and members. Members see only their own. |
-| POST | `/api/orgs` | Admin | `{"id", "name"}`: adds one. |
+| GET | `/api/orgs` | Signed in | Organizations with their teams and members (the users whose organization it is), each with `root` and `parent` (`"root"`, or `null` for the root itself). You see your own; site admins see every one, the root first. |
+| POST | `/api/orgs` | Site admin | `{"id", "name"}`: adds an organization (a tenant, under the root). |
 | PUT | `/api/orgs/{org}` | Admin | `{"name"}`: renames it. |
-| DELETE | `/api/orgs/{org}` | Admin | Removes it and its teams; members keep their accounts. |
-| PUT / DELETE | `/api/orgs/{org}/members/{name}` | Admin | Adds/removes one user's organization membership. Removal also leaves its teams, without changing memberships elsewhere. No body needed. |
+| DELETE | `/api/orgs/{org}` | Site admin | Removes an organization with no users left (`400` otherwise). The root can't be removed. |
+| PUT / DELETE | `/api/orgs/{org}/members/{name}` | Admin | Users can't join or leave organizations: `400`, except a `PUT` for the user's own organization, which changes nothing. |
 | POST | `/api/orgs/{org}/teams` | Admin | `{"id", "name"}`: adds a team. |
 | PUT | `/api/orgs/{org}/teams/{team}` | Admin | `{"name"}`: changes the display name, keeping its id and sharing key. |
 | DELETE | `/api/orgs/{org}/teams/{team}` | Admin | Removes a team. |
-| PUT / DELETE | `/api/orgs/{org}/teams/{team}/members/{name}` | Admin | Adds/removes one team membership. Adding also joins its organization; removal keeps organization membership. No body needed. |
-| GET | `/api/users` | Signed in | Users with their roles, organizations and teams. Members see themselves and the people in their organizations. |
-| POST | `/api/users` | Admin | `{"name", "password", "role", "orgs", "teams"}`: adds one. |
-| PUT | `/api/users/{name}` | Admin | Changes `role`, `orgs`, `teams` or `password` together, only if all changes are valid. The last admin can't be made a member. |
+| PUT / DELETE | `/api/orgs/{org}/teams/{team}/members/{name}` | Admin | Adds/removes one team membership, for a user of that organization. No body needed. |
+| GET | `/api/users` | Signed in | Users with their `role`, `tenant` (their organization; `orgs` is `[tenant]`) and `teams`. You see the people in your organization; site admins see everyone. |
+| POST | `/api/users` | Admin | `{"name", "password", "role", "tenant", "teams"}`: adds a user to one organization, for good. An organization's admin adds to their own (`tenant` may be left out); a site admin names any, and without one makes a site admin (`role: "admin"` only). `orgs: [one]` still works for `tenant`. |
+| PUT | `/api/users/{name}` | Admin | Changes `role`, `teams` or `password` together, only if all changes are valid. `orgs` may only repeat the user's own organization. An organization's last admin can't be made a member; root users stay admins. |
 | DELETE | `/api/users/{name}` | Admin | Removes a user. You can't remove yourself. |
 
 ## Downloads and installers

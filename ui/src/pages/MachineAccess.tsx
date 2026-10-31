@@ -42,8 +42,9 @@ function machineSwitch(machine: FleetMachine, feature: MachineFeature): { on: bo
 }
 
 /**
- * Who besides its owner may use each of a machine's features: organizations and teams, picked by its
- * owner (from their own) or an admin (from any). The machine's own switches still apply on top.
+ * Who besides its owner may use each of a machine's features: its own organization, or teams in it, picked
+ * by its owner (from the teams they're in) or an admin of its organization (from any of its teams). Nothing
+ * is shared outside the machine's organization. The machine's own switches still apply on top.
  */
 export function MachineAccess({ machine }: { machine: FleetMachine }) {
   const auth = useAuth();
@@ -71,15 +72,21 @@ export function MachineAccess({ machine }: { machine: FleetMachine }) {
     },
     onError: (error: Error) => notify(error.message),
   });
-  // What can be granted: organizations and their teams, as the server lists them for this user.
+  // What can be granted: the machine's own organization and its teams. An admin of it may name any of
+  // its teams; anyone else only the teams they're in, as with sharing a session.
+  const identity = auth.data?.identity;
+  const tenant = machine.tenant ?? identity?.tenant;
   const choices = useMemo(() => {
     const list: { kind: "orgs" | "teams"; value: string; label: string }[] = [];
-    for (const org of orgs.data?.orgs ?? []) {
-      list.push({ kind: "orgs", value: org.id, label: `${org.name} (organization)` });
-      for (const team of org.teams) list.push({ kind: "teams", value: team.key, label: `${org.name} › ${team.name} (team)` });
+    const org = (orgs.data?.orgs ?? []).find((item) => item.id === tenant);
+    if (!org) return list;
+    const admin = identity?.role === "admin" && identity.tenant === org.id;
+    list.push({ kind: "orgs", value: org.id, label: `Everyone in ${org.name}` });
+    for (const team of org.teams) {
+      if (admin || identity?.teams.includes(team.key)) list.push({ kind: "teams", value: team.key, label: `${org.name} › ${team.name} (team)` });
     }
     return list;
-  }, [orgs.data]);
+  }, [orgs.data, tenant, identity]);
   const labelOf = (kind: "orgs" | "teams", value: string) => choices.find((item) => item.kind === kind && item.value === value)?.label ?? value;
 
   if (!auth.data?.required) {
@@ -101,7 +108,7 @@ export function MachineAccess({ machine }: { machine: FleetMachine }) {
         <div className="section-head">
           <h2>Access</h2>
         </div>
-        <p className="empty">Only {machine.owner ?? "its owner"} or an admin can change who can use {machine.name}.</p>
+        <p className="empty">Only {machine.owner ?? "its owner"} or an admin of its organization can change who can use {machine.name}.</p>
       </section>
     );
   }
@@ -119,8 +126,9 @@ export function MachineAccess({ machine }: { machine: FleetMachine }) {
       <div className="section-head">
         <h2 id="machine-access">Access</h2>
         <p className="subtle">
-          Which organizations and teams may use each feature of {machine.name}. {machine.owner ?? "Its owner"} can use them all;
-          admins can see it, change its models and update it. Anyone given a feature can also see the machine. Agents and
+          Who in {tenant ?? "its organization"} may use each feature of {machine.name}: everyone there, or some of its teams. It's
+          never shared outside its organization. {machine.owner ?? "Its owner"} can use them all; the organization's admins can see
+          it, change its models and update it. Anyone given a feature can also see the machine. Agents and
           terminals they start run there as {machine.owner ?? "its owner"}'s sign-in, and they can watch and use what they start.
         </p>
       </div>
@@ -145,7 +153,7 @@ export function MachineAccess({ machine }: { machine: FleetMachine }) {
                 )}
               </div>
               <div className="access-grants">
-                {grant.orgs.length + grant.teams.length === 0 && <span className="subtle">Only {machine.owner ?? "its owner"}{feature === "view" || feature === "models" || feature === "update" ? " and admins" : ""}</span>}
+                {grant.orgs.length + grant.teams.length === 0 && <span className="subtle">Only {machine.owner ?? "its owner"}{feature === "view" || feature === "models" || feature === "update" ? " and its organization's admins" : ""}</span>}
                 {(["orgs", "teams"] as const).flatMap((kind) =>
                   grant[kind].map((value) => (
                     <span key={`${kind}:${value}`} className="pill access-chip">
@@ -178,7 +186,7 @@ export function MachineAccess({ machine }: { machine: FleetMachine }) {
           );
         })}
       </ul>
-      {choices.length === 0 && orgs.isSuccess && <p className="subtle">You aren't in an organization yet, so there's no one to let in. An admin can add you to one.</p>}
+      {choices.length === 0 && orgs.isSuccess && <p className="subtle">There's no one to let in: {machine.name}'s organization isn't one you can see.</p>}
       <div className="row wrap">
         <button type="button" className="primary" disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
           {save.isPending ? "Saving…" : "Save"}

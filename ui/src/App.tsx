@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { Link, NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type Identity } from "./api";
+import { api, roleLabel, type Identity } from "./api";
 import { useAuth, useStatus, useTheme, useVersion, type ThemeChoice } from "./hooks";
 import { LoginPage } from "./pages/Login";
 import { OrganizationPage } from "./pages/Organization";
@@ -26,7 +26,7 @@ import { DocsPage } from "./pages/Docs";
 import { Icon } from "./components/Icon";
 import { RestartButton } from "./components/Restart";
 import { AttentionAlerts, waitingAgents } from "./components/Attention";
-import { isGroup, PARTS, type NavLinkItem } from "./navigation";
+import { isGroup, visibleParts, type NavLinkItem } from "./navigation";
 
 // The terminal viewer brings xterm.js; load it when visited.
 const TerminalPage = lazy(() => import("./pages/Terminal").then((module) => ({ default: module.TerminalPage })));
@@ -67,7 +67,7 @@ function Shell({ identity }: { identity: Identity | null }) {
     setMenuOpen(true);
   };
   const closeMenu = () => (window.history.state?.menu ? window.history.back() : setMenuOpen(false));
-  const parts = PARTS;
+  const parts = visibleParts(Boolean(identity?.site_admin));
   const inFlight = status.data?.current_requests.length ?? 0;
   // A sign-in that has lapsed gets a 401 here; stop asking until the page is reloaded.
   const terminals = useQuery({
@@ -177,7 +177,7 @@ function Shell({ identity }: { identity: Identity | null }) {
               </span>
               <span className="signed-in-name">
                 {identity.user}
-                <small>{identity.role === "admin" ? "Admin" : "Member"}</small>
+                <small>{roleLabel(identity)}</small>
               </span>
               <button type="button" className="icon-button" title="Sign out" aria-label="Sign out" onClick={() => api.logout().then(() => client.invalidateQueries())}>
                 <Icon name="logout" />
@@ -201,7 +201,7 @@ function Shell({ identity }: { identity: Identity | null }) {
         </div>
       </aside>
       <main className="content">
-        {status.data?.restart_required && (
+        {status.data?.restart_required && identity?.site_admin && (
           <p className="banner warn row wrap">
             <span>The listen address was changed in Settings. Restart the proxy to use it.</span>
             <RestartButton status={status.data} label="Restart now…" />
