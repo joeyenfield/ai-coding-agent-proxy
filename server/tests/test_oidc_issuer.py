@@ -59,6 +59,9 @@ def browser_code(client, service, **changes):
     # form-action also covers the redirect back to the client's callback.
     callback = urlsplit(params["redirect_uri"])
     assert f"form-action 'self' {callback.scheme}://{callback.netloc}" in page.headers["content-security-policy"]
+    # And the console the callback then redirects to, or the browser stays on the signed-in form.
+    for console in service.settings.oidc_browser_origins:
+        assert console in page.headers["content-security-policy"].split("form-action", 1)[1].split(";", 1)[0]
     tx = transaction(page)
     result = client.post("/authorize", data={"transaction": tx, "username": "alice", "password": "alice-password", "approve": "yes"},
                          headers={"Origin": service.issuer}, follow_redirects=False)

@@ -690,10 +690,12 @@ def create_auth_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.state.issuer = service
-    # Browsers apply form-action to the redirect after a sign-in too, so the registered
-    # callbacks' origins must be allowed or the console never receives its code.
+    # Browsers apply form-action to every redirect after a sign-in too: the registered callbacks'
+    # origins, or the console never receives its code, and the consoles the callback then sends the
+    # browser back to, or the page just sits there (signed in, but the next click finds it expired).
     form_targets = " ".join(dict.fromkeys(
-        f"{part.scheme}://{part.netloc}" for part in map(urlsplit, service.settings.oidc_redirect_uris)))
+        f"{part.scheme}://{part.netloc}"
+        for part in map(urlsplit, [*service.settings.oidc_redirect_uris, *service.settings.oidc_browser_origins])))
     # style-src 'self' is for /sign-in.css only; the pages have no scripts.
     policy = f"default-src 'none'; style-src 'self'; form-action 'self' {form_targets}; frame-ancestors 'none'; base-uri 'none'"
     # Where a browser page sends someone to start over: the console starts a fresh sign-in.
