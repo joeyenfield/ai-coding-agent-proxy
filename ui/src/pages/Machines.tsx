@@ -191,6 +191,7 @@ const SYSTEMS = [
   { id: "sh", label: "Linux, macOS, FreeBSD" },
   { id: "powershell", label: "Windows" },
   { id: "python", label: "Python" },
+  { id: "container", label: "Docker container" },
 ] as const;
 type System = (typeof SYSTEMS)[number]["id"];
 const SYSTEM_KEY = "ai-proxy-join-system";
@@ -206,14 +207,10 @@ const INSTALLS = [
     label: "agent-machine and agent",
     about: "agent-machine, plus agent: the command you start coding agents with (agent claude ., agent qwen .), and agent-proxy, which carries their traffic to this server. Pick this for a computer you also code on, or that should take agent launches from the console.",
   },
-  {
-    id: "sandbox",
-    label: "Sandbox container",
-    about: "A machine of its own in a Docker or Podman container, with Claude Code, Codex, OpenCode, Qwen Code and Copilot CLI installed. Agents started on it can only touch its /workspace folder, not the computer it runs on.",
-  },
 ] as const;
 type Install = (typeof INSTALLS)[number]["id"];
 const INSTALL_KEY = "ai-proxy-join-install";
+const CONTAINER_ABOUT = "Docker container: a machine of its own in a Docker or Podman container, with agent-machine, agent and the coding agents (Claude Code, Codex, OpenCode, Qwen Code, Copilot CLI) installed. Agents started on it can only touch its /workspace folder, not the computer it runs on.";
 const PYTHON_ABOUT = "Python: the same programs written in Python, for any computer with Python 3.9 or later, including one with no build here for its system. They do everything the others do, under the same command names, so install one or the other on a computer, not both.";
 
 // What the machine lets the server do there: all off until it's turned on, on the machine itself.
@@ -230,13 +227,12 @@ function JoinSteps({ server }: { server: string }) {
   const [install, setInstall] = useRemembered<Install>(INSTALL_KEY, INSTALLS, "machine");
   const [service, setService] = useState(true);
   const python = system === "python";
-  // A sandbox needs Docker or Podman, not Python: with Python, the choice falls back to agent-machine (and is kept for later).
-  const installs = python ? INSTALLS.filter((item) => item.id !== "sandbox") : INSTALLS;
-  const shown = python && install === "sandbox" ? "machine" : install;
+  // The container image has everything in it, so there's nothing to choose.
+  const container = system === "container";
   const windows = system === "powershell";
-  const command = installLine(server, windows ? "powershell" : "sh", { only: shown === "machine" ? "agent-machine" : undefined, service });
+  const command = installLine(server, windows ? "powershell" : "sh", { only: install === "machine" ? "agent-machine" : undefined, service });
   const login = `agent-machine login ${server}`;
-  const chosen = INSTALLS.find((item) => item.id === shown) ?? INSTALLS[0];
+  const chosen = INSTALLS.find((item) => item.id === install) ?? INSTALLS[0];
   // What the command does, in order, so nothing it changes on the computer is a surprise.
   const does = [
     "Downloads this server's build for the computer's processor and checks it against its SHA-256.",
@@ -248,7 +244,7 @@ function JoinSteps({ server }: { server: string }) {
         ? "Adds a scheduled task, agent-machine, that starts it whenever you sign in to Windows."
         : "Sets up a service that starts it at boot: systemd on Linux (a user service without sudo), launchd on macOS, rc.d on FreeBSD."]
       : []),
-    shown === "both"
+    install === "both"
       ? "Signs agent and agent-machine in to this server: each shows a code for you to approve. It never asks for your password."
       : "Signs agent-machine in to this server: it shows a code for you to approve. It never asks for your password.",
     "Starts agent-machine, which joins the fleet and appears in the list above.",
@@ -264,17 +260,19 @@ function JoinSteps({ server }: { server: string }) {
           <span className="subtle">System</span>
           <Switch label="System" options={SYSTEMS} value={system} onChange={setSystem} />
         </div>
-        <div className="join-choice">
-          <span className="subtle">Install</span>
-          <Switch label="What to install" options={installs} value={shown} onChange={setInstall} />
-        </div>
+        {!container && (
+          <div className="join-choice">
+            <span className="subtle">Install</span>
+            <Switch label="What to install" options={INSTALLS} value={install} onChange={setInstall} />
+          </div>
+        )}
       </div>
       {python && <p className="join-about">{PYTHON_ABOUT}</p>}
-      <p className="join-about">{chosen.about}</p>
-      {shown === "sandbox" ? (
-        <SandboxSteps server={server} shell={windows ? "powershell" : "bash"} />
+      <p className="join-about">{container ? CONTAINER_ABOUT : chosen.about}</p>
+      {container ? (
+        <SandboxSteps server={server} />
       ) : python ? (
-        <PythonSteps server={server} agent={shown === "both"} />
+        <PythonSteps server={server} agent={install === "both"} />
       ) : (
         <>
           <CodeLine text={command} onCopy={() => copy(command, "Command copied")} />
@@ -288,7 +286,7 @@ function JoinSteps({ server }: { server: string }) {
               {does.map((step) => <li key={step}>{step}</li>)}
             </ol>
             <p className="subtle">
-              Approve {shown === "both" ? "the codes" : "the code"} on <Link to="/approve-device">Approve a device</Link>. The machine
+              Approve {install === "both" ? "the codes" : "the code"} on <Link to="/approve-device">Approve a device</Link>. The machine
               belongs to whoever approves it.
             </p>
           </div>
@@ -386,6 +384,7 @@ const SHELLS = [
   { id: "powershell", label: "PowerShell", continuation: " `", home: "${HOME}\\" },
 ] as const;
 type Shell = (typeof SHELLS)[number]["id"];
+const SHELL_KEY = "ai-proxy-sandbox-shell";
 
 function Switch<T extends string>({ label, options, value, onChange }: { label: string; options: readonly { id: T; label: string }[]; value: T; onChange: (value: T) => void }) {
   return (
@@ -412,9 +411,11 @@ function useRemembered<T extends string>(key: string, options: readonly { id: T 
 }
 
 /** A machine of its own in a container (sandbox/Dockerfile): agents started on it can only touch its /workspace. */
-function SandboxSteps({ server, shell }: { server: string; shell: Shell }) {
+function SandboxSteps({ server }: { server: string }) {
   const copy = useClipboard();
   const [runtime, setRuntime] = useRemembered<Runtime>(RUNTIME_KEY, RUNTIMES, "docker");
+  // The shell the commands are typed in, on the computer that runs the container: it decides how lines continue.
+  const [shell, setShell] = useRemembered<Shell>(SHELL_KEY, SHELLS, browserPlatform().startsWith("windows") ? "powershell" : "bash");
   const engine = RUNTIMES.find((item) => item.id === runtime) ?? RUNTIMES[0];
   const style = SHELLS.find((item) => item.id === shell) ?? SHELLS[0];
   let address = server;
@@ -438,9 +439,15 @@ function SandboxSteps({ server, shell }: { server: string; shell: Shell }) {
   ].join(`${style.continuation}\n`);
   return (
     <div className="sandbox-steps">
-      <div className="join-choice">
-        <span className="subtle">Engine</span>
-        <Switch label="Container engine" options={RUNTIMES} value={runtime} onChange={setRuntime} />
+      <div className="join-choices">
+        <div className="join-choice">
+          <span className="subtle">Engine</span>
+          <Switch label="Container engine" options={RUNTIMES} value={runtime} onChange={setRuntime} />
+        </div>
+        <div className="join-choice">
+          <span className="subtle">Shell</span>
+          <Switch label="Shell" options={SHELLS} value={shell} onChange={setShell} />
+        </div>
       </div>
       <ol className="steps">
         <li>
