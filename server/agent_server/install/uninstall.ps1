@@ -78,7 +78,32 @@ function Remove-SignIns([string]$program) {
 }
 
 function Remove-Folder([string]$path) {
-    if ($path -and (Test-Path $path)) { Remove-Item -Recurse -Force $path; Write-Output "Deleted $path" }
+    if (-not $path -or -not (Test-Path $path)) { return }
+    try {
+        Remove-Item -Recurse -Force $path
+        Write-Output "Deleted $path"
+    } catch {
+        throw "Couldn't delete everything in ${path}: $($_.Exception.Message) Close what has it open and run this again."
+    }
+}
+
+# Stop-Ollama ends the Ollama agent-machine started (servers.json in its folder), with the model
+# runners it started: it writes to ollama.log there, so -Purge couldn't delete the folder, and
+# with the folder gone nothing would know to stop it. An Ollama started some other way stays.
+function Stop-Ollama([string]$folder) {
+    $state = Join-Path $folder "servers.json"
+    if (-not (Test-Path $state)) { return }
+    try { $id = [int](Get-Content -Raw $state | ConvertFrom-Json).ollama_pid } catch { return }
+    if ($id -le 0) { return }
+    # The id may belong to another program by now: only an ollama is stopped.
+    $process = Get-Process -Id $id -ErrorAction SilentlyContinue
+    if (-not $process -or $process.ProcessName -notlike "ollama*") { return }
+    Get-CimInstance Win32_Process -Filter "ParentProcessId = $id" -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -like "ollama*" } |
+        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    Stop-Process -Id $id -Force -ErrorAction SilentlyContinue
+    $process.WaitForExit(5000) | Out-Null
+    Write-Output "Stopped the Ollama agent-machine started (process $id)."
 }
 
 if ($programs -contains "agent-machine.exe") {
@@ -101,7 +126,9 @@ $busy = @()
 $removed = $false
 foreach ($program in $programs) {
     $target = Join-Path $Prefix $program
-    Remove-Item -Force -ErrorAction SilentlyContinue "$target.old"
+    # What installs and updates renamed out of the way (.old, .old-<n>), unless it's still running.
+    Get-ChildItem -Force -ErrorAction SilentlyContinue "$target.old", "$target.old-*" |
+        ForEach-Object { Remove-Item -Force -ErrorAction SilentlyContinue $_.FullName }
     if (-not (Test-Path $target)) { continue }
     try {
         Remove-Item -Force $target
@@ -138,6 +165,7 @@ if ($Purge) {
         if ($env:AI_PROXY_MACHINE_HOME) {
             Write-Output "Left $($env:AI_PROXY_MACHINE_HOME) (AI_PROXY_MACHINE_HOME); delete it yourself if it only held agent-machine's files."
         } else {
+            Stop-Ollama (Join-Path $config "agent-machine")
             Remove-Folder (Join-Path $config "agent-machine")
         }
     }

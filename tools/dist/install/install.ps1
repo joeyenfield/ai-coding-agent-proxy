@@ -41,10 +41,16 @@ if (-not $found) { throw "No programs beside this script in $PSScriptRoot" }
 New-Item -ItemType Directory -Force $Prefix | Out-Null
 foreach ($program in $found) {
     $target = Join-Path $Prefix $program
-    # A running agent-proxy can't be overwritten, but it can be renamed out of the way.
-    Remove-Item -Force -ErrorAction SilentlyContinue "$target.old"
+    # A running agent-proxy can't be overwritten, but it can be renamed out of the way. What
+    # earlier installs and updates renamed goes now, unless it's still running too.
+    Get-ChildItem -Force -ErrorAction SilentlyContinue "$target.old", "$target.old-*" |
+        ForEach-Object { Remove-Item -Force -ErrorAction SilentlyContinue $_.FullName }
     if (Test-Path $target) {
-        try { Remove-Item -Force $target } catch { Move-Item -Force $target "$target.old" }
+        try { Remove-Item -Force $target } catch {
+            # A .old still running keeps its name: this one takes another, as `agent update` does.
+            $old = if (Test-Path "$target.old") { "$target.old-$([DateTime]::UtcNow.Ticks)" } else { "$target.old" }
+            Move-Item -Force $target $old
+        }
     }
     Copy-Item (Join-Path $PSScriptRoot $program) $target
     # A downloaded zip marks its files as from the internet; SmartScreen would ask about each one.
