@@ -107,26 +107,39 @@ def free_port() -> int:
         return probe.getsockname()[1]
 
 
-def wait_for(url: str, timeout: float = 20, path: str = "/health") -> None:
+def wait_for(url: str, timeout: float = 20, path: str = "/health", alive=None) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
             if httpx.get(url + path, timeout=0.5).status_code == 200:
                 return
         except httpx.HTTPError:
+            if alive is not None and not alive():
+                raise AssertionError(f"{url} stopped before it answered")
             time.sleep(0.05)
     raise AssertionError(f"{url} didn't start")
 
 
 @contextmanager
 def serve(app, port=None, path="/health"):
-    port = port or free_port()
-    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-    base = f"http://127.0.0.1:{port}"
+    # free_port() lets the port go before uvicorn binds it, and on Windows the programs under
+    # test can take it in between with an outgoing connection; uvicorn then ends its thread
+    # without a word. Notice that at once, and take another port unless the caller fixed one.
+    for attempt in range(1 if port else 3):
+        chosen = port or free_port()
+        server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=chosen, log_level="warning"))
+        thread = threading.Thread(target=server.run, daemon=True)
+        thread.start()
+        base = f"http://127.0.0.1:{chosen}"
+        try:
+            wait_for(base, path=path, alive=thread.is_alive)
+            break
+        except AssertionError:
+            server.should_exit = True
+            thread.join(timeout=5)
+            if port or attempt == 2:
+                raise
     try:
-        wait_for(base, path=path)
         yield base
     finally:
         server.should_exit = True
