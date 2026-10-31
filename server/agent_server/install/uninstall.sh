@@ -173,6 +173,29 @@ delete() {
     if [ -e "$1" ]; then rm -rf "$1" && echo "Deleted $1"; fi
 }
 
+# stop_ollama ends the Ollama agent-machine started itself (ollama_pid in servers.json in its
+# folder), with the model runners it started: with the folder gone nothing would know to stop
+# it. One started through ollama.service ("service", no pid), or by you, keeps running.
+stop_ollama() {
+    state="$1/servers.json"
+    [ -f "$state" ] || return 0
+    pid=$(sed -n 's/.*"ollama_pid"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$state" | head -n 1)
+    [ -n "$pid" ] && [ "$pid" -gt 1 ] || return 0
+    # The id may belong to another program by now: only an ollama is stopped. /proc where there
+    # is one (BusyBox's ps has no -p), else ps (macOS, FreeBSD).
+    if [ -r "/proc/$pid/comm" ]; then name=$(cat "/proc/$pid/comm" 2>/dev/null); else name=$(ps -p "$pid" -o comm= 2>/dev/null); fi
+    case "$name" in
+        *ollama*) ;;
+        *) return 0 ;;
+    esac
+    if command -v pkill >/dev/null 2>&1; then pkill -P "$pid" 2>/dev/null || true; fi
+    kill "$pid" 2>/dev/null || return 0
+    tries=0
+    while [ $tries -lt 5 ] && kill -0 "$pid" 2>/dev/null; do sleep 1; tries=$((tries + 1)); done
+    if kill -0 "$pid" 2>/dev/null; then kill -9 "$pid" 2>/dev/null || true; fi
+    echo "Stopped the Ollama agent-machine started (process $pid)."
+}
+
 if has agent-machine; then
     remove_service
     stop_machine
@@ -209,6 +232,7 @@ if [ $purge -eq 1 ]; then
         if [ -n "${AI_PROXY_MACHINE_HOME:-}" ]; then
             echo "Left $AI_PROXY_MACHINE_HOME (AI_PROXY_MACHINE_HOME); delete it yourself if it only held agent-machine's files."
         else
+            stop_ollama "$config/agent-machine"
             delete "$config/agent-machine"
         fi
     fi
