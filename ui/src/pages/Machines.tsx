@@ -190,6 +190,7 @@ function MachineRow({ machine }: { machine: FleetMachine }) {
 const SYSTEMS = [
   { id: "sh", label: "Linux, macOS, FreeBSD" },
   { id: "powershell", label: "Windows" },
+  { id: "python", label: "Python" },
 ] as const;
 type System = (typeof SYSTEMS)[number]["id"];
 const SYSTEM_KEY = "ai-proxy-join-system";
@@ -206,11 +207,6 @@ const INSTALLS = [
     about: "agent-machine, plus agent: the command you start coding agents with (agent claude ., agent qwen .), and agent-proxy, which carries their traffic to this server. Pick this for a computer you also code on, or that should take agent launches from the console.",
   },
   {
-    id: "python",
-    label: "Python",
-    about: "The same agent-machine and agent, written in Python, for a computer with Python 3.9 or later and no build here for its system. They do everything the others do, under the same command names, so install one or the other on a computer, not both.",
-  },
-  {
     id: "sandbox",
     label: "Sandbox container",
     about: "A machine of its own in a Docker or Podman container, with Claude Code, Codex, OpenCode, Qwen Code and Copilot CLI installed. Agents started on it can only touch its /workspace folder, not the computer it runs on.",
@@ -218,6 +214,7 @@ const INSTALLS = [
 ] as const;
 type Install = (typeof INSTALLS)[number]["id"];
 const INSTALL_KEY = "ai-proxy-join-install";
+const PYTHON_ABOUT = "Python: the same programs written in Python, for any computer with Python 3.9 or later, including one with no build here for its system. They do everything the others do, under the same command names, so install one or the other on a computer, not both.";
 
 // What the machine lets the server do there: all off until it's turned on, on the machine itself.
 const ALLOW = [
@@ -232,10 +229,14 @@ function JoinSteps({ server }: { server: string }) {
   const [system, setSystem] = useRemembered<System>(SYSTEM_KEY, SYSTEMS, browserPlatform().startsWith("windows") ? "powershell" : "sh");
   const [install, setInstall] = useRemembered<Install>(INSTALL_KEY, INSTALLS, "machine");
   const [service, setService] = useState(true);
-  const command = installLine(server, system, { only: install === "machine" ? "agent-machine" : undefined, service });
-  const login = `agent-machine login ${server}`;
+  const python = system === "python";
+  // A sandbox needs Docker or Podman, not Python: with Python, the choice falls back to agent-machine (and is kept for later).
+  const installs = python ? INSTALLS.filter((item) => item.id !== "sandbox") : INSTALLS;
+  const shown = python && install === "sandbox" ? "machine" : install;
   const windows = system === "powershell";
-  const chosen = INSTALLS.find((item) => item.id === install) ?? INSTALLS[0];
+  const command = installLine(server, windows ? "powershell" : "sh", { only: shown === "machine" ? "agent-machine" : undefined, service });
+  const login = `agent-machine login ${server}`;
+  const chosen = INSTALLS.find((item) => item.id === shown) ?? INSTALLS[0];
   // What the command does, in order, so nothing it changes on the computer is a surprise.
   const does = [
     "Downloads this server's build for the computer's processor and checks it against its SHA-256.",
@@ -247,7 +248,7 @@ function JoinSteps({ server }: { server: string }) {
         ? "Adds a scheduled task, agent-machine, that starts it whenever you sign in to Windows."
         : "Sets up a service that starts it at boot: systemd on Linux (a user service without sudo), launchd on macOS, rc.d on FreeBSD."]
       : []),
-    install === "both"
+    shown === "both"
       ? "Signs agent and agent-machine in to this server: each shows a code for you to approve. It never asks for your password."
       : "Signs agent-machine in to this server: it shows a code for you to approve. It never asks for your password.",
     "Starts agent-machine, which joins the fleet and appears in the list above.",
@@ -265,14 +266,15 @@ function JoinSteps({ server }: { server: string }) {
         </div>
         <div className="join-choice">
           <span className="subtle">Install</span>
-          <Switch label="What to install" options={INSTALLS} value={install} onChange={setInstall} />
+          <Switch label="What to install" options={installs} value={shown} onChange={setInstall} />
         </div>
       </div>
+      {python && <p className="join-about">{PYTHON_ABOUT}</p>}
       <p className="join-about">{chosen.about}</p>
-      {install === "sandbox" ? (
-        <SandboxSteps server={server} shell={system === "powershell" ? "powershell" : "bash"} />
-      ) : install === "python" ? (
-        <PythonSteps server={server} windows={windows} />
+      {shown === "sandbox" ? (
+        <SandboxSteps server={server} shell={windows ? "powershell" : "bash"} />
+      ) : python ? (
+        <PythonSteps server={server} agent={shown === "both"} />
       ) : (
         <>
           <CodeLine text={command} onCopy={() => copy(command, "Command copied")} />
@@ -286,7 +288,7 @@ function JoinSteps({ server }: { server: string }) {
               {does.map((step) => <li key={step}>{step}</li>)}
             </ol>
             <p className="subtle">
-              Approve {install === "both" ? "the codes" : "the code"} on <Link to="/approve-device">Approve a device</Link>. The machine
+              Approve {shown === "both" ? "the codes" : "the code"} on <Link to="/approve-device">Approve a device</Link>. The machine
               belongs to whoever approves it.
             </p>
           </div>
@@ -317,7 +319,7 @@ function JoinSteps({ server }: { server: string }) {
 }
 
 /** The Python agent-machine and agent: the server's wheel through pip, then signed in and started like the Go one. */
-function PythonSteps({ server, windows }: { server: string; windows: boolean }) {
+function PythonSteps({ server, agent }: { server: string; agent: boolean }) {
   const copy = useClipboard();
   const index = useQuery({ queryKey: ["downloads"], queryFn: api.downloads });
   const wheel = index.data?.files.find((file) => file.kind === "wheel");
@@ -330,20 +332,24 @@ function PythonSteps({ server, windows }: { server: string; windows: boolean }) 
       </p>
     );
   }
-  // python3 is the name on Linux and macOS; Windows has the py launcher.
-  const python = windows ? "py" : "python3";
   const steps = [
     {
-      command: `${python} -m pip install ${server}${wheel.url}`,
-      text: "Installs this server's Python build, with the libraries it needs (httpx, websockets, starlette, uvicorn; pywinpty on Windows). It puts agent, agent-proxy and agent-machine on your PATH.",
+      command: `python3 -m pip install ${server}${wheel.url}`,
+      text: "Installs this server's Python build, with the libraries it needs (httpx, websockets, starlette, uvicorn; pywinpty on Windows). It puts agent, agent-proxy and agent-machine on your PATH. On Windows, type py instead of python3.",
     },
     {
       command: `agent-machine login ${server}`,
       text: "Signs agent-machine in to this server: it shows a code for you to approve. It never asks for your password.",
     },
+    ...(agent
+      ? [{
+        command: `agent login ${server}`,
+        text: "Signs agent in too, with a code of its own, so you can start coding agents from that computer (agent claude ., agent qwen .).",
+      }]
+      : []),
     {
       command: "agent-machine start",
-      text: "Starts it in the background, so it joins the fleet and appears in the list above. Nothing starts it after a restart: run this from your own startup to keep it in the fleet.",
+      text: "Starts agent-machine in the background, so it joins the fleet and appears in the list above. Nothing starts it after a restart: run this from your own startup to keep it in the fleet.",
     },
   ];
   return (
@@ -358,7 +364,7 @@ function PythonSteps({ server, windows }: { server: string; windows: boolean }) 
       </ol>
       <p className="subtle">
         If pip says the environment is externally managed (Debian, Ubuntu), use <code>pipx install</code> with the same address, or
-        a virtualenv. To start coding agents there too, sign agent in with <code>agent login {server}</code>.
+        a virtualenv. Approve the codes on <Link to="/approve-device">Approve a device</Link>; the machine belongs to whoever approves it.
       </p>
     </>
   );
