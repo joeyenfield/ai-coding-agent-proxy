@@ -353,16 +353,21 @@ function packageCommand(file: DownloadFile, server: string): string | null {
   }
 }
 
-/** Where other computers reach this server: its configured address, unless that's loopback and the browser isn't. */
+type InstallOptions = { only?: "agent" | "agent-machine"; service?: boolean };
+
+/** The one-line installer for one system: sh for Linux, macOS and FreeBSD, else PowerShell. */
+export function installLine(server: string, system: "sh" | "powershell", { only, service }: InstallOptions = {}): string {
+  if (system === "sh") {
+    const options = [only && `--only ${only}`, service && "--service"].filter(Boolean).join(" ");
+    return `curl -fsSL ${server}/install.sh | sh${options ? ` -s -- ${options}` : ""}`;
+  }
+  const options = [only && `-Only ${only}`, service && "-Service"].filter(Boolean).join(" ");
+  return options ? `& ([scriptblock]::Create((irm ${server}/install.ps1))) ${options}` : `irm ${server}/install.ps1 | iex`;
+}
+
 /** The one-line installers this server writes for itself, the browser's own system first. */
-export function OneLineInstall({ server, only, service }: { server: string; only?: "agent" | "agent-machine"; service?: boolean }) {
-  const shOptions = [only && `--only ${only}`, service && "--service"].filter(Boolean).join(" ");
-  const psOptions = [only && `-Only ${only}`, service && "-Service"].filter(Boolean).join(" ");
-  const sh = `curl -fsSL ${server}/install.sh | sh${shOptions ? ` -s -- ${shOptions}` : ""}`;
-  const powershell = psOptions
-    ? `& ([scriptblock]::Create((irm ${server}/install.ps1))) ${psOptions}`
-    : `irm ${server}/install.ps1 | iex`;
-  return <OneLines sh={sh} powershell={powershell} />;
+export function OneLineInstall({ server, only, service }: { server: string } & InstallOptions) {
+  return <OneLines sh={installLine(server, "sh", { only, service })} powershell={installLine(server, "powershell", { only, service })} />;
 }
 
 /** The uninstallers: the same file for every server, so they work whichever one installed the programs. */
@@ -389,6 +394,7 @@ function OneLines({ sh, powershell }: { sh: string; powershell: string }) {
   );
 }
 
+/** Where other computers reach this server: its configured address, unless that's loopback and the browser isn't. */
 export function serverAddress(proxyUrl: string | undefined): string {
   if (API_ORIGIN) return API_ORIGIN;
   const origin = window.location.origin;
@@ -409,7 +415,7 @@ function orderPlatforms(found: string[]): string[] {
   return unique.sort((a, b) => score(a) - score(b) || a.localeCompare(b));
 }
 
-function browserPlatform(): string {
+export function browserPlatform(): string {
   const data = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData;
   const agent = `${data?.platform ?? ""} ${navigator.userAgent}`.toLowerCase();
   const arm = /arm|aarch64/.test(agent);

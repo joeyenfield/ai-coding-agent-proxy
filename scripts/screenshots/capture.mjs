@@ -288,6 +288,8 @@ await shot("approve-device", "/approve-device", {
   },
 });
 await shot("machines", "/machines", { fullPage: true });
+// #add opens "Add another machine" and scrolls to it.
+await shot("add-machine", "/machines#add", { height: 1100 });
 await shot("machine-agents", "/machines/build-box/agents", { fullPage: true });
 await shot("machine-terminal", "/machines/build-box/terminal", { fullPage: true });
 await shot("machine-model-servers", "/machines/ai-desktop/model-servers", { fullPage: true });

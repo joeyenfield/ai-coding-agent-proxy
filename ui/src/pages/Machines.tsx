@@ -8,7 +8,7 @@ import { StateDot } from "../components/ProviderState";
 import { useClipboard, useMachines, useStatus, useToast } from "../hooks";
 import { formatDate, formatRelative } from "../format";
 import { OS_LABELS, machinePath } from "./Machine";
-import { OneLineInstall, serverAddress } from "./Downloads";
+import { browserPlatform, installLine, serverAddress } from "./Downloads";
 
 /** The fleet: machines signed in to this server. Each one's page has its model servers, containers, load and launches. */
 export function MachinesPage() {
@@ -187,56 +187,124 @@ function MachineRow({ machine }: { machine: FleetMachine }) {
   );
 }
 
+const SYSTEMS = [
+  { id: "sh", label: "Linux, macOS, FreeBSD" },
+  { id: "powershell", label: "Windows" },
+] as const;
+type System = (typeof SYSTEMS)[number]["id"];
+const SYSTEM_KEY = "ai-proxy-join-system";
+
+const INSTALLS = [
+  {
+    id: "machine",
+    label: "agent-machine",
+    about: "agent-machine keeps the computer in this server's fleet. Through it the server uses the model servers there (Ollama, Strata, Docker Model Runner) and, when you allow it, runs containers and starts agents there. Pick this for a computer that supplies models.",
+  },
+  {
+    id: "both",
+    label: "agent-machine and agent",
+    about: "agent-machine, plus agent: the command you start coding agents with (agent claude ., agent qwen .), and agent-proxy, which carries their traffic to this server. Pick this for a computer you also code on, or that should take agent launches from the console.",
+  },
+  {
+    id: "sandbox",
+    label: "Sandbox container",
+    about: "A machine of its own in a Docker or Podman container, with Claude Code, Codex, OpenCode, Qwen Code and Copilot CLI installed. Agents started on it can only touch its /workspace folder, not the computer it runs on.",
+  },
+] as const;
+type Install = (typeof INSTALLS)[number]["id"];
+const INSTALL_KEY = "ai-proxy-join-install";
+
+// What the machine lets the server do there: all off until it's turned on, on the machine itself.
+const ALLOW = [
+  { text: "Start, stop and tune its Ollama, Strata and Docker Model Runner, and manage their models", commands: ["agent-machine servers on"] },
+  { text: "Run Strata or Ollama in containers, with Docker or Podman", commands: ["agent-machine containers on"] },
+  { text: "Start agents there, in the folders you name (needs agent too)", commands: ["agent-machine launches on", "agent-machine roots add ~/code"] },
+];
+
+/** Adding a machine: pick its system and what to install, and get the one command to run there. */
 function JoinSteps({ server }: { server: string }) {
   const copy = useClipboard();
-  const steps = [
-    {
-      text: "Ollama, Strata and Docker Model Runner running on it are found by themselves. To start, stop and tune them from here, and pull, load and delete their models:",
-      command: "agent-machine servers on",
-    },
-    {
-      text: "To let the server run Strata or Ollama there in containers, with Docker or Podman (whichever it has):",
-      command: "agent-machine containers on",
-    },
-    {
-      text: "To start agents on it from here, allow it and name the folders they may work in (this needs the agent command there too, signed in with agent login):",
-      command: "agent-machine launches on",
-    },
-    { text: "", command: "agent-machine roots add ~/code" },
-    { text: "Then start it: it joins the fleet and stays in it, in the background.", command: "agent-machine start" },
+  const [system, setSystem] = useRemembered<System>(SYSTEM_KEY, SYSTEMS, browserPlatform().startsWith("windows") ? "powershell" : "sh");
+  const [install, setInstall] = useRemembered<Install>(INSTALL_KEY, INSTALLS, "machine");
+  const [service, setService] = useState(true);
+  const command = installLine(server, system, { only: install === "machine" ? "agent-machine" : undefined, service });
+  const login = `agent-machine login ${server}`;
+  const windows = system === "powershell";
+  const chosen = INSTALLS.find((item) => item.id === install) ?? INSTALLS[0];
+  // What the command does, in order, so nothing it changes on the computer is a surprise.
+  const does = [
+    "Downloads this server's build for the computer's processor and checks it against its SHA-256.",
+    windows
+      ? "Installs it into %LOCALAPPDATA%\\Programs\\agent-proxy and adds that folder to your PATH."
+      : "Installs it into /usr/local/bin when run as root (with sudo), else ~/.local/bin.",
+    ...(service
+      ? [windows
+        ? "Adds a scheduled task, agent-machine, that starts it whenever you sign in to Windows."
+        : "Sets up a service that starts it at boot: systemd on Linux (a user service without sudo), launchd on macOS, rc.d on FreeBSD."]
+      : []),
+    install === "both"
+      ? "Signs agent and agent-machine in to this server: each shows a code for you to approve. It never asks for your password."
+      : "Signs agent-machine in to this server: it shows a code for you to approve. It never asks for your password.",
+    "Starts agent-machine, which joins the fleet and appears in the list above.",
   ];
   return (
     <div className="panel join-steps">
       <div className="panel-head">
         <h2>Add a machine</h2>
-        <p className="subtle">
-          Every machine joins the same way, whether it runs models, agents or both. Containers and launches stay off until the
-          machine allows them.
-        </p>
+        <p className="subtle">Pick the computer's system and what it should run, then run the command there.</p>
       </div>
-      <ol className="steps">
-        <li>
-          <p>
-            On the machine, install agent-machine and sign it in with one command. It starts at boot and joins this server's fleet
-            (for agent too, leave out <code>--only agent-machine</code>):
-          </p>
-          <OneLineInstall server={server} only="agent-machine" service />
-          <p className="subtle">
-            Or get its build, an installer or a package from <Link to="/get">Downloads</Link>, and sign it in yourself:
-          </p>
-          <CodeLine text={`agent-machine login ${server}`} onCopy={() => copy(`agent-machine login ${server}`, "Command copied")} />
-          <p className="subtle">
-            It shows a code: enter it on <Link to="/approve-device">Approve a device</Link> to sign it in as you, without your password.
-          </p>
-        </li>
-        {steps.map((step) => (
-          <li key={step.command} className={step.text ? "" : "continued"}>
-            {step.text && <p>{step.text}</p>}
-            <CodeLine text={step.command} onCopy={() => copy(step.command, "Command copied")} />
-          </li>
-        ))}
-      </ol>
-      <SandboxSteps server={server} />
+      <div className="join-choices">
+        <div className="join-choice">
+          <span className="subtle">System</span>
+          <Switch label="System" options={SYSTEMS} value={system} onChange={setSystem} />
+        </div>
+        <div className="join-choice">
+          <span className="subtle">Install</span>
+          <Switch label="What to install" options={INSTALLS} value={install} onChange={setInstall} />
+        </div>
+      </div>
+      <p className="join-about">{chosen.about}</p>
+      {install === "sandbox" ? (
+        <SandboxSteps server={server} shell={system === "powershell" ? "powershell" : "bash"} />
+      ) : (
+        <>
+          <CodeLine text={command} onCopy={() => copy(command, "Command copied")} />
+          <label className="check">
+            <input type="checkbox" checked={service} onChange={(event) => setService(event.target.checked)} />
+            {windows ? "Start agent-machine whenever you sign in to Windows" : "Start agent-machine at boot, as a service"}
+          </label>
+          <div className="join-does">
+            <p>What the command does:</p>
+            <ol>
+              {does.map((step) => <li key={step}>{step}</li>)}
+            </ol>
+            <p className="subtle">
+              Approve {install === "both" ? "the codes" : "the code"} on <Link to="/approve-device">Approve a device</Link>. The machine
+              belongs to whoever approves it.
+            </p>
+          </div>
+          <details className="manual">
+            <summary>Let the server do more there</summary>
+            <p className="subtle">Everything that runs programs is off until you turn it on, on the machine. It applies within a minute.</p>
+            <ul className="join-allow">
+              {ALLOW.map((item) => (
+                <li key={item.text}>
+                  <p>{item.text}:</p>
+                  {item.commands.map((line) => <CodeLine key={line} text={line} onCopy={() => copy(line, "Command copied")} />)}
+                </li>
+              ))}
+            </ul>
+          </details>
+          <details className="manual">
+            <summary>Install it by hand</summary>
+            <p className="subtle">
+              Get its build, an installer or a package from <Link to="/get">Downloads</Link>, then sign it in and start it:
+            </p>
+            <CodeLine text={login} onCopy={() => copy(login, "Command copied")} />
+            <CodeLine text="agent-machine start" onCopy={() => copy("agent-machine start", "Command copied")} />
+          </details>
+        </>
+      )}
     </div>
   );
 }
@@ -257,7 +325,6 @@ const SHELLS = [
   { id: "powershell", label: "PowerShell", continuation: " `", home: "${HOME}\\" },
 ] as const;
 type Shell = (typeof SHELLS)[number]["id"];
-const SHELL_KEY = "ai-proxy-sandbox-shell";
 
 function Switch<T extends string>({ label, options, value, onChange }: { label: string; options: readonly { id: T; label: string }[]; value: T; onChange: (value: T) => void }) {
   return (
@@ -284,10 +351,9 @@ function useRemembered<T extends string>(key: string, options: readonly { id: T 
 }
 
 /** A machine of its own in a container (sandbox/Dockerfile): agents started on it can only touch its /workspace. */
-function SandboxSteps({ server }: { server: string }) {
+function SandboxSteps({ server, shell }: { server: string; shell: Shell }) {
   const copy = useClipboard();
   const [runtime, setRuntime] = useRemembered<Runtime>(RUNTIME_KEY, RUNTIMES, "docker");
-  const [shell, setShell] = useRemembered<Shell>(SHELL_KEY, SHELLS, navigator.userAgent.includes("Windows") ? "powershell" : "bash");
   const engine = RUNTIMES.find((item) => item.id === runtime) ?? RUNTIMES[0];
   const style = SHELLS.find((item) => item.id === shell) ?? SHELLS[0];
   let address = server;
@@ -311,18 +377,10 @@ function SandboxSteps({ server }: { server: string }) {
   ].join(`${style.continuation}\n`);
   return (
     <div className="sandbox-steps">
-      <div className="install-command-head">
-        <h3>Or run a sandbox machine in a container</h3>
-        <div className="row wrap">
-          <Switch label="Container engine" options={RUNTIMES} value={runtime} onChange={setRuntime} />
-          <Switch label="Shell" options={SHELLS} value={shell} onChange={setShell} />
-        </div>
+      <div className="join-choice">
+        <span className="subtle">Engine</span>
+        <Switch label="Container engine" options={RUNTIMES} value={runtime} onChange={setRuntime} />
       </div>
-      <p className="subtle">
-        A container that is a machine of its own, with Claude Code, Codex, OpenCode, Qwen Code and Copilot CLI installed. It signs in,
-        joins the fleet with launches on for <code>/workspace</code> only, and agents you start on it can't touch the computer it runs
-        on beyond that folder.
-      </p>
       <ol className="steps">
         <li>
           <p>Build its image, from a copy of this repository:</p>

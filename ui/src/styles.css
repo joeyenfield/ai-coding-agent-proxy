@@ -1088,8 +1088,21 @@ code { background: var(--ground); border: 1px solid var(--line); padding: 0 5px;
 .launch-history li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding: 6px 0; border-bottom: 1px solid var(--line); }
 .launch-history li:last-child { border-bottom: 0; }
 .launch-history .mono { overflow-wrap: anywhere; }
-.join-steps .steps li.continued { list-style: none; margin-top: -6px; }
-.sandbox-steps { display: flex; flex-direction: column; gap: 10px; padding-top: 18px; margin-top: 4px; border-top: 1px solid var(--line); }
+.join-steps { display: flex; flex-direction: column; gap: 12px; }
+.join-choices { display: flex; flex-wrap: wrap; gap: 8px 12px; }
+.join-choice { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.join-choice > .subtle { font-size: 13px; font-weight: 600; min-width: 52px; }
+/* Three options don't fit a phone's width: let them wrap inside the switch. */
+.join-choice .env-switch { flex-wrap: wrap; border-radius: 16px; }
+.join-about { margin: 0; font-size: 14px; max-width: 78ch; color: var(--steel); }
+.join-does { font-size: 14px; }
+.join-does > p { margin: 0 0 6px; font-weight: 600; }
+.join-does ol { list-style: decimal; margin: 0 0 8px; padding-left: 22px; display: flex; flex-direction: column; gap: 4px; max-width: 78ch; }
+.join-does .subtle { margin: 0; }
+.join-allow { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.join-allow p { margin: 0 0 6px; font-size: 14px; }
+.join-allow .code-block + .code-block { margin-top: 6px; }
+.sandbox-steps { display: flex; flex-direction: column; gap: 10px; }
 .sandbox-steps h3 { margin: 0; font-size: 16px; }
 .sandbox-steps > p { font-size: 14px; max-width: 72ch; margin: 0; }
 @media (max-width: 760px) {
