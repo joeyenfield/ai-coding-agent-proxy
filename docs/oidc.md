@@ -54,7 +54,7 @@ sequenceDiagram
   B->>A: GET /api/auth/callback
   A->>I: Exchange code with PKCE verifier
   I-->>A: Access, refresh and verified ID tokens
-  A-->>B: Host-only HttpOnly cookies; return to console
+  A-->>B: Host-only HttpOnly cookies, then back to the console
 ```
 
 The issuer's sign-in page looks like the console. A wrong password shows the page again with the username kept. Each page works once and for 10 minutes, and each has its own cookie, so several open at once (other tabs) don't interfere. An expired or already-used page explains that and links back to the console to start again. If the API can't complete a sign-in, or the issuer isn't answering, the browser goes back to the console's sign-in page (`?sign_in=failed` or `?sign_in=unavailable`), which says what happened.

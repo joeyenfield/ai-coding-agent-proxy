@@ -18,6 +18,7 @@ export const DOC_PAGES: { id: string; label: string }[] = [
   { id: "console", label: "The console" },
   { id: "accounts", label: "Accounts and sharing" },
   { id: "security", label: "Security" },
+  { id: "oidc", label: "OIDC authentication" },
   { id: "configuration", label: "Configuration" },
   { id: "api", label: "API" },
   { id: "deployment", label: "Deployment" },

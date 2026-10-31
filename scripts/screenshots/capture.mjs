@@ -250,6 +250,21 @@ await shot("settings", "/settings", {
 });
 await shot("server-stats", "/server-stats", { fullPage: true, admin: true, scrubbed: true, prepare: (page) => page.waitForTimeout(6000) });
 await shot("organization", "/organization", { fullPage: true });
+// A real device code from the demo's issuer, as `agent login` would ask for: checked, never approved.
+await shot("approve-device", "/approve-device", {
+  prepare: async (page) => {
+    const issuer = (adminSignIn ?? signIn).issuer;
+    const response = await fetch(`${issuer}/device_authorization`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ client_id: "mesh-cli", scope: "openid profile offline_access mesh-api" }),
+    });
+    const { user_code: code } = await response.json();
+    await page.getByPlaceholder("ABCD-EFGH").fill(code);
+    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByRole("button", { name: "Approve" }).waitFor({ timeout: 10000 });
+  },
+});
 await shot("machines", "/machines", { fullPage: true });
 await shot("machine-agents", "/machines/build-box/agents", { fullPage: true });
 await shot("machine-terminal", "/machines/build-box/terminal", { fullPage: true });

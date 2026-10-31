@@ -135,7 +135,7 @@ Tokens are opaque: the API asks the issuer about each one (introspection), so a 
 Every connection that leaves a computer is meant to be HTTPS (or WSS) end to end:
 
 ```mermaid
-flowchart LR
+flowchart TB
   subgraph laptop["Agent's computer"]
     agent["coding agent"] -- "HTTP, loopback only" --> proxy["agent-proxy 127.0.0.1:8184/8183"]
   end

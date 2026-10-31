@@ -251,6 +251,8 @@ Each row marks **Agents**, **Terminals**, **Model servers**, **Server management
 
 ## Approve a device
 
+![Approve a device, after Continue](screenshots/approve-device.png)
+
 `/approve-device` signs `agent login` or `agent-machine login` on another computer in as you, from the console you're already signed in to, without typing your password there.
 
 1. Run the login command on that computer. It prints a link and an eight-letter code.

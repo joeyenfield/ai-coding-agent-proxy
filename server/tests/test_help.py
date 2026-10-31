@@ -75,3 +75,15 @@ def test_api_only_mode_never_serves_console_files_or_spa_routes(tmp_path):
         assert client.get("/health").status_code == 200
         assert client.get("/downloads/index.json").status_code == 200
         assert client.get("/help-files/index.md").status_code == 200
+
+
+def test_every_docs_page_is_in_the_consoles_docs_list():
+    """A page in docs/ that ui/src/pages/Docs.tsx doesn't list can't be opened under /help, and links to it break."""
+    import re
+
+    from agent_server.config import ROOT
+
+    listed = set(re.findall(r'id: "([a-z0-9-]+)"', (ROOT / "ui" / "src" / "pages" / "Docs.tsx").read_text(encoding="utf-8")))
+    pages = {path.stem for path in (ROOT / "docs").glob("*.md")}
+    assert pages - listed == set(), "add these to DOC_PAGES in ui/src/pages/Docs.tsx"
+    assert listed - pages == set(), "DOC_PAGES names pages docs/ doesn't have"
