@@ -31,7 +31,7 @@ The machine only dials out. It holds one WebSocket to the server (`/api/machines
 | `internal/command` | The command line and status display, restart after an update | `Main`, `configure`, `run`, `start`, `stop`, `show`, `restartAfterUpdate` |
 | `internal/presence` | The fleet connection: hello and updates, dispatching requests, tunnels, launches, shells, folders, remote update, provider detection | `Presence.Run`/`session`/`describe`, `DetectProviders`, `Check`, `CheckShell`, `Arguments`, `ShellArguments`, `AgentCommand`, `tunnelPorts`, `Folders`, `RemoteUpdate` |
 | `internal/providers` | Model-server operations and catalogue search, against fixed loopback paths | `Manager.Handle`, `ollama.go`, `strata.go`, `docker.go`, `Metrics`, `catalog.go` |
-| `internal/servers` | Starting and stopping Ollama (only the one it started, or through systemd) and Strata profiles; Ollama's `OLLAMA_*` settings. With servers on, `strataState` syncs profiles to `strata models list --installed` (`syncProfiles`: `profile create` for each ready model no profile uses, named `freeName(id)`; only ever adds) and marks a profile whose run config file is gone `broken` (`configGone`), which `strataAction` won't start; an older Strata without `models list` falls back to the saved profiles | `Manager.Handle`, `ollama_settings.go`, `systemd.go` |
+| `internal/servers` | Starting and stopping Ollama (only the one it started, or through systemd) and Strata profiles; Ollama's `OLLAMA_*` settings. With servers on, `strataState` syncs profiles to `strata models list --installed` (`syncProfiles`: `profile create` for each ready model no profile uses, named `freeName(id)`; never removes: only the console's remove/prune do, and only `broken` profiles not serving, as `removable` checks) and marks a profile whose run config file is gone `broken` (`configGone`), which `strataAction` won't start; an older Strata without `models list` falls back to the saved profiles | `Manager.Handle`, `ollama_settings.go`, `systemd.go` |
 | `internal/containers` | Containers for the server: the engine table, spec checks, run arguments, the CLI, jobs | `Engines`, `Validate`, `RunArgsFor`, `Detect`, `Manager`, `Prefix = "ai-proxy-"` |
 | `internal/mcp` | Shared MCP servers (`mcp.json`) and the bridge | `Server.Check`, `Load`/`Save`, `Bridge.Describe`/`ServeHTTP` |
 | `internal/settings` | Its folder, credentials, `machine.json`, `status.json`, root checks; OAuth in `oauth.go` | `Home`, `Upstream`, `LoadMachine` (carries `agent-proxy/machine.json` over once), `Machine.Within`, `Status`, `Protocol`, `TokenHeader`, `DeviceLogin`, `AccessToken`, `TokenEnvironment` |
@@ -63,7 +63,7 @@ sequenceDiagram
 | Type | Gate on the machine | Does |
 | --- | --- | --- |
 | `provider` | changes (pull, delete, load, unload) need `servers` | status, models, log, metrics, catalogue search |
-| `server` | `servers` | Ollama settings and start/stop/restart, Strata start/stop |
+| `server` | `servers` | Ollama settings and start/stop/restart, Strata start/stop, remove/prune (profiles whose run config is gone, deleted from Strata's profiles folder) and cleanup (`strata runtime cleanup`) |
 | `container` | `containers` | status, start/restart/switch (jobs), stop, remove, logs |
 | `folders` | `launches` or `commands`, inside the roots | folder names only, at most 500 |
 | `launch` / `shell` | `launches` / `commands`, inside the roots | runs `agent ... --headless --launch-id` and reads its one `{"session_id"}` line |

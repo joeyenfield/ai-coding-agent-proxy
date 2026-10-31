@@ -48,7 +48,10 @@ MAX_INT = 2**31 - 1
 
 
 class Refused(Exception):
-    pass
+    def __init__(self, message: str, answer: Optional[Dict[str, Any]] = None):
+        super().__init__(message)
+        # What a command that refused answered, when it answered at all (Strata's JSON).
+        self.answer = answer or {}
 
 
 def setting(key: str, group: str, label: str, kind: str, default: Any, help: str, *env: str,
@@ -406,7 +409,7 @@ def strata(timeout: float, *args: str) -> Dict[str, Any]:
             raise Refused(f"strata {args[0]}: {error} {message}")
         raise Refused(f"strata {args[0]}: unexpected answer {json.dumps(message)}")
     if answer.get("ok") is not True:
-        raise Refused(f"strata {' '.join(args)}: {strata_error(answer, stderr)}")
+        raise Refused(f"strata {' '.join(args)}: {strata_error(answer, stderr)}", answer)
     return answer
 
 
@@ -535,6 +538,10 @@ def strata_state() -> Dict[str, Any]:
             answer = strata(30, "runtime", "status", "--profile", profile)
         except Refused as error:
             entry["error"] = str(error)
+            # A runtime whose host is gone (the computer restarted under it) answers ok: false with
+            # state "stale"; `runtime start` recovers it, so its state still counts, not just the error.
+            if isinstance(error.answer.get("state"), str) and error.answer["state"]:
+                entry["state"] = error.answer["state"]
         else:
             if isinstance(answer.get("state"), str):
                 entry["state"] = answer["state"]
@@ -546,10 +553,76 @@ def strata_state() -> Dict[str, Any]:
         reason = config_gone(config)
         if reason:
             entry["broken"] = reason
-            if entry["state"] in ("stopped", "unknown"):
+            if entry["state"] in ("stopped", "stale", "unknown"):
                 entry["state"] = "broken"
         listed.append(entry)
-    return {"found": True, "profiles": listed}
+    # What this agent-machine can do beyond start and stop, so the console shows only those.
+    return {"found": True, "profiles": listed, "actions": ["remove", "prune", "cleanup"]}
+
+
+# Removing profiles. Strata has no command for it: a profile is <id>.json in its profiles folder,
+# with its revisions in .history/<id>, its run records in .ops/<id> and a lock file. Only a
+# profile whose run config is gone can be removed: one whose model is still installed would just
+# be saved again by the next sync, and one still serving is never touched.
+
+def removable(profile: str, config: str) -> str:
+    """Why a profile can't be removed, or "" when it can."""
+    if not config_gone(config):
+        return "only a profile whose model is gone can be removed (one whose model is installed is saved again for it)"
+    try:
+        answer = strata(30, "runtime", "status", "--profile", profile)
+    except Refused as error:
+        answer = error.answer
+    state = answer.get("state")
+    if isinstance(state, str) and state and state not in ("stopped", "stale"):
+        return f"it's {state}: stop it first"
+    return ""
+
+
+def delete_profile_files(profile: str) -> None:
+    from .providers import strata_profile_dir
+    folder = Path(strata_profile_dir())
+    try:
+        (folder / f"{profile}.json").unlink()
+    except FileNotFoundError:
+        pass
+    except OSError as error:
+        raise Refused(f"couldn't remove Strata profile {profile}: {error}") from error
+    # Its history and records are Strata's bookkeeping for the profile alone; best effort.
+    shutil.rmtree(folder / ".history" / profile, ignore_errors=True)
+    shutil.rmtree(folder / ".ops" / profile, ignore_errors=True)
+    try:
+        (folder / f".{profile}.lock").unlink()
+    except OSError:
+        pass
+
+
+def remove_profile(profile: Any) -> None:
+    if not isinstance(profile, str) or not PROFILE_NAME.fullmatch(profile):
+        raise Refused("name one of this machine's Strata profiles")
+    with SYNCING:
+        saved = dict(saved_profiles())
+        if profile not in saved:
+            raise Refused(f"this machine has no Strata profile {json.dumps(profile)}")
+        reason = removable(profile, saved[profile])
+        if reason:
+            raise Refused(f"Strata profile {profile} can't be removed: {reason}")
+        delete_profile_files(profile)
+
+
+def prune_profiles() -> None:
+    """Removes every profile that can be removed: the ones whose model is gone."""
+    failed = []
+    with SYNCING:
+        for profile, config in saved_profiles():
+            if removable(profile, config):
+                continue
+            try:
+                delete_profile_files(profile)
+            except Refused as error:
+                failed.append(str(error))
+    if failed:
+        raise Refused("; ".join(failed))
 
 
 def strata_action(op: str, profile: Any) -> None:
@@ -793,6 +866,12 @@ class Manager:
                 self.stop_ollama()
         elif kind == "strata" and op in ("start", "stop"):
             strata_action(op, request.get("profile"))
+        elif kind == "strata" and op == "remove":
+            remove_profile(request.get("profile"))
+        elif kind == "strata" and op == "prune":
+            prune_profiles()
+        elif kind == "strata" and op == "cleanup":
+            strata(2 * 60, "runtime", "cleanup")
         else:
             raise Refused(f"unknown request: {op} {kind}")
 

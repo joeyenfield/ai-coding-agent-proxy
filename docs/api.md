@@ -143,7 +143,7 @@ Every machine route needs **Trusted**. A machine you may not see answers `404`. 
 | GET | `/api/machines/{machine_id}/catalog/{catalog}` | `view` | Searches a model catalogue from the machine: `ollama`, `huggingface`, `huggingface-quants`, `docker-hub` or `docker-hub-tags`, with `?q=` and `?repo=`. |
 | GET | `/api/machines/{machine_id}/servers/ollama` | `view` | The settings `agent-machine` starts the machine's Ollama with, and its state. |
 | PUT | `/api/machines/{machine_id}/servers/ollama` | `servers`, Same origin | Saves them; they apply when Ollama next starts. Needs `agent-machine servers on`. |
-| POST | `/api/machines/{machine_id}/servers/{kind}/{action}` | `servers`, Same origin | Starts, stops or restarts the machine's Ollama, or starts or stops a Strata profile (`{"profile": ...}`). Needs `agent-machine servers on`. |
+| POST | `/api/machines/{machine_id}/servers/{kind}/{action}` | `servers`, Same origin | Starts, stops or restarts the machine's Ollama (`kind` `ollama`, `action` `start`, `stop` or `restart`). For `kind` `strata`: `start`, `stop` or `remove` a profile (`{"profile": ...}`; `remove` only deletes a profile whose model is gone and that isn't serving), `prune` (remove every such profile) or `cleanup` (`strata runtime cleanup`: leftovers of runtimes whose owner is gone). Needs `agent-machine servers on`. |
 
 ## Containers
 

@@ -77,6 +77,9 @@ func (i Instance) Port() int {
 	return port
 }
 
+// StrataProfileDir is the folder of Strata's saved profiles, <id>.json each.
+func StrataProfileDir() string { return strataProfileDir() }
+
 func strataProfileDir() string {
 	if dir := os.Getenv("STRATA_PROFILE_DIR"); dir != "" {
 		return dir

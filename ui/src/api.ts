@@ -50,7 +50,8 @@ export interface ContainerEngine {
 /** A saved Strata profile on a machine. agent-machine saves one for each model installed in Strata. */
 export interface StrataProfile {
   id: string;
-  /** stopped, ready, ... or broken: its run config is gone, so it can't start. */
+  /** stopped, ready, stale (its runtime's host went away, as when the computer restarted; start recovers it), ...
+   * or broken: its run config is gone, so it can't start. */
   state: string;
   url: string | null;
   error: string | null;
@@ -463,8 +464,21 @@ export interface MachineServers {
     service?: "systemd" | null;
     service_allowed?: boolean;
   };
-  strata?: { found: boolean; profiles: StrataProfile[]; error: string | null };
+  strata?: {
+    found: boolean;
+    profiles: StrataProfile[];
+    error: string | null;
+    /** What this machine's agent-machine can do beyond start and stop (older ones don't say, and can't). */
+    actions?: ("remove" | "prune" | "cleanup")[];
+  };
 }
+
+/**
+ * A request for a machine's model server. Ollama: start, stop, restart. Strata: start or stop a
+ * profile, remove one whose model is gone, prune (remove all of those), cleanup (clear the
+ * leftovers of runtimes whose owner is gone, as after a restart).
+ */
+export type ServerActionName = "start" | "stop" | "restart" | "remove" | "prune" | "cleanup";
 
 /** A machine signed in to this server: it runs agents, LLM providers, or both. */
 export interface FleetMachine {
@@ -1267,7 +1281,7 @@ export const api = {
     request<FleetLaunch>(`/api/machines/${encodeURIComponent(machineId)}/shell`, { method: "POST", body: JSON.stringify({ project }) }),
   adoptProvider: (machineId: string, type: string) =>
     request<{ backend: string; url: string }>(`/api/machines/${encodeURIComponent(machineId)}/providers/adopt`, { method: "POST", body: JSON.stringify({ type }) }),
-  machineServer: (machineId: string, kind: "ollama" | "strata", action: "start" | "stop" | "restart", profile?: string) =>
+  machineServer: (machineId: string, kind: "ollama" | "strata", action: ServerActionName, profile?: string) =>
     request<{ servers: MachineServers }>(`/api/machines/${encodeURIComponent(machineId)}/servers/${kind}/${action}`, {
       method: "POST",
       body: JSON.stringify(profile ? { profile } : {}),

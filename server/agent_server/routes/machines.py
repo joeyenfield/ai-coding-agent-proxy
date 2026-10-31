@@ -383,28 +383,32 @@ def register(app: FastAPI, runtime: Runtime) -> None:
 
     @app.post("/api/machines/{machine_id}/servers/{kind}/{action}")
     async def model_server(machine_id: str, kind: str, action: str, request: Request) -> dict[str, Any]:
-        """Start, stop or restart the Ollama or a Strata profile installed on the machine (its owner only)."""
+        """Start, stop or restart the Ollama installed on the machine; start, stop or remove a Strata profile,
+        remove every profile whose model is gone (prune), or clear Strata's leftovers (cleanup)."""
         require_trusted(request)
         if not remote.same_origin(request):
             raise HTTPException(status_code=403, detail="Start model servers from the console's own page.")
         target = visible(machine_id, request)
-        if kind not in {"ollama", "strata"} or action not in {"start", "stop", "restart"} or (kind == "strata" and action == "restart"):
-            raise HTTPException(status_code=404, detail="Start, stop or restart ollama, or start or stop a strata profile")
+        actions = {"ollama": {"start", "stop", "restart"}, "strata": {"start", "stop", "remove", "prune", "cleanup"}}
+        if action not in actions.get(kind, set()):
+            raise HTTPException(status_code=404, detail="Start, stop or restart ollama; start, stop or remove a strata profile, or prune or clean up strata")
         if not allowed(auth.request_identity(request), target, "servers"):
             raise HTTPException(status_code=403, detail="Only the machine's owner, or the teams it lets, can start or stop its model servers.")
         fields: dict[str, Any] = {"kind": kind}
         if kind == "strata":
-            data = await request.json() if request.headers.get("content-length") not in (None, "0") else {}
-            profile = str((data or {}).get("profile") or "")
-            if not profile:
-                raise HTTPException(status_code=400, detail="Name the Strata profile to start or stop")
-            fields["profile"] = profile
+            # prune and cleanup are machine-wide; the others name one of its profiles.
+            if action in {"start", "stop", "remove"}:
+                data = await request.json() if request.headers.get("content-length") not in (None, "0") else {}
+                profile = str((data or {}).get("profile") or "")
+                if not profile:
+                    raise HTTPException(status_code=400, detail=f"Name the Strata profile to {action}")
+                fields["profile"] = profile
         else:
             # Ollama listens on loopback when the machine is this computer, else where the server can reach it.
             # Agents' requests reach a machine that tunnels through it, so its Ollama stays on loopback there too.
             fields["bind"] = "127.0.0.1" if fleet.loopback(target) or target.tunnel else "0.0.0.0"
         # Strata loads (or drains and unloads) a model, which takes minutes for a big one.
-        timeout = (90.0 if action == "restart" else 60.0) if kind == "ollama" else (200.0 if action == "start" else 330.0)
+        timeout = (90.0 if action == "restart" else 60.0) if kind == "ollama" else {"start": 200.0, "stop": 330.0, "cleanup": 150.0}.get(action, 120.0)
         try:
             await fleet.ask(target, action, timeout=timeout, channel="server", **fields)
         except FleetError as exc:

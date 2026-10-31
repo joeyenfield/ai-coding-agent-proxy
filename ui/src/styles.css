@@ -782,6 +782,10 @@ details.collapsible > summary::-webkit-details-marker { display: none; }
 .provider-backend-name { display: flex; align-items: center; gap: 8px; }
 .provider-backends .mono { overflow-wrap: anywhere; }
 .provider-backends .state-text { text-align: right; }
+.provider-backends .state-text .small + .small { margin-left: 6px; }
+/* Tidying a machine's Strata, under its list of profiles */
+.strata-tidy { margin-top: 10px; }
+.strata-tidy .subtle { flex: 1 1 260px; font-size: 13px; }
 /* Providers under the machine that runs them; an away machine's are dimmed */
 .provider-card.is-away { background: var(--raised); }
 .provider-card.is-away .provider-icon { opacity: 0.6; }

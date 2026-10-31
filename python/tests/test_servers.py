@@ -120,6 +120,53 @@ def test_strata_profiles_start_and_stop_through_strata(tmp_path, monkeypatch):
     assert not any("missing" in call or "../app-1" in call for call in calls if call.startswith("runtime"))
 
 
+def test_a_stale_strata_profile_is_reported_and_starts(tmp_path, monkeypatch):
+    # As the Go TestAStaleStrataProfileIsReportedAndStarts: after a reboot Strata answers status with ok: false, state "stale".
+    state_file = tmp_path / "strata.json"
+    state_file.write_text(json.dumps({"profiles": {"iq3_s": "stale"}}))
+    monkeypatch.setenv("FAKE_STRATA_STATE", str(state_file))
+    monkeypatch.setenv(servers.STRATA_ENV, fake("fake_strata.py"))
+    manager = servers.Manager(machine=on, port=free_port())
+    [profile] = manager.describe()["strata"]["profiles"]
+    assert profile["state"] == "stale" and "owner_host_lost" in profile["error"], profile
+    answer = manager.handle({"request": "r1", "op": "start", "kind": "strata", "profile": "iq3_s"})
+    assert answer["ok"], answer
+    assert answer["servers"]["strata"]["profiles"] == [{"id": "iq3_s", "state": "ready", "url": "http://127.0.0.1:18777"}]
+
+
+def test_old_strata_profiles_are_removed_and_leftovers_cleared(tmp_path, monkeypatch):
+    # As the Go TestOldStrataProfilesAreRemovedAndLeftoversCleared.
+    folder = tmp_path / "profiles"
+    folder.mkdir()
+    live = folder / "live.json"
+    live.write_text("{}")
+    for name in ("old-1", "old-2", "good"):
+        (folder / f"{name}.json").write_text("{}")
+        (folder / ".history" / name).mkdir(parents=True)
+        (folder / ".ops" / name).mkdir(parents=True)
+    monkeypatch.setenv("STRATA_PROFILE_DIR", str(folder))
+    gone = str(folder / "gone.json")
+    state_file = tmp_path / "strata.json"
+    state_file.write_text(json.dumps({
+        "profiles": {"old-1": "stopped", "old-2": "stale", "good": "stale"},
+        "configs": {"old-1": gone, "old-2": gone, "good": str(live)},
+    }))
+    monkeypatch.setenv("FAKE_STRATA_STATE", str(state_file))
+    monkeypatch.setenv(servers.STRATA_ENV, fake("fake_strata.py"))
+    manager = servers.Manager(machine=on, port=free_port())
+    assert manager.describe()["strata"]["actions"] == ["remove", "prune", "cleanup"]
+    for bad in ("good", "missing", "../good", "", None):
+        assert not manager.handle({"request": "r1", "op": "remove", "kind": "strata", "profile": bad})["ok"], bad
+    assert manager.handle({"request": "r2", "op": "remove", "kind": "strata", "profile": "old-1"})["ok"]
+    assert not (folder / ".history" / "old-1").exists()
+    answer = manager.handle({"request": "r3", "op": "prune", "kind": "strata"})
+    assert answer["ok"], answer
+    assert [item["id"] for item in answer["servers"]["strata"]["profiles"]] == ["good"]
+    assert (folder / "good.json").exists()
+    answer = manager.handle({"request": "r4", "op": "cleanup", "kind": "strata"})
+    assert answer["ok"] and answer["servers"]["strata"]["profiles"][0]["state"] == "stopped", answer
+
+
 def test_strata_profiles_follow_the_installed_models(tmp_path, monkeypatch):
     # As the Go TestStrataProfilesFollowTheInstalledModels.
     def config(name):

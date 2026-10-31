@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { Link, NavLink, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, machineProviders, preferredModel, providerModels, type Agent, type FleetMachine, type MachineProvider, type ProviderRef } from "../api";
+import { api, machineProviders, preferredModel, providerModels, type Agent, type FleetMachine, type MachineProvider, type ProviderRef, type StrataProfile } from "../api";
 import { CodeLine } from "../components/CodeLine";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { FolderPicker } from "../components/FolderPicker";
@@ -755,9 +755,24 @@ function MachineSessions({ machine }: { machine: FleetMachine }) {
   );
 }
 
-type ServerAction = { kind: "ollama" | "strata"; action: "start" | "stop"; profile?: string };
+type ServerAction = { kind: "ollama" | "strata"; action: "start" | "stop" | "remove" | "prune" | "cleanup"; profile?: string };
 
-/** Starting and stopping the Ollama or a Strata profile installed on a machine, and the button for it. */
+const DONE: Record<ServerAction["action"], string> = {
+  start: "started",
+  stop: "stopped",
+  remove: "removed",
+  prune: "",
+  cleanup: "",
+};
+const WORKING: Record<ServerAction["action"], string> = {
+  start: "Starting…",
+  stop: "Stopping…",
+  remove: "Removing…",
+  prune: "Removing…",
+  cleanup: "Cleaning up…",
+};
+
+/** Starting and stopping the Ollama or a Strata profile installed on a machine (and tidying Strata's), and the button for it. */
 function useServerAction(machine: FleetMachine) {
   const client = useQueryClient();
   const notify = useToast();
@@ -765,7 +780,13 @@ function useServerAction(machine: FleetMachine) {
     mutationFn: ({ kind, action, profile }: ServerAction) => api.machineServer(machine.id, kind, action, profile),
     onSuccess: (_, { kind, action, profile }) => {
       const what = kind === "ollama" ? "Ollama" : `Strata ${profile}`;
-      notify(action === "start" ? `${what} started on ${machine.name}.` : `${what} stopped on ${machine.name}.`);
+      notify(
+        action === "prune"
+          ? `Removed the Strata profiles whose model is gone on ${machine.name}.`
+          : action === "cleanup"
+            ? `Cleared Strata's leftovers on ${machine.name}.`
+            : `${what} ${DONE[action]} on ${machine.name}.`,
+      );
       client.invalidateQueries({ queryKey: ["machines"] });
       client.invalidateQueries({ queryKey: ["models"] });
       client.invalidateQueries({ queryKey: ["provider", machine.id] });
@@ -773,13 +794,76 @@ function useServerAction(machine: FleetMachine) {
     onError: (error: Error) => notify(error.message),
   });
   const allowed = machine.connected && Boolean(machine.servers?.enabled) && Boolean(machine.you.servers);
-  const busy = (kind: string, profile?: string) => act.isPending && act.variables?.kind === kind && act.variables?.profile === profile;
-  const button = (request: ServerAction, label: string, primary = false) => (
-    <button type="button" className={`small ${primary ? "primary" : ""}`} disabled={!allowed || act.isPending} onClick={() => act.mutate(request)}>
-      {busy(request.kind, request.profile) ? (request.action === "start" ? "Starting…" : "Stopping…") : label}
+  const busy = (request: ServerAction) =>
+    act.isPending && act.variables?.kind === request.kind && act.variables?.action === request.action && act.variables?.profile === request.profile;
+  const button = (request: ServerAction, label: string, primary = false, onClick?: () => void) => (
+    <button type="button" className={`small ${primary ? "primary" : ""}`} disabled={!allowed || act.isPending} onClick={onClick ?? (() => act.mutate(request))}>
+      {busy(request) ? WORKING[request.action] : label}
     </button>
   );
-  return { allowed, button };
+  return { allowed, button, act };
+}
+
+/**
+ * Tidying a machine's Strata: Remove for each profile whose model is gone (or all of them at
+ * once), and Clean up for what runtimes left behind when their owner went away (a restart).
+ * Shown only when the machine's agent-machine says it can.
+ */
+function StrataTidy({
+  machine,
+  profiles,
+  asking,
+  setAsking,
+}: {
+  machine: FleetMachine;
+  profiles: StrataProfile[];
+  /** The removal waiting for a yes: one profile's (from its row's Remove) or all old ones. */
+  asking: ServerAction | null;
+  setAsking: (request: ServerAction | null) => void;
+}) {
+  const { button, act } = useServerAction(machine);
+  const actions = machine.servers?.strata?.actions ?? [];
+  const old = profiles.filter((profile) => profile.state === "broken");
+  if (!actions.includes("cleanup") && !(actions.includes("prune") && old.length)) return null;
+  const confirm = () => {
+    if (asking) act.mutate(asking, { onSettled: () => setAsking(null) });
+  };
+  const prune: ServerAction = { kind: "strata", action: "prune" };
+  return (
+    <>
+      <div className="row wrap strata-tidy">
+        {actions.includes("prune") && old.length > 0 &&
+          button(prune, old.length === 1 ? "Remove the old profile" : `Remove ${old.length} old profiles`, false, () => setAsking(prune))}
+        {actions.includes("cleanup") && button({ kind: "strata", action: "cleanup" }, "Clean up leftovers")}
+        <span className="subtle">
+          Old profiles are ones whose model was removed or reinstalled in Strata. Clean up ends what Strata left behind when it didn't shut
+          down (a restart); it never touches a profile that's serving.
+        </span>
+      </div>
+      <ConfirmDialog
+        open={asking !== null}
+        title={asking?.action === "remove" ? `Remove Strata profile ${asking.profile}?` : "Remove the old Strata profiles?"}
+        confirmLabel="Remove"
+        busy={act.isPending}
+        error={act.error?.message ?? null}
+        onConfirm={confirm}
+        onCancel={() => setAsking(null)}
+      >
+        <p>
+          {asking?.action === "remove" ? (
+            <>
+              This deletes the profile <code>{asking.profile}</code> on {machine.name}, with its history.
+            </>
+          ) : (
+            <>
+              This deletes {old.map((profile) => profile.id).join(", ")} on {machine.name}, with their history.
+            </>
+          )}{" "}
+          Their models are already gone, so nothing that runs is lost. Models still installed keep their profiles.
+        </p>
+      </ConfirmDialog>
+    </>
+  );
 }
 
 /**
@@ -815,7 +899,7 @@ function OfflineServer({ machine, provider }: { machine: FleetMachine; provider:
     );
   } else {
     const strata = servers.strata;
-    const stopped = strata?.profiles.filter((profile) => profile.state === "stopped") ?? [];
+    const stopped = strata?.profiles.filter(canStartStrata) ?? [];
     body = !strata?.found ? (
       <p>
         Strata isn't installed on {machine.name}: agent-machine can't find the <code>strata</code> command there. Install it, or remove this
@@ -829,7 +913,12 @@ function OfflineServer({ machine, provider }: { machine: FleetMachine; provider:
         ))}
       </div>
     ) : (
-      <p>{strata.error ?? `Strata is installed on ${machine.name} but has no model to start: install one in the Strata app there.`}</p>
+      <p>
+        {strata.error ??
+          (strata.profiles.length
+            ? `Strata isn't running on ${machine.name}, and none of its profiles can start from here. See Model servers for why.`
+            : `Strata is installed on ${machine.name} but has no model to start: install one in the Strata app there.`)}
+      </p>
     );
   }
   return (
@@ -840,10 +929,16 @@ function OfflineServer({ machine, provider }: { machine: FleetMachine; provider:
   );
 }
 
+/** Whether a Strata profile can be started: stopped, or stale (its runtime's host went away, as when the computer restarted; starting it recovers). */
+function canStartStrata(profile: StrataProfile) {
+  return profile.state === "stopped" || profile.state === "stale";
+}
+
 /** Ollama and Strata installed on the machine, which its owner can start and stop from here (agent-machine servers on). */
 function InstalledServers({ machine }: { machine: FleetMachine }) {
   const servers = machine.servers ?? {};
   const { button } = useServerAction(machine);
+  const [asking, setAsking] = useState<ServerAction | null>(null);
   if (!servers.enabled) {
     return machine.you.owner ? (
       <p className="subtle">
@@ -904,7 +999,7 @@ function InstalledServers({ machine }: { machine: FleetMachine }) {
           </li>
         )}
         {strata?.profiles.map((profile) => {
-          const stopped = profile.state === "stopped";
+          const stopped = canStartStrata(profile);
           return (
             <li key={profile.id}>
               <StateDot tone={stopped || profile.state === "unknown" ? "idle" : "good"} />
@@ -916,18 +1011,26 @@ function InstalledServers({ machine }: { machine: FleetMachine }) {
               <span className="subtle" title={profile.error ?? undefined}>
                 {profile.state === "broken"
                   ? `Can't start: ${profile.broken}`
-                  : stopped ? "Not running" : profile.state === "unknown" ? "State unknown" : `${profile.state[0].toUpperCase()}${profile.state.slice(1)}`}
+                  : profile.state === "stale"
+                    ? "Not running: it stopped without shutting down (the computer restarted?)"
+                    : stopped ? "Not running" : profile.state === "unknown" ? "State unknown" : `${profile.state[0].toUpperCase()}${profile.state.slice(1)}`}
                 {profile.url && <span className="mono"> · {profile.url}</span>}
               </span>
               <span className="state-text">
                 {stopped
                   ? button({ kind: "strata", action: "start", profile: profile.id }, "Start", true)
                   : profile.state !== "unknown" && profile.state !== "broken" && button({ kind: "strata", action: "stop", profile: profile.id }, "Stop")}
+                {profile.state === "broken" &&
+                  strata.actions?.includes("remove") &&
+                  button({ kind: "strata", action: "remove", profile: profile.id }, "Remove", false, () =>
+                    setAsking({ kind: "strata", action: "remove", profile: profile.id }),
+                  )}
               </span>
             </li>
           );
         })}
       </ul>
+      {strata?.found && <StrataTidy machine={machine} profiles={strata.profiles} asking={asking} setAsking={setAsking} />}
     </>
   );
 }

@@ -195,7 +195,7 @@ Over the same connection the server sends requests, each answered on the machine
 |---|---|
 | `launch`, `shell` | Start an agent or a terminal. See [Launches](#launches) and [Terminals](#terminals). |
 | `provider` | A model server's status, models (pull, delete, load, unload), logs, this machine's load, catalogue searches. See [LLM providers](providers.md). |
-| `server` | Start, stop or restart Ollama or a Strata profile; read or save Ollama's settings. |
+| `server` | Start, stop or restart Ollama or a Strata profile; remove old Strata profiles and clean up Strata's leftovers; read or save Ollama's settings. |
 | `container` | Status, start, stop, restart, remove and logs of the containers it runs. |
 | `folders` | The folders inside a launch folder, for the folder picker. |
 | `update` | Update agent-machine (and agent) to the server's build. |

@@ -193,6 +193,13 @@ agent-machine reads Strata's files:
 
 Strata on its default port, 18500, is found by itself. With `agent-machine servers on`, profiles serving on other ports are found too. With servers on, the machine's page has **Start** and **Stop** for each saved profile, which run Strata's own `strata runtime start|stop --profile <id>`. Only the machine's own saved profiles can be named.
 
+Nothing starts Strata again after the computer restarts. A profile that was running then is reported by Strata as **stale** (its runtime's host went away). The machine's page shows it as not running, with **Start**, and Strata recovers it when you start it.
+
+Under the list of profiles, two buttons tidy Strata up (with servers on, for whoever may manage the machine's servers):
+
+- **Remove old profiles** deletes every profile whose model is gone (shown as **Can't start**). Each of those rows also has its own **Remove**. Strata has no command for this, so agent-machine deletes the profile's file in Strata's profiles folder, with its history (`.history/<id>`) and run records (`.ops/<id>`). It removes only profiles whose run config is gone and that aren't serving. A profile whose model is still installed can't be removed, because agent-machine would just save it again.
+- **Clean up leftovers** runs `strata runtime cleanup`, which ends servers and engines Strata started whose owner is gone, for example after a crash or a restart. Strata never touches a running instance.
+
 Profiles follow what Strata has installed. With servers on, agent-machine asks Strata for its installed models (`strata models list --installed`) and saves a profile for each one that no profile uses yet (`strata profile create <model> --from-config <its run config>`), so every installed model can be started from the console without setting a profile up there first. A model still missing files is left until it's complete. The new profile is named after the model, with `-2` and so on when a profile already has that name. Profiles are only added, never changed or removed.
 
 A profile can outlive its model: removing or reinstalling the model in the Strata app deletes the run config the profile names. The machine's page then shows that profile as **Can't start**, with the reason, and Start refuses it rather than failing inside Strata (`cannot read run config`). Start the model's new profile instead, or point the old one at it with `strata profile use-config <profile> --from-config <run config>` there. A Strata too old for `models list --installed` keeps working with its saved profiles.

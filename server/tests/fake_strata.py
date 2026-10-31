@@ -2,15 +2,15 @@
 
 FAKE_STRATA_STATE names the file:
 
-    {"profiles": {"<id>": "stopped" | "ready"},
+    {"profiles": {"<id>": "stopped" | "ready" | "stale"},   # stale: status answers ok: false, as after a reboot; start recovers
      "configs": {"<id>": "<the run config the profile names>"},
      "models": [{"id": ..., "name": ..., "source_config": ..., "component_status": "present", "missing": []}],
      "no_models_list": true,           # play a Strata from before `models list --installed`
      "calls": [...]}
 
 It answers `profile list`, `profile create <name> --from-config <file>`, `models list
---installed`, and `runtime status|start|stop --profile <id>`, with --json, as Strata's own
-CLI does.
+--installed`, `runtime status|start|stop --profile <id>` and `runtime cleanup`, with --json, as
+Strata's own CLI does. With STRATA_PROFILE_DIR set, only profiles with a <id>.json there exist.
 """
 
 from __future__ import annotations
@@ -52,6 +52,19 @@ def main() -> int:
 
 def run(state: dict, args: list[str]) -> tuple[dict, int]:
     profiles, configs = state["profiles"], state["configs"]
+    # Strata reads its profiles from <id>.json files: with STRATA_PROFILE_DIR set, a profile whose
+    # file was deleted (agent-machine removing it) is gone, as it would be.
+    folder = os.environ.get("STRATA_PROFILE_DIR")
+    if folder:
+        for name in [name for name in profiles if not (Path(folder) / f"{name}.json").exists()]:
+            profiles.pop(name)
+            configs.pop(name, None)
+    if args == ["runtime", "cleanup"]:
+        # Ends what runtimes whose owner is gone left behind: stale profiles become stopped.
+        cleaned = [name for name, value in profiles.items() if value == "stale"]
+        for name in cleaned:
+            profiles[name] = "stopped"
+        return {"ok": True, "cleaned": cleaned}, 0
     if args == ["profile", "list"]:
         listed = []
         for name in profiles:
@@ -84,6 +97,10 @@ def run(state: dict, args: list[str]) -> tuple[dict, int]:
             profiles[name] = "stopped"
         elif action != "status":
             return {"ok": False, "error": f"unknown action {action}"}, 2
+        if profiles[name] == "stale":
+            # As Strata answers for a runtime whose host went away (the computer restarted under it).
+            return {"ok": False, "profile": name, "state": "stale", "error": "owner_host_lost",
+                    "next_action": "runtime start will recover after the owned child exits"}, 6
         answer = {"ok": True, "profile": name, "state": profiles[name]}
         if profiles[name] == "ready":
             answer["api_url"] = "http://127.0.0.1:18777"

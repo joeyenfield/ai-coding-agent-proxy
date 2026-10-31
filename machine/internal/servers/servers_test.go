@@ -124,6 +124,92 @@ func TestAnOllamaThatFailsToStartSaysWhy(t *testing.T) {
 	}
 }
 
+// After a reboot Strata answers `runtime status` with ok: false and state "stale"; the profile must
+// still be reported as stale (which the console offers to start), not as an unknown error.
+func TestAStaleStrataProfileIsReportedAndStarts(t *testing.T) {
+	t.Setenv("AI_PROXY_MACHINE_HOME", t.TempDir())
+	stateFile := filepath.Join(t.TempDir(), "strata.json")
+	t.Setenv("FAKE_STRATA_STATE", stateFile)
+	if err := os.WriteFile(stateFile, []byte(`{"profiles": {"iq3_s": "stale"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	setCommand(t, StrataEnv, fake(t, "fake_strata.py"))
+	manager := &Manager{Machine: on, Port: freePort(t)}
+	profile := manager.Describe()["strata"].(map[string]any)["profiles"].([]any)[0].(map[string]any)
+	if profile["state"] != "stale" || !strings.Contains(fmt.Sprint(profile["error"]), "owner_host_lost") {
+		t.Fatalf("stale profile described as %v", profile)
+	}
+	answer := manager.Handle(Request{ID: "r1", Op: "start", Kind: "strata", Profile: "iq3_s"})
+	if answer["ok"] != true {
+		t.Fatalf("start: %v", answer)
+	}
+	started := answer["servers"].(map[string]any)["strata"].(map[string]any)["profiles"].([]any)[0].(map[string]any)
+	if started["state"] != "ready" || started["error"] != nil {
+		t.Fatalf("after start: %v", started)
+	}
+}
+
+// Removing profiles deletes only ones whose run config is gone, with their history; prune
+// removes all of those; cleanup is Strata's own `runtime cleanup`.
+func TestOldStrataProfilesAreRemovedAndLeftoversCleared(t *testing.T) {
+	t.Setenv("AI_PROXY_MACHINE_HOME", t.TempDir())
+	dir := t.TempDir()
+	t.Setenv("STRATA_PROFILE_DIR", dir)
+	live := filepath.Join(dir, "live.json")
+	if err := os.WriteFile(live, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"old-1", "old-2", "good"} {
+		os.WriteFile(filepath.Join(dir, id+".json"), []byte("{}"), 0o600)
+		os.MkdirAll(filepath.Join(dir, ".history", id), 0o700)
+		os.MkdirAll(filepath.Join(dir, ".ops", id), 0o700)
+	}
+	stateFile := filepath.Join(t.TempDir(), "strata.json")
+	t.Setenv("FAKE_STRATA_STATE", stateFile)
+	gone := filepath.Join(dir, "gone.json")
+	state := map[string]any{
+		"profiles": map[string]string{"old-1": "stopped", "old-2": "stale", "good": "stale"},
+		"configs":  map[string]string{"old-1": gone, "old-2": gone, "good": live},
+	}
+	data, _ := json.Marshal(state)
+	os.WriteFile(stateFile, data, 0o600)
+	setCommand(t, StrataEnv, fake(t, "fake_strata.py"))
+	manager := &Manager{Machine: on, Port: freePort(t)}
+	if actions := manager.Describe()["strata"].(map[string]any)["actions"]; fmt.Sprint(actions) != "[remove prune cleanup]" {
+		t.Fatalf("actions: %v", actions)
+	}
+	for _, bad := range []string{"good", "missing", "../good", ""} {
+		if answer := manager.Handle(Request{ID: "r1", Op: "remove", Kind: "strata", Profile: bad}); answer["ok"] != false {
+			t.Fatalf("removing %q was allowed: %v", bad, answer)
+		}
+	}
+	if answer := manager.Handle(Request{ID: "r2", Op: "remove", Kind: "strata", Profile: "old-1"}); answer["ok"] != true {
+		t.Fatalf("remove: %v", answer)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".history", "old-1")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("old-1's history is still there")
+	}
+	answer := manager.Handle(Request{ID: "r3", Op: "prune", Kind: "strata"})
+	if answer["ok"] != true {
+		t.Fatalf("prune: %v", answer)
+	}
+	var left []string
+	for _, item := range answer["servers"].(map[string]any)["strata"].(map[string]any)["profiles"].([]any) {
+		left = append(left, item.(map[string]any)["id"].(string))
+	}
+	if strings.Join(left, ",") != "good" {
+		t.Fatalf("after prune: %v", left)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "good.json")); err != nil {
+		t.Fatal("prune removed a profile whose model is installed")
+	}
+	answer = manager.Handle(Request{ID: "r4", Op: "cleanup", Kind: "strata"})
+	profile := answer["servers"].(map[string]any)["strata"].(map[string]any)["profiles"].([]any)[0].(map[string]any)
+	if answer["ok"] != true || profile["state"] != "stopped" {
+		t.Fatalf("cleanup: %v", answer)
+	}
+}
+
 func TestStrataProfilesStartAndStopThroughStrata(t *testing.T) {
 	t.Setenv("AI_PROXY_MACHINE_HOME", t.TempDir())
 	stateFile := filepath.Join(t.TempDir(), "strata.json")

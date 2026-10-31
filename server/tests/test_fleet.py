@@ -267,6 +267,23 @@ def test_the_owner_starts_and_stops_the_machines_ollama_and_strata(tmp_path):
         thread.join(timeout=10)
         assert answer["response"].status_code == 409 and "busy" in answer["response"].json()["detail"]
 
+        # Tidying Strata: remove names a profile; prune and cleanup are machine-wide; nothing else goes through.
+        assert alice.post("/api/machines/m1/servers/strata/remove", json={}).status_code == 400
+        assert alice.post("/api/machines/m1/servers/strata/restart", json={"profile": "app-1"}).status_code == 404
+        assert alice.post("/api/machines/m1/servers/ollama/prune").status_code == 404
+        assert dave.post("/api/machines/m1/servers/strata/cleanup").status_code == 403
+        for path, body, expected in (
+            ("remove", {"profile": "app-1"}, ("remove", "app-1")),
+            ("prune", None, ("prune", None)),
+            ("cleanup", None, ("cleanup", None)),
+        ):
+            thread = call(f"/api/machines/m1/servers/strata/{path}", body)
+            request = json.loads(socket.receive_text())
+            assert (request["op"], request.get("profile")) == expected and request["kind"] == "strata"
+            socket.send_text(json.dumps({"type": "server_result", "request": request["request"], "ok": True, "servers": running}))
+            thread.join(timeout=10)
+            assert answer["response"].status_code == 200, path
+
 
 def test_a_machine_without_servers_on_refuses_before_asking(tmp_path):
     app = create_app(org_settings(tmp_path))

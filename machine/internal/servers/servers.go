@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"ai-coding-agent-proxy/machine/internal/process"
+	"ai-coding-agent-proxy/machine/internal/providers"
 	"ai-coding-agent-proxy/machine/internal/settings"
 )
 
@@ -144,6 +145,13 @@ func (m *Manager) handle(request Request) error {
 		return m.stopOllama()
 	case request.Kind == "strata" && (request.Op == "start" || request.Op == "stop"):
 		return strataAction(request.Op, request.Profile)
+	case request.Kind == "strata" && request.Op == "remove":
+		return removeProfile(request.Profile)
+	case request.Kind == "strata" && request.Op == "prune":
+		return pruneProfiles()
+	case request.Kind == "strata" && request.Op == "cleanup":
+		_, err := strata(2*time.Minute, "runtime", "cleanup")
+		return err
 	}
 	return fmt.Errorf("unknown request: %s %s", request.Op, request.Kind)
 }
@@ -596,10 +604,13 @@ func strataState() map[string]any {
 		if model, ok := models[sameFile(profile.Config)]; ok && model.Name != "" {
 			entry["model"] = model.Name
 		}
-		if answer, err := strata(30*time.Second, "runtime", "status", "--profile", profile.ID); err == nil {
-			if text, ok := answer["state"].(string); ok {
-				entry["state"] = text
-			}
+		answer, err := strata(30*time.Second, "runtime", "status", "--profile", profile.ID)
+		// A runtime whose host is gone (the computer restarted under it) answers ok: false with
+		// state "stale"; `runtime start` recovers it, so its state still counts, not just the error.
+		if text, ok := answer["state"].(string); ok && text != "" {
+			entry["state"] = text
+		}
+		if err == nil {
 			for _, key := range []string{"api_url", "url"} {
 				if text, ok := answer[key].(string); ok && text != "" {
 					entry["url"] = text
@@ -612,13 +623,88 @@ func strataState() map[string]any {
 		// One still running keeps serving; a stopped one can't start again.
 		if reason := configGone(profile); reason != "" {
 			entry["broken"] = reason
-			if entry["state"] == "stopped" || entry["state"] == "unknown" {
+			if entry["state"] == "stopped" || entry["state"] == "stale" || entry["state"] == "unknown" {
 				entry["state"] = "broken"
 			}
 		}
 		list = append(list, entry)
 	}
-	return map[string]any{"found": true, "profiles": list}
+	// What this agent-machine can do beyond start and stop, so the console shows only those.
+	return map[string]any{"found": true, "profiles": list, "actions": []any{"remove", "prune", "cleanup"}}
+}
+
+// Removing profiles. Strata has no command for it: a profile is <id>.json in its profiles
+// folder, with its revisions in .history/<id>, its run records in .ops/<id> and a lock file.
+// Only a profile whose run config is gone can be removed: one whose model is still installed
+// would just be saved again by the next sync, and one still serving is never touched.
+
+// removable says why a profile can't be removed, or "" when it can.
+func removable(profile savedProfile) string {
+	if configGone(profile) == "" {
+		return "only a profile whose model is gone can be removed (one whose model is installed is saved again for it)"
+	}
+	if answer, _ := strata(30*time.Second, "runtime", "status", "--profile", profile.ID); answer != nil {
+		if state, _ := answer["state"].(string); state != "" && state != "stopped" && state != "stale" {
+			return "it's " + state + ": stop it first"
+		}
+	}
+	return ""
+}
+
+func deleteProfileFiles(id string) error {
+	dir := providers.StrataProfileDir()
+	if err := os.Remove(filepath.Join(dir, id+".json")); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("couldn't remove Strata profile %s: %v", id, err)
+	}
+	// Its history and records are Strata's bookkeeping for the profile alone; best effort.
+	os.RemoveAll(filepath.Join(dir, ".history", id))
+	os.RemoveAll(filepath.Join(dir, ".ops", id))
+	os.Remove(filepath.Join(dir, "."+id+".lock"))
+	return nil
+}
+
+func removeProfile(id string) error {
+	if !profileName.MatchString(id) {
+		return errors.New("name one of this machine's Strata profiles")
+	}
+	syncing.Lock()
+	defer syncing.Unlock()
+	saved, err := savedProfiles()
+	if err != nil {
+		return err
+	}
+	for _, profile := range saved {
+		if profile.ID == id {
+			if reason := removable(profile); reason != "" {
+				return fmt.Errorf("Strata profile %s can't be removed: %s", id, reason)
+			}
+			return deleteProfileFiles(id)
+		}
+	}
+	return fmt.Errorf("this machine has no Strata profile %q", id)
+}
+
+// pruneProfiles removes every profile that can be removed: the ones whose model is gone.
+func pruneProfiles() error {
+	syncing.Lock()
+	defer syncing.Unlock()
+	saved, err := savedProfiles()
+	if err != nil {
+		return err
+	}
+	var failed []string
+	for _, profile := range saved {
+		if removable(profile) != "" {
+			continue
+		}
+		if err := deleteProfileFiles(profile.ID); err != nil {
+			failed = append(failed, err.Error())
+		}
+	}
+	if len(failed) > 0 {
+		return errors.New(strings.Join(failed, "; "))
+	}
+	return nil
 }
 
 func strataAction(op, profile string) error {
