@@ -23,6 +23,7 @@ export const DOC_PAGES: { id: string; label: string }[] = [
   { id: "api", label: "API" },
   { id: "deployment", label: "Deployment" },
   { id: "development", label: "Development" },
+  { id: "website", label: "Marketing website" },
 ];
 
 const escapeHtml = (text: string) => text.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
