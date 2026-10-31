@@ -156,6 +156,26 @@ def test_an_admin_adds_a_machines_model_server_as_a_backend(tmp_path):
         assert dave.post("/api/machines/m1/providers/adopt", json={"type": "strata"}).status_code == 404
 
 
+def test_machines_behind_one_address_each_add_their_own_model_server(tmp_path):
+    # A PC and its WSL (or two computers behind a home router) reach the server from the same address,
+    # so their Strata looks like the same URL from here; agents reach each through its own machine.
+    settings = org_settings(tmp_path)
+    app = create_app(settings)
+    alice, dave = signed_in(app, "alice"), signed_in(app, "dave")
+    strata = {"providers": [{"type": "strata", "port": 18500}], "address": "192.0.2.40"}
+    with alice, dave, machine(alice, hello("m1", **strata)), machine(alice, {**hello("m2", **strata), "name": "laptop-wsl"}):
+        first = dave.post("/api/machines/m1/providers/adopt", json={"type": "strata"})
+        second = dave.post("/api/machines/m2/providers/adopt", json={"type": "strata"})
+        assert first.status_code == 201 and second.status_code == 201, (first.text, second.text)
+        assert first.json()["url"] == second.json()["url"] == "http://192.0.2.40:18500"
+        assert settings.backends[first.json()["backend"]].machine == "m1"
+        assert settings.backends[second.json()["backend"]].machine == "m2"
+        assert dave.get("/api/machines/m2").json()["providers"][0]["backend"] == second.json()["backend"]
+        # The same machine's server twice is still refused, and says which provider it is.
+        again = dave.post("/api/machines/m1/providers/adopt", json={"type": "strata"})
+        assert again.status_code == 409 and first.json()["backend"] in again.json()["detail"]
+
+
 def test_legacy_backends_need_explicit_admin_adoption_with_accounts(tmp_path):
     settings = org_settings(tmp_path)
     settings.backends = {**settings.backends, "old": Backend("old", "http://localhost:11434/")}

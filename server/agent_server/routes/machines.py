@@ -230,11 +230,17 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             raise HTTPException(status_code=404, detail=f"{target.name} doesn't run that model server")
         url = fleet.provider_url(target, provider)
         async with runtime.config_lock:
-            existing = next((backend for backend in runtime.settings.backends.values() if backend.type == kind and normal_url(backend.url) == normal_url(url)), None)
+            # Only this machine's own backends, and ones from before machines, can be this server. Another machine's
+            # at the same address is another server: machines behind one public address (a home router, a PC and
+            # its WSL) look alike from here, and agents reach each through its own machine (tunnels: machine, port).
+            existing = next((backend for backend in runtime.settings.backends.values()
+                             if backend.type == kind and normal_url(backend.url) == normal_url(url) and backend.machine in (None, target.id)), None)
             if existing is not None:
+                if existing.machine:
+                    raise HTTPException(status_code=409, detail=f"It's already a provider: {existing.name}")
                 # A backend from before machines is the root tenant's: only its own admins may move it onto one of its machines.
-                if existing.machine or fleet.backend_tenant(existing) != target.tenant:
-                    raise HTTPException(status_code=409, detail="A backend already uses it")
+                if fleet.backend_tenant(existing) != target.tenant:
+                    raise HTTPException(status_code=409, detail=f"The backend {existing.name} already uses that address, and only its organization's admins can link it to a machine")
                 # Explicit, admin-authorized adoption keeps the legacy backend's name and settings.
                 runtime.settings.save_backend(existing.name, {**existing.public(), "machine": target.id})
                 return {"backend": existing.name, "url": existing.url}

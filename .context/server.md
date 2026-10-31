@@ -117,6 +117,8 @@ Account interception's outbound HTTP goes through its own client (`runtime.inter
 - Legacy backends (no `machine`) are linked only by explicit admin adoption
   (`providers/adopt`). `claim` only moves already-linked backends to the machine's new
   address (`Fleet.moved`); nothing links a backend to a machine automatically.
+  Adoption's duplicate check counts only the machine's own backends and legacy ones: a
+  backend is (machine, port), not its URL, as machines behind one public address share URLs.
 - Buffered compat replies use `_read_upstream` to close the response and complete
   telemetry on read failure or cancellation. `_cancel_request` also handles a
   cancellation while awaiting upstream headers.
