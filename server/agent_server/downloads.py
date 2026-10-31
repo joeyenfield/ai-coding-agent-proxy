@@ -97,7 +97,7 @@ def describe(path: str) -> dict[str, Any]:
     os_name, _, arch = platform.partition("-")
     if len(parts) == 3 and parts[1] == "artifact":
         program = name.removesuffix(".exe")
-        kind = "installer" if program in {"install.sh", "install.ps1"} else "binary"
+        kind = "installer" if program in {"install.sh", "install.ps1"} else "uninstaller" if program in {"uninstall.sh", "uninstall.ps1"} else "binary"
         component = "agent-machine" if program == "agent-machine" else ("agent" if kind == "binary" else None)
     else:
         component = "agent-machine" if name.startswith("agent-machine-") else "agent"

@@ -7,7 +7,8 @@
 #   ./install.sh --service           also start agent-machine at boot (systemd as root,
 #                                    else a systemd user unit), at login (launchd) or as
 #                                    an rc.d service (FreeBSD, root only)
-#   ./install.sh --uninstall         remove them again, and the service (settings stay)
+#   ./install.sh --uninstall         remove them again, and the service (settings stay;
+#                                    uninstall.sh beside it does it, and takes --purge)
 #
 # The service runs as the user who ran the script (the sudo user when run with sudo),
 # because agent-machine's sign-in and settings live in that user's home.
@@ -190,50 +191,9 @@ install_service() {
     fi
 }
 
-remove_service() {
-    case "$os" in
-        Linux)
-            if [ $root -eq 1 ] && [ -f /etc/systemd/system/agent-machine.service ]; then
-                systemctl disable --now agent-machine.service >/dev/null 2>&1 || true
-                rm -f /etc/systemd/system/agent-machine.service
-                systemctl daemon-reload
-                echo "Removed the agent-machine system service."
-            fi
-            units="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
-            if [ $root -eq 0 ] && [ -f "$units/agent-machine.service" ]; then
-                systemctl --user disable --now agent-machine.service >/dev/null 2>&1 || true
-                rm -f "$units/agent-machine.service"
-                systemctl --user daemon-reload
-                echo "Removed the agent-machine user service."
-            fi
-            ;;
-        Darwin)
-            plist="$user_home/Library/LaunchAgents/$LABEL.plist"
-            if [ -f "$plist" ]; then
-                launchctl bootout "gui/$(id -u "$user")/$LABEL" >/dev/null 2>&1 || true
-                rm -f "$plist"
-                echo "Removed $plist."
-            fi
-            ;;
-        FreeBSD)
-            if [ $root -eq 1 ] && [ -f /usr/local/etc/rc.d/agent_machine ]; then
-                service agent_machine stop >/dev/null 2>&1 || true
-                sysrc -x agent_machine_enable >/dev/null 2>&1 || true
-                rm -f /usr/local/etc/rc.d/agent_machine
-                echo "Removed the agent_machine rc.d service."
-            fi
-            ;;
-    esac
-}
-
+# uninstall.sh beside this script does the removing, the same one the server serves.
 if [ $uninstall -eq 1 ]; then
-    remove_service
-    stop_running
-    for program in $PROGRAMS; do
-        if [ -f "$prefix/$program" ]; then rm -f "$prefix/$program" && echo "Removed $prefix/$program"; fi
-    done
-    echo "Settings and sign-ins are left in place; agent logout and agent-machine logout revoke them."
-    exit 0
+    exec sh "$here/uninstall.sh" --prefix "$prefix"
 fi
 
 found=""

@@ -371,7 +371,7 @@ The service runs as the user who ran the installer (the sudo user under sudo), b
 | FreeBSD, as root | An rc.d service, `/usr/local/etc/rc.d/agent_machine` |
 | Windows | A scheduled task, `agent-machine`, that runs `agent-machine start` when you sign in |
 
-The service's `PATH` includes the install folder and the system folders, as agent-machine starts `agent`, `docker` or `podman`, `ollama` and `strata` from it. `./install.sh --uninstall` removes the programs and the service; sign-ins and settings stay.
+The service's `PATH` includes the install folder and the system folders, as agent-machine starts `agent`, `docker` or `podman`, `ollama` and `strata` from it. `./install.sh --uninstall` (or `curl -fsSL http://server:9999/uninstall.sh | sh`) removes the programs and the service; sign-ins and settings stay unless you add `--purge`. See [Deployment](deployment.md#uninstalling).
 
 The `agent-machine` deb, rpm and Arch packages include a systemd user unit, not enabled: turn it on after `agent-machine login` with `systemctl --user enable --now agent-machine`. See [Deployment](deployment.md) for the installers and packages.
 

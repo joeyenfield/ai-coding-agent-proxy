@@ -18,7 +18,7 @@ There is one hand-written version (`VERSION`) and one compatibility number (`PRO
 flowchart LR
   src["client/ · machine/ · python/ · android/"] --> dist["go run ./dist"]
   dist --> out["dist/&lt;version&gt;/"]
-  out --> a["&lt;os&gt;-&lt;arch&gt;/artifact/ binaries + install.sh|ps1"]
+  out --> a["&lt;os&gt;-&lt;arch&gt;/artifact/ binaries + install and uninstall scripts"]
   out --> b["&lt;os&gt;-&lt;arch&gt;/*.zip | *.tar.gz"]
   out --> c["packages: .deb .rpm .apk Arch (Go), .msi (wix), .pkg (Mac)"]
   out --> d["python/*.whl · android/*.apk"]
@@ -36,6 +36,7 @@ flowchart LR
 - `downloads.py` serves `dist/<server version>/` (or the newest with the same `X.Y.Z`), only files in `SHA256SUMS`, publicly, at `/downloads/...`. `/downloads/index.json` is what `agent update` and `agent-machine update` read.
 - **One-liners** `/install.sh` and `/install.ps1` (`installer.py`, templates in `server/agent_server/install/`): the server fills in its address (checked against `SAFE_URL`) and the archive table. They download, check hashes, and run the archive's own installer with `AI_PROXY_ONE_LINER=1`, then sign in from `/dev/tty`.
 - **Archive installers** (`tools/dist/install/`): `install.sh` (to `/usr/local/bin` or `~/.local/bin`; `--service` sets up systemd, launchd or rc.d; `--uninstall`) and `install.ps1` (to `%LOCALAPPDATA%\Programs\agent-proxy`, user PATH, `-Service` as an at-logon task).
+- **Uninstallers** (`server/agent_server/install/uninstall.sh`, `uninstall.ps1`): one file each, not templates. The server serves them as they are (`/uninstall.sh`, `/uninstall.ps1`, `installer.uninstaller`, no build needed) and `tools/dist` copies them into every archive (`writeUninstaller`, LF for `.sh`), where `install.sh --uninstall` and `install.ps1 -Uninstall` hand over to them. They undo `--service`, stop agent-machine and this install's agent-proxy, remove the `servers service` sudoers rule as root, and with `--purge` log out (one server per `logout`, looped) and delete the default settings folders. The service names and paths in them must match `install.sh`/`install.ps1`. `AI_PROXY_SCHEDULED_TASK` renames the Windows task for tests (the dev computer has a real one).
 - Test installers and services as a throwaway user in another WSL distro, never as the Ubuntu user (it runs a real agent-machine).
 
 ## Containers

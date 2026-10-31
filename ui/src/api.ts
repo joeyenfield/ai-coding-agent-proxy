@@ -510,7 +510,7 @@ export interface Health {
   min_protocol?: number;
 }
 
-export type DownloadKind = "archive" | "deb" | "rpm" | "apk" | "arch" | "msi" | "pkg" | "binary" | "installer" | "android" | "wheel";
+export type DownloadKind = "archive" | "deb" | "rpm" | "apk" | "arch" | "msi" | "pkg" | "binary" | "installer" | "uninstaller" | "android" | "wheel";
 
 /** One file the server offers, from its build folder's SHA256SUMS. */
 export interface DownloadFile {

@@ -131,6 +131,13 @@ def _register_downloads(app: FastAPI, downloads: Downloads) -> None:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return PlainTextResponse(text, media_type="text/x-shellscript" if kind == "sh" else "text/plain")
 
+    @app.get("/uninstall.sh", response_class=PlainTextResponse)
+    @app.get("/uninstall.ps1", response_class=PlainTextResponse)
+    async def uninstall_script(request: Request) -> PlainTextResponse:
+        """The uninstaller: curl -fsSL <server>/uninstall.sh | sh, or irm <server>/uninstall.ps1 | iex in PowerShell. Needs no build."""
+        kind = "ps1" if request.url.path.endswith(".ps1") else "sh"
+        return PlainTextResponse(installer.uninstaller(kind), media_type="text/x-shellscript" if kind == "sh" else "text/plain")
+
     @app.get("/android", include_in_schema=False)
     @app.get("/downloads/android.apk")
     async def android_app() -> RedirectResponse:

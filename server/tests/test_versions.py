@@ -189,6 +189,7 @@ def test_without_its_own_build_the_server_offers_one_of_the_same_release_or_says
     ("linux-amd64/agent-1.0.0-linux-amd64.apk", ("linux", "amd64", "agent", "apk")),
     ("windows-386/artifact/agent-proxy.exe", ("windows", "386", "agent", "binary")),
     ("windows-386/artifact/install.ps1", ("windows", "386", None, "installer")),
+    ("linux-amd64/artifact/uninstall.sh", ("linux", "amd64", None, "uninstaller")),
 ])
 def test_files_are_described_by_where_tools_dist_puts_them(path, expected):
     item = describe(path)

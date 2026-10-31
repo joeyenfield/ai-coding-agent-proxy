@@ -272,13 +272,13 @@ Every archive has an installer for its system. Unpack it, then:
 ./install.sh                    # into /usr/local/bin as root, else ~/.local/bin
 ./install.sh --prefix DIR       # into DIR
 sudo ./install.sh --service     # also start agent-machine at boot
-./install.sh --uninstall        # remove them again, and the service (sign-ins and settings stay)
+./install.sh --uninstall        # remove them again, and the service (runs uninstall.sh; see Uninstalling)
 ```
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File install.ps1            # into %LOCALAPPDATA%\Programs\agent-proxy, on your PATH
 powershell -ExecutionPolicy Bypass -File install.ps1 -Service   # also start agent-machine when you sign in
-powershell -ExecutionPolicy Bypass -File install.ps1 -Uninstall
+powershell -ExecutionPolicy Bypass -File install.ps1 -Uninstall # runs uninstall.ps1
 ```
 
 ### As a service
@@ -292,6 +292,39 @@ powershell -ExecutionPolicy Bypass -File install.ps1 -Uninstall
 | macOS | A launchd agent, `~/Library/LaunchAgents/com.ai-coding-agent-proxy.agent-machine.plist`, run when you log in |
 | FreeBSD, as root | An rc.d service, `/usr/local/etc/rc.d/agent_machine`, enabled with `sysrc` |
 | Windows | A scheduled task, `agent-machine`, that runs `agent-machine start` when you sign in |
+
+### Uninstalling
+
+The server serves an uninstaller beside each installer. It needs no build, and it removes what the installers put on the computer whichever server they came from:
+
+```bash
+curl -fsSL http://server:9999/uninstall.sh | sh                  # Linux, macOS, FreeBSD
+curl -fsSL http://server:9999/uninstall.sh | sh -s -- --purge    # also sign out and delete settings
+sudo sh uninstall.sh                                             # what was installed as root (/usr/local/bin, the system service)
+```
+
+```powershell
+irm http://server:9999/uninstall.ps1 | iex                                       # Windows
+& ([scriptblock]::Create((irm http://server:9999/uninstall.ps1))) -Purge
+```
+
+Every archive has the same script (`uninstall.sh` or `uninstall.ps1`), which `install.sh --uninstall` and `install.ps1 -Uninstall` run. In order, it:
+
+1. Removes agent-machine's service (the systemd unit, launchd agent, rc.d script or scheduled task from `--service`) and stops an `agent-machine` you started yourself.
+2. Stops this install's `agent-proxy` (`agent proxy stop`, else by its path). Agents running through it lose their connection to the server.
+3. With `--purge`, signs `agent` and `agent-machine` out of every server they're signed in to, which revokes their tokens at the issuer.
+4. As root on Linux, removes what `sudo agent-machine servers service` set up: the sudoers rule, the `ollama.service` drop-in and `/etc/agent-machine/ollama.env`. Ollama's service stays.
+5. Deletes the programs, and on Windows the PATH entry and the empty folder.
+6. With `--purge`, deletes their settings, sign-ins, logs and caches: `agent-proxy` and `agent-machine` in your config folder (`~/.config`, or `%APPDATA%`) and `~/.cache/agent-proxy`. A folder named by `AI_PROXY_MACHINE_HOME` is left for you to delete.
+7. Says how to remove copies installed some other way: a package (`apt remove agent-proxy agent-machine` and the like), an `.msi` (Settings › Apps), the Python version (`pip uninstall ai-proxy-agent-py`), or another folder (`--prefix`).
+
+| `uninstall.sh` | `uninstall.ps1` | What it does |
+|---|---|---|
+| `--only agent` or `--only agent-machine` | `-Only` | Remove just one of them (default: both). |
+| `--prefix DIR` | `-Prefix DIR` | The folder they're in (default: `/usr/local/bin` as root, else `~/.local/bin`; `%LOCALAPPDATA%\Programs\agent-proxy` on Windows). |
+| `--purge` | `-Purge` | Also sign out and delete settings, sign-ins, logs and caches. |
+
+Without `--purge`, sign-ins and settings stay, so reinstalling picks up where you left off. Containers agent-machine ran, and the models it pulled, stay too. The machine stays in the server's fleet list until someone removes it there (the machine's page, **Remove from this server**; see [Machines](machines.md#removing-and-restoring-a-machine)). On Windows, a program that's still in use (an agent running through `agent.exe`) can't be deleted: the script says which, so close it and run the script again.
 
 ### Native packages
 

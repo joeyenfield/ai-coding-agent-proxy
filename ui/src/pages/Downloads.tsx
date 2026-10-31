@@ -19,6 +19,7 @@ const KIND_LABELS: Record<DownloadKind, string> = {
   pkg: "macOS installer (.pkg)",
   binary: "Program",
   installer: "Install script",
+  uninstaller: "Uninstall script",
   android: "Android app (.apk)",
   wheel: "Python wheel (.whl)",
 };
@@ -178,7 +179,7 @@ export function DownloadsPage({ standalone = false }: { standalone?: boolean }) 
           ))}
           <details className="manual">
             <summary>The programs on their own</summary>
-            <FileTable files={own.filter((file) => file.kind === "binary" || file.kind === "installer")} server={server} onCopy={copy} />
+            <FileTable files={own.filter((file) => ["binary", "installer", "uninstaller"].includes(file.kind))} server={server} onCopy={copy} />
           </details>
         </section>
       )}
@@ -207,6 +208,20 @@ export function DownloadsPage({ standalone = false }: { standalone?: boolean }) 
             </p>
           </div>
           <FileTable files={python} server={server} onCopy={copy} />
+        </section>
+      )}
+
+      {index.data && (
+        <section className="panel" aria-labelledby="downloads-uninstall">
+          <div className="panel-head">
+            <h2 id="downloads-uninstall">Uninstall</h2>
+            <p className="subtle">
+              Removes agent, agent-proxy and agent-machine from the computer, with agent-machine's service and the PATH entry. Sign-ins
+              and settings stay unless you add <code>--purge</code> (<code>-Purge</code> in PowerShell), which signs them out and
+              deletes them too. <code>--only agent</code> or <code>--only agent-machine</code> removes one of them.
+            </p>
+          </div>
+          <OneLineUninstall server={server} />
         </section>
       )}
 
@@ -341,13 +356,22 @@ function packageCommand(file: DownloadFile, server: string): string | null {
 /** Where other computers reach this server: its configured address, unless that's loopback and the browser isn't. */
 /** The one-line installers this server writes for itself, the browser's own system first. */
 export function OneLineInstall({ server, only, service }: { server: string; only?: "agent" | "agent-machine"; service?: boolean }) {
-  const copy = useClipboard();
   const shOptions = [only && `--only ${only}`, service && "--service"].filter(Boolean).join(" ");
   const psOptions = [only && `-Only ${only}`, service && "-Service"].filter(Boolean).join(" ");
   const sh = `curl -fsSL ${server}/install.sh | sh${shOptions ? ` -s -- ${shOptions}` : ""}`;
   const powershell = psOptions
     ? `& ([scriptblock]::Create((irm ${server}/install.ps1))) ${psOptions}`
     : `irm ${server}/install.ps1 | iex`;
+  return <OneLines sh={sh} powershell={powershell} />;
+}
+
+/** The uninstallers: the same file for every server, so they work whichever one installed the programs. */
+function OneLineUninstall({ server }: { server: string }) {
+  return <OneLines sh={`curl -fsSL ${server}/uninstall.sh | sh`} powershell={`irm ${server}/uninstall.ps1 | iex`} />;
+}
+
+function OneLines({ sh, powershell }: { sh: string; powershell: string }) {
+  const copy = useClipboard();
   const lines = [
     { label: "Linux, macOS, FreeBSD", command: sh },
     { label: "Windows (PowerShell)", command: powershell },

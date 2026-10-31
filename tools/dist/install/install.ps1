@@ -4,7 +4,8 @@
 #   powershell -ExecutionPolicy Bypass -File install.ps1              into %LOCALAPPDATA%\Programs\agent-proxy
 #   powershell -ExecutionPolicy Bypass -File install.ps1 -Prefix DIR  into DIR
 #   ... install.ps1 -Service      also start agent-machine when you sign in to Windows (a scheduled task)
-#   ... install.ps1 -Uninstall    remove them again, the task and the PATH entry (settings stay)
+#   ... install.ps1 -Uninstall    remove them again, the task and the PATH entry (settings stay;
+#                                 uninstall.ps1 beside it does it, and takes -Purge)
 param([string]$Prefix = "", [switch]$Service, [switch]$Uninstall)
 $ErrorActionPreference = "Stop"
 
@@ -28,25 +29,9 @@ function Stop-Machine {
     if ($stopped -and $stopped -notmatch "isn't running") { Write-Output $stopped }
 }
 
+# uninstall.ps1 beside this script does the removing, the same one the server serves.
 if ($Uninstall) {
-    if (Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue) {
-        Unregister-ScheduledTask -TaskName $task -Confirm:$false
-        Write-Output "Removed the scheduled task $task."
-    }
-    Stop-Machine
-    foreach ($program in $programs) {
-        $target = Join-Path $Prefix $program
-        if (Test-Path $target) { Remove-Item -Force $target; Write-Output "Removed $target" }
-        Remove-Item -Force -ErrorAction SilentlyContinue "$target.old"
-    }
-    $path = Get-UserPath
-    if (Test-OnPath $path $Prefix) {
-        $kept = ($path -split ";" | Where-Object { $_ -and ($_.TrimEnd("\") -ine $Prefix.TrimEnd("\")) }) -join ";"
-        [Environment]::SetEnvironmentVariable("Path", $kept, "User")
-        Write-Output "Removed $Prefix from your PATH."
-    }
-    if ((Test-Path $Prefix) -and -not (Get-ChildItem $Prefix -Force)) { Remove-Item $Prefix }
-    Write-Output "Settings and sign-ins are left in place; agent logout and agent-machine logout revoke them."
+    & (Join-Path $PSScriptRoot "uninstall.ps1") -Prefix $Prefix
     exit 0
 }
 

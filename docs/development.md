@@ -141,10 +141,10 @@ To release, change `VERSION`, commit, tag `vX.Y.Z`, and build the distributions.
 dist/<version>/
   SHA256SUMS                                        over every file below
   <os>-<arch>/
-    agent-<version>-<os>-<arch>.tar.gz              agent and agent-proxy, with install.sh (.zip and install.ps1 on Windows)
+    agent-<version>-<os>-<arch>.tar.gz              agent and agent-proxy, with install.sh and uninstall.sh (.zip, .ps1 on Windows)
     agent-machine-<version>-<os>-<arch>.tar.gz      agent-machine alone, for machines that only supply models
     *.deb, *.rpm, *.apk, *.pkg.tar.gz, *.msi, *.pkg with -packages
-    artifact/                                       the binaries and the installer script; agent update takes these
+    artifact/                                       the binaries and the scripts; agent update takes these
   android/agent-proxy-<version>.apk                 when a JDK and the Android SDK are found
   python/ai_proxy_agent_py-<version>-py3-none-any.whl
 ```

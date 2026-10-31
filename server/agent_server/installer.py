@@ -1,4 +1,5 @@
-"""The one-line installers: `curl -fsSL <server>/install.sh | sh` and `irm <server>/install.ps1 | iex`.
+"""The one-line installers: `curl -fsSL <server>/install.sh | sh` and `irm <server>/install.ps1 | iex`,
+and the uninstallers beside them (`/uninstall.sh`, `/uninstall.ps1`).
 
 Each is a template (install/install.sh, install/install.ps1) the server fills in for the
 request: its own address as the requester reached it, its build's version, and a table
@@ -9,6 +10,10 @@ runs the installer inside them, and signs the programs in to this server.
 What goes into the script comes from the request's Host header and the server's files,
 so it's checked to be plain URL and version characters before it's written in: a crafted
 Host can't put shell or PowerShell into it.
+
+The uninstallers aren't templates: they remove what's on the computer, whichever server
+put it there, so they're served as they are. tools/dist puts the same files in every
+archive, where install.sh --uninstall and install.ps1 -Uninstall run them.
 """
 
 from __future__ import annotations
@@ -44,4 +49,10 @@ def script(kind: str, server: str, downloads: Downloads) -> str:
             .replace("{{VERSION}}", version if SAFE_TEXT.fullmatch(version) else "unknown")
             .replace("{{FILES}}", "\n".join(lines)))
     # PowerShell reads a script fine with CRLF; sh needs LF.
+    return text.replace("\n", "\r\n") if kind == "ps1" else text
+
+
+def uninstaller(kind: str) -> str:
+    """The uninstaller for kind ("sh" or "ps1"), as it is in install/."""
+    text = (TEMPLATES / f"uninstall.{kind}").read_text(encoding="utf-8").replace("\r\n", "\n")
     return text.replace("\n", "\r\n") if kind == "ps1" else text

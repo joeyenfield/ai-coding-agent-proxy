@@ -214,6 +214,8 @@ All **Public**, so a new machine or a phone can get them before signing in. See 
 | GET | `/android` | The same redirect, a short address to type on a phone. Not in OpenAPI. |
 | GET | `/install.sh` | The one-line installer for Linux, macOS and FreeBSD, written for the address you reached the server at and its build's archives: `curl -fsSL <server>/install.sh \| sh`. |
 | GET | `/install.ps1` | The same for Windows: `irm <server>/install.ps1 \| iex`. |
+| GET | `/uninstall.sh` | The uninstaller for Linux, macOS and FreeBSD, the same file for every request and needing no build: `curl -fsSL <server>/uninstall.sh \| sh` (`-s -- --purge` also signs out and deletes settings). |
+| GET | `/uninstall.ps1` | The same for Windows: `irm <server>/uninstall.ps1 \| iex`. |
 
 ## The console
 

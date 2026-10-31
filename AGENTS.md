@@ -113,7 +113,8 @@ server/agent_server/        Python package (FastAPI)
   benchmark.py              `agent-benchmark` runner for benchmarks/tests/<name>/
   ui_build.py               Rebuilds ui/dist on start when UI sources are newer
   version.py downloads.py   The build's version and the protocol gate (426); the builds the server hands out (/downloads/)
-  installer.py install/     The one-line installers (/install.sh, /install.ps1): templates filled in with the server's address and its build's archives
+  installer.py install/     The one-line installers (/install.sh, /install.ps1): templates filled in with the server's address and its build's archives;
+                            uninstall.sh and uninstall.ps1, served as they are (/uninstall.sh, /uninstall.ps1) and copied into every archive by tools/dist
   openapi.py                /openapi.json, /docs, /redoc: tags each route by its module (TAGS), unique operation ids, sign-in schemes, the WebSockets in the description
   routes/compat.py          Agent-facing APIs: /v1, /anthropic, /api, plus /session/<id>/... versions
   routes/management.py      Console API: status, server stats, config (and /api/config/export|import|agents|models|storage), sessions, requests, traces, live, agents, models, intercept
@@ -163,7 +164,7 @@ machine/                    AGENT-MACHINE (Go module ai-coding-agent-proxy/machi
   internal/login/ process/  `agent-machine login`/`logout`; detaching, windowless runs, Alive/Stop for start/stop
   internal/update/          `agent-machine update` (and remote updates): the server's build, SHA-256 checked, swapped in beside the old one
 tools/                      build tooling (Go module ai-coding-agent-proxy/tools): dist/ builds and packs both Go components for every platform (targets and components live here)
-  dist/install/             install.sh (Linux, macOS, FreeBSD) and install.ps1 (Windows), embedded into every archive: copy onto PATH, --service, --uninstall
+  dist/install/             install.sh (Linux, macOS, FreeBSD) and install.ps1 (Windows), embedded into every archive: copy onto PATH, --service, --uninstall (runs the archive's uninstall script)
   dist/packages.go rpm.go   -packages: .deb, .apk, Arch and .rpm written in Go; .msi through wix, macOS .pkg through pkgbuild, each skipped without its tool
   dist/python.go            the Python client and machine (python/) as one wheel, written in Go from pyproject.toml, into dist/<version>/python/ (-python=false skips it)
   dist/android.go           the Android app's APK through Gradle, into dist/<version>/android/ (-android=false skips it; skipped without a JDK and SDK)

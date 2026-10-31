@@ -16,13 +16,14 @@
 //	dist/<version>/<os>-<arch>/agent-<version>-<os>-<arch>.zip      .tar.gz except on Windows
 //	dist/<version>/<os>-<arch>/agent-machine-<version>-<os>-<arch>.zip
 //	dist/<version>/<os>-<arch>/<component>-<version>-<os>-<arch>.msi  with -packages (.deb, .rpm, ...)
-//	dist/<version>/<os>-<arch>/artifact/             the binaries and the installer script
+//	dist/<version>/<os>-<arch>/artifact/             the binaries and the installer and uninstaller scripts
 //	dist/<version>/android/agent-proxy-<version>.apk the Android app (see android.go)
 //	dist/<version>/python/ai_proxy_agent_py-<version>-py3-none-any.whl  the Python agent and agent-machine (see python.go)
 //
 // Each component gets its own archive, so a machine that only supplies models gets
 // agent-machine alone, and each archive has the installer for its OS (install.sh, or
-// install.ps1 for Windows; see install/). -packages adds native packages beside the
+// install.ps1 for Windows; see install/) and the uninstaller (uninstall.sh or .ps1, the
+// server's own: server/agent_server/install/). -packages adds native packages beside the
 // archives (see packages.go). Building a version replaces its folder and leaves other
 // versions alone. The server hands a version's folder out (server/agent_server/downloads.py),
 // and `agent update` / `agent-machine update` take their binaries from artifact/. It's Go rather than shell so the archives are the same from any build
@@ -32,6 +33,7 @@ package main
 import (
 	"archive/tar"
 	"archive/zip"
+	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
 	_ "embed"
@@ -156,23 +158,27 @@ func run(root, out, version string, targets []string, components []Component, na
 			if err != nil {
 				return fmt.Errorf("%s for %s: %w", component.Name, target, err)
 			}
-			installer, script := "install.sh", installSh
+			installer, script, uninstaller := "install.sh", installSh, "uninstall.sh"
 			if goos == "windows" {
-				installer, script = "install.ps1", installPs1
+				installer, script, uninstaller = "install.ps1", installPs1, "uninstall.ps1"
 			}
 			if err := os.WriteFile(filepath.Join(artifacts, installer), script, 0o755); err != nil {
 				return err
 			}
-			for _, name := range append(names, installer) {
+			if err := writeUninstaller(root, artifacts, uninstaller); err != nil {
+				return err
+			}
+			scripts := append(names, installer, uninstaller)
+			for _, name := range scripts {
 				handed = appendNew(handed, folder+"/"+ArtifactDir+"/"+name)
 			}
 			archive := fmt.Sprintf("%s-%s-%s", component.Name, version, folder)
 			if goos == "windows" {
 				archive += ".zip"
-				err = writeZip(filepath.Join(dir, archive), artifacts, folder, append(names, installer))
+				err = writeZip(filepath.Join(dir, archive), artifacts, folder, scripts)
 			} else {
 				archive += ".tar.gz"
-				err = writeTarGz(filepath.Join(dir, archive), artifacts, folder, append(names, installer))
+				err = writeTarGz(filepath.Join(dir, archive), artifacts, folder, scripts)
 			}
 			if err != nil {
 				return fmt.Errorf("%s: %w", archive, err)
@@ -217,6 +223,21 @@ func run(root, out, version string, targets []string, components []Component, na
 	return nil
 }
 
+// writeUninstaller copies the uninstaller (uninstall.sh or uninstall.ps1) into folder. It's
+// the server's own file, which it also serves at /uninstall.sh and /uninstall.ps1, so an
+// archive and the one-liner remove the same things.
+func writeUninstaller(root, folder, name string) error {
+	data, err := os.ReadFile(filepath.Join(root, "server", "agent_server", "install", name))
+	if err != nil {
+		return err
+	}
+	if strings.HasSuffix(name, ".sh") {
+		// sh needs LF, whatever the checkout's line endings.
+		data = bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
+	}
+	return os.WriteFile(filepath.Join(folder, name), data, 0o755)
+}
+
 // appendNew adds value unless it's there: both components write the same installer.
 func appendNew(list []string, value string) []string {
 	for _, item := range list {
@@ -227,7 +248,7 @@ func appendNew(list []string, value string) []string {
 	return append(list, value)
 }
 
-// ArtifactDir is where a target's binaries and installer script go, beside the archives and packages made from them.
+// ArtifactDir is where a target's binaries and installer scripts go, beside the archives and packages made from them.
 const ArtifactDir = "artifact"
 
 // Folder is a target's folder name: os-arch, with 32-bit ARM named for the ARMv7 it's built for.

@@ -20,6 +20,8 @@ export default defineConfig({
       "/downloads": proxyTarget,
       "/install.sh": proxyTarget,
       "/install.ps1": proxyTarget,
+      "/uninstall.sh": proxyTarget,
+      "/uninstall.ps1": proxyTarget,
       "/android": proxyTarget,
     },
   },
