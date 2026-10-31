@@ -91,6 +91,29 @@ A new server starts with the hosted Anthropic API as its one provider. Local pro
 
 Authentication is always required. The first start on a new database creates an `admin` user with a random password. `docker compose logs agent-server` shows it, and it's saved as `first-user-password` in the certs volume. See [Accounts](accounts.md).
 
+### Images on ghcr.io
+
+GitHub Actions (`.github/workflows/images.yml`) builds the images and pushes them to the GitHub Container Registry, for `linux/amd64` and `linux/arm64` (a Raspberry Pi), so a server can pull them instead of building:
+
+| Image | Built from | What it is |
+|---|---|---|
+| `ghcr.io/joeyenfield/agent-server` | `server/Dockerfile` | agent-server and its console; agent-auth is the same image with `entrypoint: [agent-auth]` |
+| `ghcr.io/joeyenfield/agent-sandbox` | `sandbox/Dockerfile` | A fleet machine in a container, with the coding agents ([Machines](machines.md)) |
+| `ghcr.io/joeyenfield/ai-control-mesh-site` | `site/Dockerfile` | The brochure website |
+
+| Pushed | Tags |
+|---|---|
+| A tag `v2.0.1` | `2.0.1`, `2.0`, `latest` |
+| `master` | `master`, `sha-<commit>` |
+
+Each image's version (what `/health` reports) is the build's, `2.0.1` on its tag or `2.0.1+<commit>` otherwise, the same as a build on your computer. The standalone console (`ui/Dockerfile`) isn't published: it's built with its API's address (`VITE_API_URL`), so each deployment builds its own. **Run workflow** on the workflow's Actions page builds a branch or tag by hand.
+
+```bash
+docker pull ghcr.io/joeyenfield/agent-server:2.0.1
+```
+
+The server still hands out the agent and agent-machine builds from its `dist/` folder, which the image doesn't contain: mount it as before (`/app/dist`).
+
 ## PostgreSQL
 
 `compose.yaml` runs PostgreSQL 17 as the `postgres` service, with no published port: only `agent-server` and `agent-auth` reach it. Set three passwords in `.env` beside `compose.yaml` before the first start, using letters and digits:
