@@ -1,6 +1,6 @@
 # AI Control Mesh: documentation
 
-Run terminal coding agents (Claude Code, GitHub Copilot CLI, OpenAI Codex, Qwen Code, OpenCode, Aider, Goose) through one server and see their requests. Every model call is recorded with its prompt, reply, tokens and timing. For agents signed in to their own accounts, allowed requests to public services are recorded too: sign-in, settings, MCP, telemetry, update checks. Private and reserved IP destinations are refused. The same server gives agents your own models on your own machines, shares MCP servers between machines, and lets you watch and type into running agents from a browser or a phone.
+Run terminal coding agents (Claude Code, GitHub Copilot CLI, OpenAI Codex, Qwen Code, OpenCode, Aider, Goose) through one server and see their requests. Model-call metadata, tokens and timing are recorded; enable full tracing to save prompts and replies. For agents signed in to their own accounts, allowed requests to public services are recorded too: sign-in, settings, MCP, telemetry, update checks. Private and reserved IP destinations are refused. The same server gives agents your own models on your own machines, shares MCP servers between machines, and lets you watch and type into running agents from a browser or a phone.
 
 ![The console's Overview](screenshots/overview.png)
 
@@ -133,6 +133,8 @@ Everyone signs in through OIDC, including on loopback. Sessions are private unti
 | Local demo: server, two machines and Ollama | `podman compose -f quickstart/compose.yaml up -d` (or `docker compose`) | Sign in as admin / secret on localhost:19999 | [Quickstart](quickstart.md) |
 | Benchmarks | `agent-benchmark` | | [Configuration](configuration.md#agent-benchmark) |
 | The API | | Server settings › API reference (`/docs`) | [API](api.md) |
+
+For maintaining the public brochure, see [Marketing website](website.md): local preview, browser checks, asset provenance, and verified product claims.
 
 ## Glossary
 

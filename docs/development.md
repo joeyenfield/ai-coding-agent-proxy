@@ -93,6 +93,8 @@ Each server test file has `make_app(tmp_path, handler, ...)` and `close_app(...)
 
 ## The demo and screenshots
 
+The separate public brochure in `site/` has its own [preview and browser checks](website.md). It uses existing isolated-demo screenshots; changing the brochure does not require rebuilding the console.
+
 ```bash
 python scripts/screenshots/demo.py                                    # leave it running
 node scripts/screenshots/capture.mjs http://127.0.0.1:8199 docs/screenshots [name,...]

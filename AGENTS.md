@@ -189,7 +189,7 @@ compose.yaml .dockerignore  PostgreSQL, the site, agent-auth and server in Docke
                             the standalone console (--profile console) and the sandbox (--profile sandbox)
 ui/Dockerfile ui/nginx.conf The standalone console's image for split hosting (built with VITE_API_URL)
 quickstart/                 Local Podman/Docker Compose demo: server, issuer, two fleet machines, Ollama on machine-1; admin/secret, loopback ports 19999/20000
-site/                       the static public brochure website, served separately from the console (its own Dockerfile and nginx.conf)
+site/                       the static public brochure website, served separately from the console (its own Dockerfile and nginx.conf); site.js enhances menu/copy controls, assets/ holds branding and SEO images, and the image copies selected docs/screenshots/ captures. Preview/check it with scripts/site/ (docs/website.md).
 sandbox/                    agent-sandbox's Dockerfile and entrypoint: agent + agent-machine + npm coding agents; signs in from env, launches on for /workspace only
 scripts/https/              setup-https.ps1 (Windows: nginx + win-acme for Let's Encrypt, firewall, startup task) and the templates it fills in (nginx.conf.template, nginx-https.conf.template)
 scripts/                    build-client.ps1/.sh, build-machine.ps1/.sh, build-dist.ps1/.sh (every platform, via tools/dist), agent.ps1/.sh (build and run the client), dev.ps1/.sh, deploy.ps1/.sh + deploy-remote.sh (local only, gitignored: release to the server's computer over ssh: push, build-dist, copy, waits for the commit's images on ghcr.io, then docker compose pull and up -d there; AI_PROXY_DEPLOY_*), start-ollama.sh, screenshots/ (demo.py, traffic.py, capture.mjs)
