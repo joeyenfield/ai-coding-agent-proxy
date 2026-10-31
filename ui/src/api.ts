@@ -127,7 +127,8 @@ export interface ContainerHost {
   error: string | null;
   engines: ContainerEngine[];
   /** Whether you may create containers on it: it's yours. */
-  you: { owner: boolean };
+  /** manage: may create, change and remove containers there (its owner, and site admins). */
+  you: { owner: boolean; manage?: boolean };
 }
 
 export interface ContainersOverview {
@@ -539,7 +540,8 @@ export interface FleetMachine {
   last_seen: number;
   history: FleetLaunch[];
   /** What you may do there: each feature (MachineFeature), and manage (set who can use it, remove it). */
-  you: { owner: boolean; manage?: boolean } & Partial<Record<MachineFeature, boolean>> & { launch: boolean };
+  /** containers: may create, change and remove containers there (its owner, and site admins). */
+  you: { owner: boolean; manage?: boolean; containers?: boolean } & Partial<Record<MachineFeature, boolean>> & { launch: boolean };
   /** Who else may use each feature: only for those who can change it. */
   access?: MachineAccess;
   /** Whether it lets the server update its programs to the server's build (agent-machine updates on). */

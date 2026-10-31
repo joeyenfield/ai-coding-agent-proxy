@@ -120,7 +120,10 @@ class Identity:
 
 
 def same_tenant(identity: Identity | None, tenant: str | None) -> bool:
-    """Whether something of this tenant is identity's to reach at all. Anything without a tenant is nobody's."""
+    """Whether something of this tenant is identity's to reach at all. Anything without a tenant is nobody's,
+    except a site admin's: site admins reach every tenant, to look after the whole server."""
+    if identity is not None and identity.site_admin:
+        return True
     return identity is not None and bool(tenant) and identity.tenant == tenant
 
 

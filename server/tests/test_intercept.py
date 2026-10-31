@@ -337,7 +337,10 @@ async def test_listener_requires_oauth_and_an_open_session_the_user_controls(int
     from agent_server.auth import UserStore
 
     runtime, session, client, _, port = intercept
-    UserStore(runtime.settings.open_database()).add_user("joey", "correct horse", role="admin")
+    store = UserStore(runtime.settings.open_database())
+    store.add_org("elsewhere")
+    # Someone who may not control the session (a site admin may control every one).
+    store.add_user("joey", "correct horse", tenant="elsewhere")
 
     async def connect(authorization: str | None, token: str | None = None) -> bytes:
         reader, writer = await asyncio.open_connection("127.0.0.1", port)

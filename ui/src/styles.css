@@ -842,6 +842,8 @@ details.collapsible > summary::-webkit-details-marker { display: none; }
 .terminal-card-head a { font-size: 16px; overflow-wrap: anywhere; }
 .terminal-card-meta { font-size: 12.5px; overflow-wrap: anywhere; }
 .terminal-card .button { align-self: flex-start; }
+.terminal-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.terminal-card .terminal-actions .button { align-self: auto; }
 .terminal-view { display: flex; flex-direction: column; gap: 10px; }
 .terminal-view[hidden] { display: none; }
 .terminal-view .banner { margin: 0; max-width: none; }

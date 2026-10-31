@@ -16,7 +16,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 from .. import auth, containers, remote
-from ..fleet import FleetError, can_see, owns
+from ..fleet import FleetError, can_see, owns, runs_containers
 from ..runtime import Runtime
 
 
@@ -48,7 +48,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         if machine is None or not can_see(identity, machine):
             raise HTTPException(status_code=404, detail="No such machine")
         # Containers stay the owner's (and admins', through ADMIN_ONLY): docker run is root on the machine.
-        if not owns(identity, machine):
+        if not runs_containers(identity, machine):
             raise HTTPException(status_code=403, detail=f"Only {machine.owner or 'its owner'} can run containers on {machine.name}.")
         if not fleet.connected(machine.id):
             raise HTTPException(status_code=409, detail=f"{machine.name} isn't connected: start agent-machine there (agent-machine start).")
@@ -69,7 +69,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
                 continue
             hosts.append({
                 "id": machine.id, "name": machine.name, "connected": fleet.connected(machine.id),
-                "owner": machine.owner, "you": {"owner": owns(identity, machine)},
+                "owner": machine.owner, "you": {"owner": owns(identity, machine), "manage": runs_containers(identity, machine)},
                 **{key: machine.containers.get(key) for key in ("enabled", "cli", "found", "online", "version", "error")},
                 "engines": machine.containers.get("engines") or [],
             })

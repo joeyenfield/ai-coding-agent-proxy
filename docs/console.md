@@ -102,6 +102,8 @@ To start an agent on one of your machines from the console instead, use **Start 
 
 Ended terminals stay listed with their exit status until their session is deleted.
 
+A terminal that isn't connected (its launcher closed, or the agent exited) has **Remove**, for those who can control its session. It deletes the session with everything recorded for it: its terminal output, requests, traces and chats. **Remove N not connected** at the top does it for every one at once. A terminal still connected, or with a request in flight, can't be removed.
+
 ### A terminal
 
 ![A shared terminal](screenshots/terminal.png)

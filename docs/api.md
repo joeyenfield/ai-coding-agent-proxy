@@ -30,7 +30,7 @@ With [separate hosting](deployment.md#separate-console-and-api-domains), all the
 
 Every protected path requires authentication, including agent session paths and loopback. Exceptions are `/health` and `/api/auth/{status,login,callback,refresh,logout}`. Refused credentials get 401; forbidden origins/roles get 403; issuer failures get 503. WebSockets initially close 4401/4403 and close 4410 when an established credential needs renewal.
 
-Everything belongs to one organization (tenant): users, machines, providers, sessions and their records. No endpoint reaches another organization's, site admins included; they answer `404` as if missing, and lists leave them out. Every endpoint that touches a session checks its sharing (see [Accounts](accounts.md)). A session you can't see answers `404`.
+Everything belongs to one organization (tenant): users, machines, providers, sessions and their records. No endpoint reaches another organization's; they answer `404` as if missing, and lists leave them out. Site admins are the exception: they see and control everything in every organization, private sessions included. Every endpoint that touches a session checks its sharing (see [Accounts](accounts.md)). A session you can't see answers `404`.
 
 **Versions.** `agent` and `agent-machine` send `X-AI-Proxy-Version` and `X-AI-Proxy-Protocol` with every request. A protocol outside the server's `MIN_PROTOCOL..PROTOCOL` gets `426 Upgrade Required` with how to update (WebSockets close with `4426`). Requests without the header, such as browsers', aren't checked.
 

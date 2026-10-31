@@ -459,7 +459,7 @@ Every session belongs to whoever started it and is private until they share it. 
 
 | `--share` | Who sees it |
 |---|---|
-| `private` (default) | Only you. Admins can't either. |
+| `private` (default) | Only you. Your organization's admins can't either; site admins, who look after the whole server, can. |
 | `team` | The members of one of your teams. Name it with `--team org/team` if you're in several. |
 | `org` | Everyone in one of your organizations. Name it with `--team org` if you're in several. |
 

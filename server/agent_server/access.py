@@ -67,6 +67,9 @@ def in_tenant(identity: Identity | None, session: Session) -> bool:
 def can_view(identity: Identity | None, session: Session) -> bool:
     if identity is None or not in_tenant(identity, session):
         return False
+    if identity.site_admin:
+        # Site admins see and control every session, private ones included, to look after the server.
+        return True
     shared = sharing(session)
     if shared["owner"] is None:
         return identity.admin
@@ -81,6 +84,8 @@ def can_control(identity: Identity | None, session: Session) -> bool:
     """Type into its terminal, end it, change capture, clear or delete it."""
     if identity is None or not in_tenant(identity, session):
         return False
+    if identity.site_admin:
+        return True
     shared = sharing(session)
     if shared["owner"] is None:
         return identity.admin

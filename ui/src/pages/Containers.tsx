@@ -376,7 +376,7 @@ function AddContainer({ overview, host: machine }: { overview: ContainersOvervie
   // Containers can be added on your own machine, connected, with containers on, by an admin of its organization
   // (docker run is root there). The server lists only machines in your organization.
   const orgAdmin = useAuth().data?.identity?.role === "admin";
-  const host = machine.enabled && machine.connected && machine.you.owner && orgAdmin && machine.engines.length ? machine : undefined;
+  const host = machine.enabled && machine.connected && (machine.you.manage ?? machine.you.owner) && orgAdmin && machine.engines.length ? machine : undefined;
   const [engineId, setEngineId] = useState("strata");
   const engines = host?.engines ?? [];
   const engine = engines.find((item) => item.id === engineId) ?? engines[0];

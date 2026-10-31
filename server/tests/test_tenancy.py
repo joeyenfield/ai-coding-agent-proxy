@@ -1,8 +1,8 @@
 """Tenants: every organization is one, under the root, and nothing crosses between them.
 
 Users, machines, providers (backends), sessions and their recordings each belong to one tenant.
-Site admins (the root organization's) run the server and set organizations up, but see nothing
-inside another one; an organization's admins manage only their own.
+Site admins (the root organization's) run the server and set organizations up, and see and control
+everything in every one, to look after the server; an organization's admins manage only their own.
 """
 
 from __future__ import annotations
@@ -93,9 +93,9 @@ def test_sessions_never_cross_tenants(tmp_path):
         session = created.json()
         assert session["tags"]["tenant"] == "acme" and session["tags"]["org"] == "acme"
         session_id = session["session_id"]
-        # Everyone in acme sees an organization-wide session; nobody else does, site admins included.
+        # Everyone in acme sees an organization-wide session; no other organization's people do.
         assert dave.get(f"/api/sessions/{session_id}").status_code == 200
-        for outsider in (frank, gina, site):
+        for outsider in (frank, gina):
             assert outsider.get(f"/api/sessions/{session_id}").status_code == 404
             assert session_id not in {item["session_id"] for item in outsider.get("/api/sessions").json()}
             assert outsider.get("/api/requests", params={"session_id": session_id}).status_code == 404
@@ -105,9 +105,17 @@ def test_sessions_never_cross_tenants(tmp_path):
         assert alice.patch(f"/api/sessions/{session_id}", json={"visibility": "org", "org": "globex"}).status_code == 400
         planted = alice.post("/api/sessions", json={"client": "x", "tags": {"tenant": "globex", "owner": "frank"}}).json()
         assert planted["tags"]["tenant"] == "acme" and planted["tags"]["owner"] == "alice"
-        # Delete all only reaches the caller's tenant.
+        # Delete all only reaches the caller's own sessions, a site admin's too.
         site.delete("/api/sessions")
         assert dave.get(f"/api/sessions/{session_id}").status_code == 200
+        # Site admins see and control every session, private ones in other organizations included.
+        private = alice.post("/api/sessions", json={"client": "x"}).json()["session_id"]
+        assert dave.get(f"/api/sessions/{private}").status_code == 404
+        assert site.get(f"/api/sessions/{private}").status_code == 200
+        assert {session_id, private} <= {item["session_id"] for item in site.get("/api/sessions").json()}
+        assert site.get(f"/api/sessions/{private}").json()["you"]["control"] is True
+        assert site.delete(f"/api/sessions/{private}").status_code == 200
+        assert alice.get(f"/api/sessions/{private}").status_code == 404
 
 
 def test_a_session_without_a_tenant_is_nobodys(tmp_path):
@@ -115,8 +123,9 @@ def test_a_session_without_a_tenant_is_nobodys(tmp_path):
     site, dave = signed_in(app, "site"), signed_in(app, "dave")
     with site, dave:
         stray = app.state.runtime.sessions.create({"client": "x", "backend": "hosted", "tags": {"owner": "dave", "visibility": "org"}})
-        for client in (site, dave):
-            assert client.get(f"/api/sessions/{stray.session_id}").status_code == 404
+        assert dave.get(f"/api/sessions/{stray.session_id}").status_code == 404
+        # Only a site admin reaches it, to clean it up.
+        assert site.get(f"/api/sessions/{stray.session_id}").status_code == 200
 
 
 def test_machines_and_their_providers_stay_in_their_tenant(tmp_path):
@@ -126,7 +135,7 @@ def test_machines_and_their_providers_stay_in_their_tenant(tmp_path):
         welcome(socket, hello())
         assert app.state.runtime.fleet.machines["m1"].tenant == "acme"
         assert dave.get("/api/machines/m1").json()["tenant"] == "acme"
-        for outsider in (frank, gina, site):
+        for outsider in (frank, gina):
             assert outsider.get("/api/machines").json()["machines"] == []
             assert outsider.get("/api/machines/m1").status_code == 404
             assert outsider.post("/api/machines/m1/providers/adopt", json={"type": "ollama"}).status_code in (403, 404)
@@ -147,7 +156,7 @@ def test_machines_and_their_providers_stay_in_their_tenant(tmp_path):
         assert name in alice.get("/api/status").json()["backends"]
         assert "hosted" in frank.get("/api/status").json()["backends"]
         assert name not in frank.get("/api/status").json()["backends"]
-        assert name not in site.get("/api/status").json()["backends"]
+        assert name in site.get("/api/status").json()["backends"]
         assert all(name not in agent["backends"] for agent in frank.get("/api/agents").json())
         assert any(name in agent["backends"] for agent in alice.get("/api/agents").json())
         assert name not in frank.get("/api/models").json()["backends"]
@@ -162,6 +171,12 @@ def test_machines_and_their_providers_stay_in_their_tenant(tmp_path):
         assert refused.status_code == 400
         # Its containers are acme's too.
         assert frank.get("/api/containers").json() == {"machines": [], "containers": []}
+        # A site admin sees the machine, may use all of it, and may remove it.
+        you = site.get("/api/machines/m1").json()["you"]
+        assert you["manage"] and you["containers"] and all(you[feature] for feature in ("view", "launch", "terminal", "models", "servers", "update", "mcp"))
+        assert [item["id"] for item in site.get("/api/containers").json()["machines"]] == ["m1"]
+        assert site.delete("/api/machines/m1").status_code == 200
+        assert [item["id"] for item in site.get("/api/machines").json()["removed"]] == ["m1"]
 
 
 def test_removed_machines_are_restored_only_inside_their_tenant(tmp_path):

@@ -407,7 +407,7 @@ function MachineSummary({ machine, providers }: { machine: FleetMachine; provide
             name="Containers"
             tab={machine.containers.enabled ? "containers" : undefined}
             on={Boolean(machine.containers.enabled)}
-            you={machine.you.owner}
+            you={machine.you.containers ?? machine.you.owner}
             detail={machine.containers.enabled ? `${machine.containers.cli ?? "docker"}${machine.containers.online ? "" : ", not answering"} · its owner runs them, if an admin of its organization` : off("agent-machine containers on")}
           />
           <Feature machine={machine} name="Updates from here" on={Boolean(machine.updates)} you={machine.you.update} detail={machine.updates ? "Update now, when it's on another build than this server" : off("agent-machine updates on")} />

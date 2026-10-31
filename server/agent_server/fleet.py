@@ -22,12 +22,13 @@ Running containers on a machine is as powerful as a shell there, so it's off unt
 
 Every machine belongs to one tenant (organization): that of the user who registered it, set when
 it first connects and never changed. Nobody outside that tenant sees it or uses anything it runs,
-site admins included, and its model servers are backends only that tenant's agents can use.
+except site admins (who may use every feature of every machine, to look after the server), and its
+model servers are backends only that tenant's agents (and site admins) can use.
 
 Starting an agent on a machine runs a program there as its owner, so:
   - the machine has to switch it on itself (`agent-machine launches on`), and lists the
     folders agents may start in (`agent-machine roots add <dir>`);
-  - only the machine's owner can start agents on it, not admins;
+  - only the machine's owner (and those it grants, and site admins) can start agents on it, not its tenant's admins;
   - the folder is checked here and again on the machine;
   - every launch is recorded with who asked, and the session it opened.
 """
@@ -157,7 +158,8 @@ def allowed(identity: Identity | None, machine: Machine, feature: str) -> bool:
     Any grant includes seeing the machine. No identity may use nothing."""
     if identity is None or not same_tenant(identity, machine.tenant):
         return False
-    if owns(identity, machine):
+    # Site admins may use every feature of every machine; the machine's own switches (launches on, ...) still apply.
+    if owns(identity, machine) or identity.site_admin:
         return True
     if identity.admin and feature in ADMIN_FEATURES:
         return True
@@ -167,8 +169,14 @@ def allowed(identity: Identity | None, machine: Machine, feature: str) -> bool:
 
 
 def can_manage(identity: Identity | None, machine: Machine) -> bool:
-    """Who sets a machine's grants: its owner, or an admin of its tenant."""
+    """Who sets a machine's grants: its owner, or an admin of its tenant (site admins: of every one)."""
     return owns(identity, machine) or bool(identity and identity.admin and same_tenant(identity, machine.tenant))
+
+
+def runs_containers(identity: Identity | None, machine: Machine) -> bool:
+    """Who may create, change and remove containers on a machine (with ADMIN_ONLY on top): `docker run` is root
+    there, so its owner, and site admins, who may use everything on every machine."""
+    return owns(identity, machine) or bool(identity and identity.site_admin)
 
 
 def can_see(identity: Identity | None, machine: Machine) -> bool:
@@ -566,7 +574,7 @@ class Fleet:
             "backends": sorted(name for name, backend in backends.items() if backend.machine == machine.id),
             "history": [record for record in machine.history if self._visible_launch(record, identity)][-10:],
             # What the console may offer this user here: each feature, and managing the machine itself.
-            "you": {"owner": owns(identity, machine), "manage": can_manage(identity, machine), **{feature: allowed(identity, machine, feature) for feature in FEATURES}},
+            "you": {"owner": owns(identity, machine), "manage": can_manage(identity, machine), "containers": runs_containers(identity, machine), **{feature: allowed(identity, machine, feature) for feature in FEATURES}},
             # Who else may use what: only for those who set it.
             "access": machine.access if can_manage(identity, machine) else {},
             # A machine on another build than the server's updates itself from the server's downloads.

@@ -24,7 +24,7 @@ flowchart TD
 - **A user belongs to one organization, for good.** They're made in it and can't join another or be moved. To give someone access to another organization, add them there as a new user.
 - **A machine belongs to the organization of the user who signed it in** (`agent-machine login`), from the first time it connects. Another organization's user can't take over its id.
 - **A provider belongs to its machine's organization.** A model server added as a provider, and a container a machine runs, can only be used by that organization's agents. Other organizations don't see it in their agents' backends, `/api/models` or `/api/status`, and naming it (`--backend`, `X-AI-Proxy-Backend`) answers as an unknown backend. Hosted APIs (Anthropic) are the exception: site admins add them in **Server settings** for everyone, and agents bring their own credentials to them. A model server added before machines did this belongs to the root.
-- **A session belongs to its owner's organization**, and so do its request records, traces, chats, live traffic and terminal. The server sets it; clients can't. Nobody outside it sees or controls the session, site admins included.
+- **A session belongs to its owner's organization**, and so do its request records, traces, chats, live traffic and terminal. The server sets it; clients can't. Nobody outside it sees or controls the session, except site admins.
 
 ## Users, roles and teams
 
@@ -32,7 +32,7 @@ flowchart TD
 |---|---|
 | **User** | Someone who signs in, in one organization. Names use lowercase letters, numbers, `.`, `_` and `-`, up to 40 characters, and are unique on the server. Passwords need at least 8 characters. |
 | **Role** | Within the user's organization: `admin` manages it (its users, teams, and the admin side of its machines); `member` uses it. An organization's last admin can't be made a member or removed while others remain. |
-| **Site admin** | An admin of the root organization. Site admins run the server (its settings, agents, model tuning, restarts) and set organizations up: they make and remove organizations and add users to any of them. They don't see what's inside another organization: its sessions, machines or providers. The root takes only admins. |
+| **Site admin** | An admin of the root organization. Site admins run the server (its settings, agents, model tuning, restarts) and set organizations up: they make and remove organizations and add users to any of them. They also see and control everything inside every organization, to look after the server: its sessions (private ones included: their traffic, chats and terminals), machines (every feature, as their owner could, and removing them) and providers. The machines' own switches (`agent-machine launches on`, ...) still apply. The root takes only admins. |
 | **Team** | A group of an organization's users, named `<org>/<team>`. Only users of that organization can join it. |
 
 Members see their own organization and the people in it. Its admins change them. Site admins see every organization and user.
@@ -105,7 +105,7 @@ Whoever starts a session owns it and decides who else gets it. The sharing lives
 
 | Setting | Values |
 |---|---|
-| Visibility | `private`: only the owner, admins included. `team`: members of one of the owner's teams. `org`: everyone in the owner's organization. Never anyone in another organization. |
+| Visibility | `private`: only the owner (and site admins); not the organization's admins. `team`: members of one of the owner's teams. `org`: everyone in the owner's organization. Never anyone in another organization. |
 | Access | `view`: others read its traffic and watch its terminal. `control`: they can also type into its terminal, end it, switch capture, and clear or delete it. |
 
 From the launcher:
@@ -132,7 +132,7 @@ Terminal viewers use their current sign-in and memberships. Removing a user's ac
 revoking their token, signing them out or resetting their browser sign-in stops further
 terminal input and output. An idle viewer is disconnected within about one second.
 
-A machine belongs to whoever signed it in with `agent-machine login`, and to their organization. Nobody outside that organization can see or use it. Its owner (or an admin of its organization) can let the whole organization, or its teams, use each of its features: `view`, `launch`, `terminal`, `models`, `servers`, `update` and `mcp`. Any grant includes `view`. Grants never name another organization. The organization's admins can always `view`, manage `models` and `update` a machine; starting agents, terminals and MCP servers there needs a grant even for them. Members can grant only teams they're in.
+A machine belongs to whoever signed it in with `agent-machine login`, and to their organization. Nobody outside that organization can see or use it, except site admins, who may use and remove any machine. Its owner (or an admin of its organization) can let the whole organization, or its teams, use each of its features: `view`, `launch`, `terminal`, `models`, `servers`, `update` and `mcp`. Any grant includes `view`. Grants never name another organization. The organization's admins can always `view`, manage `models` and `update` a machine; starting agents, terminals and MCP servers there needs a grant even for them. Members can grant only teams they're in.
 
 Containers stay the owner's (and their organization's admins'). See [Machines](machines.md) for the details and the **Access** tab.
 

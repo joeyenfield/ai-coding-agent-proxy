@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type TerminalSummary } from "../api";
 import { NotifyToggle } from "../components/Attention";
+import { ConfirmDialog } from "../components/ConfirmDialog";
+import { useToast } from "../hooks";
 import { PartTag } from "../components/PartTag";
 import { SharingBadge } from "../components/Sharing";
 import { formatRelative } from "../format";
@@ -49,6 +51,9 @@ function duration(ms: number) {
   return minutes < 60 ? `${minutes} min` : `${Math.round(minutes / 60)} h`;
 }
 
+/** A terminal whose launcher is gone, which you may delete with its session. */
+const removable = (terminal: TerminalSummary) => !terminal.connected && terminal.in_flight === 0 && terminal.you?.control === true;
+
 const byRecent = (a: TerminalSummary, b: TerminalSummary) =>
   (b.last_output_at ?? b.started_at ?? "").localeCompare(a.last_output_at ?? a.started_at ?? "");
 
@@ -57,9 +62,31 @@ export function TerminalsPage() {
   const trusted = remote.data?.trusted === true;
   const terminals = useQuery({ queryKey: ["terminals"], queryFn: api.terminals, refetchInterval: 3000, enabled: trusted });
   const [showEnded, setShowEnded] = useState(false);
+  // The terminals to delete, with their sessions: one card's, or every disconnected one.
+  const [removing, setRemoving] = useState<TerminalSummary[] | null>(null);
+  const client = useQueryClient();
+  const notify = useToast();
   const all = terminals.data?.terminals ?? [];
   const running = all.filter((item) => !(item.ended_at ?? item.session_ended_at)).sort(byRecent);
   const ended = all.filter((item) => item.ended_at ?? item.session_ended_at).sort(byRecent);
+  const disconnected = all.filter(removable);
+  const remove = useMutation({
+    mutationFn: async (targets: TerminalSummary[]) => {
+      const results = await Promise.allSettled(targets.map((terminal) => api.deleteSession(terminal.session_id)));
+      const failed = results.filter((result) => result.status === "rejected").length;
+      if (failed === targets.length) throw (results[0] as PromiseRejectedResult).reason;
+      return { removed: targets.length - failed, failed };
+    },
+    onSuccess: ({ removed, failed }) => {
+      notify(`Removed ${removed} ${removed === 1 ? "session" : "sessions"}${failed ? `; ${failed} couldn't be removed` : ""}`);
+      setRemoving(null);
+      void client.invalidateQueries();
+    },
+  });
+  const ask = (targets: TerminalSummary[]) => {
+    remove.reset();
+    setRemoving(targets);
+  };
 
   return (
     <div className="page">
@@ -79,13 +106,20 @@ export function TerminalsPage() {
         <section className="section" aria-labelledby="running-heading">
           <div className="section-head">
             <h2 id="running-heading">Running now</h2>
-            <NotifyToggle />
+            <div className="terminal-actions">
+              {disconnected.length > 1 && (
+                <button type="button" onClick={() => ask(disconnected)}>
+                  Remove {disconnected.length} not connected
+                </button>
+              )}
+              <NotifyToggle />
+            </div>
           </div>
           {terminals.isError && <p className="bad">{terminals.error.message}</p>}
           {running.length ? (
             <ul className="terminal-list">
               {running.map((terminal) => (
-                <TerminalCard key={terminal.session_id} terminal={terminal} />
+                <TerminalCard key={terminal.session_id} terminal={terminal} onRemove={() => ask([terminal])} />
               ))}
             </ul>
           ) : (
@@ -108,7 +142,7 @@ export function TerminalsPage() {
               {showEnded && (
                 <ul className="terminal-list">
                   {ended.map((terminal) => (
-                    <TerminalCard key={terminal.session_id} terminal={terminal} />
+                    <TerminalCard key={terminal.session_id} terminal={terminal} onRemove={() => ask([terminal])} />
                   ))}
                 </ul>
               )}
@@ -116,11 +150,29 @@ export function TerminalsPage() {
           )}
         </section>
       )}
+
+      <ConfirmDialog
+        open={removing !== null}
+        title={removing?.length === 1 ? "Remove this session?" : `Remove ${removing?.length ?? 0} sessions?`}
+        confirmLabel="Remove"
+        busy={remove.isPending}
+        error={remove.error?.message ?? null}
+        onConfirm={() => removing && remove.mutate(removing)}
+        onCancel={() => setRemoving(null)}
+      >
+        <p>
+          {removing?.length === 1
+            ? `${removing[0].agent_name}${removing[0].project ? ` in ${removing[0].project}` : ""} isn't connected.`
+            : "These agents' terminals aren't connected."}{" "}
+          Removing deletes {removing?.length === 1 ? "the session" : "the sessions"} with everything recorded: the terminal output,
+          requests, traces and chats. It can't be undone.
+        </p>
+      </ConfirmDialog>
     </div>
   );
 }
 
-function TerminalCard({ terminal }: { terminal: TerminalSummary }) {
+function TerminalCard({ terminal, onRemove }: { terminal: TerminalSummary; onRemove: () => void }) {
   const state = terminalState(terminal);
   const path = `/terminals/${encodeURIComponent(terminal.session_id)}`;
   return (
@@ -139,9 +191,16 @@ function TerminalCard({ terminal }: { terminal: TerminalSummary }) {
           .filter(Boolean)
           .join(" · ")}
       </p>
-      <Link to={path} className="button">
-        Open terminal
-      </Link>
+      <div className="terminal-actions">
+        <Link to={path} className="button">
+          Open terminal
+        </Link>
+        {removable(terminal) && (
+          <button type="button" className="danger" onClick={onRemove}>
+            Remove
+          </button>
+        )}
+      </div>
     </li>
   );
 }
