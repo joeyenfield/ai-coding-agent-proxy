@@ -9,7 +9,7 @@
 #   docker build -f sandbox/Dockerfile -t agent-sandbox .
 # or with compose.yaml at the root: docker compose --profile sandbox up -d
 #
-# AGENTS picks the npm packages (the install lines of config/agents.yaml):
+# AGENTS picks the npm packages (the install lines of the shipped agents, server/agent_server/defaults.py):
 #   docker build -f sandbox/Dockerfile --build-arg AGENTS="@openai/codex opencode-ai" -t agent-sandbox .
 
 # The Go components, for whichever platform the image is built for.

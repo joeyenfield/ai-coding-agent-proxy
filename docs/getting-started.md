@@ -10,6 +10,8 @@ You need whichever of these you want to try:
 
 For how the pieces fit together, see [Architecture](architecture.md).
 
+**Just want to try it?** The [Quickstart](quickstart.md) runs the whole system on your computer in containers with one command: the server, the sign-in service, a database, two fleet machines with coding agents and Ollama. It walks you from `podman compose up` to an agent working in the console in about fifteen minutes, with no HTTPS or accounts to set up. Come back here when you want a real install.
+
 **Authentication prerequisite:** run the separate `agent-auth` issuer and configure HTTPS, callback URLs and the shared introspection secret as described in [OIDC authentication](oidc.md). API authentication is mandatory, including on loopback.
 
 ## 1. Install the server

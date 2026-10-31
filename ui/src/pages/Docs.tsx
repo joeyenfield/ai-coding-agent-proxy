@@ -7,6 +7,7 @@ import { api, apiUrl } from "../api";
 /** The documentation's pages (docs/*.md), in the order the index lists them. */
 export const DOC_PAGES: { id: string; label: string }[] = [
   { id: "index", label: "Overview" },
+  { id: "quickstart", label: "Quickstart" },
   { id: "getting-started", label: "Getting started" },
   { id: "architecture", label: "Architecture" },
   { id: "networking", label: "Networking and protocols" },

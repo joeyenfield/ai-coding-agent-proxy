@@ -1,5 +1,8 @@
 # Local container quickstart
 
+A step-by-step guide to using this stack, from the first start to an agent working in the
+console, is in [docs/quickstart.md](../docs/quickstart.md). This file has the details.
+
 From this folder, with Podman and a Compose provider:
 
 ```bash

@@ -7,7 +7,8 @@ How to run the server for other machines and people, put HTTPS in front of it, a
 ## Local container quickstart
 
 For a local demo, the checkout's `quickstart/` folder contains a separate Compose project
-with the API and console, its OIDC issuer, two fleet machines, and Ollama on machine-1.
+with the API and console, its OIDC issuer, PostgreSQL, two fleet machines, and Ollama on machine-1.
+[Quickstart](quickstart.md) is a step-by-step guide to it.
 From the repository root:
 
 ```bash

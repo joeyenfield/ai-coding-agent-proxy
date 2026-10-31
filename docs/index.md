@@ -72,6 +72,7 @@ Everyone signs in through OIDC, including on loopback. Sessions are private unti
 
 | Page | What's in it |
 | --- | --- |
+| [Quickstart](quickstart.md) | The whole system on your computer with one command (server, sign-in, database, two machines, Ollama), and a step-by-step tour: sign in, add a provider, pull a model, start an agent, watch it and read back its requests. |
 | [Getting started](getting-started.md) | From nothing to a first recorded agent session: install the server, sign in, install `agent`, run an agent on each route. |
 | [Architecture](architecture.md) | How it works inside: components, routes, a session step by step, HTTPS capture, tunnels, terminal sharing, what's recorded, versions, restarts, security. |
 | [Networking and protocols](networking.md) | Every connection and port, how a request is routed to a model, the fleet and terminal sockets message by message, headers, close codes, reverse proxies, troubleshooting. |
