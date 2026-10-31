@@ -121,6 +121,12 @@ services:
       # (scripts/build-dist.sh). The server offers the one of its own version, or the
       # newest of the same release: use the image of the same version (AI_PROXY_IMAGE_TAG).
       - ./dist:/app/dist:ro
+    # Stated here as well as in the image: Podman ignores a HEALTHCHECK in an OCI image.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9999/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
 
   # A sandbox machine: coding agents the console starts on it run in this container, in
   # /workspace only. On first start, follow logs and approve both OIDC device codes.

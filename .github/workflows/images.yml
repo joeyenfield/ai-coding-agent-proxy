@@ -93,7 +93,11 @@ jobs:
           build-args: AI_PROXY_VERSION=${{ needs.version.outputs.version }}
           labels: ${{ steps.meta.outputs.labels }}
           # Pushed without a tag: the merge job below tags both platforms' digests together.
-          outputs: type=image,name=${{ env.REGISTRY }}/${{ needs.version.outputs.owner }}/${{ matrix.image.name }},push-by-digest=true,name-canonical=true,push=true
+          # Docker's manifest format, not OCI's: Podman reads an image's HEALTHCHECK only from
+          # Docker's, and the quickstart's machines wait for the server to be healthy. The
+          # provenance attestation would need OCI's, so it's left out.
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ needs.version.outputs.owner }}/${{ matrix.image.name }},push-by-digest=true,name-canonical=true,push=true,oci-mediatypes=false
+          provenance: false
           cache-from: type=gha,scope=${{ matrix.image.name }}-${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}-${{ matrix.platform }}
       - name: Keep the digest

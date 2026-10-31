@@ -19,6 +19,12 @@ x-machine: &machine
   image: ${AI_PROXY_IMAGES:-ghcr.io/joeyenfield}/agent-sandbox:${AI_PROXY_IMAGE_TAG:-latest}
   restart: unless-stopped
   entrypoint: [tini, --, python3, /quickstart/start.py, machine]
+  # Stated here as well as in the image: Podman ignores a HEALTHCHECK in an OCI image.
+  healthcheck:
+    test: [CMD-SHELL, 'agent-machine | grep -q "^Fleet *: connected"']
+    interval: 30s
+    timeout: 5s
+    start_period: 30s
   environment: &machine-env
     QUICKSTART_PASSWORD: ${QUICKSTART_ADMIN_PASSWORD:-secret}
     AI_PROXY_URL: http://localhost:19999
@@ -66,6 +72,13 @@ services:
     volumes:
       - ./start.py:/quickstart/start.py:ro,z
       - server-logs:/app/logs
+    # Stated here as well as in the image: Podman ignores a HEALTHCHECK in an OCI image.
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9999/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 20
 
   auth:
     image: ${AI_PROXY_IMAGES:-ghcr.io/joeyenfield}/agent-server:${AI_PROXY_IMAGE_TAG:-latest}
