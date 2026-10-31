@@ -510,20 +510,34 @@ def test_a_fleet_machine_runs_the_containers_the_server_asks_for(tmp_path, agent
 
 def test_a_fleet_machine_starts_and_stops_strata_when_the_owner_asks(tmp_path, agent_binary, machine_binary):
     strata_state = tmp_path / "strata.json"
-    strata_state.write_text(json.dumps({"profiles": {"app-1": "stopped"}}))
+    run_config = tmp_path / "strata-iq3_s.json"
+    run_config.write_text("{}")
+    # app-1's model was removed in Strata (its run config is gone); iq3_s is installed with no profile yet.
+    strata_state.write_text(json.dumps({
+        "profiles": {"app-1": "stopped"},
+        "configs": {"app-1": str(tmp_path / "gone" / "b4bfef02.json")},
+        "models": [{"id": "iq3_s", "name": "qwen3.8-flash-next-iq3_s", "source_config": str(run_config), "component_status": "present", "missing": []}],
+    }))
     fake = {"AI_PROXY_STRATA_COMMAND": json.dumps([sys.executable, str(Path(__file__).with_name("fake_strata.py"))]), "FAKE_STRATA_STATE": str(strata_state)}
     with machine(tmp_path, agent_binary) as m, fleet_machine(m, machine_binary, tmp_path, ["servers", "on"], env=fake) as fleet:
         servers = httpx.get(f"{m.server}/api/machines/{fleet.box['id']}", headers=m.headers).json()["servers"]
-        assert servers["enabled"] and servers["strata"]["profiles"] == [{"id": "app-1", "state": "stopped", "url": None, "error": None}]
+        assert servers["enabled"], servers
+        profiles = {profile["id"]: profile for profile in servers["strata"]["profiles"]}
+        assert profiles["iq3_s"] == {"id": "iq3_s", "state": "stopped", "url": None, "error": None, "model": "qwen3.8-flash-next-iq3_s", "broken": None}
+        assert profiles["app-1"]["state"] == "broken" and "run config is gone" in profiles["app-1"]["broken"]
         assert "Servers   : on" in fleet.status
-        started = httpx.post(f"{m.server}/api/machines/{fleet.box['id']}/servers/strata/start", headers=m.headers, json={"profile": "app-1"}, timeout=60)
+        broken = httpx.post(f"{m.server}/api/machines/{fleet.box['id']}/servers/strata/start", headers=m.headers, json={"profile": "app-1"}, timeout=60)
+        assert broken.status_code == 409 and "run config is gone" in broken.json()["detail"], broken.text
+        started = httpx.post(f"{m.server}/api/machines/{fleet.box['id']}/servers/strata/start", headers=m.headers, json={"profile": "iq3_s"}, timeout=60)
         assert started.status_code == 200, started.text
-        assert started.json()["servers"]["strata"]["profiles"][0]["state"] == "ready"
-        assert json.loads(strata_state.read_text())["profiles"]["app-1"] == "ready"
+        assert {p["id"]: p for p in started.json()["servers"]["strata"]["profiles"]}["iq3_s"]["state"] == "ready"
+        assert json.loads(strata_state.read_text())["profiles"]["iq3_s"] == "ready"
         refused = httpx.post(f"{m.server}/api/machines/{fleet.box['id']}/servers/strata/start", headers=m.headers, json={"profile": "other"}, timeout=60)
         assert refused.status_code == 409 and "no Strata profile" in refused.json()["detail"]
-        stopped = httpx.post(f"{m.server}/api/machines/{fleet.box['id']}/servers/strata/stop", headers=m.headers, json={"profile": "app-1"}, timeout=60)
-        assert stopped.status_code == 200 and stopped.json()["servers"]["strata"]["profiles"][0]["state"] == "stopped"
+        stopped = httpx.post(f"{m.server}/api/machines/{fleet.box['id']}/servers/strata/stop", headers=m.headers, json={"profile": "iq3_s"}, timeout=60)
+        assert stopped.status_code == 200 and {p["id"]: p for p in stopped.json()["servers"]["strata"]["profiles"]}["iq3_s"]["state"] == "stopped"
+        calls = [" ".join(call) for call in json.loads(strata_state.read_text())["calls"]]
+        assert [call for call in calls if call.startswith("profile create")] == [f"profile create iq3_s --from-config {run_config}"]
 
 
 @contextmanager

@@ -120,6 +120,65 @@ def test_strata_profiles_start_and_stop_through_strata(tmp_path, monkeypatch):
     assert not any("missing" in call or "../app-1" in call for call in calls if call.startswith("runtime"))
 
 
+def test_strata_profiles_follow_the_installed_models(tmp_path, monkeypatch):
+    # As the Go TestStrataProfilesFollowTheInstalledModels.
+    def config(name):
+        path = tmp_path / f"{name}.json"
+        path.write_text("{}")
+        return str(path)
+
+    iq3, coder, partial = config("strata-iq3_s"), config("strata-coder"), config("strata-q2")
+    state_file = tmp_path / "strata.json"
+    state_file.write_text(json.dumps({
+        # app-1 names a run config that's gone; "iq3_s" is taken by a profile of another model.
+        "profiles": {"app-1": "stopped", "iq3_s": "stopped"},
+        "configs": {"app-1": str(tmp_path / "native-instances" / "b4bfef02.json"), "iq3_s": coder},
+        "models": [
+            {"id": "iq3_s", "name": "qwen3.8-flash-next-iq3_s", "source_config": iq3, "component_status": "present", "missing": []},
+            {"id": "coder", "name": "qwen-coder", "source_config": coder, "component_status": "present", "missing": []},
+            {"id": "q2", "name": "half-downloaded", "source_config": partial, "component_status": "missing", "missing": ["model"]},
+        ],
+    }))
+    monkeypatch.setenv("FAKE_STRATA_STATE", str(state_file))
+    monkeypatch.setenv(servers.STRATA_ENV, fake("fake_strata.py"))
+    manager = servers.Manager(machine=on, port=free_port())
+
+    def by_id():
+        return {item["id"]: item for item in manager.describe()["strata"]["profiles"]}
+
+    profiles = by_id()
+    assert set(profiles) == {"app-1", "iq3_s", "iq3_s-2"}, profiles
+    assert profiles["iq3_s-2"]["model"] == "qwen3.8-flash-next-iq3_s" and profiles["iq3_s"]["model"] == "qwen-coder"
+    assert profiles["app-1"]["state"] == "broken" and "run config is gone" in profiles["app-1"]["broken"]
+    assert set(by_id()) == set(profiles)  # asking again adds nothing
+    answer = manager.handle({"request": "r1", "op": "start", "kind": "strata", "profile": "app-1"})
+    assert not answer["ok"] and "run config is gone" in answer["error"], answer
+    assert manager.handle({"request": "r2", "op": "start", "kind": "strata", "profile": "iq3_s-2"})["ok"]
+    calls = [" ".join(call) for call in json.loads(state_file.read_text())["calls"]]
+    assert [call for call in calls if call.startswith("profile create")] == [f"profile create iq3_s-2 --from-config {iq3}"]
+    assert "runtime start --profile app-1" not in calls
+
+
+def test_strata_without_models_list_uses_its_profiles(tmp_path, monkeypatch):
+    state_file = tmp_path / "strata.json"
+    state_file.write_text(json.dumps({"profiles": {"coder": "stopped"}, "no_models_list": True}))
+    monkeypatch.setenv("FAKE_STRATA_STATE", str(state_file))
+    monkeypatch.setenv(servers.STRATA_ENV, fake("fake_strata.py"))
+    manager = servers.Manager(machine=on, port=free_port())
+    strata = manager.describe()["strata"]
+    assert "error" not in strata and [item["id"] for item in strata["profiles"]] == ["coder"], strata
+    assert manager.handle({"request": "r1", "op": "start", "kind": "strata", "profile": "coder"})["ok"]
+
+
+def test_strata_is_left_alone_while_servers_are_off(tmp_path, monkeypatch):
+    state_file = tmp_path / "strata.json"
+    monkeypatch.setenv("FAKE_STRATA_STATE", str(state_file))
+    monkeypatch.setenv(servers.STRATA_ENV, fake("fake_strata.py"))
+    manager = servers.Manager(machine=lambda: settings.Machine(), port=free_port())
+    assert manager.describe() == {"enabled": False}
+    assert not state_file.exists()
+
+
 def test_strata_that_isnt_installed_is_said_so():
     manager = servers.Manager(machine=on, port=free_port())
     assert manager.describe()["strata"] == {"found": False, "profiles": []}

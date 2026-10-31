@@ -96,7 +96,10 @@ remains the agent command's credential and is never used for the fleet connectio
   alone. Strata runs one of this machine's saved profiles through Strata's own
   `strata runtime start|stop --profile <id>` (from `PATH`, or the terminal Strata's
   desktop app installs), so Strata owns the instance and drains it before stopping.
-  Requests can only name a kind and one of the machine's own profiles.
+  Requests can only name a kind and one of the machine's own profiles. With servers on,
+  each model installed in Strata (`strata models list --installed`) that no profile uses
+  gets one (`strata profile create`), and a profile whose run config is gone is reported
+  as broken and not started.
 - **Launches** (`{"type": "launch"}`): checked against `launches` and the roots (links
   resolved), then run as `agent <id> <folder> --headless --launch-id <id>`. They need the
   agent command on `PATH` (or `AI_PROXY_AGENT`), signed in to the same server with

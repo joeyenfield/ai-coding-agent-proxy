@@ -82,7 +82,7 @@ Only one agent-machine runs per folder. `run` refuses while another is running, 
 
 ### servers
 
-`agent-machine servers on` lets the server start and stop the Ollama and the Strata profiles installed here, change Ollama's settings, and pull, delete, load and unload models. Without it, the machine still reports its model servers, their models, logs and its load, but changes nothing.
+`agent-machine servers on` lets the server start and stop the Ollama and the Strata profiles installed here, change Ollama's settings, and pull, delete, load and unload models. With it on, agent-machine also saves a Strata profile for each model installed in Strata that has none, so every one can be started from the console ([Providers](providers.md#strata)). Without it, the machine still reports its model servers, their models, logs and its load, but changes nothing.
 
 `sudo agent-machine servers service` is for an Ollama installed as the systemd service `ollama.service`, which Ollama's Linux installer sets up and which belongs to root. Run it once, with sudo, as the user agent-machine runs as. It:
 

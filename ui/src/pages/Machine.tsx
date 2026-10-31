@@ -829,7 +829,7 @@ function OfflineServer({ machine, provider }: { machine: FleetMachine; provider:
         ))}
       </div>
     ) : (
-      <p>{strata.error ?? `Strata is installed on ${machine.name} but has no saved profile: set one up with strata launch there.`}</p>
+      <p>{strata.error ?? `Strata is installed on ${machine.name} but has no model to start: install one in the Strata app there.`}</p>
     );
   }
   return (
@@ -899,7 +899,7 @@ function InstalledServers({ machine }: { machine: FleetMachine }) {
             <span className="provider-backend-name">
               <strong>Strata</strong>
             </span>
-            <span className="subtle">{strata.error ?? "No saved profiles: set one up with strata launch there"}</span>
+            <span className="subtle">{strata.error ?? "No model installed: install one in the Strata app there"}</span>
             <span />
           </li>
         )}
@@ -911,15 +911,18 @@ function InstalledServers({ machine }: { machine: FleetMachine }) {
               <span className="provider-backend-name">
                 <strong>Strata</strong>
                 <span className="mono subtle">{profile.id}</span>
+                {profile.model && <span className="subtle">{profile.model}</span>}
               </span>
               <span className="subtle" title={profile.error ?? undefined}>
-                {stopped ? "Not running" : profile.state === "unknown" ? "State unknown" : `${profile.state[0].toUpperCase()}${profile.state.slice(1)}`}
+                {profile.state === "broken"
+                  ? `Can't start: ${profile.broken}`
+                  : stopped ? "Not running" : profile.state === "unknown" ? "State unknown" : `${profile.state[0].toUpperCase()}${profile.state.slice(1)}`}
                 {profile.url && <span className="mono"> · {profile.url}</span>}
               </span>
               <span className="state-text">
                 {stopped
                   ? button({ kind: "strata", action: "start", profile: profile.id }, "Start", true)
-                  : profile.state !== "unknown" && button({ kind: "strata", action: "stop", profile: profile.id }, "Stop")}
+                  : profile.state !== "unknown" && profile.state !== "broken" && button({ kind: "strata", action: "stop", profile: profile.id }, "Stop")}
               </span>
             </li>
           );

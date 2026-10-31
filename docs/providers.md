@@ -193,6 +193,10 @@ agent-machine reads Strata's files:
 
 Strata on its default port, 18500, is found by itself. With `agent-machine servers on`, profiles serving on other ports are found too. With servers on, the machine's page has **Start** and **Stop** for each saved profile, which run Strata's own `strata runtime start|stop --profile <id>`. Only the machine's own saved profiles can be named.
 
+Profiles follow what Strata has installed. With servers on, agent-machine asks Strata for its installed models (`strata models list --installed`) and saves a profile for each one that no profile uses yet (`strata profile create <model> --from-config <its run config>`), so every installed model can be started from the console without setting a profile up there first. A model still missing files is left until it's complete. The new profile is named after the model, with `-2` and so on when a profile already has that name. Profiles are only added, never changed or removed.
+
+A profile can outlive its model: removing or reinstalling the model in the Strata app deletes the run config the profile names. The machine's page then shows that profile as **Can't start**, with the reason, and Start refuses it rather than failing inside Strata (`cannot read run config`). Start the model's new profile instead, or point the old one at it with `strata profile use-config <profile> --from-config <run config>` there. A Strata too old for `models list --installed` keeps working with its saved profiles.
+
 ### In the console
 
 Each Strata's tab shows its model, whether it's loaded, its context, uptime and where the key came from, with **Load** and **Unload** (to free the GPU between sessions). Its tabs:

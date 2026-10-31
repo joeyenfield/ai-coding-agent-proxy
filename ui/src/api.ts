@@ -47,6 +47,19 @@ export interface ContainerEngine {
   summary: string;
 }
 
+/** A saved Strata profile on a machine. agent-machine saves one for each model installed in Strata. */
+export interface StrataProfile {
+  id: string;
+  /** stopped, ready, ... or broken: its run config is gone, so it can't start. */
+  state: string;
+  url: string | null;
+  error: string | null;
+  /** The installed model it runs, when Strata still has it. */
+  model?: string | null;
+  /** Why it can't start: its model was removed or reinstalled in Strata. */
+  broken?: string | null;
+}
+
 /** Whether a machine runs containers for the server, and what it can run (from the machine itself). */
 export interface MachineContainers {
   enabled: boolean;
@@ -450,7 +463,7 @@ export interface MachineServers {
     service?: "systemd" | null;
     service_allowed?: boolean;
   };
-  strata?: { found: boolean; profiles: { id: string; state: string; url: string | null; error: string | null }[]; error: string | null };
+  strata?: { found: boolean; profiles: StrataProfile[]; error: string | null };
 }
 
 /** A machine signed in to this server: it runs agents, LLM providers, or both. */

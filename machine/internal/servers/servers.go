@@ -1,7 +1,9 @@
 // Package servers starts and stops the model servers installed on this machine when the
 // server asks: Ollama (`ollama serve`, with the OLLAMA_* settings saved from the console)
 // and Strata (a saved profile, through Strata's own `strata runtime start|stop`). It's off
-// until `agent-machine servers on`.
+// until `agent-machine servers on`; once it's on, every model installed in Strata gets a
+// saved profile of its own (`strata profile create`), so any of them can be started from
+// the console, and a profile whose model has gone is reported rather than started.
 //
 // It only stops what it can own: the Ollama it started itself (an Ollama run by its tray
 // app or a service is left to that), and Strata instances, which Strata's runtime owns
@@ -38,7 +40,11 @@ const (
 	OllamaPort = 11434
 )
 
-var profileName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+var (
+	profileName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+	// What can't be in a profile name, replaced when one is made from a model's id.
+	notInName = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
+)
 
 // Request is the server's {"type": "server", ...}: start, stop, restart or status of one
 // kind, or Ollama's settings (settings, configure).
@@ -429,36 +435,168 @@ func strataError(answer map[string]any, stderr string) string {
 	return "it refused"
 }
 
-// profiles is the ids of the machine's saved Strata profiles.
-func profiles() ([]string, error) {
+// A saved profile is a name for one run config; `runtime start` only takes a profile. The
+// models are what Strata has installed, each with its run config. A profile outlives its
+// model: reinstalling or removing the model in Strata's app deletes the run config and
+// leaves the profile pointing at nothing, so neither list can be trusted alone.
+type savedProfile struct{ ID, Config string }
+
+type installedModel struct {
+	ID, Name, Config string
+	// Ready when all its files are there, so a profile of it can start.
+	Ready bool
+}
+
+// savedProfiles is the machine's saved Strata profiles, with the run config each names.
+func savedProfiles() ([]savedProfile, error) {
 	answer, err := strata(30*time.Second, "profile", "list")
 	if err != nil {
 		return nil, err
 	}
-	var ids []string
+	var saved []savedProfile
 	items, _ := answer["profiles"].([]any)
 	for _, item := range items {
 		if profile, ok := item.(map[string]any); ok {
 			if id, ok := profile["id"].(string); ok && profileName.MatchString(id) {
-				ids = append(ids, id)
+				config, _ := profile["source_config"].(string)
+				saved = append(saved, savedProfile{ID: id, Config: config})
 			}
 		}
 	}
-	return ids, nil
+	return saved, nil
+}
+
+// installedModels is the models Strata has installed here (`models list --installed`), or an
+// error from a Strata too old to say.
+func installedModels() ([]installedModel, error) {
+	answer, err := strata(60*time.Second, "models", "list", "--installed")
+	if err != nil {
+		return nil, err
+	}
+	var models []installedModel
+	items, _ := answer["models"].([]any)
+	for _, item := range items {
+		model, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		config, _ := model["source_config"].(string)
+		if config == "" {
+			continue
+		}
+		id, _ := model["id"].(string)
+		name, _ := model["name"].(string)
+		status, _ := model["component_status"].(string)
+		missing, _ := model["missing"].([]any)
+		models = append(models, installedModel{ID: id, Name: name, Config: config, Ready: status == "present" && len(missing) == 0})
+	}
+	return models, nil
+}
+
+// sameFile is a run config's path as compared: Windows paths ignore case.
+func sameFile(path string) string {
+	path = filepath.Clean(path)
+	if runtime.GOOS == "windows" {
+		path = strings.ToLower(path)
+	}
+	return path
+}
+
+// configGone says why a profile can't start when its run config is no longer there, else "".
+func configGone(profile savedProfile) string {
+	if profile.Config == "" {
+		return ""
+	}
+	if _, err := os.Stat(profile.Config); errors.Is(err, os.ErrNotExist) {
+		return "its run config is gone (the model was removed or reinstalled in Strata): pick its new profile, or install the model again"
+	}
+	return ""
+}
+
+// freeName is a profile name for a model: its id, made a valid name, and numbered when taken.
+func freeName(id string, taken map[string]bool) string {
+	name := strings.Trim(notInName.ReplaceAllString(id, "-"), "-._")
+	if name == "" {
+		name = "strata"
+	}
+	if len(name) > 56 {
+		name = name[:56]
+	}
+	for n := 1; ; n++ {
+		candidate := name
+		if n > 1 {
+			candidate = fmt.Sprintf("%s-%d", name, n)
+		}
+		if !taken[candidate] {
+			return candidate
+		}
+	}
+}
+
+// syncProfiles saves a profile for each installed model that no profile uses yet, so the
+// console can start anything Strata has installed, and returns the profiles with them.
+// Profiles are only ever added: a stale one stays, reported as such, for its owner to drop.
+func syncProfiles(saved []savedProfile, models []installedModel) []savedProfile {
+	used, taken := map[string]bool{}, map[string]bool{}
+	for _, profile := range saved {
+		taken[profile.ID] = true
+		if profile.Config != "" {
+			used[sameFile(profile.Config)] = true
+		}
+	}
+	for _, model := range models {
+		if !model.Ready || used[sameFile(model.Config)] {
+			continue
+		}
+		name := freeName(model.ID, taken)
+		if _, err := strata(60*time.Second, "profile", "create", name, "--from-config", model.Config); err != nil {
+			continue
+		}
+		taken[name], used[sameFile(model.Config)] = true, true
+		saved = append(saved, savedProfile{ID: name, Config: model.Config})
+	}
+	return saved
+}
+
+// syncing keeps two syncs from running at once: the minute's update and a request can overlap,
+// and both would save a profile for the same new model.
+var syncing sync.Mutex
+
+// profiles is the machine's saved Strata profiles, with one added for each installed model
+// that had none, and the installed models by run config.
+func profiles() ([]savedProfile, map[string]installedModel, error) {
+	syncing.Lock()
+	defer syncing.Unlock()
+	saved, err := savedProfiles()
+	if err != nil {
+		return nil, nil, err
+	}
+	byConfig := map[string]installedModel{}
+	// A Strata without `models list --installed` still has its saved profiles.
+	if models, err := installedModels(); err == nil {
+		saved = syncProfiles(saved, models)
+		for _, model := range models {
+			byConfig[sameFile(model.Config)] = model
+		}
+	}
+	return saved, byConfig, nil
 }
 
 func strataState() map[string]any {
 	if strataCommand() == nil {
 		return map[string]any{"found": false, "profiles": []any{}}
 	}
-	ids, err := profiles()
+	saved, models, err := profiles()
 	if err != nil {
 		return map[string]any{"found": true, "profiles": []any{}, "error": err.Error()}
 	}
 	list := []any{}
-	for _, id := range ids {
-		entry := map[string]any{"id": id, "state": "unknown"}
-		if answer, err := strata(30*time.Second, "runtime", "status", "--profile", id); err == nil {
+	for _, profile := range saved {
+		entry := map[string]any{"id": profile.ID, "state": "unknown"}
+		if model, ok := models[sameFile(profile.Config)]; ok && model.Name != "" {
+			entry["model"] = model.Name
+		}
+		if answer, err := strata(30*time.Second, "runtime", "status", "--profile", profile.ID); err == nil {
 			if text, ok := answer["state"].(string); ok {
 				entry["state"] = text
 			}
@@ -471,6 +609,13 @@ func strataState() map[string]any {
 		} else {
 			entry["error"] = err.Error()
 		}
+		// One still running keeps serving; a stopped one can't start again.
+		if reason := configGone(profile); reason != "" {
+			entry["broken"] = reason
+			if entry["state"] == "stopped" || entry["state"] == "unknown" {
+				entry["state"] = "broken"
+			}
+		}
 		list = append(list, entry)
 	}
 	return map[string]any{"found": true, "profiles": list}
@@ -480,16 +625,21 @@ func strataAction(op, profile string) error {
 	if !profileName.MatchString(profile) {
 		return errors.New("name one of this machine's Strata profiles")
 	}
-	ids, err := profiles()
+	saved, _, err := profiles()
 	if err != nil {
 		return err
 	}
-	known := false
-	for _, id := range ids {
-		known = known || id == profile
+	var found *savedProfile
+	for i := range saved {
+		if saved[i].ID == profile {
+			found = &saved[i]
+		}
 	}
-	if !known {
+	if found == nil {
 		return fmt.Errorf("this machine has no Strata profile %q", profile)
+	}
+	if reason := configGone(*found); op == "start" && reason != "" {
+		return fmt.Errorf("Strata profile %s can't start: %s", profile, reason)
 	}
 	if op == "start" {
 		_, err = strata(3*time.Minute, "runtime", "start", "--profile", profile)

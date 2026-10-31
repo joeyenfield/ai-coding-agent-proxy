@@ -2,7 +2,10 @@
 ({"type": "server"} over the fleet connection): Ollama (`ollama serve`, with the OLLAMA_* settings
 saved from the console, or its systemd ollama.service once `sudo agent-machine servers service`
 allowed it) and Strata (a saved profile, through Strata's own `strata runtime start|stop`). It's
-off until `agent-machine servers on`. Mirrors machine/internal/servers in the Go agent-machine.
+off until `agent-machine servers on`; once it's on, every model installed in Strata gets a saved
+profile of its own (`strata profile create`), so any of them can be started from the console, and
+a profile whose model has gone is reported rather than started. Mirrors machine/internal/servers
+in the Go agent-machine.
 
 It only stops what it can own: the Ollama it started itself or its allowed service (one run by
 its own app or by hand is left to that), and Strata instances, which Strata's runtime owns and
@@ -407,27 +410,127 @@ def strata(timeout: float, *args: str) -> Dict[str, Any]:
     return answer
 
 
-def profiles() -> List[str]:
-    """The ids of the machine's saved Strata profiles."""
+# A saved profile is a name for one run config; `runtime start` only takes a profile. The models
+# are what Strata has installed, each with its run config. A profile outlives its model:
+# reinstalling or removing the model in Strata's app deletes the run config and leaves the
+# profile pointing at nothing, so neither list can be trusted alone.
+
+# What can't be in a profile name, replaced when one is made from a model's id.
+NOT_IN_NAME = re.compile(r"[^A-Za-z0-9._-]+")
+CONFIG_GONE = "its run config is gone (the model was removed or reinstalled in Strata): pick its new profile, or install the model again"
+
+
+def saved_profiles() -> List[Tuple[str, str]]:
+    """The machine's saved Strata profiles, as (id, the run config it names)."""
     answer = strata(30, "profile", "list")
     items = answer.get("profiles")
-    ids = []
+    saved = []
     for item in items if isinstance(items, list) else []:
         if isinstance(item, dict) and isinstance(item.get("id"), str) and PROFILE_NAME.fullmatch(item["id"]):
-            ids.append(item["id"])
-    return ids
+            config = item.get("source_config")
+            saved.append((item["id"], config if isinstance(config, str) else ""))
+    return saved
+
+
+def installed_models() -> List[Dict[str, Any]]:
+    """The models Strata has installed here (`models list --installed`); Refused from a Strata too old to say."""
+    answer = strata(60, "models", "list", "--installed")
+    models = []
+    items = answer.get("models")
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict) or not isinstance(item.get("source_config"), str) or not item["source_config"]:
+            continue
+        missing = item.get("missing")
+        models.append({
+            "id": item.get("id") if isinstance(item.get("id"), str) else "",
+            "name": item.get("name") if isinstance(item.get("name"), str) else "",
+            "config": item["source_config"],
+            # Ready when all its files are there, so a profile of it can start.
+            "ready": item.get("component_status") == "present" and not missing,
+        })
+    return models
+
+
+def same_file(path: str) -> str:
+    """A run config's path as compared: Windows paths ignore case."""
+    path = os.path.normpath(path)
+    return path.lower() if sys.platform == "win32" else path
+
+
+def config_gone(config: str) -> str:
+    """Why a profile can't start when its run config is no longer there, else ""."""
+    return CONFIG_GONE if config and not os.path.exists(config) else ""
+
+
+def free_name(model_id: str, taken: set) -> str:
+    """A profile name for a model: its id, made a valid name, and numbered when taken."""
+    name = NOT_IN_NAME.sub("-", model_id).strip("-._")[:56] or "strata"
+    candidate, number = name, 1
+    while candidate in taken:
+        number += 1
+        candidate = f"{name}-{number}"
+    return candidate
+
+
+def sync_profiles(saved: List[Tuple[str, str]], models: List[Dict[str, Any]]) -> List[Tuple[str, str]]:
+    """Saves a profile for each installed model that no profile uses yet, so the console can start
+    anything Strata has installed. Profiles are only ever added: a stale one stays, reported as
+    such, for its owner to drop."""
+    used = {same_file(config) for _, config in saved if config}
+    taken = {profile for profile, _ in saved}
+    for model in models:
+        if not model["ready"] or same_file(model["config"]) in used:
+            continue
+        name = free_name(model["id"], taken)
+        try:
+            strata(60, "profile", "create", name, "--from-config", model["config"])
+        except Refused:
+            continue
+        taken.add(name)
+        used.add(same_file(model["config"]))
+        saved.append((name, model["config"]))
+    return saved
+
+
+# Keeps two syncs from running at once: the minute's update and a request can overlap, and both
+# would save a profile for the same new model.
+SYNCING = threading.Lock()
+
+
+def profiles() -> Tuple[List[Tuple[str, str]], Dict[str, Dict[str, Any]]]:
+    """The saved profiles, with one added for each installed model that had none, and the installed
+    models by run config."""
+    with SYNCING:
+        return _profiles()
+
+
+def _profiles() -> Tuple[List[Tuple[str, str]], Dict[str, Dict[str, Any]]]:
+    saved = saved_profiles()
+    by_config: Dict[str, Dict[str, Any]] = {}
+    try:
+        models = installed_models()
+    except Refused:
+        # A Strata without `models list --installed` still has its saved profiles.
+        return saved, by_config
+    saved = sync_profiles(saved, models)
+    for model in models:
+        by_config[same_file(model["config"])] = model
+    return saved, by_config
 
 
 def strata_state() -> Dict[str, Any]:
     if strata_command() is None:
         return {"found": False, "profiles": []}
     try:
-        ids = profiles()
+        saved, models = profiles()
     except Refused as error:
         return {"found": True, "profiles": [], "error": str(error)}
     listed = []
-    for profile in ids:
+    for profile, config in saved:
         entry: Dict[str, Any] = {"id": profile, "state": "unknown"}
+        model = models.get(same_file(config)) if config else None
+        if model and model["name"]:
+            entry["model"] = model["name"]
         try:
             answer = strata(30, "runtime", "status", "--profile", profile)
         except Refused as error:
@@ -439,6 +542,12 @@ def strata_state() -> Dict[str, Any]:
                 if isinstance(answer.get(key), str) and answer[key]:
                     entry["url"] = answer[key]
                     break
+        # One still running keeps serving; a stopped one can't start again.
+        reason = config_gone(config)
+        if reason:
+            entry["broken"] = reason
+            if entry["state"] in ("stopped", "unknown"):
+                entry["state"] = "broken"
         listed.append(entry)
     return {"found": True, "profiles": listed}
 
@@ -446,8 +555,12 @@ def strata_state() -> Dict[str, Any]:
 def strata_action(op: str, profile: Any) -> None:
     if not isinstance(profile, str) or not PROFILE_NAME.fullmatch(profile):
         raise Refused("name one of this machine's Strata profiles")
-    if profile not in profiles():
+    saved = dict(profiles()[0])
+    if profile not in saved:
         raise Refused(f"this machine has no Strata profile {json.dumps(profile)}")
+    reason = config_gone(saved[profile])
+    if op == "start" and reason:
+        raise Refused(f"Strata profile {profile} can't start: {reason}")
     if op == "start":
         strata(3 * 60, "runtime", "start", "--profile", profile)
     else:

@@ -688,6 +688,8 @@ def _servers(item: dict[str, Any]) -> dict[str, Any]:
             profiles.append({
                 "id": profile["id"][:64], "state": str(profile.get("state") or "unknown")[:40],
                 "url": str(profile.get("url") or "")[:255] or None, "error": str(profile.get("error") or "")[:300] or None,
+                # The installed model it runs, and why it can't start when its run config has gone.
+                "model": str(profile.get("model") or "")[:120] or None, "broken": str(profile.get("broken") or "")[:300] or None,
             })
     return {
         "enabled": True,
