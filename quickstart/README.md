@@ -41,7 +41,8 @@ The stack has:
 Both machines sign in automatically as admin using separate OAuth device approvals for
 `agent` and `agent-machine`. Later starts reuse rotating credentials. Launches and shells
 are enabled in `/workspace`; host folders and the Docker socket are not mounted.
-Ollama runs on CPU by default and starts with no models downloaded.
+Ollama runs on CPU by default and starts with no models downloaded. To give it an NVIDIA
+GPU, see [Use a GPU](#use-a-gpu).
 
 This is a local demo with known credentials and an environment-defined admin. To choose
 another password, set `QUICKSTART_ADMIN_PASSWORD` before starting the stack (or in a local
@@ -61,6 +62,44 @@ The provider belongs to machine-1. Agent traffic from either machine goes throug
 server and the fleet tunnel to it. Only machine-1 discovers Ollama: its helper relays `127.0.0.1:11434` to the
 `ollama` container. Its process lifecycle
 is controlled by Compose; use the console for its model operations.
+
+## Use a GPU
+
+`compose.gpu.yaml` gives the `ollama` container the computer's NVIDIA GPUs. Start the stack
+with both files (it recreates only Ollama when the stack is already running; models stay in
+their volume):
+
+```bash
+podman compose -f compose.yaml -f compose.gpu.yaml up -d
+```
+
+It's a separate file because a container whose GPU isn't there won't start, so the plain
+`compose.yaml` keeps working on any computer.
+
+It hands over the GPU by its CDI name, `nvidia.com/gpu=all`, which Podman needs the NVIDIA
+Container Toolkit to have described. Check that first:
+
+```bash
+podman run --rm --device nvidia.com/gpu=all docker.io/library/ubuntu:24.04 nvidia-smi
+```
+
+If that prints your GPU, you're set. If it says the device is unknown, create the description
+in the Podman machine (on Windows that machine is WSL, and the NVIDIA driver on Windows is
+all it needs), then check again:
+
+```bash
+podman machine ssh "sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml"
+```
+
+Do the same after updating the NVIDIA driver. On Linux without a Podman machine, install the
+NVIDIA Container Toolkit and run `sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml`.
+
+Ollama's log says which it found: `podman compose logs ollama | grep "inference compute"`
+shows `library=CUDA` and the card's name, and `podman compose exec ollama ollama ps` shows
+`100% GPU` for a loaded model.
+
+Docker needs the NVIDIA Container Toolkit with CDI turned on for the same file. This was
+tested with Podman only.
 
 You can also open a terminal or run the launcher in either machine:
 

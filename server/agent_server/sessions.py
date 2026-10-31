@@ -191,6 +191,25 @@ class SessionStore:
             return None
         return value if isinstance(value, dict) else None
 
+    def read_traces(self, session: Session, request_ids: Iterable[str]) -> dict[str, dict[str, Any]]:
+        """Several traces at once, by request id; ones that aren't there are left out."""
+        wanted = [request_id for request_id in dict.fromkeys(request_ids) if request_id.isdigit()]
+        self.db.writer.flush()
+        result: dict[str, dict[str, Any]] = {}
+        for start in range(0, len(wanted), 100):
+            with self.db.read() as connection:
+                rows = connection.execute(select(schema.traces.c.request_id, schema.traces.c.body).where(
+                    schema.traces.c.session_id == session.session_id, schema.traces.c.request_id.in_(wanted[start:start + 100]),
+                )).all()
+            for request_id, body in rows:
+                try:
+                    value = json.loads(unpack(body))
+                except ValueError:
+                    continue
+                if isinstance(value, dict):
+                    result[request_id] = value
+        return result
+
     def records(self, session: Session) -> list[dict[str, Any]]:
         """The session's request records, oldest first."""
         self.db.writer.flush()

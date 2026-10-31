@@ -91,7 +91,7 @@ its in-flight entry and records `client_closed`.
 | GET | `/api/sessions/{session_id}/telemetry` | Signed in, can view | The session's request records as a download (newline-delimited JSON, `<id>-requests.jsonl`). |
 | GET | `/api/sessions/{session_id}/traces` | Signed in, can view | The names of its saved traces. |
 | GET | `/api/sessions/{session_id}/traces/{request_id}` | Signed in, can view | One trace: the full request and response. |
-| GET | `/api/sessions/{session_id}/chat` | Signed in, can view | The session's traced model calls read back as chats: its threads, and a page of one thread's turns. `?thread=`, `?before=`, `?limit=` (1 to 500, default 60). |
+| GET | `/api/sessions/{session_id}/chat` | Signed in, can view | The session's traced model calls read back as chats: its threads (each with `kind`: `main`, `conversation`, `subagent` or `background`, and a background call's `purpose`), and a page of one thread's turns. Each turn has `at` (when it was sent); text sent as the user has `author` (`person`, `parent`, `agent` or `unknown`) and, for the agent's own, `note`. `inherited` counts the turns at the start a sub-agent or background call was handed. `?thread=`, `?before=`, `?limit=` (1 to 500, default 60). |
 | GET | `/api/sessions/{session_id}/chat/turns/{position}` | Signed in, can view | One turn in full, where a page had only a preview. `?thread=` is required. |
 
 ## Live traffic

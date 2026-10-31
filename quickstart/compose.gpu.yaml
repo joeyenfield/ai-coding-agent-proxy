@@ -1,0 +1,9 @@
+# Gives the quickstart's Ollama the computer's NVIDIA GPUs. Use it with the main file:
+#   podman compose -f compose.yaml -f compose.gpu.yaml up -d
+# It's separate because a container whose GPU isn't there won't start.
+# The device is the NVIDIA Container Toolkit's CDI name: Podman needs the toolkit's CDI spec
+# in its machine (nvidia-ctk cdi generate), Docker the toolkit with CDI on. See README.md, "Use a GPU".
+services:
+  ollama:
+    devices:
+      - nvidia.com/gpu=all

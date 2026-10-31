@@ -102,6 +102,15 @@ async def test_quickstart_relay_preserves_bytes_and_half_close():
             await writer.wait_closed()
 
 
+def test_gpu_override_gives_only_ollama_the_nvidia_gpus_by_cdi_name():
+    # Podman ignores Compose's deploy.resources device reservations; a CDI device name is what it honours.
+    override = yaml.safe_load((QUICKSTART / "compose.gpu.yaml").read_text())
+    assert override == {"services": {"ollama": {"devices": ["nvidia.com/gpu=all"]}}}
+    # The main file stays runnable on computers without a GPU.
+    compose = yaml.safe_load((QUICKSTART / "compose.yaml").read_text())
+    assert not any("devices" in service or "deploy" in service for service in compose["services"].values())
+
+
 def test_compose_resolves_services_and_isolates_machine_storage():
     compose = yaml.safe_load((QUICKSTART / "compose.yaml").read_text())
     services = compose["services"]

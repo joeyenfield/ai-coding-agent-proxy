@@ -9,6 +9,7 @@ The screenshots come from the demo (`python scripts/screenshots/demo.py`), which
 - [Overview](#overview)
 - [Agents: Start an agent](#start-an-agent)
 - [Agents: Running agents](#running-agents)
+- [Agents: Ask a model](#ask-a-model)
 - [Server: Live](#live)
 - [Server: Traffic](#traffic)
 - [Server: Requests](#requests)
@@ -29,7 +30,7 @@ The rail on the left has three parts, in the order a request flows:
 
 | Part | Pages | What it's for |
 | --- | --- | --- |
-| **1 Agents** | Start an agent, Running agents | Start a coding agent through the server, then watch it and type into it from any device. |
+| **1 Agents** | Start an agent, Running agents, Ask a model | Start a coding agent through the server, then watch it and type into it from any device, or ask a model a question yourself. |
 | **2 Server** | Live, Traffic, Requests, Sessions, Server stats, Server settings, Organizations, Downloads | The hub: allowed agent requests pass through it and are recorded. |
 | **3 Machines** | All machines, Approve a device, Add a machine | Open **All machines** to search and select a computer. Individual machines aren't listed in the rail. |
 
@@ -119,6 +120,17 @@ Opening one (`/terminals/<session>`) shows the agent's live terminal (xterm.js) 
 
 On a phone, open the console and sign in through OIDC. Legacy pairing codes no longer grant access.
 
+## Ask a model
+
+![Ask a model](screenshots/ask.png)
+
+`/ask` is a plain chat with one of your models, without an agent: pick a model, type, and the answer streams in.
+
+- **Model** lists the models of every Ollama, Strata and Docker Model Runner backend that's online, by backend. Hosted APIs aren't offered: they need an agent's own sign-in. Choosing another model starts a new chat.
+- **Enter** sends; **Shift+Enter** starts a new line. **Stop** stops the answer. A model that thinks shows its thinking folded above the answer.
+- **System prompt** (optional) is sent before the conversation with every question.
+- Each chat is a session of its own (client `console-chat`, payloads captured), so every question goes through the server like an agent's call: on Ollama it's translated and gets the model tuning, and it's recorded on **Traffic**, **Requests** and **Sessions**. **Open as a session** shows it there, in its chat view. The session ends when you start a **New chat** or leave the page; the conversation isn't kept on the page after that, only in the session.
+
 ## Live
 
 ![Live](screenshots/live.png)
@@ -178,8 +190,23 @@ Account agents' other calls (sign-in, telemetry, MCP) aren't shown here; they're
 
 `/sessions/<id>` shows the session's details (agent, model, provider, machine, project, started, last traffic, tokens read and written, payloads, its OpenAI and Anthropic URLs), its sharing for its owner, and tabs:
 
-- **Chat**: the session's model calls read back as conversations. Each conversation is a thread of turns (the main one first, sub-agents as their own threads), with long tool output shortened until you open it. Replies link to the request that made them.
+- **Chat**: the session's captured model calls read back as a chat (it needs payload capture, `--trace`). See [The chat view](#the-chat-view).
 - **Requests**: its requests, as on Traffic.
+
+### The chat view
+
+![A session's chat](screenshots/session-chat.png)
+
+Agents send their model far more as "the user" than you type: system reminders, tool output, notes about images, and whole calls of their own. The chat view keeps what you wrote apart from all of that.
+
+- **The list on the side** has the session's conversations. **Main conversation** is the one going on. Below it are other conversations (for example one from before `/clear`), **Sub-agents** (helpers the agent started for one task) and **Background calls**: calls the agent made by itself, such as naming the session, a recap for when you come back, suggesting your next prompt, compacting the conversation or checking that an action is safe. Each background call is named by what it was for. On a narrow screen the list is a menu above the chat.
+- **Your messages are on the right**, in the accent colour, with the time you sent them. A message typed while the agent was working says so, and slash and `!` commands show as commands. Pasted text is folded. On a session someone shared with you, the owner's name replaces **You**.
+- **The agent's replies are on the left**: its text, its thinking (folded), and its tool calls. More than three tool calls in a row fold into one line, such as "Used 7 tools: Bash ×5 · Read ×2". Open a tool call for its input, result and request. Under each reply are its request, tokens and time.
+- **What the agent added itself** shows as small grey notes in the middle, never as a message: an interruption, a command's output, the summary a compacted conversation goes on from, and a marker where it was compacted. Reminders and other context it injects are hidden. **Show what … added** shows them.
+- **In a sub-agent**, what it was asked is on the right as **Main agent**, not you. **In a background call**, the agent's instruction is on the right, marked as the agent's, with the model's **Answer** below. The conversation a sub-agent or background call was handed is hidden behind **Show the … messages it was handed** (or **sent with**).
+- **My previous** and **Next** jump between your own messages. **Newest** (or **New messages**) goes back to the end. The chat opens at the newest messages, loads older ones as you scroll up, and follows new ones while you're at the bottom. Long texts load in full when you open them.
+
+Claude Code signed in to its account sends most calls with only what's new, naming the call before. The server follows that chain, and Claude Code's request headers say which calls are the main chat, a sub-agent or a background call. For other agents the server matches each call's messages to the conversation they continue, and calls without tools that aren't the main conversation count as background calls.
 
 **Open in Traffic** shows its requests there, and **Streaming now** shows what's in flight.
 

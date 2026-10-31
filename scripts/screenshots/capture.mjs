@@ -201,6 +201,28 @@ await shot("session", "/sessions", {
     await page.waitForTimeout(1000);
   },
 });
+// The chat of the Claude Code session: the person's messages, the agent's replies, its sub-agent and background calls apart.
+await shot("session-chat", "/sessions", {
+  height: 1000,
+  prepare: async (page) => {
+    await page.goto(`${base}/sessions/${await sessionId(page, "claude-account")}?view=chat`, { waitUntil: "networkidle", timeout: 10000 }).catch(() => {});
+    await page.waitForSelector(".chat-scroll .chat-row", { timeout: 30000 });
+    await page.locator(".chat-background > summary").click();
+    await page.locator(".section-head").scrollIntoViewIfNeeded();
+    await page.waitForTimeout(800);
+  },
+});
+// Ask a model: one question to a demo model, answered by the fake Ollama.
+await shot("ask", "/ask", {
+  height: 950,
+  prepare: async (page) => {
+    await page.getByLabel("Your message").fill("What does exponential backoff mean, in two sentences?");
+    await page.getByLabel("Your message").press("Enter");
+    await page.locator(".chat-from-assistant > .chat-bubble > .chat-prose").first().waitFor({ timeout: 30000 });
+    await page.locator("button", { hasText: "Send" }).waitFor({ timeout: 60000 });
+    await page.waitForTimeout(600);
+  },
+});
 await shot("requests", "/requests", {
   scrollTop: true,
   height: 1000,

@@ -77,8 +77,13 @@ def test_session_chat_follows_the_main_conversation_and_links_replies_to_calls(t
         assert call["request_id"] == "000001"
         assert call["blocks"] == [{"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "README.md"}}]
         assert result["blocks"][0] == {"type": "tool_result", "tool_use_id": "call_1", "is_error": False, "text": "# Hello"}
+        records = {record["request_id"]: record for record in client.get("/api/requests", params={"session_id": session["session_id"]}).json()}
+        assert reply.pop("at") == records["000003"]["timestamp"]
         assert reply == {"role": "assistant", "blocks": [{"type": "text", "text": "It says hello."}], "request_id": "000003", "index": 4}
-        assert chat["total"] == 5 and chat["start"] == 0
+        # A message is dated by the call that first carried it, and in the main chat the person wrote it.
+        assert chat["turns"][1]["at"] == records["000001"]["timestamp"]
+        assert chat["turns"][1]["blocks"][0]["author"] == "person"
+        assert chat["total"] == 5 and chat["start"] == 0 and chat["kind"] == "main"
 
         # Pages come newest first; "before" walks back through the older ones.
         base = f"/api/sessions/{session['session_id']}/chat"
@@ -90,8 +95,11 @@ def test_session_chat_follows_the_main_conversation_and_links_replies_to_calls(t
         assert client.get(f"{base}/turns/9", params={"thread": main["id"]}).status_code == 404
 
         title = next(thread for thread in chat["threads"] if not thread["main"])
+        assert (title["kind"], title["purpose"]) == ("background", "Naming the session")
         other = client.get(f"/api/sessions/{session['session_id']}/chat", params={"thread": title["id"]}).json()
         assert other["turns"][-1]["blocks"] == [{"type": "text", "text": "Readme"}]
+        # The agent asked for the title; nobody typed it.
+        assert other["kind"] == "background" and other["turns"][-2]["blocks"][0]["author"] == "agent"
         # The index is kept with the traces and goes when the session's data is cleared.
         assert [row["session_id"] for row in stored_rows(app.state.runtime.db, schema.chat_index)] == [session["session_id"]]
         assert client.delete(f"/api/sessions/{session['session_id']}/data").status_code == 200
@@ -136,6 +144,114 @@ def test_calls_sent_with_only_new_messages_join_the_chat_their_replies_appear_in
     assert "request_id" not in turns[2]
     assert turns[5]["blocks"][0]["text"] == "a.txt"
     assert turns[6]["blocks"] == [{"type": "text", "text": "One file."}] and turns[6]["request_id"] == "000002"
+
+
+def claude_trace(request: dict, response: list, request_class: str, upstream: str, agent: str | None = None) -> dict:
+    """A trace as HTTPS capture records Claude Code's call: its headers say what the call is for and its id upstream."""
+    sent = [["x-claude-code-request-class", request_class]] + ([["x-claude-code-agent-id", agent]] if agent else [])
+    return {"metadata": {}, "request": request, "response": response, "http": {"request_headers": sent, "response_headers": [["request-id", upstream]]}}
+
+
+def said(text: str) -> list[dict]:
+    return [{"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}},
+            {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": text}}]
+
+
+def header(previous: str | None = None, origin: str = "human") -> list[dict]:
+    line = "x-anthropic-billing-header: cc_version=2; " + (f"cc_prev_req={previous}; " if previous else "") + f"cc_turn_origin={origin};"
+    return [{"type": "text", "text": line}]
+
+
+def test_claude_code_chains_calls_and_keeps_its_own_calls_and_text_apart_from_the_person(tmp_path):
+    store = SessionStore(database(tmp_path))
+    session = store.create({"client": "claude-account", "backend": "direct", "trace": True})
+    bash = {"type": "tool_use", "id": "toolu_1", "name": "Bash", "input": {"command": "ls"}}
+    first = [{"role": "user", "content": [
+        {"type": "text", "text": "<system-reminder>context</system-reminder>"},
+        {"type": "text", "text": "<command-name>/clear</command-name>\n<command-message>clear</command-message>\n<command-args></command-args>"},
+        {"type": "text", "text": "List the files"},
+    ]}]
+    history = [*first, {"role": "assistant", "content": [bash]}]
+    calls = [
+        # The main chat's first call, then one that sends only the tool result and a message typed meanwhile.
+        (claude_trace({"model": "opus", "system": header(), "tools": [{"name": "Bash"}], "messages": first},
+                      [{"type": "content_block_start", "index": 0, "content_block": bash}], "main", "req_a")),
+        (claude_trace({"model": "opus", "system": header("req_a"), "messages": [{"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": "toolu_1", "content": "a.txt"},
+            {"type": "text", "text": "The user sent a new message while you were working:\nand count them\n\nThis is how Claude Code surfaces messages the user sends mid-turn."},
+        ]}]}, said("One file: a.txt."), "main", "req_b")),
+        # A call on the side carrying the whole conversation: it must not become the chat's newest message.
+        (claude_trace({"model": "opus", "system": header("req_b"), "tools": [{"name": "Bash"}], "messages": [
+            *history, {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_1", "content": "a.txt"}]},
+            {"role": "assistant", "content": "One file: a.txt."},
+            {"role": "user", "content": "[SUGGESTION MODE: Suggest what the user might naturally type next into Claude Code.]"},
+        ]}, said("delete a.txt"), "auxiliary", "req_c")),
+        # A turn a background task's notification started, chained on.
+        (claude_trace({"model": "opus", "system": header("req_b", "task_notification"), "messages": [
+            {"role": "user", "content": "A background command finished."},
+        ]}, said("Noted."), "main", "req_d")),
+        # A forked sub-agent: the parent's history, then its task with the result of the call that forked it.
+        (claude_trace({"model": "opus", "system": header("req_a"), "tools": [{"name": "Bash"}], "messages": [
+            *history, {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "toolu_1", "content": "Fork started"},
+                {"type": "text", "text": "Count the lines in a.txt"},
+            ]},
+        ]}, said("3 lines."), "subagent", "req_e", agent="fork1")),
+        # After compacting, the main chat goes on from a summary: a new history, sent whole.
+        (claude_trace({"model": "opus", "system": header("req_d"), "messages": [
+            {"role": "user", "content": "This session is being continued from a previous conversation that ran out of context."},
+            {"role": "assistant", "content": "Carrying on."},
+            {"role": "user", "content": "[Request interrupted by user]"},
+        ]}, said("Stopped."), "main", "req_f")),
+    ]
+    records = []
+    for number, trace in enumerate(calls, 1):
+        request_id = f"{number:06d}"
+        records.append({"request_id": request_id, "endpoint": "/v1/messages?beta=true", "timestamp": f"2026-01-01T00:00:0{number}Z"})
+        store.write_trace(session, request_id, trace)
+
+    chats = Chats(store)
+    chat = chats.view(session, records)
+    threads = {thread["id"]: thread for thread in chat["threads"]}
+    assert {thread_id: (thread["kind"], thread["requests"]) for thread_id, thread in threads.items()} == {
+        "000001": ("main", ["000001", "000002", "000004", "000006"]),
+        "000003": ("background", ["000003"]),
+        "000005": ("subagent", ["000005"]),
+    }
+    assert threads["000003"]["purpose"] == "Suggesting your next prompt"
+    assert threads["000005"]["title"] == "Count the lines in a.txt" and threads["000005"]["agent"] == "fork1"
+    assert chat["thread"] == "000001" and chat["kind"] == "main"
+
+    turns = chat["turns"]
+    texts = [(turn["role"], block.get("author"), block.get("note"), block.get("text")) for turn in turns if not turn.get("preamble") for block in turn["blocks"] if block["type"] == "text"]
+    assert texts == [
+        ("user", "agent", "reminder", "<system-reminder>context</system-reminder>"),
+        ("user", "person", None, "/clear"),
+        ("user", "person", None, "List the files"),
+        ("user", "person", None, "and count them"),
+        ("assistant", None, None, "One file: a.txt."),
+        ("user", "agent", None, "A background command finished."),
+        ("assistant", None, None, "Noted."),
+        ("system", "agent", "compacted", texts[7][3]),
+        ("user", "agent", "summary", "This session is being continued from a previous conversation that ran out of context."),
+        ("assistant", None, None, "Carrying on."),
+        ("user", "agent", "interrupted", "[Request interrupted by user]"),
+        ("assistant", None, None, "Stopped."),
+    ]
+    queued = next(block for turn in turns for block in turn["blocks"] if block.get("text") == "and count them")
+    assert queued["queued"] is True
+    # Each reply is linked to the call that wrote it; the summary's reply was written before anything here was captured.
+    assert [turn.get("request_id") for turn in turns if turn["role"] == "assistant"] == ["000001", "000002", "000004", None, "000006"]
+
+    # The background call shows its own instruction and the answer, with the conversation it was handed marked.
+    aside = chats.view(session, records, thread="000003")
+    assert aside["kind"] == "background" and aside["inherited"] == 5
+    assert aside["turns"][-2]["blocks"][0]["author"] == "agent" and aside["turns"][-1]["blocks"][0]["text"] == "delete a.txt"
+    # The person's words in what it was handed are still theirs.
+    assert aside["turns"][1]["blocks"][2]["author"] == "person"
+    fork = chats.view(session, records, thread="000005")
+    assert fork["inherited"] == 4
+    assert [block["author"] for block in fork["turns"][4]["blocks"]] == ["parent"]
 
 
 def test_pages_carry_previews_of_long_texts_and_the_full_turn_has_them(tmp_path):

@@ -2,6 +2,7 @@
 const PATHS = {
   home: "M3 10.5 12 3l9 7.5M5 9v11h5v-6h4v6h5V9",
   play: "M7 4.5v15l12-7.5z",
+  chat: "M4 5h16v11H9.5L5 20v-4H4z",
   terminal: "M4 5h16v14H4zM7.5 9.5 10 12l-2.5 2.5M12.5 15H16",
   activity: "M3 12h4l3-8 4 16 3-8h4",
   arrows: "M4 8h13l-3-3M20 16H7l3 3",

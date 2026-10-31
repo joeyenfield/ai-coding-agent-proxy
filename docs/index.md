@@ -108,6 +108,7 @@ Everyone signs in through OIDC, including on loopback. Sessions are private unti
 | Account-agent traffic to public destinations | | Traffic | [Console](console.md#traffic) |
 | Model-call history and payloads | | Requests | [Console](console.md#requests) |
 | Sessions, chats, telemetry export | | Sessions | [Console](console.md#sessions) |
+| Ask a model a question, without an agent | | Ask a model | [Console](console.md#ask-a-model) |
 | Share and type into a terminal | `--control`, `--let-others-type` | Running agents | [Agents](agents.md#sharing-a-terminal-with---control) |
 | Use terminals from a phone | | Running agents (sign in on the phone) | [Accounts](accounts.md#running-agents-on-your-phone) |
 | Share a shell | `agent --shell [folder]` | A machine's Terminal tab | [Machines](machines.md#terminals) |

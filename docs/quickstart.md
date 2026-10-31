@@ -42,7 +42,7 @@ flowchart LR
 | `postgres` | PostgreSQL, holding the server's settings, accounts and recordings, and the sign-in service's state, each in its own schema. Not published. |
 | `machine-1` | A fleet machine with `agent`, `agent-machine` and coding agents (Claude Code, Codex, OpenCode, Qwen Code, Copilot CLI) installed. It takes launches and terminals in `/workspace`, and finds Ollama. |
 | `machine-2` | A second machine, the same but without Ollama, with its own workspace and sign-ins. |
-| `ollama` | Ollama on CPU, reached only by machine-1. It starts with no models. |
+| `ollama` | Ollama, reached only by machine-1. It runs on CPU unless you give it a GPU (see [Use a GPU](#use-a-gpu)). It starts with no models. |
 
 Both machines sign themselves in as `admin`, approving their own device codes the way you would ([Security](security.md#device-approval)), so they're in the fleet as soon as they start.
 
@@ -50,7 +50,7 @@ Both machines sign themselves in as `admin`, approving their own device codes th
 
 - **Podman with a Compose provider, or Docker with Compose.** On Windows and macOS, Podman runs in a VM: `podman machine init` once, then `podman machine start`. Check the Compose provider with `podman compose version`; Podman Desktop can install one (**Settings › Resources › Compose**). The commands below use `podman compose`; with Docker, type `docker compose` instead.
 - **A checkout of this repository.** The images are built from it.
-- **Room:** several GB of disk for the images, plus the models you pull, and enough memory for a small model on CPU (8 GB or more is comfortable).
+- **Room:** several GB of disk for the images, plus the models you pull, and enough memory for a small model on CPU (8 GB or more is comfortable). An NVIDIA GPU is optional and makes models much faster.
 - **Free ports** `19999` and `20000` on `localhost`.
 
 ## 1. Start the stack
@@ -70,6 +70,16 @@ podman compose -f quickstart/compose.yaml ps
 ```
 
 All six services should say `healthy` (the machines take half a minute longer than the rest).
+
+### Use a GPU
+
+Ollama runs on CPU unless you add `quickstart/compose.gpu.yaml`, which gives it your NVIDIA GPUs:
+
+```bash
+podman compose -f quickstart/compose.yaml -f quickstart/compose.gpu.yaml up -d --build
+```
+
+Use both files every time you start the stack; with only `compose.yaml`, Ollama is recreated on CPU. Podman needs to know your GPU by its CDI name. Check with `podman run --rm --device nvidia.com/gpu=all docker.io/library/ubuntu:24.04 nvidia-smi`; if it doesn't print your card, run `podman machine ssh "sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml"` (again after an NVIDIA driver update). [The quickstart's README](../quickstart/README.md#use-a-gpu) has the details.
 
 ## 2. Sign in
 
@@ -93,7 +103,7 @@ Agents on either machine can now use it: their requests go to the server, and fr
 
 Ollama starts empty. On machine-1's **machine-1** tab (the provider you just added), open **Find and pull**, search for a model and pull it. Progress shows as it downloads.
 
-Pick something small, since it runs on CPU: a model of a few GB (for example a 1 to 4 billion parameter one) answers in seconds; bigger ones work but are slow. The Ollama library page for each model lists its sizes.
+Pick something small if Ollama runs on CPU: a model of a few GB (for example a 1 to 4 billion parameter one) answers in seconds; bigger ones work but are slow. The Ollama library page for each model lists its sizes.
 
 ## 5. Start an agent
 

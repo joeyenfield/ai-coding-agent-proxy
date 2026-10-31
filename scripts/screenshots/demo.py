@@ -431,6 +431,92 @@ def anthropic_events(model: str) -> list[dict]:
     return events
 
 
+def claude_reply(*blocks: dict) -> list[dict]:
+    """A streamed Anthropic reply made of these blocks (text, thinking, tool_use)."""
+    events: list[dict] = [{"type": "message_start", "message": {"model": "claude-opus-5-5", "usage": {"input_tokens": 3, "cache_read_input_tokens": 18234, "output_tokens": 1}}}]
+    for index, block in enumerate(blocks):
+        if block["type"] == "tool_use":
+            events.append({"type": "content_block_start", "index": index, "content_block": {"type": "tool_use", "id": block["id"], "name": block["name"], "input": {}}})
+            events.append({"type": "content_block_delta", "index": index, "delta": {"type": "input_json_delta", "partial_json": json.dumps(block["input"])}})
+        elif block["type"] == "thinking":
+            events.append({"type": "content_block_start", "index": index, "content_block": {"type": "thinking", "thinking": ""}})
+            events.append({"type": "content_block_delta", "index": index, "delta": {"type": "thinking_delta", "thinking": block["text"]}})
+        else:
+            events.append({"type": "content_block_start", "index": index, "content_block": {"type": "text", "text": ""}})
+            events.append({"type": "content_block_delta", "index": index, "delta": {"type": "text_delta", "text": block["text"]}})
+    return events + [{"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 240}}, {"type": "message_stop"}]
+
+
+def claude_conversation(seed: Seeder, claude_headers: list) -> None:
+    """Claude Code's model calls as it makes them on an account: the main chat sent a step at a time and chained by
+    request id, a sub-agent, and the calls it makes on the side (a title, a suggested next prompt, a recap)."""
+    tools = [{"name": name, "input_schema": {"type": "object"}} for name in CLAUDE_TOOLS]
+
+    def call(request_class: str, upstream: str, messages: list, reply: list, *, previous: str | None = None, agent: str | None = None,
+             model: str = "claude-opus-5-5", system: str = "You are Claude Code, Anthropic's official CLI for Claude.", with_tools: bool = True,
+             ms: int = 4200, usage: tuple[int, int, int, int] = (3, 240, 18234, 512)) -> None:
+        line = "x-anthropic-billing-header: cc_version=2.1.289; cc_entrypoint=cli;" + (f" cc_prev_req={previous};" if previous else "") + " cc_turn_origin=human;"
+        headers = claude_headers + [["x-claude-code-request-class", request_class]] + ([["x-claude-code-agent-id", agent]] if agent else [])
+        request = {"model": model, "max_tokens": 32000, "stream": True, "system": [{"type": "text", "text": line}, {"type": "text", "text": system}], "messages": messages}
+        if with_tools:
+            request["tools"] = tools
+        seed.add("POST", "api.anthropic.com", "/v1/messages", ms=ms, ttft=min(1300, ms // 3), model=model, sent=46000, received=7800, usage=usage, headers=headers,
+                 response_headers=[["content-type", "text/event-stream"], ["request-id", upstream], ["anthropic-ratelimit-unified-status", "allowed"]],
+                 request=request, response=claude_reply(*reply))
+
+    def text(value: str) -> dict:
+        return {"type": "text", "text": value}
+
+    def use(call_id: str, name: str, value: dict) -> dict:
+        return {"type": "tool_use", "id": call_id, "name": name, "input": value}
+
+    def result(call_id: str, value: str) -> dict:
+        return {"type": "tool_result", "tool_use_id": call_id, "content": value}
+
+    reminder = text("<system-reminder>\nAs you answer the user's questions, you can use the following context:\n# currentDate\nToday's date is 2026-10-04.\n</system-reminder>")
+    first = [{"role": "user", "content": [reminder, text(PROMPT)]}]
+    read = use("toolu_read", "Read", {"file_path": "payments/webhooks.py"})
+    grep = use("toolu_grep", "Grep", {"pattern": "declined", "path": "payments/"})
+    task = use("toolu_task", "Task", {"description": "Find the webhook's callers", "prompt": "Find every caller of handle_webhook and say which of them expect it to raise."})
+    edit = use("toolu_edit", "Edit", {"file_path": "payments/webhooks.py", "old_string": "    return deliver(event)", "new_string": "    return retry_with_backoff(lambda: deliver(event), attempts=5)"})
+    test = use("toolu_test", "Bash", {"command": "pytest tests/test_webhooks.py -q", "description": "Run the webhook tests"})
+    done = ("Done. `handle_webhook` now retries transient failures:\n\n"
+            "- Transport errors and 5xx answers are retried up to five times, backing off 0.5 s, 1 s, 2 s and 4 s with jitter.\n"
+            "- Declined cards (`402` with `card_declined`) fail at once, as before.\n"
+            "- Each retry is logged with the event id and the attempt number.\n\n"
+            "`tests/test_webhooks.py` passes (14 tests).")
+
+    # Claude Code names the session from the first message, on the side.
+    call("auxiliary", "req_demo_title", [{"role": "user", "content": f"<session>\n{PROMPT}\n</session>\nWrite the title in the predominant language of the session."}],
+         [text("Webhook retry backoff")], model="claude-haiku-5-5", with_tools=False, ms=900,
+         system="You are naming a coding session so the user can pick it out of a long list. The title is a short noun phrase.")
+    call("main", "req_demo_1", first, [{"type": "thinking", "text": REASONING}, text(ANSWER), read], ms=6400)
+    call("main", "req_demo_2", [{"role": "user", "content": [result("toolu_read", "async def handle_webhook(event):\n    ...\n    return deliver(event)\n")]}],
+         [text("Before changing it I'll check how declines are reported, and have a sub-agent find the callers."), grep, task], previous="req_demo_1")
+    # The sub-agent works on its own, from the task the main agent gave it.
+    call("subagent", "req_demo_sub1", [{"role": "user", "content": "Find every caller of handle_webhook and say which of them expect it to raise."}],
+         [use("toolu_sub_grep", "Grep", {"pattern": "handle_webhook", "path": "."})], agent="a1b2c3demo", ms=2100)
+    call("subagent", "req_demo_sub2", [{"role": "user", "content": [result("toolu_sub_grep", "payments/routes.py:41\npayments/worker.py:88\ntests/test_webhooks.py:12")]}],
+         [text("Two callers: `routes.py` returns 500 when it raises, and `worker.py` requeues the event. Neither expects retries inside it.")],
+         previous="req_demo_sub1", agent="a1b2c3demo", ms=2600)
+    # The person typed something while the agent was working; Claude Code passes it on with the tool results.
+    call("main", "req_demo_3", [{"role": "user", "content": [
+        result("toolu_grep", "payments/errors.py:7:    if body.get('code') == 'card_declined':"),
+        result("toolu_task", "Two callers: routes.py returns 500 when it raises, and worker.py requeues the event. Neither expects retries inside it."),
+        text("The user sent a new message while you were working:\nAlso log each retry with the attempt number.\n\n"
+             "This is how Claude Code surfaces messages the user sends mid-turn, within the running turn, alongside the next tool result."),
+    ]}], [text("Declines come back as `card_declined`, so those stay out of the retry. I'll log each attempt too."), edit], previous="req_demo_2")
+    call("main", "req_demo_4", [{"role": "user", "content": [result("toolu_edit", "The file payments/webhooks.py has been updated.")]}], [test], previous="req_demo_3", ms=2400)
+    call("main", "req_demo_5", [{"role": "user", "content": [result("toolu_test", "..............\n14 passed in 1.92s")]}], [text(done)], previous="req_demo_4", ms=5200)
+    # Calls on the side carry the whole conversation, with an instruction of Claude Code's at the end.
+    history = [*first, {"role": "assistant", "content": [read]}, {"role": "user", "content": [result("toolu_read", "...")]},
+               {"role": "assistant", "content": [text(done)]}]
+    call("auxiliary", "req_demo_suggest", [*history, {"role": "user", "content": "[SUGGESTION MODE: Suggest what the user might naturally type next into Claude Code.]"}],
+         [text("commit this")], previous="req_demo_5", ms=1500)
+    call("auxiliary", "req_demo_recap", [*history, {"role": "user", "content": "The user stepped away and is coming back. Recap in under 40 words."}],
+         [text("Adding retries with backoff to the payment webhook; done and tested. Next: commit the change.")], previous="req_demo_5", ms=1700)
+
+
 def seed_accounts(db: Database) -> None:
     seed = Seeder(db)
     org = "3f6c2a1e-9b7d-4c55-8e21-0a4d5f6b7c8d"
@@ -449,18 +535,7 @@ def seed_accounts(db: Database) -> None:
     seed.add("POST", "mcp-proxy.anthropic.com", "/v1/mcp/mcpsrv_01DemoServer", ms=360, response={"jsonrpc": "2.0", "id": 1, "result": {"tools": [{"name": "search_issues"}]}})
     seed.add("POST", "api.anthropic.com", "/v1/messages/count_tokens", ms=190, model="claude-opus-5-5", response={"input_tokens": 18750},
              request={"model": "claude-opus-5-5", "messages": [{"role": "user", "content": PROMPT}]})
-    seed.add("POST", "api.anthropic.com", "/v1/messages", ms=6400, ttft=1240, model="claude-opus-5-5", sent=46000, received=9800,
-             usage=(4, 214, 18234, 512), headers=claude_headers,
-             response_headers=[["content-type", "text/event-stream"], ["request-id", "req_011DemoRequest"], ["anthropic-ratelimit-unified-status", "allowed"]],
-             request={"model": "claude-opus-5-5", "max_tokens": 32000, "stream": True,
-                      "system": [{"type": "text", "text": "You are Claude Code, Anthropic's official CLI for Claude."}],
-                      "tools": [{"name": name, "input_schema": {"type": "object"}} for name in CLAUDE_TOOLS],
-                      "messages": [{"role": "user", "content": [{"type": "text", "text": PROMPT}]}]},
-             response=anthropic_events("claude-opus-5-5"))
-    seed.add("POST", "api.anthropic.com", "/v1/messages", ms=4100, ttft=980, model="claude-opus-5-5", sent=52000, received=7200,
-             usage=(3, 388, 18746, 2210), headers=claude_headers,
-             request={"model": "claude-opus-5-5", "max_tokens": 32000, "stream": True, "messages": [{"role": "user", "content": PROMPT}]},
-             response=anthropic_events("claude-opus-5-5"))
+    claude_conversation(seed, claude_headers)
     for _ in range(3):
         seed.add("POST", "api.anthropic.com", "/api/event_logging/v2/batch", ms=90, sent=7400, received=60, response={"accepted": 12})
     seed.add("POST", "http-intake.logs.us5.datadoghq.com", "/api/v2/logs", status=202, ms=110, received=2)

@@ -50,6 +50,7 @@ export const PARTS: Part[] = [
     items: [
       { to: "/agents", label: "Start an agent", icon: "play" },
       { to: "/terminals", label: "Running agents", icon: "terminal" },
+      { to: "/ask", label: "Ask a model", icon: "chat" },
     ],
   },
   {

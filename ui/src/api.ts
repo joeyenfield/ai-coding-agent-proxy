@@ -311,7 +311,20 @@ export interface Directory {
  * means a page carried only the start of it (or of a tool call's input), and the whole turn has the rest.
  */
 export type ChatBlock = { preview?: boolean } & (
-  | { type: "text"; text: string; reminder?: boolean; truncated?: number }
+  | {
+      type: "text";
+      text: string;
+      reminder?: boolean;
+      truncated?: number;
+      /** Who wrote text sent as the user: the person, a sub-agent's parent, the agent itself, or unknown when nothing tells. */
+      author?: ChatAuthor;
+      /** What the agent's own text is: a reminder, a note, a command's output, an interruption, a summary, a compaction. */
+      note?: "reminder" | "note" | "output" | "interrupted" | "summary" | "compacted";
+      /** Typed while the agent was working (the agent passed it on with tool results). */
+      queued?: boolean;
+      /** A slash or ! command the person ran. */
+      command?: boolean;
+    }
   | { type: "thinking"; text: string; truncated?: number }
   | { type: "tool_use"; id: string; name: string; input: unknown }
   | { type: "tool_result"; tool_use_id: string; text: string; is_error: boolean; truncated?: number }
@@ -329,9 +342,20 @@ export interface ChatTurn {
   request_id?: string;
   /** System prompts before the first message. */
   preamble?: boolean;
+  /** When it was sent: its call's time, or for a message the time of the call that first carried it. */
+  at?: string;
+  /** Handed to a sub-agent or background call from the conversation it came from. */
+  inherited?: boolean;
+  /** A marker the server put in: where the agent compacted the conversation. */
+  event?: "compacted";
 }
 
-/** A conversation within a session: the main chat, a sub-agent or a one-off call such as a title. */
+export type ChatAuthor = "person" | "parent" | "agent" | "unknown";
+
+/** main: the session's chat; conversation: another one (before /clear, say); subagent; background: a call the agent made by itself. */
+export type ChatKind = "main" | "conversation" | "subagent" | "background";
+
+/** A conversation within a session: the main chat, another conversation, a sub-agent or a background call such as a title. */
 export interface ChatThread {
   id: string;
   title: string;
@@ -341,14 +365,22 @@ export interface ChatThread {
   started: string;
   updated: string;
   main: boolean;
+  kind: ChatKind;
+  /** What a background call was for, when its instructions say ("Naming the session"). */
+  purpose: string;
+  /** The sub-agent's id, from Claude Code. */
+  agent: string | null;
 }
 
 /** A page of a chat: the turns from start, the newest ones unless the request asked for those before a position. */
 export interface SessionChat {
   threads: ChatThread[];
   thread: string | null;
+  kind: ChatKind | null;
   total: number;
   start: number;
+  /** How many turns at the start were handed over from another conversation. */
+  inherited: number;
   turns: ChatTurn[];
   model_calls: number;
   traced_calls: number;
@@ -1033,6 +1065,59 @@ async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   if (refreshed.ok) return fetch(apiUrl(path), { ...init, credentials: "include" });
   if (refreshed.status !== 401) throw new ApiError("The authentication service is unavailable", refreshed.status);
   return response;
+}
+
+/** One message of a conversation sent to a model from the console (Ask a model). */
+export interface AskMessage {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+/**
+ * Sends a conversation to a model the way an agent would, through the session's OpenAI Chat endpoint,
+ * so the server translates, tunes and records it like any agent's call. Calls onText with each piece of
+ * the streamed reply (reasoning separately) and resolves when the reply is complete.
+ */
+export async function askModel(
+  sessionId: string,
+  body: { model: string; messages: AskMessage[] },
+  onText: (piece: { content?: string; reasoning?: string }) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await apiFetch(`/session/${encodeURIComponent(sessionId)}/v1/chat/completions`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...body, stream: true }),
+    signal,
+  });
+  if (!response.ok || !response.body) throw await failure(response);
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += value;
+    const events = buffer.split(/\r?\n\r?\n/);
+    buffer = events.pop() ?? "";
+    for (const event of events) {
+      for (const line of event.split(/\r?\n/)) {
+        if (!line.startsWith("data:")) continue;
+        const data = line.slice(5).trim();
+        if (!data || data === "[DONE]") continue;
+        let chunk: { choices?: { delta?: { content?: string | null; reasoning_content?: string | null; reasoning?: string | null } }[]; error?: unknown };
+        try {
+          chunk = JSON.parse(data);
+        } catch {
+          continue;
+        }
+        if (chunk.error) throw new ApiError(typeof chunk.error === "string" ? chunk.error : JSON.stringify(chunk.error), 502);
+        const delta = chunk.choices?.[0]?.delta;
+        if (!delta) continue;
+        const reasoning = delta.reasoning_content ?? delta.reasoning ?? "";
+        if (delta.content || reasoning) onText({ content: delta.content ?? undefined, reasoning: reasoning || undefined });
+      }
+    }
+  }
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
