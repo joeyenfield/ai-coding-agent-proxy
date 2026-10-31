@@ -1,0 +1,23 @@
+# Builds the quickstart's images from this checkout instead of pulling them from ghcr.io, to
+# try changes you've made. Use it with the main file (and compose.gpu.yaml if you use that):
+#   podman compose -f compose.yaml -f compose.build.yaml up -d --build
+#
+# The images get local names, so `podman compose up -d` without this file goes back to the
+# published ones. Their version says <VERSION>+unknown: there's no git in the build.
+x-build-server: &build-server
+  build:
+    context: ..
+    dockerfile: server/Dockerfile
+  image: localhost/ai-control-mesh-quickstart-server
+
+x-build-machine: &build-machine
+  build:
+    context: ..
+    dockerfile: sandbox/Dockerfile
+  image: localhost/ai-control-mesh-quickstart-machine
+
+services:
+  server: *build-server
+  auth: *build-server
+  machine-1: *build-machine
+  machine-2: *build-machine

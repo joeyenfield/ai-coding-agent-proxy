@@ -377,7 +377,7 @@ The `agent-machine` deb, rpm and Arch packages include a systemd user unit, not 
 
 ## A sandbox machine in Docker
 
-`sandbox/Dockerfile` builds **agent-sandbox**, a container that is a machine of its own. It has `agent`, `agent-proxy` and `agent-machine`, plus Claude Code, Codex, OpenCode, Qwen Code and Copilot CLI (the npm packages in the `AGENTS` build argument). On start it:
+**agent-sandbox** (`ghcr.io/joeyenfield/agent-sandbox`, built from `sandbox/Dockerfile`) is a container that is a machine of its own. It has `agent`, `agent-proxy` and `agent-machine`, plus Claude Code, Codex, OpenCode, Qwen Code and Copilot CLI (the npm packages in the `AGENTS` build argument). On start it:
 
 1. waits up to two minutes for the server's `/health`;
 2. signs both agent-machine and agent in to the server, unless their credentials already name it;
@@ -388,10 +388,16 @@ The `agent-machine` deb, rpm and Arch packages include a systemd user unit, not 
 Agents you start on it run inside the container, so they can't touch the computer it runs on beyond `/workspace`.
 
 ```bash
-docker build -f sandbox/Dockerfile -t agent-sandbox .     # from the repository root
 docker run -d --name agent-sandbox --restart unless-stopped \
   -e AI_PROXY_SERVER=https://api.aicontrolmesh.com \
-  -v agent-sandbox-home:/home/agent -v agent-sandbox-workspace:/workspace agent-sandbox
+  -v agent-sandbox-home:/home/agent -v agent-sandbox-workspace:/workspace \
+  ghcr.io/joeyenfield/agent-sandbox:2.0.1
+```
+
+Use the image tag of your server's version (`2.0.1`; `sha-<commit>` for a server running a commit of master; `latest` for the newest release), so its `agent` and `agent-machine` match the server. The console's **Add a machine** (System: **Docker container**) shows the command with the right tag. To run changes of your own, build the image from a copy of this repository and run `agent-sandbox` instead:
+
+```bash
+docker build -f sandbox/Dockerfile -t agent-sandbox .     # from the repository root
 ```
 
 Or beside the server in `compose.yaml`, with its `sandbox` profile:
@@ -409,7 +415,7 @@ docker compose logs -f agent-sandbox
 | `-v <folder>:/ssh:ro` | SSH keys for git (and optionally `config` and `known_hosts`), copied into `~/.ssh` on every start |
 | `GIT_USER_NAME`, `GIT_USER_EMAIL` | Who the agents' commits are by |
 | `AGENT_REPOS` | Git URLs to clone into the workspace on start, space-separated. Ones already there are left alone. |
-| `--build-arg AGENTS="..."` | The npm packages of the agents to install |
+| `--build-arg AGENTS="..."` | The npm packages of the agents to install, when you build the image yourself |
 
 - **Sign-ins.** On first start, open the verification URL printed in the logs and approve each of the two device codes. Credentials and the machine id persist in `/home/agent`; subsequent starts renew automatically. Password/key environment bootstrap is removed.
 - **Git over SSH.** The keys are copied rather than used in place, because a mount from Windows or macOS usually has permissions ssh refuses. Without your own `config`, a host's key is trusted the first time it's seen, so a clone doesn't stop at a question nobody can answer. Agents in the sandbox can read the key: use a deploy key or one made for the sandbox.

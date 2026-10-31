@@ -20,7 +20,7 @@ Run terminal coding agents (Claude Code, GitHub Copilot CLI, OpenAI Codex, Qwen 
 ## Quick start
 
 For a local Podman or Docker demo with the server, two machines and Ollama on one machine, run
-`podman compose -f quickstart/compose.yaml up -d --build` (or use `docker compose`). Open http://localhost:19999
+`podman compose -f quickstart/compose.yaml up -d` (or use `docker compose`): it runs the published images from ghcr.io. Open http://localhost:19999
 and sign in with **admin** / **secret**. The [Quickstart](docs/quickstart.md) walks you from there to an
 agent working in the console; the [quickstart folder](quickstart/README.md) has the details behind it.
 

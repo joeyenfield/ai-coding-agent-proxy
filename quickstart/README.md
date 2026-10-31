@@ -6,8 +6,14 @@ console, is in [docs/quickstart.md](../docs/quickstart.md). This file has the de
 From this folder, with Podman and a Compose provider:
 
 ```bash
-podman compose up -d --build
+podman compose up -d
 ```
+
+The server and the machines run the published images from the GitHub Container Registry
+(`ghcr.io/joeyenfield/agent-server` and `agent-sandbox`, built by
+`.github/workflows/images.yml`), the newest release unless `AI_PROXY_IMAGE_TAG` names another
+(`2.0.1`, or `sha-<commit>` for a commit of master). To run this checkout's code instead, build
+them here: `podman compose -f compose.yaml -f compose.build.yaml up -d --build`.
 
 On Windows and macOS, start your Podman machine first with `podman machine start`
 if it is stopped. If no machine exists yet, run `podman machine init` once first.
@@ -18,14 +24,15 @@ Docker Compose; it runs against the Podman engine through `podman compose`.
 Docker Compose with Linux containers also works:
 
 ```bash
-docker compose up -d --build
+docker compose up -d
 ```
 
 The examples below use `podman compose`; substitute `docker compose` when using Docker.
 
 Open **http://localhost:19999** and sign in with **admin** / **secret**. Use `localhost`,
-so the browser matches the registered callback. The first build downloads the server,
-console, Go clients, coding agents and Ollama; it can take several minutes.
+so the browser matches the registered callback. The first start downloads the images (about
+1 GB, most of it the coding agents) and Ollama; it can take a few minutes. `podman compose
+pull` then `podman compose up -d` moves to a newer release, keeping everything.
 
 The stack has:
 
@@ -147,7 +154,7 @@ To delete **all quickstart state, workspaces and downloaded models** and start f
 
 ```bash
 podman compose down -v
-podman compose up -d --build
+podman compose up -d
 ```
 
 If you change the password after signing machines in, reset this demo or sign both
@@ -181,7 +188,7 @@ Use a rootless Podman machine (Podman's default). A rootful WSL machine publishe
 with nftables rules only and opens no socket, and WSL only forwards ports with a listening
 socket to Windows, so the browser can't reach the stack. Switch it with
 `podman machine stop`, `podman machine set --rootful=false` and `podman machine start`,
-then `podman compose up -d --build` again (rootless has its own images and volumes).
+then `podman compose up -d` again (rootless has its own images and volumes).
 
 If ports still refuse right after switching (`No route to host` from inside the VM), the
 rootful rules are still loaded: all WSL distributions share one kernel. Run `wsl --shutdown`

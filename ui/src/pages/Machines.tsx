@@ -5,7 +5,7 @@ import { api, machineProviders, type FleetMachine, type RemovedMachine } from ".
 import { CodeLine } from "../components/CodeLine";
 import { PartTag } from "../components/PartTag";
 import { StateDot } from "../components/ProviderState";
-import { useClipboard, useMachines, useStatus, useToast } from "../hooks";
+import { useClipboard, useMachines, useStatus, useToast, useVersion } from "../hooks";
 import { formatDate, formatRelative } from "../format";
 import { OS_LABELS, machinePath } from "./Machine";
 import { browserPlatform, installLine, serverAddress } from "./Downloads";
@@ -410,9 +410,22 @@ function useRemembered<T extends string>(key: string, options: readonly { id: T 
   ];
 }
 
+// Where .github/workflows/images.yml publishes the images.
+const SANDBOX_IMAGE = "ghcr.io/joeyenfield/agent-sandbox";
+
+/** The published image's tag for a server version: X.Y.Z on its release, sha-<commit> for a commit of master, else latest. */
+export function imageTag(version: string | null | undefined): string {
+  if (!version) return "latest";
+  const [release, build] = version.split("+");
+  if (!build) return /^\d+\.\d+\.\d+$/.test(release) ? release : "latest";
+  // A dirty or unknown build was never published.
+  return /^[0-9a-f]{7}$/.test(build) ? `sha-${build}` : "latest";
+}
+
 /** A machine of its own in a container (sandbox/Dockerfile): agents started on it can only touch its /workspace. */
 function SandboxSteps({ server }: { server: string }) {
   const copy = useClipboard();
+  const version = useVersion();
   const [runtime, setRuntime] = useRemembered<Runtime>(RUNTIME_KEY, RUNTIMES, "docker");
   // The shell the commands are typed in, on the computer that runs the container: it decides how lines continue.
   const [shell, setShell] = useRemembered<Shell>(SHELL_KEY, SHELLS, browserPlatform().startsWith("windows") ? "powershell" : "bash");
@@ -430,12 +443,13 @@ function SandboxSteps({ server }: { server: string }) {
   } catch {
     // Not a URL: use it as it is.
   }
-  const build = `${runtime} build -f sandbox/Dockerfile -t agent-sandbox .`;
+  // The image of the server's own version, so the container's agent and agent-machine speak to it.
+  const image = `${SANDBOX_IMAGE}:${imageTag(version.data?.version)}`;
   const run = [
     `${runtime} run -d --name agent-sandbox --restart unless-stopped`,
     ...(hostGateway ? ["  --add-host=host.docker.internal:host-gateway"] : []),
     `  -e AI_PROXY_SERVER=${address}`,
-    "  -v agent-sandbox-home:/home/agent -v agent-sandbox-workspace:/workspace agent-sandbox",
+    `  -v agent-sandbox-home:/home/agent -v agent-sandbox-workspace:/workspace ${image}`,
   ].join(`${style.continuation}\n`);
   return (
     <div className="sandbox-steps">
@@ -451,18 +465,18 @@ function SandboxSteps({ server }: { server: string }) {
       </div>
       <ol className="steps">
         <li>
-          <p>Build its image, from a copy of this repository:</p>
-          <CodeLine text={build} onCopy={() => copy(build, "Command copied")} />
-        </li>
-        <li>
           <p>
-            Run it. On its first start it prints two sign-in codes (<code>{runtime} logs agent-sandbox</code>): approve both in your
-            browser. It shows up here as <strong>agent-sandbox</strong>, and its sign-in is kept in the agent-sandbox-home volume.
+            Run it. {runtime === "podman" ? "Podman" : "Docker"} downloads the image of this server's version from the GitHub Container
+            Registry (<code>{image}</code>) the first time. On its first start it prints two sign-in codes
+            (<code>{runtime} logs agent-sandbox</code>): approve both on <Link to="/approve-device">Approve a device</Link>. It shows up
+            here as <strong>agent-sandbox</strong>, and its sign-in is kept in the agent-sandbox-home volume.
           </p>
           <CodeLine text={run} onCopy={() => copy(run, "Command copied")} />
           <p className="subtle">
             Use <code>-v "{style.home}projects:/workspace"</code> instead of the workspace volume to work on a folder of that computer's, and
-            add <code>-v "{style.home}sandbox-ssh:/ssh:ro"</code> for git keys. The README's sandbox section lists every setting.
+            add <code>-v "{style.home}sandbox-ssh:/ssh:ro"</code> for git keys. To run your own changes, build the image from a copy of
+            this repository (<code>{runtime} build -f sandbox/Dockerfile -t agent-sandbox .</code>) and run <code>agent-sandbox</code>{" "}
+            instead. <Link to="/help/machines#a-sandbox-machine-in-docker">A sandbox machine in Docker</Link> lists every setting.
           </p>
           {runtime === "podman" && shell === "bash" && (
             <p className="subtle">

@@ -18,5 +18,6 @@ agent-server --reload       # development server on the configured port
 python -m pytest -q         # tests; test_client.py also builds and runs ../client when Go is installed
 ```
 
-In Docker, from the repository root: `docker compose up -d`, or
-`docker build -f server/Dockerfile -t agent-server .`. See `Dockerfile` and `docker/`.
+In Docker, from the repository root: `docker compose up -d`, which runs the published image
+`ghcr.io/joeyenfield/agent-server` (built by `.github/workflows/images.yml`). To build it
+yourself: `docker build -f server/Dockerfile -t agent-server .`. See `Dockerfile` and `docker/`.

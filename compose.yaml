@@ -10,6 +10,11 @@
 # volume; back it up with: docker compose exec -T postgres pg_dump -U postgres -Fc mesh > mesh.dump
 # Set AI_PROXY_POSTGRES_PASSWORD, AI_PROXY_DB_API_PASSWORD and AI_PROXY_DB_AUTH_PASSWORD
 # (letters and digits) in .env before the first start.
+#
+# The images come from the GitHub Container Registry, built by .github/workflows/images.yml:
+# AI_PROXY_IMAGE_TAG picks the version (default latest, the newest release; 2.0.1, or
+# sha-<commit> for a commit of master), AI_PROXY_IMAGES another registry or owner. To build
+# them from this checkout instead: docker compose -f compose.yaml -f compose.build.yaml up -d --build
 services:
   postgres:
     image: docker.io/library/postgres:17
@@ -31,12 +36,7 @@ services:
       retries: 20
 
   agent-auth:
-    build:
-      context: .
-      dockerfile: server/Dockerfile
-      args:
-        AI_PROXY_VERSION: ${AI_PROXY_VERSION:-}
-    image: agent-server
+    image: ${AI_PROXY_IMAGES:-ghcr.io/joeyenfield}/agent-server:${AI_PROXY_IMAGE_TAG:-latest}
     entrypoint: ["agent-auth"]
     restart: unless-stopped
     depends_on:
@@ -67,6 +67,7 @@ services:
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:10000/health', timeout=3)"]
 
+  # Built here, not pulled: it carries its API's address (VITE_API_URL) from the build.
   console:
     profiles: [console]
     build:
@@ -80,21 +81,13 @@ services:
       - "127.0.0.1:8081:80"
 
   marketing-site:
-    build:
-      context: .
-      dockerfile: site/Dockerfile
-    image: ai-control-mesh-site
+    image: ${AI_PROXY_IMAGES:-ghcr.io/joeyenfield}/ai-control-mesh-site:${AI_PROXY_IMAGE_TAG:-latest}
     restart: unless-stopped
     ports:
       - "127.0.0.1:8080:80"
 
   agent-server:
-    build:
-      context: .
-      dockerfile: server/Dockerfile
-      args:
-        AI_PROXY_VERSION: ${AI_PROXY_VERSION:-}
-    image: agent-server
+    image: ${AI_PROXY_IMAGES:-ghcr.io/joeyenfield}/agent-server:${AI_PROXY_IMAGE_TAG:-latest}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -126,7 +119,7 @@ services:
       - agent-server-config:/app/config:ro
       # The builds the console's Downloads page and `agent update` hand out
       # (scripts/build-dist.sh). The server offers the one of its own version, or the
-      # newest of the same release: build the image with AI_PROXY_VERSION set to match.
+      # newest of the same release: use the image of the same version (AI_PROXY_IMAGE_TAG).
       - ./dist:/app/dist:ro
 
   # A sandbox machine: coding agents the console starts on it run in this container, in
@@ -134,12 +127,7 @@ services:
   # Rotating credentials persist in agent-sandbox-home; no password is supplied here.
   agent-sandbox:
     profiles: [sandbox]
-    build:
-      context: .
-      dockerfile: sandbox/Dockerfile
-      args:
-        AI_PROXY_VERSION: ${AI_PROXY_VERSION:-}
-    image: agent-sandbox
+    image: ${AI_PROXY_IMAGES:-ghcr.io/joeyenfield}/agent-sandbox:${AI_PROXY_IMAGE_TAG:-latest}
     restart: unless-stopped
     depends_on: [agent-server]
     hostname: agent-sandbox

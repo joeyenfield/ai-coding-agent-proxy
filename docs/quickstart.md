@@ -49,7 +49,7 @@ Both machines sign themselves in as `admin`, approving their own device codes th
 ## Before you start
 
 - **Podman with a Compose provider, or Docker with Compose.** On Windows and macOS, Podman runs in a VM: `podman machine init` once, then `podman machine start`. Check the Compose provider with `podman compose version`; Podman Desktop can install one (**Settings › Resources › Compose**). The commands below use `podman compose`; with Docker, type `docker compose` instead.
-- **A checkout of this repository.** The images are built from it.
+- **A checkout of this repository**, for the Compose files and the small helper scripts they mount. The images themselves come ready-built from the GitHub Container Registry (`ghcr.io/joeyenfield/agent-server` and `agent-sandbox`), for Intel and ARM computers alike.
 - **Room:** several GB of disk for the images, plus the models you pull, and enough memory for a small model on CPU (8 GB or more is comfortable). An NVIDIA GPU is optional and makes models much faster.
 - **Free ports** `19999` and `20000` on `localhost`.
 
@@ -58,10 +58,20 @@ Both machines sign themselves in as `admin`, approving their own device codes th
 From the repository root:
 
 ```bash
-podman compose -f quickstart/compose.yaml up -d --build
+podman compose -f quickstart/compose.yaml up -d
 ```
 
-The first build downloads and builds the server, the console, the Go programs and the coding agents, so it takes several minutes. Later starts take seconds.
+The first start downloads the images (about 1 GB, most of it the machines' coding agents), so it takes a few minutes. Later starts take seconds.
+
+The images are the newest release (`latest`). For another version, set `AI_PROXY_IMAGE_TAG`, such as `AI_PROXY_IMAGE_TAG=2.0.1` (a release) or `sha-<commit>` (a commit of master), in your shell or a `.env` file beside `quickstart/compose.yaml`.
+
+To try changes you've made to the code, build the images from your checkout instead, with `quickstart/compose.build.yaml`:
+
+```bash
+podman compose -f quickstart/compose.yaml -f quickstart/compose.build.yaml up -d --build
+```
+
+That builds the server, the console, the Go programs and the coding agents, so the first build takes several minutes. Leave the file out to go back to the published images.
 
 Check that everything is up:
 
@@ -76,7 +86,7 @@ All six services should say `healthy` (the machines take half a minute longer th
 Ollama runs on CPU unless you add `quickstart/compose.gpu.yaml`, which gives it your NVIDIA GPUs:
 
 ```bash
-podman compose -f quickstart/compose.yaml -f quickstart/compose.gpu.yaml up -d --build
+podman compose -f quickstart/compose.yaml -f quickstart/compose.gpu.yaml up -d
 ```
 
 Use both files every time you start the stack; with only `compose.yaml`, Ollama is recreated on CPU. Podman needs to know your GPU by its CDI name. Check with `podman run --rm --device nvidia.com/gpu=all docker.io/library/ubuntu:24.04 nvidia-smi`; if it doesn't print your card, run `podman machine ssh "sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml"` (again after an NVIDIA driver update). [The quickstart's README](../quickstart/README.md#use-a-gpu) has the details.
@@ -156,17 +166,18 @@ All of it is in the stack's PostgreSQL. Payloads are kept until you delete the s
 ```bash
 podman compose -f quickstart/compose.yaml stop          # stop, keeping everything
 podman compose -f quickstart/compose.yaml up -d         # start again
-podman compose -f quickstart/compose.yaml up -d --build # after pulling new code: rebuild, keeping everything
+podman compose -f quickstart/compose.yaml pull          # get a newer release's images,
+podman compose -f quickstart/compose.yaml up -d         # then start on them, keeping everything
 podman compose -f quickstart/compose.yaml logs -f server auth machine-1
 ```
 
-Everything lives in named volumes: the database (settings, accounts, recordings, sign-ins), the server's log, both machines' home folders and workspaces, and Ollama's models. They survive rebuilds.
+Everything lives in named volumes: the database (settings, accounts, recordings, sign-ins), the server's log, both machines' home folders and workspaces, and Ollama's models. They survive new images and rebuilds.
 
 To delete **all of it**, models and workspaces included, and start fresh:
 
 ```bash
 podman compose -f quickstart/compose.yaml down -v
-podman compose -f quickstart/compose.yaml up -d --build
+podman compose -f quickstart/compose.yaml up -d
 ```
 
 Changing the admin password signs both machines out: reset as above, or sign their programs in again.
@@ -181,7 +192,7 @@ Changing the admin password signs both machines out: reset as above, or sign the
 | Too many sign-in attempts | The sign-in service allows 10 password attempts per address in 10 minutes: wait, or `podman compose -f quickstart/compose.yaml restart auth`. |
 | No model to choose when starting an agent | Add machine-1's Ollama as a provider (step 3) and pull a model (step 4). |
 | The agent is very slow | It's running on CPU: pull a smaller model. |
-| Build fails with `checking context: can't stat` | Use the checkout's current `.dockerignore`, which leaves out generated folders. |
+| Building from your checkout (`compose.build.yaml`) fails with `checking context: can't stat` | Use the checkout's current `.dockerignore`, which leaves out generated folders. |
 | `nftables` errors before containers start (Windows) | Update WSL (`wsl --update`) and restart it; see `quickstart/README.md`. |
 
 `quickstart/README.md` has the details behind each of these, and how the stack's local sign-in works.

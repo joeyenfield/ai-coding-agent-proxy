@@ -130,7 +130,7 @@ Everyone signs in through OIDC, including on loopback. Sessions are private unti
 | Downloads and installers | `/install.sh`, `/install.ps1` | Downloads | [Deployment](deployment.md) |
 | Uninstalling from a computer | `/uninstall.sh`, `/uninstall.ps1`, `install.sh --uninstall` | Downloads › Uninstall | [Deployment](deployment.md#uninstalling) |
 | The server in Docker, HTTPS | `docker compose up -d` | | [Deployment](deployment.md#the-server-in-docker) |
-| Local demo: server, two machines and Ollama | `podman compose -f quickstart/compose.yaml up -d --build` (or `docker compose`) | Sign in as admin / secret on localhost:19999 | [Quickstart](quickstart.md) |
+| Local demo: server, two machines and Ollama | `podman compose -f quickstart/compose.yaml up -d` (or `docker compose`) | Sign in as admin / secret on localhost:19999 | [Quickstart](quickstart.md) |
 | Benchmarks | `agent-benchmark` | | [Configuration](configuration.md#agent-benchmark) |
 | The API | | Server settings › API reference (`/docs`) | [API](api.md) |
 

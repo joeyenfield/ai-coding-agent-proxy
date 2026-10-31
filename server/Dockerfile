@@ -1,8 +1,9 @@
 # agent-server: the API and the console it serves, in one image.
 #
-# Build from the repository root (the console's sources are in ui/):
+# Published as ghcr.io/joeyenfield/agent-server (.github/workflows/images.yml), which
+# compose.yaml and the quickstart run. To build it yourself, from the repository root (the
+# console's sources are in ui/):
 #   docker build -f server/Dockerfile -t agent-server .
-# or use compose.yaml at the root: docker compose up -d
 #
 # The agent machines don't use this image: they run the Go client (client/).
 

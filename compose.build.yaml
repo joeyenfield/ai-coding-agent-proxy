@@ -1,0 +1,38 @@
+# Builds the images from this checkout instead of pulling them from ghcr.io. Use it with the
+# main file:
+#   docker compose -f compose.yaml -f compose.build.yaml up -d --build
+#
+# The images get local names (agent-server, ...), so a later `docker compose up -d` without
+# this file goes back to the published ones. AI_PROXY_VERSION stamps the build's version
+# (what /health reports), to match a dist/<version>/ folder; without it the image says
+# <VERSION>+unknown, as it has no git to work it out from.
+services:
+  agent-auth:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+      args:
+        AI_PROXY_VERSION: ${AI_PROXY_VERSION:-}
+    image: agent-server
+
+  agent-server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+      args:
+        AI_PROXY_VERSION: ${AI_PROXY_VERSION:-}
+    image: agent-server
+
+  marketing-site:
+    build:
+      context: .
+      dockerfile: site/Dockerfile
+    image: ai-control-mesh-site
+
+  agent-sandbox:
+    build:
+      context: .
+      dockerfile: sandbox/Dockerfile
+      args:
+        AI_PROXY_VERSION: ${AI_PROXY_VERSION:-}
+    image: agent-sandbox

@@ -5,9 +5,10 @@
 # the coding agents installed with npm. On start it signs in to AI_PROXY_SERVER (see
 # entrypoint.sh), turns launches on for /workspace and stays in the fleet.
 #
-# Build from the repository root (it needs client/ and machine/):
+# Published as ghcr.io/joeyenfield/agent-sandbox (.github/workflows/images.yml), which
+# compose.yaml's sandbox profile and the quickstart's machines run. To build it yourself,
+# from the repository root (it needs client/ and machine/):
 #   docker build -f sandbox/Dockerfile -t agent-sandbox .
-# or with compose.yaml at the root: docker compose --profile sandbox up -d
 #
 # AGENTS picks the npm packages (the install lines of the shipped agents, server/agent_server/defaults.py):
 #   docker build -f sandbox/Dockerfile --build-arg AGENTS="@openai/codex opencode-ai" -t agent-sandbox .

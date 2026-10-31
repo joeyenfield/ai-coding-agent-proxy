@@ -1,6 +1,6 @@
 """End-to-end sign-in and permission tests against the running quickstart stack.
 
-Start the stack first (`podman compose up -d --build` in quickstart/), then from the
+Start the stack first (`podman compose up -d` in quickstart/, with `-f compose.yaml -f compose.build.yaml ... --build` to test this checkout's code), then from the
 repository root: `python -m pytest -q quickstart/tests`. The tests talk to the published
 ports exactly as a browser and the launchers do, so they cover what the unit tests can't:
 the issuer's real headers, cookies across both services, and the fleet's machines.

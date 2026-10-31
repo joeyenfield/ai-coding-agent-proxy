@@ -12,10 +12,10 @@ with the API and console, its OIDC issuer, PostgreSQL, two fleet machines, and O
 From the repository root:
 
 ```bash
-podman compose -f quickstart/compose.yaml up -d --build
+podman compose -f quickstart/compose.yaml up -d
 ```
 
-Use `docker compose` instead for Docker. With Podman on Windows/macOS, start the VM
+It runs the published images ([below](#images-on-ghcrio)); add `-f quickstart/compose.build.yaml` and `--build` to build them from the checkout instead. Use `docker compose` instead for Docker. With Podman on Windows/macOS, start the VM
 with `podman machine start` first (`podman machine init` once if none exists).
 `podman compose version` checks the Compose provider; Podman Desktop can install it
 under **Settings > Resources > Compose**. A provider named Docker Compose works with
@@ -66,11 +66,19 @@ quickstart retains bridge networking and does not disable the VM firewall.
 
 ## The server in Docker
 
-`server/Dockerfile` builds one image with the server and its console. Compose also builds the static brochure site in `site/`. Build them from the repository root:
+The server and its console are one image, `ghcr.io/joeyenfield/agent-server`; agent-auth runs from the same image. `compose.yaml` at the repository root runs them with PostgreSQL and the brochure site, pulling the published images ([Images on ghcr.io](#images-on-ghcrio)):
 
 ```bash
-docker compose up -d                                  # with compose.yaml at the root
-docker build -f server/Dockerfile -t agent-server .   # server and console, or by hand
+docker compose up -d                                    # the newest release (latest)
+AI_PROXY_IMAGE_TAG=2.0.1 docker compose up -d           # or a version of your choice
+docker compose pull && docker compose up -d             # move to a newer release
+```
+
+Pick the tag to match the `dist/` build you hand out (below): the server offers the build of its own version. To build the images from your checkout instead, add `compose.build.yaml`:
+
+```bash
+AI_PROXY_VERSION=2.0.1 docker compose -f compose.yaml -f compose.build.yaml up -d --build
+docker build -f server/Dockerfile -t agent-server .     # or one image by hand
 ```
 
 The image builds the console with Node, then installs the server on `python:3.13-slim`. It runs as a non-root user (`agent`, uid 10001), listens on `0.0.0.0:9999`, and checks `/health` every 30 seconds. It sets `AI_PROXY_HOME=/app`, `AI_PROXY_HOST=0.0.0.0` and `AI_PROXY_UI_BUILD=0`.
@@ -112,7 +120,14 @@ Each image's version (what `/health` reports) is the build's, `2.0.1` on its tag
 docker pull ghcr.io/joeyenfield/agent-server:2.0.1
 ```
 
-The server still hands out the agent and agent-machine builds from its `dist/` folder, which the image doesn't contain: mount it as before (`/app/dist`).
+`compose.yaml` and the quickstart use these. Two variables choose them:
+
+| Variable | What it does |
+|---|---|
+| `AI_PROXY_IMAGE_TAG` | The tag to run (default `latest`): `2.0.1`, `2.0`, `master` or `sha-<commit>`. |
+| `AI_PROXY_IMAGES` | Where the images are (default `ghcr.io/joeyenfield`): set it to your own registry or fork's owner, such as `ghcr.io/<you>`. |
+
+The server still hands out the agent and agent-machine builds from its `dist/` folder, which the image doesn't contain: mount it as before (`/app/dist`), built from the same commit as the image.
 
 ## PostgreSQL
 
@@ -164,11 +179,11 @@ To copy only the settings (no accounts or recordings), use `agent-server config 
 
 An install from before the database keeps its old volumes (`agent-server-config`, `agent-server-logs`, `agent-server-certs`, `agent-auth-state`), and `compose.yaml` still mounts them. On the first start with PostgreSQL, the server imports `backends.yaml`, `models.yaml`, `agents.yaml`, `users.json`, the keys, the capture CA, `machines.json` and every recorded session, and agent-auth imports its `issuer.sqlite3` and signing key, so everyone stays signed in. A large `logs/` takes a while; the server logs its progress and carries on after an interruption. Nothing is deleted. Once it runs from the database you can drop the old files, and the `/app/config` and `/app/auth-state` mounts. See [Upgrading from files](configuration.md#upgrading-from-files).
 
-**Versions in Docker.** There's no git inside the image, so pass the version as a build argument: `AI_PROXY_VERSION=1.2.0+abc1234 docker compose build`. The server hands out the `dist/<version>/` of its own version, or the newest of the same `X.Y.Z` when that wasn't built, so match it to the builds you mount.
+**Versions in Docker.** The published images carry their version (`2.0.1`, or `2.0.1+<commit>` for `sha-<commit>`). An image you build has no git inside, so pass the version as a build argument: `AI_PROXY_VERSION=1.2.0+abc1234 docker compose -f compose.yaml -f compose.build.yaml build`. The server hands out the `dist/<version>/` of its own version, or the newest of the same `X.Y.Z` when that wasn't built, so match it to the builds you mount.
 
-**A sandbox machine.** `docker compose --profile sandbox up -d` also starts `agent-sandbox` (`sandbox/Dockerfile`): `agent`, `agent-machine` and npm coding agents in a container that joins the fleet and takes launches in `/workspace` only. Set `AI_PROXY_SERVER` to your HTTPS API and optionally `AI_PROXY_MACHINE_NAME`. Approve both device codes from its logs on first start; persistent credentials refresh on later starts. Password/key bootstrap is removed. See [Machines](machines.md).
+**A sandbox machine.** `docker compose --profile sandbox up -d` also starts `agent-sandbox` (`ghcr.io/joeyenfield/agent-sandbox`, from `sandbox/Dockerfile`): `agent`, `agent-machine` and npm coding agents in a container that joins the fleet and takes launches in `/workspace` only. Set `AI_PROXY_SERVER` to your HTTPS API and optionally `AI_PROXY_MACHINE_NAME`. Approve both device codes from its logs on first start; persistent credentials refresh on later starts. Password/key bootstrap is removed. See [Machines](machines.md).
 
-Podman builds and runs the same image; pass `--http-proxy=false` to `podman build`.
+Podman runs the same images; when building them yourself, pass `--http-proxy=false` to `podman build`.
 
 ## HTTPS
 
@@ -185,7 +200,7 @@ The console can run as static files, independently of `agent-server`:
 | `api.aicontrolmesh.com` | `agent-server` (port 9999): API, WebSockets, live streams, documentation files, downloads and installers. |
 | `auth.aicontrolmesh.com` | `agent-auth` (loopback port 10000): OIDC sign-in, device approval and OAuth endpoints. |
 
-Set these variables for Compose (or put them in the root `.env`, which is ignored by git), then run `docker compose --profile console up -d --build`:
+Set these variables for Compose (or put them in the root `.env`, which is ignored by git), then run `docker compose --profile console up -d --build` (`--build` builds only the console, with its API's address; the rest are pulled):
 
 ```dotenv
 VITE_API_URL=https://api.aicontrolmesh.com

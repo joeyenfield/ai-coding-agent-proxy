@@ -1,3 +1,9 @@
+# The local demo: podman compose up -d (or docker compose). See README.md.
+#
+# Its server and machines run the published images from the GitHub Container Registry
+# (.github/workflows/images.yml): AI_PROXY_IMAGE_TAG picks the version (default latest, the
+# newest release). To run this checkout's code instead, build them here:
+#   podman compose -f compose.yaml -f compose.build.yaml up -d --build
 name: ai-control-mesh-quickstart
 
 x-auth: &auth
@@ -10,10 +16,7 @@ x-auth: &auth
   AI_PROXY_PASSWORD: ${QUICKSTART_ADMIN_PASSWORD:-secret}
 
 x-machine: &machine
-  build:
-    context: ..
-    dockerfile: sandbox/Dockerfile
-  image: localhost/ai-control-mesh-quickstart-machine
+  image: ${AI_PROXY_IMAGES:-ghcr.io/joeyenfield}/agent-sandbox:${AI_PROXY_IMAGE_TAG:-latest}
   restart: unless-stopped
   entrypoint: [tini, --, python3, /quickstart/start.py, machine]
   environment: &machine-env
@@ -46,10 +49,7 @@ services:
       retries: 20
 
   server:
-    build:
-      context: ..
-      dockerfile: server/Dockerfile
-    image: localhost/ai-control-mesh-quickstart-server
+    image: ${AI_PROXY_IMAGES:-ghcr.io/joeyenfield}/agent-server:${AI_PROXY_IMAGE_TAG:-latest}
     restart: unless-stopped
     entrypoint: [python, /quickstart/start.py, server]
     depends_on:
@@ -68,10 +68,7 @@ services:
       - server-logs:/app/logs
 
   auth:
-    build:
-      context: ..
-      dockerfile: server/Dockerfile
-    image: localhost/ai-control-mesh-quickstart-server
+    image: ${AI_PROXY_IMAGES:-ghcr.io/joeyenfield}/agent-server:${AI_PROXY_IMAGE_TAG:-latest}
     restart: unless-stopped
     entrypoint: [agent-auth]
     depends_on:

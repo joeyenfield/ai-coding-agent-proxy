@@ -140,7 +140,26 @@ def test_compose_resolves_services_and_isolates_machine_storage():
             assert dependency in services
     for service in services.values():
         assert "docker.sock" not in str(service.get("volumes", []))
-        build = service.get("build")
-        if build:
-            root = (QUICKSTART / build["context"]).resolve()
-            assert (root / build["dockerfile"]).is_file()
+        # The demo runs the published images; compose.build.yaml builds this checkout's instead.
+        assert "build" not in service
+    for name in ("server", "auth"):
+        assert services[name]["image"] == "${AI_PROXY_IMAGES:-ghcr.io/joeyenfield}/agent-server:${AI_PROXY_IMAGE_TAG:-latest}"
+    for name in ("machine-1", "machine-2"):
+        assert services[name]["image"] == "${AI_PROXY_IMAGES:-ghcr.io/joeyenfield}/agent-sandbox:${AI_PROXY_IMAGE_TAG:-latest}"
+
+
+def test_the_build_override_builds_every_published_image_from_the_checkout():
+    compose = yaml.safe_load((QUICKSTART / "compose.yaml").read_text())
+    override = yaml.safe_load((QUICKSTART / "compose.build.yaml").read_text())["services"]
+    published = {name for name, service in compose["services"].items() if "ghcr.io" in service["image"]}
+    assert set(override) == published
+    for name, service in override.items():
+        # Local names, so the published images aren't overwritten by a local build.
+        assert service["image"].startswith("localhost/")
+        root = (QUICKSTART / service["build"]["context"]).resolve()
+        assert (root / service["build"]["dockerfile"]).is_file()
+    root_compose = yaml.safe_load((QUICKSTART / "../compose.yaml").read_text())["services"]
+    root_override = yaml.safe_load((QUICKSTART / "../compose.build.yaml").read_text())["services"]
+    assert set(root_override) == {name for name, service in root_compose.items() if "ghcr.io" in service.get("image", "")}
+    for service in root_override.values():
+        assert "/" not in service["image"] and ((QUICKSTART / "..").resolve() / service["build"]["dockerfile"]).is_file()

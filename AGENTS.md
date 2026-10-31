@@ -192,7 +192,7 @@ quickstart/                 Local Podman/Docker Compose demo: server, issuer, tw
 site/                       the static public brochure website, served separately from the console (its own Dockerfile and nginx.conf)
 sandbox/                    agent-sandbox's Dockerfile and entrypoint: agent + agent-machine + npm coding agents; signs in from env, launches on for /workspace only
 scripts/https/              setup-https.ps1 (Windows: nginx + win-acme for Let's Encrypt, firewall, startup task) and the templates it fills in (nginx.conf.template, nginx-https.conf.template)
-scripts/                    build-client.ps1/.sh, build-machine.ps1/.sh, build-dist.ps1/.sh (every platform, via tools/dist), agent.ps1/.sh (build and run the client), dev.ps1/.sh, deploy.ps1/.sh + deploy-remote.sh (local only, gitignored: release to the server's computer over ssh: push, build-dist, copy, docker compose up -d --build of everything there; AI_PROXY_DEPLOY_*), start-ollama.sh, screenshots/ (demo.py, traffic.py, capture.mjs)
+scripts/                    build-client.ps1/.sh, build-machine.ps1/.sh, build-dist.ps1/.sh (every platform, via tools/dist), agent.ps1/.sh (build and run the client), dev.ps1/.sh, deploy.ps1/.sh + deploy-remote.sh (local only, gitignored: release to the server's computer over ssh: push, build-dist, copy, waits for the commit's images on ghcr.io, then docker compose pull and up -d there; AI_PROXY_DEPLOY_*), start-ollama.sh, screenshots/ (demo.py, traffic.py, capture.mjs)
 benchmarks/tests/<name>/    prompt.md + test.yaml; results go to benchmarks/results/ (gitignored)
 logs/  certs/  ui/dist/     Runtime output (the default SQLite database logs/agent-server.sqlite3, proxy/proxy.log, the CA's public files in ca/), first-user-password, and the UI build; all gitignored
 client/bin/ machine/bin/    This machine's builds; dist/<version>/<os>-<arch>/ every platform's (archives and packages, binaries in artifact/); all gitignored.
@@ -236,8 +236,10 @@ agent-server config import <file|-> [--replace]  # store one (only the parts it 
 agent-server db info                     # which database (password hidden), its version, size, sessions and retention
 agent-server db migrate                  # bring the tables up to this version (agent-server does it on start too)
 agent-server db import [--from <folder>] # import an older install's files (done automatically on the first start against an empty database)
-docker compose up -d                     # PostgreSQL, agent-auth and the server in Docker (server/Dockerfile); --profile console adds the standalone console on :8081
-cd quickstart && podman compose up -d --build  # the local demo stack (server, issuer, two machines); see quickstart/README.md
+docker compose up -d                     # PostgreSQL, agent-auth and the server in Docker, from ghcr.io (AI_PROXY_IMAGE_TAG); --profile console adds the standalone console on :8081
+docker compose -f compose.yaml -f compose.build.yaml up -d --build   # the same, built from this checkout
+cd quickstart && podman compose up -d   # the local demo stack (server, issuer, two machines) on the published ghcr.io images; see quickstart/README.md
+cd quickstart && podman compose -f compose.yaml -f compose.build.yaml up -d --build   # the same, built from this checkout (to try changes)
 agent proxy                              # this machine's agent-proxy in the foreground (the launcher otherwise starts it in the background)
 ./scripts/dev.sh  |  .\scripts\dev.ps1   # API with reload + Vite on :5173 (proxies /api, /health, /docs, /help-files, /downloads, ... to :9999)
 agent --list                             # the server's agents, whether they're installed here, and agent-proxy's server and sign-in
