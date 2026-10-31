@@ -203,8 +203,8 @@ export function DownloadsPage({ standalone = false }: { standalone?: boolean }) 
             <h2 id="downloads-python">Python client and agent-machine</h2>
             <p className="subtle">
               The same programs written in Python, for any computer with Python 3.9 or later, including ones with no build above.
-              They install as <code>agent</code> and <code>agent-machine</code>, like the programs above, so install one or the other. They don't run
-              containers or start model servers.
+              They install as <code>agent</code> and <code>agent-machine</code>, like the programs above, so install one or the other. They do
+              everything the others do, containers and model servers included.
             </p>
           </div>
           <FileTable files={python} server={server} onCopy={copy} />

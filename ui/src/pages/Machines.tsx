@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, machineProviders, type FleetMachine, type RemovedMachine } from "../api";
 import { CodeLine } from "../components/CodeLine";
 import { PartTag } from "../components/PartTag";
@@ -206,6 +206,11 @@ const INSTALLS = [
     about: "agent-machine, plus agent: the command you start coding agents with (agent claude ., agent qwen .), and agent-proxy, which carries their traffic to this server. Pick this for a computer you also code on, or that should take agent launches from the console.",
   },
   {
+    id: "python",
+    label: "Python",
+    about: "The same agent-machine and agent, written in Python, for a computer with Python 3.9 or later and no build here for its system. They do everything the others do, under the same command names, so install one or the other on a computer, not both.",
+  },
+  {
     id: "sandbox",
     label: "Sandbox container",
     about: "A machine of its own in a Docker or Podman container, with Claude Code, Codex, OpenCode, Qwen Code and Copilot CLI installed. Agents started on it can only touch its /workspace folder, not the computer it runs on.",
@@ -266,6 +271,8 @@ function JoinSteps({ server }: { server: string }) {
       <p className="join-about">{chosen.about}</p>
       {install === "sandbox" ? (
         <SandboxSteps server={server} shell={system === "powershell" ? "powershell" : "bash"} />
+      ) : install === "python" ? (
+        <PythonSteps server={server} windows={windows} />
       ) : (
         <>
           <CodeLine text={command} onCopy={() => copy(command, "Command copied")} />
@@ -306,6 +313,54 @@ function JoinSteps({ server }: { server: string }) {
         </>
       )}
     </div>
+  );
+}
+
+/** The Python agent-machine and agent: the server's wheel through pip, then signed in and started like the Go one. */
+function PythonSteps({ server, windows }: { server: string; windows: boolean }) {
+  const copy = useClipboard();
+  const index = useQuery({ queryKey: ["downloads"], queryFn: api.downloads });
+  const wheel = index.data?.files.find((file) => file.kind === "wheel");
+  if (index.isPending) return <p className="subtle">Looking for this server's Python build...</p>;
+  if (!wheel) {
+    return (
+      <p className="callout">
+        This server has no Python build to hand out yet. It's built with the rest (<code>scripts/build-dist</code> on the server's
+        computer); see <Link to="/get">Downloads</Link>.
+      </p>
+    );
+  }
+  // python3 is the name on Linux and macOS; Windows has the py launcher.
+  const python = windows ? "py" : "python3";
+  const steps = [
+    {
+      command: `${python} -m pip install ${server}${wheel.url}`,
+      text: "Installs this server's Python build, with the libraries it needs (httpx, websockets, starlette, uvicorn; pywinpty on Windows). It puts agent, agent-proxy and agent-machine on your PATH.",
+    },
+    {
+      command: `agent-machine login ${server}`,
+      text: "Signs agent-machine in to this server: it shows a code for you to approve. It never asks for your password.",
+    },
+    {
+      command: "agent-machine start",
+      text: "Starts it in the background, so it joins the fleet and appears in the list above. Nothing starts it after a restart: run this from your own startup to keep it in the fleet.",
+    },
+  ];
+  return (
+    <>
+      <ol className="steps">
+        {steps.map((step) => (
+          <li key={step.command}>
+            <p>{step.text}</p>
+            <CodeLine text={step.command} onCopy={() => copy(step.command, "Command copied")} />
+          </li>
+        ))}
+      </ol>
+      <p className="subtle">
+        If pip says the environment is externally managed (Debian, Ubuntu), use <code>pipx install</code> with the same address, or
+        a virtualenv. To start coding agents there too, sign agent in with <code>agent login {server}</code>.
+      </p>
+    </>
   );
 }
 
