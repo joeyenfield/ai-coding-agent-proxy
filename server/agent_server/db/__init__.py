@@ -36,7 +36,10 @@ def sqlite_url(path: Path) -> str:
 
 
 def redacted(url: str) -> str:
-    """The URL with its password hidden, for logs and `agent-server db info`."""
+    """The URL with its password hidden, for logs and `agent-server db info`. A SQLite file's has none,
+    and is shown as it is (rendering it would percent-encode a Windows drive's colon)."""
+    if make_url(url).get_backend_name() == "sqlite":
+        return url
     return make_url(url).render_as_string(hide_password=True)
 
 

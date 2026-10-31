@@ -178,7 +178,7 @@ export function SessionsPage() {
         onConfirm={() => removeAll.mutate()}
       >
         <p>
-          This permanently removes every saved request, telemetry file and payload, and deletes the sessions. Sessions
+          This permanently removes every saved request, payload and terminal recording, and deletes the sessions. Sessions
           used in the last 15 minutes stay, empty, so agents that are still running keep working. Sessions with a request
           in flight are skipped. It can't be undone.
         </p>

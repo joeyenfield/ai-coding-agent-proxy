@@ -3,6 +3,7 @@
 // python scripts/screenshots/demo.py                     (demo proxy with sample traffic on :8199)
 // node scripts/screenshots/capture.mjs http://127.0.0.1:8199 docs/screenshots [name,name...]
 // Other servers require explicit SCREENSHOT_USERNAME, SCREENSHOT_PASSWORD and SCREENSHOT_ISSUER.
+import os from "node:os";
 import { chromium } from "playwright-core";
 
 const base = (process.argv[2] ?? "http://127.0.0.1:8199").replace(/\/$/, "");
@@ -19,9 +20,17 @@ const signIn = configured.every(Boolean)
   : base === "http://127.0.0.1:8199"
     ? { username: "demo", password: "demo-screenshot-password", issuer: "http://127.0.0.1:18200" }
     : null;
+// Admin-only pages (Server settings' stored sections, Server stats) are captured as an admin:
+// the demo's own, or SCREENSHOT_ADMIN_USERNAME and SCREENSHOT_ADMIN_PASSWORD on another server.
+const adminSignIn = process.env.SCREENSHOT_ADMIN_USERNAME && process.env.SCREENSHOT_ADMIN_PASSWORD && signIn
+  ? { ...signIn, username: process.env.SCREENSHOT_ADMIN_USERNAME, password: process.env.SCREENSHOT_ADMIN_PASSWORD }
+  : base === "http://127.0.0.1:8199" && !configured.every(Boolean)
+    ? { username: "demo-admin", password: "demo-admin-screenshot-password", issuer: "http://127.0.0.1:18200" }
+    : null;
 let authenticatedState;
+let adminState;
 
-async function login() {
+async function login(signIn) {
   const context = await browser.newContext();
   try {
     const response = await context.request.get(`${base}/api/auth/status`);
@@ -48,22 +57,41 @@ async function login() {
     ]);
     const verified = await (await context.request.get(`${base}/api/auth/status`)).json();
     if (verified.identity?.user !== signIn.username) throw new Error("The verified browser identity does not match the screenshot account.");
-    authenticatedState = await context.storageState();
+    return await context.storageState();
   } finally {
     await context.close();
   }
 }
 
 try {
-  await login();
+  authenticatedState = await login(signIn);
+  adminState = adminSignIn ? await login(adminSignIn) : authenticatedState;
 } catch (error) {
   await browser.close();
   throw error;
 }
 
-async function shot(name, path, { theme = "light", width = 1440, height = 900, prepare, fullPage = false, scrollTop = false } = {}) {
+// Pages that show the computer the demo runs on (Server stats, Storage) would publish its name and
+// folders in the docs: they're shown as a neutral server instead.
+const home = process.cwd();
+async function scrub(page) {
+  await page.evaluate(({ homes, host }) => {
+    const prefix = "/srv/agent-server";
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      let text = node.textContent;
+      for (const home of homes) text = text.split(home).join(prefix);
+      // What followed the folder: forward slashes, without the demo's temporary folder.
+      text = text.replace(/\/srv\/agent-server[^\s,]*/g, (path) => path.replaceAll("\\", "/").replace(/\/\.screenshot-demo-[0-9a-f]+/, ""));
+      text = text.replace(new RegExp(host, "gi"), "agent-server");
+      if (text !== node.textContent) node.textContent = text;
+    }
+  }, { homes: [home, home.replaceAll("\\", "/")], host: os.hostname().replace(/[^A-Za-z0-9-]/g, "") });
+}
+
+async function shot(name, path, { theme = "light", width = 1440, height = 900, prepare, fullPage = false, scrollTop = false, admin = false, scrubbed = false } = {}) {
   if (only && !only.split(",").includes(name)) return;
-  const context = await browser.newContext({ storageState: authenticatedState, viewport: { width, height }, deviceScaleFactor: 1.5, colorScheme: theme });
+  const context = await browser.newContext({ storageState: admin ? adminState : authenticatedState, viewport: { width, height }, deviceScaleFactor: 1.5, colorScheme: theme });
   // Carry the latest rotating refresh token into the next (sequential) screenshot.
   const status = await (await context.request.get(`${base}/api/auth/status`)).json();
   if (!status.identity) {
@@ -83,11 +111,13 @@ async function shot(name, path, { theme = "light", width = 1440, height = 900, p
   await page.waitForTimeout(1200);
   // A step that no longer matches the console is reported, and the page is still captured: check the image.
   if (prepare) await prepare(page).catch((error) => console.log(`[${name}] prepare failed:`, error.message.split("\n")[0]));
+  if (scrubbed) await scrub(page);
   // Selecting a row can scroll the list; keep the page header in view (the inspector is sticky).
   if (scrollTop) await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({ path: `${out}/${name}.png`, fullPage });
   console.log("saved", name);
-  authenticatedState = await context.storageState();
+  if (admin) adminState = await context.storageState();
+  else authenticatedState = await context.storageState();
   await context.close();
 }
 
@@ -211,7 +241,14 @@ await shot("request", "/requests", {
     await page.waitForTimeout(1200);
   },
 });
-await shot("settings", "/settings", { fullPage: true });
+await shot("settings", "/settings", {
+  fullPage: true,
+  admin: true,
+  scrubbed: true,
+  // The save bar floats at the bottom of the window; in a full-page capture it would cover a provider.
+  prepare: (page) => page.addStyleTag({ content: ".save-bar.floating { position: static !important; }" }),
+});
+await shot("server-stats", "/server-stats", { fullPage: true, admin: true, scrubbed: true, prepare: (page) => page.waitForTimeout(6000) });
 await shot("organization", "/organization", { fullPage: true });
 await shot("machines", "/machines", { fullPage: true });
 await shot("machine-agents", "/machines/build-box/agents", { fullPage: true });

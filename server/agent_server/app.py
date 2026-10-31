@@ -315,7 +315,7 @@ def account_command(kind: str, argv: list[str]) -> int:
     """agent-server user|team|org ...: users, organizations and their teams, from the server's shell."""
     parser = argparse.ArgumentParser(
         prog=f"agent-server {kind}",
-        description="Users, organizations and their teams. With at least one user, everyone signs in.",
+        description="Users, organizations and their teams. Everyone signs in; the first start made an admin.",
     )
     commands = parser.add_subparsers(dest="action", required=True)
     if kind == "user":

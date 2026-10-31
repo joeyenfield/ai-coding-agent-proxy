@@ -86,7 +86,7 @@ Provision a confidential client at the issuer, associated with a dedicated, leas
 agent-auth client add build-bot --user automation
 ```
 
-Keep the generated client secret in your secret manager. Request an access token using HTTP Basic client authentication and a form:
+`agent-auth client remove build-bot` revokes it. Keep the generated client secret in your secret manager. Request an access token using HTTP Basic client authentication and a form:
 
 ```text
 POST https://auth.aicontrolmesh.com/token
@@ -115,6 +115,7 @@ On the **auth host**:
 | POST | `/introspect` | Active access-token metadata, requiring the API's confidential client. |
 | POST | `/revoke` | Revoke a client's token or refresh family. |
 | GET | `/health` | Health check. |
+| GET | `/sign-in.css` | The stylesheet of the issuer's own pages. |
 
 On the **API host**:
 
@@ -125,6 +126,7 @@ On the **API host**:
 | GET | `/api/auth/callback` | Verify state, PKCE exchange and OIDC identity; set cookies. |
 | POST | `/api/auth/refresh` | Renew the browser's access token using its refresh cookie. |
 | POST | `/api/auth/logout` | Revoke the browser's refresh family and clear cookies. |
+| POST | `/api/auth/device` | Signed in to the console: check, approve or deny a CLI device code, relayed to the issuer's `/device/console`. |
 
 Mutations and WebSocket connections with an `Origin` header require the API's origin or an exact allowed console origin. Native clients may omit that header. Foreign origins are rejected before a protected handler runs. Old password-login and launcher-token creation endpoints no longer issue credentials.
 
@@ -144,7 +146,7 @@ Mutations and WebSocket connections with an `Origin` header require the API's or
 | `AI_PROXY_OIDC_STATE_DIR` | The issuer's state folder: its SQLite file without PostgreSQL, and where an older install's `issuer.sqlite3` and `signing-key.pem` are imported from. Defaults to `oidc/` in the account-state folder (`certs/` normally). |
 | `AI_PROXY_AUTH_HOST`, `AI_PROXY_AUTH_PORT` | Issuer listen address (`127.0.0.1:10000`). |
 
-Back up the issuer's state securely: its sign-ins, grants and signing key are in the database (`mesh_auth`), so a backup of the database covers them (see [Deployment](deployment.md)). An older install's `issuer.sqlite3` and `signing-key.pem` are imported on the issuer's first start against an empty database, so existing sign-ins keep working. Authorization, device and refresh state is transactional; secrets are hashed at rest. Access tokens expire quickly. Refresh tokens rotate and have an absolute family lifetime; replay revokes the family. Password reset and account removal invalidate issued credentials. Roles and memberships are resolved from the current account on API requests.
+Back up the issuer's state securely: its sign-ins, grants and signing key are in the database (`mesh_auth`), so a backup of the database covers them (see [Deployment](deployment.md)). An older install's `issuer.sqlite3` and `signing-key.pem` are imported on the issuer's first start against an empty database, so existing sign-ins keep working. Authorization, device and refresh state is transactional; secrets are hashed at rest. Access tokens last 5 minutes, authorization codes 2 minutes, and device codes and sign-in pages 10 minutes. Refresh tokens rotate and their family lasts at most 30 days; replay revokes the family. Password attempts are limited to 10 per address in 10 minutes. Password reset and account removal invalidate issued credentials. Roles and memberships are resolved from the current account on API requests.
 
 ## Migration from protocol 1
 

@@ -73,7 +73,8 @@ Passwords are hashed in the server's database; OAuth tokens and grant state are 
 Changes to the server itself are admin-only. The list is `ADMIN_ONLY` in `server/agent_server/auth.py`:
 
 - saving the server's settings (`PUT /api/config`);
-- restarting the server (`POST /api/server/restart`);
+- everything under `/api/config/...`, reading included: the stored agents, the Ollama model tuning, storage and retention, and settings export and import;
+- restarting the server (`POST /api/server/restart`) and reading its computer's stats (`GET /api/server/stats`);
 - adding, changing or deleting containers (`POST /api/containers`, `PUT`/`DELETE /api/containers/{name}`);
 - adding a machine's model server as a provider (`POST /api/machines/{id}/providers/adopt`);
 - changing organizations, teams and users (`/api/orgs/...`, `/api/users/...`).

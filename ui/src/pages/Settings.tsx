@@ -126,7 +126,7 @@ export function SettingsPage() {
               <label className="field">
                 Listen host
                 <input value={host} onChange={(event) => setHost(event.target.value)} required />
-                <small>0.0.0.0 accepts other machines, and turns sign-in on.</small>
+                <small>0.0.0.0 accepts other machines. Sign-in is required either way.</small>
               </label>
               <label className="field">
                 Listen port
@@ -136,7 +136,7 @@ export function SettingsPage() {
               <label className="field span-2">
                 Address agent machines use
                 <input type="url" value={url} onChange={(event) => setUrl(event.target.value)} required />
-                <small>Shown for <code>agent login</code> and pairing. Use this machine's LAN or public address when sharing it.</small>
+                <small>Shown for <code>agent login</code> and <code>agent-machine login</code>. Use this machine's LAN or public address when sharing it.</small>
               </label>
               <label className="field span-2">
                 Public console address

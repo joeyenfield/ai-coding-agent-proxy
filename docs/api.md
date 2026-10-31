@@ -43,7 +43,7 @@ Agents call these paths on their loopback agent-proxy, which authenticates all u
 | POST | `/anthropic/v1/messages`, `/session/{session_id}/anthropic/v1/messages` | Anthropic Messages: translated for Ollama, passed through to Anthropic, Strata and Docker Model Runner. |
 | POST | `/anthropic/v1/messages/count_tokens`, `/session/{session_id}/anthropic/v1/messages/count_tokens` | Token counting: passed through where the backend has it, estimated for Ollama. |
 | GET, POST, PUT, PATCH, DELETE | `/anthropic/{path}`, `/session/{session_id}/anthropic/{path}` | Any other Anthropic path, forwarded only with a hosted `anthropic` backend. |
-| GET, POST, DELETE | `/api/{path}`, `/session/{session_id}/api/{path}` | Native Ollama, for what agents call only: `chat`, `generate`, `embed`, `embeddings`, `tags`, `show`, `ps`, `version`. Profiles apply to `chat` and `generate` on Ollama; Docker Model Runner's Ollama API gets them unchanged; Strata has none. Anything else (`pull`, `delete`, ...) answers `404`: models are managed through their machine. With accounts, the unscoped `/api/{path}` needs a sign-in, so agents use the session path. |
+| GET, POST, DELETE | `/api/{path}`, `/session/{session_id}/api/{path}` | Native Ollama, for what agents call only: `chat`, `generate`, `embed`, `embeddings`, `tags`, `show`, `ps`, `version`. Profiles apply to `chat` and `generate` on Ollama; Docker Model Runner's Ollama API gets them unchanged; Strata has none. Anything else (`pull`, `delete`, ...) answers `404`: models are managed through their machine. The `agent-proxy` keeps its own unscoped `/api/...` for the launcher's calls, so agents use the session path. |
 | GET, POST, DELETE | `/session/{session_id}/mcp/{machine_id}/{name}` | A shared MCP server, as Streamable HTTP, relayed to its machine through its tunnel. Requires the `key` query parameter in the URL returned only to the launcher; the public session record contains no such token. Only the servers the session was started with; whoever started it must still hold the machine's `mcp` grant. Each POST is recorded in the session with its reply. See [MCP](mcp.md). |
 
 Account agents don't use these. Their HTTPS goes to the `agent-proxy`'s HTTPS proxy (`HTTPS_PROXY=http://<session>:agent-proxy@127.0.0.1:8183`), which carries each connection to `WS /api/proxy/tunnel` (below). The server refuses destinations that resolve to loopback, private, link-local or reserved IP addresses.
@@ -60,7 +60,7 @@ its in-flight entry and records `client_closed`.
 | Method | Path | Who | What it does |
 |---|---|---|---|
 | GET | `/health` | Public | `status`, the running instance's id, the server's `version`, `protocol` and `min_protocol`. |
-| GET | `/api/status` | Signed in | Totals, requests in flight, recent requests, intercept state, `default_backend`, whether a restart is needed for the listen address, and each machine backend's `provider`. With accounts, only sessions you can see. |
+| GET | `/api/status` | Signed in | Totals, requests in flight, recent requests, intercept state, `default_backend`, whether a restart is needed for the listen address, and each machine backend's `provider`. Only sessions you can see. |
 | GET | `/api/config` | Signed in | The editable network settings (`proxy.listen_host`, `listen_port`, `url`, `public_url`, `default_backend`, `backends`) and `restart_required`. |
 | PUT | `/api/config` | Admin | Stores them. Can remove local backends and add or edit hosted ones; refuses new or moved local ones. Without `backends`, leaves them alone; without `proxy.public_url`, leaves it as it is (`null` clears it). See [Configuration](configuration.md). |
 | GET | `/api/config/export` | Admin | Every setting as one YAML document (`proxy`, `default_backend`, `intercept`, `retention_days`, `backends`, `models`, `agents`); `?format=json` for JSON. |
@@ -74,15 +74,15 @@ its in-flight entry and records `client_closed`.
 | GET | `/api/config/storage` | Admin | `database` (`kind`: `sqlite` or `postgresql`, `url` with its password hidden, `size` in bytes) and `retention_days`. |
 | PUT | `/api/config/storage` | Admin | `{"retention_days": days}` (1 to 36500), or `null` to keep recordings until deleted. Old recordings go at once. |
 | GET | `/api/server/stats` | Admin | The server computer's load and disk use, read when asked (nothing is saved): `hostname`, `platform`, `boot_time`; `cpu` (`percent`, `count`, `load_average`, null on Windows); `memory` and `swap` (bytes, `percent`); `process` (agent-server's `pid`, `rss`, `cpu_percent` of one core, `threads`, `started_at`); `disks`, each filesystem holding the log or build folder once (`mountpoint`, `total`, `used`, `free`, `percent`, `folders`); `folders` (`name`, `path`, `bytes`) and `database` (`kind`, `bytes`), measured in the background every five minutes, so `bytes` is null until `folders_measured_at` is set. |
-| POST | `/api/server/restart` | Admin, Trusted, Same origin | Restarts with the configuration on disk once in-flight requests finish (up to 30 s). Answers `202` with `waiting_for` and the address it comes back on. `409` when the server can't restart itself (`--reload`). |
+| POST | `/api/server/restart` | Admin, Trusted, Same origin | Restarts with the stored settings once in-flight requests finish (up to 30 s). Answers `202` with `waiting_for` and the address it comes back on. `409` when the server can't restart itself (`--reload`). |
 
 ## Sessions and requests
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
-| POST | `/api/sessions` | Signed in | Opens a session for other tools: `client`, `project`, `model`, `backend` (or `direct`), `trace`, `tags`, and with accounts `visibility`, `team`, `org`, `access`. A `shell` client is always private. |
+| POST | `/api/sessions` | Signed in | Opens a session for other tools: `client`, `project`, `model`, `backend` (or `direct`), `trace`, `tags`, and sharing: `visibility`, `team`, `org`, `access`. A `shell` client is always private. |
 | GET | `/api/sessions` | Signed in | The sessions you can see, each with its `machine` and what `you` may do. |
-| DELETE | `/api/sessions` | Signed in | Deletes all saved traffic. Ended sessions and open ones idle for 15 minutes are deleted; recently active ones keep running but lose their data; ones with requests in flight are skipped. With accounts, only your own (and admins: sessions without an owner). |
+| DELETE | `/api/sessions` | Signed in | Deletes all saved traffic. Ended sessions and open ones idle for 15 minutes are deleted; recently active ones keep running but lose their data; ones with requests in flight are skipped. Only your own (and admins: sessions without an owner). |
 | GET | `/api/sessions/{session_id}` | Signed in, can view | One session. |
 | PATCH | `/api/sessions/{session_id}` | Signed in, can control | Ends it (`ended`, `exit_status`), switches capture (`trace`), or for its owner changes its sharing (`visibility`, `team`, `org`, `access`). Narrowing the sharing drops terminal viewers who lose access. A shell can't be shared. |
 | DELETE | `/api/sessions/{session_id}` | Signed in, can control | Deletes it. `409` while requests are in flight. |
@@ -249,12 +249,12 @@ OpenAPI can't describe these. All need **Trusted** (a sign-in; machines send the
 
 ## Check
 
-This page lists all 115 routes the app registers, from `app.routes` of a server built in a temporary folder: 110 HTTP routes, the 5 WebSockets above, plus the `/assets` static mount.
+This page lists all 125 routes the app registers, from `app.routes` of a server built in a temporary folder: 120 HTTP routes, the 5 WebSockets above, plus the `/assets` static mount.
 
 | Area | Routes |
 |---|---|
 | Agent-facing | 10 (5 paths, each unscoped and under `/session/{session_id}/`) plus the MCP relay |
-| Health and the server | 6 |
+| Health and the server | 16 |
 | Sessions and requests | 13 |
 | Live traffic | 2 |
 | Agents and models | 4 (with `/api/mcp`) |
@@ -268,4 +268,4 @@ This page lists all 115 routes the app registers, from `app.routes` of a server 
 | OpenAPI | 4 |
 | Proxy tunnel | 1 WebSocket |
 
-That is 10 + 1 + 6 + 13 + 2 + 4 + 3 + 20 + 7 + 8 + 27 + 6 + 3 + 4 + 1 = 115. Each is in a table above.
+That is 10 + 1 + 16 + 13 + 2 + 4 + 3 + 20 + 7 + 8 + 27 + 6 + 3 + 4 + 1 = 125. Each is in a table above.

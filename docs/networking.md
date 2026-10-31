@@ -287,12 +287,13 @@ A shared terminal has one host (the launcher) and any number of viewers (console
 | Code | Where | Meaning | Who retries |
 | --- | --- | --- | --- |
 | `1011` | agent-proxy relay | Couldn't reach the server, or it answered with an HTTP error | the launcher |
-| `1012` | terminal host | The server is restarting | the launcher |
+| `1012` | terminal host, fleet, tunnels | The server is restarting | the launcher, the machine |
 | `4401` | every socket | Not signed in, or not allowed | nobody: sign in first |
-| `4403` | fleet, relays | Refused: a removed machine, or not from this computer | nobody |
+| `4403` | fleet, terminals, relays | Refused: a removed machine, a machine id registered to another user, sharing that no longer lets you in, or not from this computer | nobody |
 | `4404` | terminals, tunnels | No such session, terminal or tunnel | viewers, for a minute after opening |
 | `4408` | terminal viewer | It fell behind the output; reconnect to catch up | the viewer |
-| `4409` | terminal host | Replaced by the same launcher reconnecting | nobody (the new one carries on) |
+| `4409` | terminal host, fleet | Replaced by the same launcher or machine reconnecting | nobody (the new one carries on) |
+| `4410` | every signed-in socket | The access token expired or was revoked while connected | the client, after renewing its token |
 | `4426` | every socket | Protocol out of range: update the program | nobody |
 
 ## Behind a reverse proxy

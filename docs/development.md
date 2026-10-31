@@ -53,7 +53,7 @@ agent-server --reload --no-build   # Python auto-reload, skip the UI build
 agent proxy                        # this machine's agent-proxy in the foreground
 ```
 
-Vite on 5173 proxies `/api` (WebSockets included) and `/health` to the server on 9999, and forwards the browser's `Host`, so the dev server counts as this computer.
+Vite on 5173 proxies `/api` (WebSockets included), `/health`, the OpenAPI pages, `/help-files`, `/downloads`, the installers and `/android` to the server on 9999 (`AI_PROXY_URL` names another), and forwards the browser's `Host`, so same-origin checks pass. Loopback grants nothing: sign in as usual.
 
 **What picks up a change:**
 

@@ -1,6 +1,6 @@
 # Deployment
 
-**Authentication is mandatory.** For public deployments, run `agent-auth` separately at **auth.aicontrolmesh.com**, register API callbacks, configure the shared introspection secret and provide HTTPS. The root Compose includes the issuer on host loopback :10000 with private persistent state. See [OIDC authentication](oidc.md) before starting or upgrading public services. The local demo below includes its own loopback issuer.
+**Authentication is mandatory.** For public deployments, run `agent-auth` separately at **auth.aicontrolmesh.com**, register API callbacks, configure the shared introspection secret and provide HTTPS. The root Compose includes the issuer on host loopback :10000, with its state in its own PostgreSQL schema. See [OIDC authentication](oidc.md) before starting or upgrading public services. The local demo below includes its own loopback issuer.
 
 How to run the server for other machines and people, put HTTPS in front of it, and get `agent` and `agent-machine` onto the computers that use it.
 
@@ -112,7 +112,7 @@ On its first start the service runs `server/docker/postgres-init.sh`, which make
 
 ### A PostgreSQL of your own
 
-Run the same statements as its administrator, with your own passwords, then give the two programs their URLs:
+Make a database named `mesh` (`CREATE DATABASE mesh;`), then run the same statements in it as its administrator, with your own passwords, and give the two programs their URLs:
 
 ```sql
 CREATE ROLE mesh_api LOGIN PASSWORD '...';
@@ -120,10 +120,11 @@ CREATE ROLE mesh_auth LOGIN PASSWORD '...';
 CREATE SCHEMA mesh AUTHORIZATION mesh_api;
 CREATE SCHEMA mesh_auth AUTHORIZATION mesh_auth;
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
+REVOKE ALL ON DATABASE mesh FROM PUBLIC;
 GRANT CONNECT ON DATABASE mesh TO mesh_api, mesh_auth;
 ```
 
-Start `agent-server` once before `agent-auth`'s first sign-in: until the server has made its tables and granted `mesh_auth` read access, agent-auth finds no accounts.
+Keep these role and schema names: the server grants `mesh_auth` its read access by name. Start `agent-server` once before `agent-auth`'s first sign-in: until the server has made its tables and granted `mesh_auth` read access, agent-auth finds no accounts.
 
 ### Backups
 
@@ -185,7 +186,7 @@ Set `proxy.public_url` to the console's HTTPS address. CLI installation/login us
 
 ### nginx and Let's Encrypt on Windows
 
-`scripts/https/setup-https.ps1` sets up nginx with a Let's Encrypt certificate that renews itself. It serves the brochure site on the apex and `www` hostnames, the application on `console.<domain>`, and agent/machine API requests on `api.<domain>`. Point all four DNS names to this host, start the Compose services, then run it once from an elevated PowerShell; rerun it any time, and it picks up where things are:
+`scripts/https/setup-https.ps1` sets up nginx with a Let's Encrypt certificate that renews itself. It serves the brochure site on the apex and `www` hostnames, the application on `console.<domain>`, agent/machine API requests on `api.<domain>`, and the OIDC issuer on `auth.<domain>`. Point all five DNS names to this host, start the Compose services, then run it once from an elevated PowerShell; rerun it any time, and it picks up where things are:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\https\setup-https.ps1 -HostName aicontrolmesh.com -AdditionalHostNames aiproxy.hopto.me -Email you@example.net
@@ -193,7 +194,7 @@ powershell -ExecutionPolicy Bypass -File scripts\https\setup-https.ps1 -HostName
 
 It installs, under `-Root` (default `C:\ProgramData\agent-proxy-https`):
 
-- **nginx** for Windows, serving plain HTTP on `-HttpPort` (9980) for Let's Encrypt's check, and HTTPS on `-HttpsPorts` (9443 and 9998). The apex and `www` proxy to `-SiteBackend` (`http://127.0.0.1:8080`), the console to `-ConsoleBackend` (`http://127.0.0.1:8081`), and the API to `-Backend` (`http://127.0.0.1:9999`);
+- **nginx** for Windows, serving plain HTTP on `-HttpPort` (9980) for Let's Encrypt's check, and HTTPS on `-HttpsPorts` (9443 and 9998). The apex and `www` proxy to `-SiteBackend` (`http://127.0.0.1:8080`), the console to `-ConsoleBackend` (`http://127.0.0.1:8081`), the API to `-Backend` (`http://127.0.0.1:9999`), and the issuer to `-AuthBackend` (`http://127.0.0.1:10000`);
 - **win-acme**, the Let's Encrypt client, which proves the name with a file nginx serves under `/.well-known/acme-challenge/`, writes the certificate, and renews it from its own scheduled task, reloading nginx;
 - a scheduled task, `agent-proxy-https nginx`, that starts nginx at boot, and firewall rules for the ports.
 
@@ -204,10 +205,12 @@ The name has to reach this computer from the internet on port 80 for Let's Encry
 | `-HostName` | The primary DNS name to get a certificate for (default: `aicontrolmesh.com`). |
 | `-ConsoleHostName` | The application hostname (default: `console.<HostName>`). |
 | `-ApiHostName` | The agent and machine API hostname (default: `api.<HostName>`). Its `/` redirects to the console. |
+| `-AuthHostName` | The OIDC issuer's hostname (default: `auth.<HostName>`). |
 | `-AdditionalHostNames` | Comma-separated DNS aliases for the API, included in the certificate (default: `aiproxy.hopto.me`). Their `/` redirects to the console. HTTP requests keep their hostname when redirected to HTTPS. |
 | `-Email` | Your address, for Let's Encrypt. |
 | `-Root` | Where nginx, win-acme and the certificates go. |
 | `-Backend` | The server nginx forwards to. |
+| `-AuthBackend` | The issuer nginx forwards to (default: `http://127.0.0.1:10000`). |
 | `-ConsoleBackend` | The static console nginx forwards to (default: `http://127.0.0.1:8081`). |
 | `-SiteBackend` | The static brochure site nginx forwards to. |
 | `-HttpPort`, `-HttpsPorts` | The ports nginx listens on. `-HttpsPorts` is comma-separated. |
@@ -343,6 +346,8 @@ So to roll out a new version: build it on the server's computer (`scripts/build-
 | Port | What listens | Where |
 |---|---|---|
 | 9999 | `agent-server`: the API, the console, and everything machines and agents send | All interfaces, from the stored `proxy` setting (`AI_PROXY_HOST`, `AI_PROXY_PORT`) |
+| 10000 | `agent-auth`, the OIDC issuer, behind the reverse proxy as `auth.<domain>` | Loopback (`AI_PROXY_AUTH_HOST`, `AI_PROXY_AUTH_PORT`) |
+| 8080, 8081 | The brochure site and the standalone console in Compose, behind the reverse proxy | Loopback |
 | 8184 | Each agent machine's `agent-proxy`: its launcher API and agents' model endpoints | Loopback only (`AI_PROXY_LOCAL_PORT`) |
 | 8183 | Each agent machine's `agent-proxy`: the HTTPS proxy for account agents | Loopback only (`AI_PROXY_LOCAL_INTERCEPT_PORT`) |
 | 9980, 9443, 9998 | nginx from `setup-https.ps1`: HTTP for Let's Encrypt, HTTPS | All interfaces |
@@ -351,4 +356,4 @@ So to roll out a new version: build it on the server's computer (`scripts/build-
 | 12434 | Docker Model Runner | On its machine |
 | 5173 | Vite, in development | This computer |
 
-Only the server's port has to be reachable from other machines. Account agents' HTTPS travels over it, tunnelled by each `agent-proxy`, and so does agents' traffic to a machine's model servers when that machine's `agent-machine` can tunnel, so model servers can stay on loopback. The server needs no other open port. The server listens on 8183 itself only when `intercept.listen_port` is set.
+Only the server's port, and the issuer's for signing in (through the reverse proxy), have to be reachable from other machines. Account agents' HTTPS travels over it, tunnelled by each `agent-proxy`, and so does agents' traffic to a machine's model servers when that machine's `agent-machine` can tunnel, so model servers can stay on loopback. The server needs no other open port. The server listens on 8183 itself only when `intercept.listen_port` is set.

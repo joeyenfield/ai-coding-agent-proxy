@@ -337,7 +337,7 @@ A machine's owner may use all its features. Others get them through grants on th
 - **Any grant includes view.** Someone who may use one feature can see the machine.
 - **Starting programs stays private.** Admins can't launch agents or open terminals on someone else's machine without a grant.
 - **Launched by.** Agents and terminals run under the machine's own sign-in, its owner's. When someone else starts one, the server tags the session `launched_by` them, so they can watch and use what they started. Clients can't set that tag.
-- **Containers** stay with the owner, and need an admin on a server with accounts (see [Containers machines run](providers.md#containers-machines-run)).
+- **Containers** stay with the owner, who must also be an admin to add, change or delete them (see [Containers machines run](providers.md#containers-machines-run)).
 
 See [Accounts and sharing](accounts.md) for organizations, teams and roles.
 

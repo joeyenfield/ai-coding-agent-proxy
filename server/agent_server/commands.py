@@ -40,7 +40,7 @@ def main(kind: str, argv: list[str]) -> int:
         elif kind == "config":
             text = sys.stdin.read() if args.file == "-" else Path(args.file).read_text(encoding="utf-8")
             changed = config_io.apply(Settings.load(), config_io.parse(text), replace=args.replace)
-            print(f"Stored {', '.join(changed) or 'nothing'}. A running agent-server picks up the listen address on its next restart.")
+            print(f"Stored {', '.join(changed) or 'nothing'}. A running agent-server uses them after a restart (agents at once).")
         elif args.action == "info":
             settings = Settings.load()
             db = settings.open_database()

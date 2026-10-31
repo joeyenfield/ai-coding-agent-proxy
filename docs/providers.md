@@ -321,7 +321,7 @@ Changing a container's settings marks it out of date; the machine recreates it a
 
 | Action | Who |
 |---|---|
-| Create, change or delete a container | The machine's owner, who must also be an admin on a server with accounts |
+| Create, change or delete a container | The machine's owner, who must also be an admin |
 | Start, stop, restart, read its log | Anyone signed in (the launcher starts containers for `agent --backend <container>`) |
 
 ## Watching load

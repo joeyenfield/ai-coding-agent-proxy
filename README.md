@@ -1,6 +1,6 @@
 # AI Control Mesh
 
-Run terminal coding agents (Claude Code, GitHub Copilot CLI, OpenAI Codex, Qwen Code, OpenCode, Aider, Goose) through one server and see everything they do. Every model call is recorded with its prompt, reply, tokens and timing. For agents signed in to their own accounts, every other request is recorded too: sign-in, settings, MCP, telemetry and update checks.
+Run terminal coding agents (Claude Code, GitHub Copilot CLI, OpenAI Codex, Qwen Code, OpenCode, Aider, Goose) through one server and see everything they do. Every model call is recorded with its prompt, reply, tokens and timing. For agents signed in to their own accounts, their other requests to public services are recorded too: sign-in, settings, MCP, telemetry and update checks.
 
 ![The console's Overview: agents, the server and the machines that answer them](docs/screenshots/overview.png)
 
@@ -21,8 +21,8 @@ Run terminal coding agents (Claude Code, GitHub Copilot CLI, OpenAI Codex, Qwen 
 
 For a local Podman or Docker demo with the server, two machines and Ollama on one machine, run
 `podman compose -f quickstart/compose.yaml up -d --build` (or use `docker compose`). Open http://localhost:19999
-and sign in with **admin** / **secret**. See the [quickstart folder](quickstart/README.md)
-for model setup, logs and reset commands.
+and sign in with **admin** / **secret**. The [Quickstart](docs/quickstart.md) walks you from there to an
+agent working in the console; the [quickstart folder](quickstart/README.md) has the details behind it.
 
 On the server's computer, from this checkout (Python 3.11+, Node 20+), or with `docker compose up -d`:
 
@@ -56,14 +56,18 @@ Then open the console, add its model server with **Add as a provider**, and star
 | | |
 | --- | --- |
 | [Overview](docs/index.md) | The system in one page, every feature and where it's documented |
+| [Quickstart](docs/quickstart.md) | The whole system on your computer in containers, and a guided tour |
 | [Getting started](docs/getting-started.md) | From nothing to a first recorded agent session |
 | [Architecture](docs/architecture.md) | How it works inside |
+| [Networking and protocols](docs/networking.md) | Every connection, port, message and routing rule |
 | [Agents](docs/agents.md) | The `agent` command, every supported agent, what the requests are |
 | [MCP servers](docs/mcp.md) | Sharing MCP servers from machines with agents |
 | [Machines](docs/machines.md) | The fleet and `agent-machine` |
 | [Providers](docs/providers.md) | Ollama, Strata, Docker Model Runner, containers, hosted APIs |
 | [The console](docs/console.md) | Every page of the web console |
 | [Accounts and sharing](docs/accounts.md) | Users, organizations, teams, sharing, phones |
+| [OIDC authentication](docs/oidc.md) | The sign-in service, device sign-in, service accounts |
+| [Security](docs/security.md) | Device approval, tokens, encryption in transit, a checklist for a public server |
 | [Configuration](docs/configuration.md) | The database and stored settings, environment variables, server commands |
 | [API](docs/api.md) | Every endpoint and WebSocket |
 | [Deployment](docs/deployment.md) | Docker, HTTPS, installers, packages, updates |

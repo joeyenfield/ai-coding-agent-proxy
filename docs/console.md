@@ -30,8 +30,8 @@ The rail on the left has three parts, in the order a request flows:
 | Part | Pages | What it's for |
 | --- | --- | --- |
 | **1 Agents** | Start an agent, Running agents | Start a coding agent through the server, then watch it and type into it from any device. |
-| **2 Server** | Live, Traffic, Requests, Sessions, Server settings, Organizations, Downloads | The hub: allowed agent requests pass through it and are recorded. |
-| **3 Machines** | All machines, Add a machine | Open **All machines** to search and select a computer. Individual machines aren't listed in the rail. |
+| **2 Server** | Live, Traffic, Requests, Sessions, Server stats, Server settings, Organizations, Downloads | The hub: allowed agent requests pass through it and are recorded. |
+| **3 Machines** | All machines, Approve a device, Add a machine | Open **All machines** to search and select a computer. Individual machines aren't listed in the rail. |
 
 - The small label above each page's title is its breadcrumb ("Machines › build-box").
 - The footer of the rail links to **Downloads** and **Documentation**, and shows how many sessions are open, the server's address and its version.
@@ -185,6 +185,8 @@ Account agents' other calls (sign-in, telemetry, MCP) aren't shown here; they're
 
 ## Server stats
 
+![Server stats](screenshots/server-stats.png)
+
 `/server-stats` (admins only) shows how hard the computer running the server is working and how full its disks are. It asks the server every 2 seconds while it's open and keeps the last five minutes on the page; nothing is saved. A machine's own load is on its [Load tab](#load).
 
 - **The computer**: its name, system, how long it's been up and how long the server has been running.
@@ -203,7 +205,7 @@ Account agents' other calls (sign-in, telemetry, MCP) aren't shown here; they're
 - **Agents**: every agent launchers can start, each marked **Shipped**, **Shipped, changed** or **Added here**. **Edit** opens its definition as YAML; **Add an agent** takes an id and a definition; **Remove** stops launchers offering it. **Reset to the shipped one** undoes changes to an agent that ships with the server. Shipped agents follow the server's upgrades until you change them. See [Adding a new agent](agents.md#adding-a-new-agent).
 - **Ollama model tuning**: the `defaults`, `profiles` and `aliases` the server applies to requests it sends to Ollama, as one YAML document. **Save tuning** applies it to new requests. See [Model tuning](providers.md#model-tuning).
 - **Storage**: which database the server uses (SQLite or PostgreSQL, its address without the password, and its size), and **Keep payloads and terminals for** a number of days since a session's last request. Older sessions lose their payloads and terminal recordings; their requests and token counts stay. Empty keeps everything.
-- **Restart the server**: restarts it once requests in flight finish, and says where it comes back. It picks up a new listen address, and settings changed from the command line (`agent-server config import`).
+- **Restart the server** (shown when the server can restart itself, which it can't when started with `--reload`): restarts it once requests in flight finish, and says where it comes back. It picks up a new listen address, and settings changed from the command line (`agent-server config import`).
 
 To copy the settings to another server or keep them in version control, use `agent-server config export` and `import` (see [Configuration](configuration.md)). **API reference** links to the server's OpenAPI pages (`/docs`).
 
@@ -261,11 +263,11 @@ Only approve a code from a sign-in you started yourself: approving lets that com
 
 ![A machine's summary](screenshots/machine.png)
 
-`/machines/<id>` has a header with the machine's name, state and system, **Start an agent** and **Open a terminal** (when you may use them), and, when the machine runs another build than the server, **Update now** (with **Update agent there too**) for its owner or an admin. Below it, a tab per function. Tabs you can't use aren't shown.
+`/machines/<id>` has a header with the machine's name, state and system, **Start an agent** and **Open a terminal** (when you may use them), and, when the machine runs another build than the server, **Update now** (with **Update agent there too**) for its owner or an admin. Below it, a tab per function. **Ollama server** shows only when Ollama is installed there, **Containers** only when the machine runs containers, **MCP servers** for its owner or when it shares some, and **Access** for those who manage it.
 
 ### Summary
 
-**What it supports**: each feature (launches, terminals, model servers, containers, updates, MCP) and whether it's on there and open to you, with the command that turns it on. **Details**: machine id, computer name, owner, address, system, agent-machine version and protocol, launch folders, first seen and last contact. **Remove from this server** (owner or admin) disconnects it and refuses it until it's allowed back.
+Cards for its state, last contact, agent-machine version and running agents. **What it supports**: each feature (agents, terminals, model servers, running Ollama and Strata, containers, updates from here, the tunnel) and whether it's on there and open to you, with the command that turns it on. **Details**: owner, system, computer name, address, first seen, last contact, protocol and machine id. **Remove from this server** (owner or admin) disconnects it and refuses it until it's allowed back.
 
 ### Agents
 
@@ -294,7 +296,7 @@ The model servers it runs (Ollama, Strata, Docker Model Runner, and the containe
 Each model server has its own tab, named after its provider (or `Ollama :11434` until it is one). Everything here is done by the machine:
 
 - **Ollama**: **Models** (each model's size, whether it's loaded and where, the agent requests it served, and load, unload and delete), **Aliases** (the model tuning's aliases that point at it, with their settings; change them on [Server settings](#server-settings)) and **Find and pull** (search the Ollama library and Hugging Face, or pull by name, with progress).
-- **Strata**: **Overview** (state, profile, engine, uptime, model, context, prompt and generation speed, speculative decoding), **Hardware**, **Models** (load and unload), **Connect agents** (the agent commands for it) and **Log** (server and engine logs, key blanked).
+- **Strata**: **Overview** (state, profile, engine, uptime, model, context, prompt and generation speed, speculative decoding, with **Load** and **Unload**, then its **Hardware** and **Models**), **Connect agents** (the agent commands for it) and **Log** (server and engine logs, key blanked).
 - **Docker Model Runner**: **Models**, **Get models** (search Docker Hub's `ai/` models and their tags, or pull by name) and **Connect agents**.
 
 When the machine doesn't report an Ollama or Strata running, its tab says why at the top and what to do: **Start Ollama**, or **Start** a Strata profile, when it's installed there and you may manage the machine's servers (`agent-machine servers on`); otherwise whether it isn't installed, or how to let the console start it.

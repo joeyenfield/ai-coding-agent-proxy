@@ -44,14 +44,14 @@ Other options:
 
 ### In Docker
 
-`compose.yaml` builds the server's image from the repository root, with the console inside:
+`compose.yaml` builds the server's image from the repository root, with the console inside. Before the first start, put these in a `.env` file beside it: `AI_PROXY_POSTGRES_PASSWORD`, `AI_PROXY_DB_API_PASSWORD` and `AI_PROXY_DB_AUTH_PASSWORD` (letters and digits), and `AI_PROXY_OIDC_INTROSPECTION_SECRET`. Compose refuses to start without them.
 
 ```bash
 docker compose up -d                  # console on http://<this host>:9999
 docker compose logs agent-server      # shows the first admin's password on the first start
 ```
 
-Compose runs PostgreSQL beside the API and the issuer, and both keep their state there: settings, accounts, machines, recordings and sign-ins. The database passwords go in `.env`. The `logs` volume keeps the server's own log and `certs` the first admin's password file. Keep the database and its backups private. Inside the container, `127.0.0.1` is the container itself: local providers come from machines in the fleet, not addresses the server reaches by itself. See [Deployment](deployment.md) for more.
+Compose runs PostgreSQL beside the API and the issuer (`agent-auth`, on `127.0.0.1:10000`), and both keep their state there: settings, accounts, machines, recordings and sign-ins. The `agent-server-logs` volume keeps the server's own log and `agent-server-certs` the first admin's password file. Keep the database and its backups private. Inside the container, `127.0.0.1` is the container itself: local providers come from machines in the fleet, not addresses the server reaches by itself. See [Deployment](deployment.md) for more.
 
 ## 2. Sign in to the console
 
@@ -67,11 +67,11 @@ The admin is created only once, on the first start against a new database. Remov
 
 ### Adding users from the shell
 
-Run these on the server's computer. The first user you add is an admin; each command asks for the password.
+Run these on the server's computer. Each `add` and `passwd` asks for the password. A new user is a member unless you pass `--admin`; only a user added to a new database, before the server's first start, becomes an admin by being first.
 
 ```bash
 agent-server org add pockets --name "Empty Pockets"
-agent-server user add joey --org pockets --team core     # first user: an admin
+agent-server user add joey --org pockets --team core --admin
 agent-server user add sam --team pockets/core             # joining a team joins its organization
 agent-server user list
 ```
@@ -114,7 +114,7 @@ irm http://server:9999/install.ps1 | iex                             # Windows
 | --- | --- |
 | `--only agent` or `--only agent-machine` / `-Only` | Install just one of them (default: both) |
 | `--service` / `-Service` | Start `agent-machine` at boot or sign-in |
-| `--prefix DIR` / `-Prefix` | Install somewhere else (default: `/usr/local/bin` as root, else `~/.local/bin`) |
+| `--prefix DIR` / `-Prefix` | Install somewhere else (default: `/usr/local/bin` as root, else `~/.local/bin`; on Windows `%LOCALAPPDATA%\Programs\agent-proxy`) |
 | `--no-login` / `-NoLogin` | Don't sign in; print the commands instead |
 | `--no-start` / `-NoStart` | Don't start `agent-machine` after signing it in |
 
@@ -132,15 +132,15 @@ A computer without a Go build can use the Python port instead. It installs the s
 
 ## 4. Sign the computer in
 
-On any computer other than the server, sign in once:
+On every computer where you run agents, the server's own included, sign in once:
 
 ```bash
 agent login https://api.aicontrolmesh.com
 ```
 
-Open the printed OIDC verification URL in your browser and approve the device code. Sign-in is required on the server's own computer too. Access refreshes automatically; legacy access-key and password options are removed.
+Open the printed OIDC verification URL in your browser and approve the device code, or, if you're signed in to the console, type the code on **Machines › Approve a device**. Access refreshes automatically; legacy access-key and password options are removed.
 
-`agent login` and `agent logout` take effect at once, with no restart. The token shows up as `agent-proxy on <host>` on the **Organizations** page.
+`agent login` and `agent logout` take effect at once, with no restart.
 
 Check it:
 

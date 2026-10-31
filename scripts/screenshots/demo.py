@@ -52,6 +52,7 @@ LAPTOP, DESKTOP, ANTHROPIC, DOCKER = 18434, 18435, 18436, 18437
 PROXY = f"http://127.0.0.1:{PROXY_PORT}"
 AUTH = f"http://127.0.0.1:{AUTH_PORT}"
 DEMO_USER, DEMO_PASSWORD = "demo", "demo-screenshot-password"
+DEMO_ADMIN_PASSWORD = "demo-admin-screenshot-password"
 GB = 1024**3
 
 
@@ -1036,7 +1037,8 @@ def main() -> None:
     # The demo's own database (a SQLite file in its logs/), which the server below opens too.
     db = settings.open_database()
     users = UserStore(db)
-    users.add_user("demo-admin", secrets.token_urlsafe(32), role="admin")
+    # The admin capture.mjs signs in as for admin-only pages (Server settings, Server stats).
+    users.add_user("demo-admin", DEMO_ADMIN_PASSWORD, role="admin")
     users.add_user(DEMO_USER, DEMO_PASSWORD, role="member")
     issuer = Issuer(settings)
     try:
@@ -1098,7 +1100,7 @@ def main() -> None:
                     raise RuntimeError(f"Demo service did not become ready: {url}")
         credentials.headers()
         print(f"demo proxy on {PROXY} (data in {work})", flush=True)
-        print(f"isolated demo sign-in: {DEMO_USER} / {DEMO_PASSWORD}; issuer {AUTH}", flush=True)
+        print(f"isolated demo sign-in: {DEMO_USER} / {DEMO_PASSWORD}, admin demo-admin / {DEMO_ADMIN_PASSWORD}; issuer {AUTH}", flush=True)
         share_terminals()
         join_fleet()
         run_containers()

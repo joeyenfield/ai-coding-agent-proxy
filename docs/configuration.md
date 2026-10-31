@@ -71,7 +71,7 @@ agent-server config import settings.yaml       # only the parts the document has
 agent-server config import --replace settings.yaml   # every part: what it leaves out is emptied
 ```
 
-The console's API does the same (`GET /api/config/export`, `POST /api/config/import`). Everything is checked before anything is stored. A running server takes the import at once; a new listen address waits for its restart.
+The console's API does the same (`GET /api/config/export`, `POST /api/config/import`). Everything is checked before anything is stored. Through the API, the server takes the import at once; a new listen address waits for its restart. `agent-server config import` writes to the database from another process: a running server sees changed agents at once, and the rest after a restart (**Restart the proxy** reads the stored settings afresh).
 
 ```yaml
 proxy:

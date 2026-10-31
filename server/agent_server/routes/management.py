@@ -76,7 +76,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
 
     @app.post("/api/server/restart", status_code=202)
     async def restart(request: Request) -> dict[str, Any]:
-        """Restart with the configuration on disk, after in-flight requests finish (up to 30 s)."""
+        """Restart with the stored settings, after in-flight requests finish (up to 30 s)."""
         # Only admins get here (auth.ADMIN_ONLY).
         if not runtime.remote.trusted(request) or not remote.same_origin(request):
             raise HTTPException(status_code=401, detail="Sign in as an admin to restart the server.")

@@ -123,11 +123,12 @@ Everyone signs in through OIDC, including on loopback. Sessions are private unti
 | Users, organizations, teams | `agent-server user\|org\|team` | Organizations | [Accounts](accounts.md) |
 | Share a session | `--share`, `--team` | A session's sharing | [Accounts](accounts.md#session-sharing) |
 | Server settings and restart | `agent-server config export`, `import` | Server settings | [Configuration](configuration.md) |
-| How long recordings are kept | | Server settings › Storage | [Configuration](configuration.md) |
+| The database: which one, migrations, upgrading from files | `agent-server db info`, `migrate`, `import` | Server settings › Storage | [Configuration](configuration.md#the-database) |
+| How long recordings are kept | | Server settings › Storage | [Configuration](configuration.md#how-long-recordings-are-kept) |
 | The server computer's CPU, memory and disks | | Server stats | [Console](console.md#server-stats) |
 | Downloads and installers | `/install.sh`, `/install.ps1` | Downloads | [Deployment](deployment.md) |
 | The server in Docker, HTTPS | `docker compose up -d` | | [Deployment](deployment.md#the-server-in-docker) |
-| Local demo: server, two machines and Ollama | `podman compose -f quickstart/compose.yaml up -d --build` (or `docker compose`) | Sign in as admin / secret on localhost:19999 | [Local container quickstart](deployment.md#local-container-quickstart) |
+| Local demo: server, two machines and Ollama | `podman compose -f quickstart/compose.yaml up -d --build` (or `docker compose`) | Sign in as admin / secret on localhost:19999 | [Quickstart](quickstart.md) |
 | Benchmarks | `agent-benchmark` | | [Configuration](configuration.md#agent-benchmark) |
 | The API | | Server settings › API reference (`/docs`) | [API](api.md) |
 

@@ -59,7 +59,7 @@ Privacy and security:
 
 - **Redaction.** Before anything is shown or saved, the server removes `Authorization`, cookies and any header whose name contains `auth`, `cookie`, `token`, `secret`, `api-key`, `apikey` or `session`; token-like query parameters; and token fields (`access_token`, `refresh_token`, `id_token`, `code`, `client_secret`, `password`, ...) in bodies of OAuth, token and sign-in endpoints.
 - **Bodies are not redacted.** Saved and live bodies still contain your code and prompts. Bodies are saved only for sessions with capture on (`--trace`, or the switch on **Sessions**). Live text is held in memory only.
-- **The CA key.** `certs/ca-key.pem` on the server is created readable only by its user. Delete `certs/` to rotate the CA.
+- **The CA key.** The CA's private key is kept in the server's database (`intercept-ca` in table `secrets`), never in a file; only its public certificate is written out for agents. To rotate the CA, delete that row and restart the server (see [Configuration](configuration.md#secrets)).
 - **No credential handling.** The proxy never reads the agents' credentials from disk or asks you to copy tokens. The agents keep managing their own sign-in and refresh.
 - **VS Code extensions** (Copilot, ChatGPT/Codex) run their own processes and aren't captured. Only agents started with `agent` go through the proxy.
 
@@ -104,7 +104,7 @@ agent version
 What a launch does:
 
 1. Starts this computer's `agent-proxy` in the background if `127.0.0.1:8184/health` doesn't answer (it runs itself as `agent proxy`). When the `agent-proxy`'s server is this computer and isn't running, it also starts `agent-server` from your `PATH`.
-2. Checks this computer is signed in, if the server needs it, and gets the agent from the server (`GET /api/agents`). It stops if the agent's program isn't on your `PATH`, and prints its install command.
+2. Checks this computer is signed in (`agent login`), and gets the agent from the server (`GET /api/agents`). It stops if the agent's program isn't on your `PATH`, and prints its install command.
 3. For an account agent, fetches the server's CA (see [Your accounts](#your-accounts-https-capture)).
 4. Asks the server for a session (`POST /api/agents/<id>/sessions`), naming the model, backend, capture, project, sharing and MCP servers. The server picks the backend and sends back the agent's environment, command and settings files.
 5. Writes those files to a new folder, `~/.cache/agent-proxy/sessions/<random>/`, and starts the backend's container first if it's one a machine runs.
@@ -218,7 +218,7 @@ agent proxy stop                     # stop the one running here; the next agent
 Any program on the computer can reach the `agent-proxy`, and what it forwards to the server is signed as you. So:
 
 - **It binds `127.0.0.1` only**, and every route checks that the `Host` header names loopback and that any `Origin` is the same origin. A web page (another site's, or one using DNS rebinding) is refused with `403`.
-- **Only the launcher's API is signed.** Calls under `/api/` are forwarded with this computer's token only if they're on its allowlist, `LauncherAPI`. Anything else gets `404`:
+- **Only the launcher's part of the API is forwarded.** Calls under `/api/` are forwarded, signed with this computer's token, only if they're on its allowlist, `LauncherAPI`. Anything else gets `404`:
 
   | Method | Path |
   |---|---|
@@ -233,7 +233,7 @@ Any program on the computer can reach the `agent-proxy`, and what it forwards to
   | `GET` | `/api/containers/<name>` |
   | `POST` | `/api/containers/<name>/start` |
 
-- **Agent traffic is forwarded without the computer's token.** Model traffic under `/session/...`, `/v1/...` and `/anthropic/...` uses the open session id. MCP URLs also carry a separate per-session capability that is only delivered in the launch settings. Cookies, `Origin`, `Proxy-Authorization` and `Proxy-Connection` are never forwarded.
+- **Agent traffic is signed too, but the session decides.** Model traffic under `/session/...`, `/v1/...` and `/anthropic/...` goes to the server with this computer's token in `X-AI-Proxy-Token`, leaving the agent's own `Authorization` as it is. The server also needs an open session that the signed-in user may control: a session id alone grants nothing. MCP URLs also carry a separate per-session capability that is only delivered in the launch settings. Cookies, `Origin`, `Proxy-Authorization` and `Proxy-Connection` are never forwarded.
 - **It never uses a proxy itself.** Every HTTP client and WebSocket dialer in the client ignores `HTTPS_PROXY`, which inside an account agent points back at the `agent-proxy` and would loop.
 - `/api/terminals/<id>/host` relays a `--control` terminal to the server, signed as this computer. `POST /shutdown` stops it (for `agent proxy stop` and `agent update`), with the same loopback and origin checks.
 

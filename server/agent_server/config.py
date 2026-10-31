@@ -301,7 +301,7 @@ class Settings:
         else:
             effective_url = configured_url
         self.proxy_url = effective_url.rstrip("/")
-        self.default_backend = os.getenv("AI_PROXY_DEFAULT_BACKEND") or str(document.get("default_backend") or "laptop")
+        self.default_backend = os.getenv("AI_PROXY_DEFAULT_BACKEND") or str(document.get("default_backend") or defaults.DEFAULT_BACKEND)
         self.backends = {name: _backend(name, value) for name, value in (document.get("backends") or {}).items()}
         self.intercept = InterceptSettings.load(document.get("intercept") or {})
         tls = proxy_data.get("tls") or {}
