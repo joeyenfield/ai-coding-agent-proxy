@@ -272,7 +272,10 @@ function JoinSteps({ server }: { server: string }) {
       {container ? (
         <SandboxSteps server={server} />
       ) : python ? (
-        <PythonSteps server={server} agent={install === "both"} />
+        <>
+          <PythonSteps server={server} agent={install === "both"} />
+          <RemoveSteps server={server} system={system} install={install} />
+        </>
       ) : (
         <>
           <CodeLine text={command} onCopy={() => copy(command, "Command copied")} />
@@ -310,9 +313,120 @@ function JoinSteps({ server }: { server: string }) {
             <CodeLine text={login} onCopy={() => copy(login, "Command copied")} />
             <CodeLine text="agent-machine start" onCopy={() => copy("agent-machine start", "Command copied")} />
           </details>
+          <RemoveSteps server={server} system={system} install={install} />
         </>
       )}
     </div>
+  );
+}
+
+/** The one-line uninstaller (server/agent_server/install/uninstall.sh and .ps1) with its options. */
+function uninstallLine(server: string, system: "sh" | "powershell", { only, purge }: { only?: "agent-machine"; purge: boolean }): string {
+  if (system === "sh") {
+    const options = [only && `--only ${only}`, purge && "--purge"].filter(Boolean).join(" ");
+    return `curl -fsSL ${server}/uninstall.sh | sh${options ? ` -s -- ${options}` : ""}`;
+  }
+  const options = [only && `-Only ${only}`, purge && "-Purge"].filter(Boolean).join(" ");
+  return options ? `& ([scriptblock]::Create((irm ${server}/uninstall.ps1))) ${options}` : `irm ${server}/uninstall.ps1 | iex`;
+}
+
+type Step = { command: string; text: string };
+
+/** Taking a machine out again, for the system and install chosen above: its uninstaller, then its entry in the fleet. */
+function RemoveSteps({ server, system, install, runtime = "docker", image = "" }: {
+  server: string;
+  system: System;
+  install: Install;
+  runtime?: Runtime;
+  image?: string;
+}) {
+  const copy = useClipboard();
+  const [purge, setPurge] = useState(false);
+  const both = install === "both";
+  let steps: Step[];
+  let notes: string[] = [];
+  if (system === "sh" || system === "powershell") {
+    const windows = system === "powershell";
+    steps = [{
+      command: uninstallLine(server, system, { only: both ? undefined : "agent-machine", purge }),
+      text: windows
+        ? "Run it in PowerShell on the computer."
+        : "Run it on the computer. If you installed with sudo (into /usr/local/bin, or as a system service), put sudo before its sh: | sudo sh.",
+    }];
+    notes = [
+      windows
+        ? "Removes the agent-machine scheduled task and stops agent-machine."
+        : "Removes agent-machine's service (systemd, launchd or rc.d) and stops agent-machine.",
+      ...(both ? ["Stops agent-proxy: agents running through it lose their connection to the server."] : []),
+      ...(purge ? [both ? "Signs agent and agent-machine out of every server, which revokes their tokens." : "Signs agent-machine out of every server, which revokes its tokens."] : []),
+      windows ? "Deletes the programs, the PATH entry and the empty folder." : "Deletes the programs.",
+      purge
+        ? `Deletes ${both ? "their" : "its"} settings, sign-ins, logs and caches.`
+        : `Leaves ${both ? "their" : "its"} sign-ins and settings, so installing again picks up where it left off.`,
+    ];
+  } else if (system === "python") {
+    steps = [
+      { command: "agent-machine stop", text: "Stops agent-machine, so it leaves the fleet." },
+      ...(both ? [{ command: "agent proxy stop", text: "Stops agent-proxy: agents running through it lose their connection to the server." }] : []),
+      ...(purge
+        ? [
+          { command: "agent-machine logout", text: "Signs agent-machine out, revoking its token. It signs out of one server at a time: run it again for each." },
+          ...(both ? [{ command: "agent logout", text: "Signs agent out the same way." }] : []),
+        ]
+        : []),
+      { command: "python3 -m pip uninstall ai-proxy-agent-py", text: "Removes the Python programs (py instead of python3 on Windows; pipx uninstall if you used pipx)." },
+      ...(purge
+        ? [{
+          command: both ? "rm -rf ~/.config/agent-machine ~/.config/agent-proxy ~/.cache/agent-proxy" : "rm -rf ~/.config/agent-machine",
+          text: both
+            ? "Deletes their settings, sign-ins and logs. On Windows they're agent-machine and agent-proxy in %APPDATA%, and .cache\\agent-proxy in your home folder."
+            : "Deletes its settings, sign-ins and logs. On Windows it's agent-machine in %APPDATA%.",
+        }]
+        : []),
+    ];
+  } else {
+    steps = [
+      ...(purge
+        ? [
+          { command: `${runtime} exec agent-sandbox agent-machine logout`, text: "Signs its agent-machine out first, which revokes its token." },
+          { command: `${runtime} exec agent-sandbox agent logout`, text: "And its agent." },
+        ]
+        : []),
+      { command: `${runtime} rm -f agent-sandbox`, text: purge ? "Stops and removes the container." : "Stops and removes the container. Its sign-ins and workspace stay in their volumes, for the next one." },
+      ...(purge
+        ? [
+          { command: `${runtime} volume rm agent-sandbox-home agent-sandbox-workspace`, text: "Deletes its volumes: its sign-ins, and everything in /workspace, so copy out anything you want to keep first." },
+          ...(image ? [{ command: `${runtime} image rm ${image}`, text: "Frees the image's disk space." }] : []),
+        ]
+        : []),
+    ];
+  }
+  return (
+    <details className="manual">
+      <summary>Remove it again</summary>
+      <label className="check">
+        <input type="checkbox" checked={purge} onChange={(event) => setPurge(event.target.checked)} />
+        {system === "container" ? "Also sign it out and delete its volumes" : "Also sign out and delete its settings and sign-ins"}
+      </label>
+      <ol className="steps">
+        {steps.map((step) => (
+          <li key={step.command}>
+            <p>{step.text}</p>
+            <CodeLine text={step.command} onCopy={() => copy(step.command, "Command copied")} />
+          </li>
+        ))}
+      </ol>
+      {notes.length > 0 && (
+        <div className="join-does">
+          <p>What the command does:</p>
+          <ol>{notes.map((note) => <li key={note}>{note}</li>)}</ol>
+        </div>
+      )}
+      <p className="subtle">
+        {system !== "container" && "Containers agent-machine ran and models it pulled stay. "}The machine stays in this list, offline,
+        until you remove it: open its page and use <strong>Remove from this server</strong>.
+      </p>
+    </details>
   );
 }
 
@@ -486,6 +600,7 @@ function SandboxSteps({ server }: { server: string }) {
           )}
         </li>
       </ol>
+      <RemoveSteps server={server} system="container" install="both" runtime={runtime} image={image} />
     </div>
   );
 }
