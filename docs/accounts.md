@@ -60,9 +60,11 @@ The full list of commands is on [Configuration](configuration.md#users-organizat
 
 How a computer's device sign-in works, and what keeps it safe, is on [Security](security.md).
 
+**Several accounts in one browser.** The console can be signed in to up to five accounts at once, for example a site admin and an organization's user. Choose your name at the bottom of the menu: **Switch to** another account (no password), **Add another account** (the sign-in page again), **Sign out** of the active one or of one of the others, or **Sign out of every account**. Only one account is active at a time, and the console shows only what that account may see: switching to an account of another organization is switching organization. When you sign out of the active account, the next one becomes active. Other console tabs follow a switch. `agent login` and `agent-machine login` still hold one account per server.
+
 | Who | How | What it carries |
 |---|---|---|
-| A browser | Console redirects through `GET /api/auth/login` to the issuer; authorization code + PKCE | Short-lived HttpOnly access cookie and a rotating refresh cookie |
+| A browser | Console redirects through `GET /api/auth/login` to the issuer; authorization code + PKCE | Short-lived HttpOnly access cookie for the active account, and a rotating refresh token for each account it's signed in to |
 | An agent machine | `agent login <server>`; approve the displayed device code in your browser | OAuth access token in `X-AI-Proxy-Token`, renewed automatically |
 | A fleet machine | `agent-machine login <server>`; device approval | Its own access and refresh tokens, separate from `agent login` |
 | Scripts and Swagger UI | A provisioned service client's access token | `Authorization: Bearer <access_token>` |

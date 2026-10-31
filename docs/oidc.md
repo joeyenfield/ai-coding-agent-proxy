@@ -124,8 +124,10 @@ On the **API host**:
 | GET | `/api/auth/status` | Public authentication requirement, current identity, issuer, audience and CLI client id; no credentials disclosed. |
 | GET | `/api/auth/login` | Start browser sign-in. Optional `return_to` must match an allowed console origin. |
 | GET | `/api/auth/callback` | Verify state, PKCE exchange and OIDC identity; set cookies. |
-| POST | `/api/auth/refresh` | Renew the browser's access token using its refresh cookie. |
-| POST | `/api/auth/logout` | Revoke the browser's refresh family and clear cookies. |
+| POST | `/api/auth/refresh` | Renew the active account's access token using its refresh token. |
+| GET | `/api/auth/accounts` | The accounts this browser is signed in to (names only) and which is active. |
+| POST | `/api/auth/switch` | `{"user"}`: make another of the browser's accounts the active one. |
+| POST | `/api/auth/logout` | Revoke the active account (or `{"user"}`, or every one with `{"all": true}`); the next one left becomes active. |
 | POST | `/api/auth/device` | Signed in to the console: check, approve or deny a CLI device code, relayed to the issuer's `/device/console`. |
 
 Mutations and WebSocket connections with an `Origin` header require the API's origin or an exact allowed console origin. Native clients may omit that header. Foreign origins are rejected before a protected handler runs. Old password-login and launcher-token creation endpoints no longer issue credentials.

@@ -144,7 +144,10 @@ class ServersActivity : Activity() {
         for (name in listOf("ai_proxy_session", "ai_proxy_remote", "mesh_oidc_state")) {
             cookies.setCookie(server.url, "$name=; Max-Age=0; Path=/")
         }
-        cookies.setCookie(server.url + "/api/auth", "mesh_refresh=; Max-Age=0; Path=/api/auth")
+        // Every account the console was signed in to (mesh_accounts), and an older console's one sign-in (mesh_refresh).
+        for (name in listOf("mesh_accounts", "mesh_refresh")) {
+            cookies.setCookie(server.url + "/api/auth", "$name=; Max-Age=0; Path=/api/auth")
+        }
         cookies.flush()
     }
 

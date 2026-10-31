@@ -280,7 +280,7 @@ A shared terminal has one host (the launcher) and any number of viewers (console
 | `X-Request-ID`, `X-Session-ID` | the server, on replies | Which recorded request and session this was |
 | `X-Agent-Proxy-Error` | `agent-proxy`, on a refused `CONNECT` | Why |
 | Cookie `ai_proxy_session` | browsers | A console sign-in (SameSite=Lax) |
-| Cookie `mesh_refresh` | browser, API `/api/auth` only | HttpOnly rotating refresh token; never sent to providers |
+| Cookie `mesh_accounts` | browser, API `/api/auth` only | HttpOnly and signed: the rotating refresh token of each account the browser is signed in to (up to 5), and which is active; never sent to providers. Replaces the older `mesh_refresh`, which is read once and moved into it |
 
 ## WebSocket close codes
 

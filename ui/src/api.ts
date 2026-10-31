@@ -1086,6 +1086,14 @@ export interface TerminalAttention {
   question: string | null;
 }
 
+/** GET /api/auth/accounts: the accounts one browser is signed in to (names only), and which is active. */
+export type SignedInAccounts = {
+  active: string | null;
+  accounts: { user: string; active: boolean }[];
+  /** How many one browser keeps signed in at once. */
+  max: number;
+};
+
 export class ApiError extends Error {
   constructor(message: string, readonly status: number) {
     super(message);
@@ -1333,7 +1341,15 @@ export const api = {
     return status;
   },
   login: () => window.location.assign(apiUrl(`/api/auth/login?return_to=${encodeURIComponent(window.location.origin)}`)),
-  logout: () => request<{ identity: null }>("/api/auth/logout", { method: "POST", body: "{}" }),
+  /** Sign in to another account in this browser: the issuer's sign-in page, then back here with it active. */
+  addAccount: () => window.location.assign(apiUrl(`/api/auth/login?return_to=${encodeURIComponent(window.location.origin)}`)),
+  /** The accounts this browser is signed in to, and which is active. */
+  accounts: () => request<SignedInAccounts>("/api/auth/accounts"),
+  /** Make another of this browser's accounts the active one (no password: it's signed in already). */
+  switchAccount: (user: string) => request<SignedInAccounts>("/api/auth/switch", { method: "POST", body: JSON.stringify({ user }) }),
+  /** Sign out of the active account, one named account, or every one ({ all: true }). The next one left becomes active. */
+  logout: (which: { user?: string; all?: boolean } = {}) =>
+    request<SignedInAccounts & { identity: null }>("/api/auth/logout", { method: "POST", body: JSON.stringify(which) }),
   /** What an `agent login`/`agent-machine login` code is (check), or decide it, as whoever is signed in. */
   checkDevice: (userCode: string) =>
     request<DeviceRequest>("/api/auth/device", { method: "POST", body: JSON.stringify({ user_code: userCode, action: "check" }) }),

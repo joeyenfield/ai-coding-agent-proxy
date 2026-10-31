@@ -1002,6 +1002,22 @@ code { background: var(--ground); border: 1px solid var(--line); padding: 0 5px;
 .avatar { flex: none; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--accent-soft); color: var(--accent-ink); font-weight: 650; font-size: 13px; }
 .signed-in-name { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
 .signed-in-name small { margin: 0; font-weight: 400; }
+/* The account menu: the accounts this browser is signed in to */
+.account-menu { position: relative; }
+.account-button { padding: 6px 8px; margin: 0 -8px; width: calc(100% + 16px); background: none; border: 1px solid transparent; border-radius: var(--radius); color: inherit; text-align: left; cursor: pointer; }
+.account-button:hover, .account-button[aria-expanded="true"] { background: var(--accent-soft); border-color: var(--line); }
+.account-button .signed-in-name small { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.account-popover { position: absolute; bottom: calc(100% + 6px); left: -4px; right: -4px; z-index: 30; display: flex; flex-direction: column; gap: 10px; padding: 12px; box-shadow: var(--shadow); }
+.account-heading { font-size: 13px; }
+.account-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.account-list li { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.account-switch { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; text-align: left; }
+.account-switch .avatar { width: 24px; height: 24px; font-size: 12px; }
+.account-actions { display: flex; flex-direction: column; gap: 6px; }
+.account-actions button, .account-switch { display: flex; align-items: center; gap: 8px; justify-content: flex-start; white-space: normal; text-align: left; overflow-wrap: anywhere; }
+.account-note { font-size: 12px; }
+.login-accounts { display: flex; flex-direction: column; gap: 8px; }
+.login-accounts button { justify-content: flex-start; }
 
 /* Headline numbers */
 .stat-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }

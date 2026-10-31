@@ -1179,8 +1179,9 @@ def main() -> None:
         credentials.headers()
         print(f"demo proxy on {PROXY} (data in {work})", flush=True)
         print(f"isolated demo sign-in: {DEMO_USER} / {DEMO_PASSWORD}, admin demo-admin / {DEMO_ADMIN_PASSWORD}; issuer {AUTH}", flush=True)
-        share_terminals()
+        # Machines first: their model servers are backends only once their machine (and so its organization) is known.
         join_fleet()
+        share_terminals()
         run_containers()
         drive()
     except KeyboardInterrupt:

@@ -1,7 +1,8 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { Link, NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, roleLabel, type Identity } from "./api";
+import { useQuery } from "@tanstack/react-query";
+import { api, type Identity } from "./api";
+import { AccountMenu, useAccountChanges } from "./components/AccountMenu";
 import { useAuth, useStatus, useTheme, useVersion, type ThemeChoice } from "./hooks";
 import { LoginPage } from "./pages/Login";
 import { OrganizationPage } from "./pages/Organization";
@@ -36,6 +37,7 @@ const MOVED = ["/models", "/hosts", "/server", "/providers", "/strata", "/docker
 
 export function App() {
   const auth = useAuth();
+  useAccountChanges();
   if (!auth.data?.identity || auth.error) {
     if (window.location.pathname === "/get") return <PublicDownloads />;
     if (window.location.pathname === "/help" || window.location.pathname.startsWith("/help/")) return <PublicDocs />;
@@ -49,7 +51,6 @@ export function App() {
 }
 
 function Shell({ identity }: { identity: Identity | null }) {
-  const client = useQueryClient();
   const status = useStatus();
   const [theme, setTheme] = useTheme();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -170,20 +171,7 @@ function Shell({ identity }: { identity: Identity | null }) {
             </span>
           </p>
           <ServerVersion />
-          {identity && (
-            <div className="signed-in">
-              <span className="avatar" aria-hidden="true">
-                {identity.user.slice(0, 1).toUpperCase()}
-              </span>
-              <span className="signed-in-name">
-                {identity.user}
-                <small>{roleLabel(identity)}</small>
-              </span>
-              <button type="button" className="icon-button" title="Sign out" aria-label="Sign out" onClick={() => api.logout().then(() => client.invalidateQueries())}>
-                <Icon name="logout" />
-              </button>
-            </div>
-          )}
+          {identity && <AccountMenu identity={identity} />}
           <div className="theme-switch" role="radiogroup" aria-label="Theme">
             {(["system", "light", "dark"] as ThemeChoice[]).map((choice) => (
               <button

@@ -1,4 +1,11 @@
-"""OIDC browser sign-in, token-cookie renewal and account-directory administration."""
+"""OIDC browser sign-in, token-cookie renewal, several sign-ins per browser, and account-directory administration.
+
+A browser can be signed in to several accounts at once and switch between them. Each account's
+rotating refresh token is in one signed, HttpOnly cookie (ACCOUNTS, sent only to /api/auth), with
+which of them is active. The active account's access token is the usual access cookie (auth.COOKIE),
+so everything else sees exactly one identity per request: switching is a fresh access token for
+another account, and the tenant, role and sharing checks follow whichever one it is.
+"""
 
 from __future__ import annotations
 
@@ -11,12 +18,22 @@ from authlib.integrations.base_client.errors import OAuthError
 from authlib.integrations.starlette_client import OAuth
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
+from itsdangerous import BadSignature, URLSafeSerializer
 from joserfc.errors import JoseError
 from starlette.middleware.sessions import SessionMiddleware
 
 from .. import auth
 from ..db import kv
 from ..runtime import Runtime
+
+
+# The browser's sign-ins: {"active": user, "accounts": {user: refresh token}}.
+ACCOUNTS = "mesh_accounts"
+# Where a browser kept its one sign-in's refresh token before it could hold several; read once, then moved into ACCOUNTS.
+LEGACY_REFRESH = "mesh_refresh"
+# How many accounts one browser keeps signed in (each refresh token is a few dozen bytes of a 4 KB cookie).
+MAX_ACCOUNTS = 5
+REFRESH_LIFETIME = 30 * 86400
 
 
 def register(app: FastAPI, runtime: Runtime) -> None:
@@ -34,7 +51,11 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         client_kwargs={"scope": "openid profile offline_access mesh-api", "code_challenge_method": "S256", "token_endpoint_auth_method": "none", "trust_env": False},
     )
 
-    def set_tokens(response: Response, token: dict[str, Any]) -> None:
+    signer = URLSafeSerializer(key, salt="mesh-accounts")
+    secure = settings.oidc_issuer.startswith("https://")
+
+    def checked(token: Any) -> tuple[str, int, str]:
+        """The access token, its lifetime and the new refresh token from a token response, or 502."""
         if not isinstance(token, dict):
             raise HTTPException(status_code=502, detail="The authentication service returned an invalid token response")
         access = token.get("access_token")
@@ -45,16 +66,55 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             raise HTTPException(status_code=502, detail="The authentication service returned an invalid access-token lifetime")
         if not isinstance(token.get("refresh_token"), str) or not token["refresh_token"]:
             raise HTTPException(status_code=502, detail="The authentication service did not issue a rotating refresh token")
-        secure = settings.oidc_issuer.startswith("https://")
-        response.set_cookie(auth.COOKIE, access, max_age=int(expires), httponly=True, secure=secure, samesite="lax")
-        if token.get("refresh_token"):
-            response.set_cookie("mesh_refresh", token["refresh_token"], max_age=30 * 86400, httponly=True, secure=secure, samesite="lax", path="/api/auth")
+        return access, int(expires), token["refresh_token"]
+
+    def signed_in(request: Request) -> dict[str, Any]:
+        """This browser's sign-ins. A missing or tampered cookie is none; an older single sign-in is one with no name yet ("")."""
+        found: dict[str, Any] = {"active": None, "accounts": {}}
+        value = request.cookies.get(ACCOUNTS)
+        if value:
+            try:
+                data = signer.loads(value)
+            except BadSignature:
+                data = None
+            if isinstance(data, dict) and isinstance(data.get("accounts"), dict):
+                held = {str(user): str(secret) for user, secret in data["accounts"].items() if isinstance(secret, str) and secret}
+                active = data.get("active") if data.get("active") in held else None
+                found = {"active": active, "accounts": held}
+        legacy = request.cookies.get(LEGACY_REFRESH)
+        if legacy and not found["accounts"]:
+            found = {"active": "", "accounts": {"": legacy}}
+        return found
+
+    def store(response: Response, held: dict[str, Any]) -> None:
+        response.delete_cookie(LEGACY_REFRESH, path="/api/auth")
+        if held["accounts"]:
+            response.set_cookie(ACCOUNTS, signer.dumps(held), max_age=REFRESH_LIFETIME, httponly=True, secure=secure, samesite="lax", path="/api/auth")
+        else:
+            response.delete_cookie(ACCOUNTS, path="/api/auth")
         response.headers["Cache-Control"] = "no-store"
+
+    def activate(response: Response, held: dict[str, Any], user: str, token: Any) -> None:
+        """Make user the active account with this token response: its access cookie, its new refresh token."""
+        access, expires, refresh_token = checked(token)
+        if user:
+            held["accounts"].pop("", None)
+        held["accounts"][user] = refresh_token
+        held["active"] = user
+        response.set_cookie(auth.COOKIE, access, max_age=expires, httponly=True, secure=secure, samesite="lax")
+        store(response, held)
+
+    def listing(held: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "active": held["active"] or None,
+            "accounts": [{"user": user, "active": user == held["active"]} for user in sorted(held["accounts"]) if user],
+            "max": MAX_ACCOUNTS,
+        }
 
     def back_to_console(request: Request, reason: str) -> RedirectResponse:
         """A browser sign-in that can't go on: back to the console's sign-in page, which says why.
 
-        reason is "failed" or "unavailable"; the console shows its own wording for each.
+        reason is "failed", "unavailable" or "too_many"; the console shows its own wording for each.
         """
         target = request.session.pop("return_to", None)
         request.session.clear()
@@ -63,11 +123,6 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         response = RedirectResponse(f"{target.rstrip('/')}/?sign_in={reason}", status_code=303)
         response.headers["Cache-Control"] = "no-store"
         return response
-
-    def clear_tokens(response: Response) -> None:
-        response.delete_cookie(auth.COOKIE)
-        response.delete_cookie("mesh_refresh", path="/api/auth")
-        response.headers["Cache-Control"] = "no-store"
 
     async def token_request(data: dict[str, str]) -> dict[str, Any]:
         try:
@@ -79,6 +134,37 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             return response.json()
         except (httpx.HTTPError, ValueError) as exc:
             raise HTTPException(status_code=503, detail="The authentication service is unavailable") from exc
+
+    async def revoke_secret(secret: str) -> None:
+        try:
+            async with httpx.AsyncClient(timeout=10, trust_env=False, follow_redirects=False) as client:
+                result = await client.post(settings.oidc_issuer + "/revoke", data={"token": secret, "client_id": settings.oidc_console_client})
+                result.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=503, detail="Sign-out could not revoke your credential; try again.") from exc
+
+    async def renew(response: Response, held: dict[str, Any], user: str) -> None:
+        """A fresh access token for one of the browser's accounts, which becomes the active one.
+        A sign-in the issuer no longer honours is dropped from the browser: 401."""
+        try:
+            token = await token_request({"grant_type": "refresh_token", "refresh_token": held["accounts"][user]})
+            if not user:
+                # An older single sign-in: learn whose it is from its new access token.
+                user = await asyncio.to_thread(accounts.username_of, checked(token)[0]) or ""
+                if not user:
+                    raise HTTPException(status_code=401, detail="Your sign-in has expired. Sign in again.")
+        except HTTPException as exc:
+            if exc.status_code == 401:
+                held["accounts"].pop(user, None)
+                if held["active"] == user:
+                    held["active"] = None
+                failed = JSONResponse({"detail": exc.detail, **listing(held)}, status_code=401)
+                store(failed, held)
+                if held["active"] is None:
+                    failed.delete_cookie(auth.COOKIE)
+                raise _Answer(failed) from exc
+            raise
+        activate(response, held, user, token)
 
     @app.get("/api/auth/status")
     async def status(request: Request) -> JSONResponse:
@@ -123,15 +209,27 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         except (OAuthError, JoseError, ValueError):
             # An expired or replayed callback, or one from another browser's sign-in.
             return back_to_console(request, "failed")
-        if not token.get("userinfo"):
+        user = str((token.get("userinfo") or {}).get("preferred_username") or "")
+        if not user:
             return back_to_console(request, "failed")
+        held = signed_in(request)
+        named = {name for name in held["accounts"] if name}
+        if user not in named and len(named) >= MAX_ACCOUNTS:
+            return back_to_console(request, "too_many")
+        replaced = held["accounts"].get(user)
         target = request.session.pop("return_to", "/")
         request.session.clear()
         response = RedirectResponse(target if target == "/" or target in settings.oidc_browser_origins else "/")
         try:
-            set_tokens(response, token)
+            activate(response, held, user, token)
         except HTTPException:
             return back_to_console(request, "failed")
+        if replaced:
+            # Signed in to the same account again: its older refresh token goes.
+            try:
+                await revoke_secret(replaced)
+            except HTTPException:
+                pass
         return response
 
     # What the issuer's refusals of a console device approval mean for the person in the console.
@@ -170,27 +268,79 @@ def register(app: FastAPI, runtime: Runtime) -> None:
 
     @app.post("/api/auth/refresh")
     async def refresh(request: Request) -> Response:
-        refresh_token = request.cookies.get("mesh_refresh")
-        if not refresh_token:
+        """A fresh access token for the active account."""
+        held = signed_in(request)
+        if held["active"] is None:
             raise HTTPException(status_code=401, detail="Sign in first.")
-        token = await token_request({"grant_type": "refresh_token", "refresh_token": refresh_token})
         response = JSONResponse({"refreshed": True})
-        set_tokens(response, token)
+        try:
+            await renew(response, held, held["active"])
+        except _Answer as answer:
+            return answer.response
+        return response
+
+    @app.get("/api/auth/accounts")
+    async def signed_in_accounts(request: Request) -> JSONResponse:
+        """The accounts this browser is signed in to, and which is active. Names only: their tokens never leave the cookie."""
+        return JSONResponse(listing(signed_in(request)), headers={"Cache-Control": "no-store"})
+
+    @app.post("/api/auth/switch")
+    async def switch(request: Request) -> Response:
+        """Make another of this browser's accounts the active one: {"user": name}. No password: it's already signed in."""
+        data = await request.json()
+        user = str((data or {}).get("user") or "") if isinstance(data, dict) else ""
+        held = signed_in(request)
+        if not user or user not in held["accounts"]:
+            raise HTTPException(status_code=404, detail="This browser isn't signed in to that account")
+        response = JSONResponse({})
+        try:
+            await renew(response, held, user)
+        except _Answer as answer:
+            return answer.response
+        response.body = response.render(listing(held))
+        response.headers["content-length"] = str(len(response.body))
         return response
 
     @app.post("/api/auth/logout")
     async def logout(request: Request) -> JSONResponse:
-        secret = request.cookies.get("mesh_refresh") or request.cookies.get(auth.COOKIE)
-        if secret:
-            try:
-                async with httpx.AsyncClient(timeout=10, trust_env=False, follow_redirects=False) as client:
-                    result = await client.post(settings.oidc_issuer + "/revoke", data={"token": secret, "client_id": settings.oidc_console_client})
-                    result.raise_for_status()
-            except httpx.HTTPError as exc:
-                raise HTTPException(status_code=503, detail="Sign-out could not revoke your credential; try again.") from exc
+        """Sign out of one account ({"user": name}; the active one without), or of every one ({"all": true}).
+
+        Each one signed out is revoked at the issuer. When the active one goes, the next one left becomes active.
+        """
+        try:
+            data = await request.json()
+        except ValueError:
+            data = {}
+        data = data if isinstance(data, dict) else {}
+        held = signed_in(request)
+        everyone = bool(data.get("all"))
+        target = str(data.get("user") or "") if data.get("user") else held["active"]
+        if not everyone and data.get("user") and target not in held["accounts"]:
+            raise HTTPException(status_code=404, detail="This browser isn't signed in to that account")
+        leaving = list(held["accounts"]) if everyone else ([target] if target is not None and target in held["accounts"] else [])
+        secrets = [held["accounts"][user] for user in leaving]
+        if not secrets and request.cookies.get(auth.COOKIE):
+            secrets = [request.cookies[auth.COOKIE]]
+        for secret in secrets:
+            await revoke_secret(secret)
+        for user in leaving:
+            held["accounts"].pop(user, None)
         request.session.clear()
-        response = JSONResponse({"identity": None})
-        clear_tokens(response)
+        response = JSONResponse({})
+        if held["active"] in leaving or not held["accounts"]:
+            held["active"] = None
+            response.delete_cookie(auth.COOKIE)
+            for user in sorted(held["accounts"]):
+                try:
+                    await renew(response, held, user)
+                    break
+                except _Answer:
+                    continue
+                except HTTPException:
+                    break
+        store(response, held)
+        response.body = response.render({"identity": None, **listing(held)})
+        response.headers["content-length"] = str(len(response.body))
         return response
 
     @app.post("/api/auth/token")
@@ -338,3 +488,11 @@ def register(app: FastAPI, runtime: Runtime) -> None:
                 raise KeyError(name)
 
         return change(request, remove, "No such user")
+
+
+class _Answer(Exception):
+    """A response to send as it is, from inside a helper (a sign-in the issuer no longer honours)."""
+
+    def __init__(self, response: Response):
+        super().__init__("answer")
+        self.response = response

@@ -574,6 +574,15 @@ class Auth:
         except httpx.HTTPError as exc:
             raise AuthUnavailable("The authentication service is unavailable") from exc
 
+    def username_of(self, token: str) -> str | None:
+        """Whose a valid access token is (the console's sign-ins name their accounts by it)."""
+        class Carrier:
+            headers = {HEADER: token}
+            cookies: dict[str, str] = {}
+
+        identity = self.identify(Carrier())  # type: ignore[arg-type]
+        return identity.user if identity else None
+
     def identify(self, connection: HTTPConnection) -> Identity | None:
         token, via = self.request_token(connection)
         if not token or len(token) > 8192:
@@ -616,7 +625,12 @@ class Auth:
 
 # Reachable without signing in: health checks, signing in itself, and the console's files
 # (the app shows its sign-in page). Everything under the protected prefixes needs a credential.
-PUBLIC_PATHS = {"/health", "/api/auth/status", "/api/auth/login", "/api/auth/callback", "/api/auth/refresh", "/api/auth/logout"}
+# /api/auth/accounts and /api/auth/switch read and change only the browser's own sign-ins (its mesh_accounts cookie),
+# which work when the active account's access has expired.
+PUBLIC_PATHS = {
+    "/health", "/api/auth/status", "/api/auth/login", "/api/auth/callback", "/api/auth/refresh", "/api/auth/logout",
+    "/api/auth/accounts", "/api/auth/switch",
+}
 CREDENTIAL_CHECK_INTERVAL = 15
 PROTECTED_PREFIXES = ("/api/", "/v1/", "/anthropic/", "/session/", "/docs", "/redoc", "/openapi.json")
 # Unscoped agent endpoints that may name their session in X-AI-Proxy-Session instead of the path.
