@@ -177,6 +177,9 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             "identity": identity.public() if identity else None,
             "secure": request.url.scheme == "https",
             "issuer": settings.oidc_issuer, "audience": settings.oidc_audience, "client_id": settings.oidc_cli_client,
+            # The browser sign-in's callbacks (the issuer knows them anyway). The Android app keeps sign-in in its
+            # WebView on these hosts when the console's API isn't the address it was given (split hosting).
+            "redirect_uris": settings.oidc_redirect_uris,
         }, headers={"Cache-Control": "no-store"})
 
     @app.get("/api/auth/login")

@@ -77,14 +77,28 @@ fun check(url: String): Check {
     }
 }
 
-/** Only the chosen API may name the issuer whose sign-in pages stay in the WebView. */
-fun authIssuer(url: String): String? {
+/**
+ * Where the browser sign-in may run in the WebView: the issuer, and the APIs whose /api/auth/login and
+ * /api/auth/callback it goes through. The chosen server's address is always one; split hosting adds the
+ * API the console calls (api.example.com while the app was given example.com), named by its callbacks.
+ */
+data class SignIn(val issuer: String, val apis: List<String>)
+
+/** Only the chosen API may name the issuer and the APIs whose sign-in pages stay in the WebView. */
+fun authIssuer(url: String): SignIn? {
     val response = get("$url/api/auth/status")
     if (response.first != 200) return null
     val issuer = response.second.optString("issuer")
-    val parsed = URL(issuer)
-    if (parsed.protocol != "https" || parsed.userInfo != null || parsed.query != null || parsed.ref != null) return null
-    return issuer
+    if (!plainHttps(issuer)) return null
+    // Older servers don't name their callbacks: only the chosen address then.
+    val callbacks = response.second.optJSONArray("redirect_uris")
+    val apis = (0 until (callbacks?.length() ?: 0)).mapNotNull { callbacks?.optString(it)?.takeIf(::plainHttps) }
+    return SignIn(issuer, listOf(url) + apis)
+}
+
+private fun plainHttps(address: String): Boolean {
+    val parsed = try { URL(address) } catch (_: java.net.MalformedURLException) { return false }
+    return parsed.protocol == "https" && parsed.host.isNotEmpty() && parsed.userInfo == null && parsed.query == null && parsed.ref == null
 }
 
 private fun get(url: String): Pair<Int, JSONObject> {

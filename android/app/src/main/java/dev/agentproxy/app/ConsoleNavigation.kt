@@ -2,13 +2,17 @@ package dev.agentproxy.app
 
 import java.net.URI
 
-internal fun isOidcNavigation(api: String, issuer: String?, target: String): Boolean {
+/**
+ * The browser sign-in, which stays in the WebView: any page of the issuer, and only the login and
+ * callback paths of the APIs (the chosen server, and with split hosting the API its callbacks name).
+ */
+internal fun isOidcNavigation(apis: List<String>, issuer: String?, target: String): Boolean {
     if (issuer == null) return false
     val destination = try { URI(target) } catch (_: java.net.URISyntaxException) { return false }
     if (destination.rawUserInfo != null || destination.scheme != "https") return false
     if (isInternalConsoleUrl(issuer, target, false)) return true
     return destination.path in listOf("/api/auth/login", "/api/auth/callback") &&
-        isInternalConsoleUrl(api, target, false)
+        apis.any { isInternalConsoleUrl(it, target, false) }
 }
 
 /** A server may send the initial console navigation to its separately hosted HTTPS UI. */

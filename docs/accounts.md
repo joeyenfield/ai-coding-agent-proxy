@@ -187,7 +187,7 @@ The app (`android/`) keeps a list of your agent-servers and opens each one's con
 - **Signing in** uses the console's OIDC flow. The configured HTTPS issuer and API callback stay in the app; the sign-in belongs to this phone's WebView.
 - **Plain HTTP** is allowed, since servers usually run on a LAN or Tailscale; the app says when a connection isn't encrypted.
 - **Back** goes through the console's own history (closing its menu first), then to your servers. Links to other sites open in the browser.
-- **Separate console hosting.** The server's initial redirect to an HTTPS console stays in the app, including a different console host. Later external links still open in the browser. For the Android Auto monitor, add the API host where your sign-in cookie lives, not the brochure website.
+- **Separate console hosting.** The server's initial redirect to an HTTPS console stays in the app, including a different console host. Signing in stays in the app too: the issuer's pages, and the login and callback of the API the console calls (the hosts of the server's registered callbacks). Later external links still open in the browser. For the Android Auto monitor, add the API host where your sign-in cookie lives, not the brochure website.
 - **Updates.** When a server's version isn't the app's own, its card says **Update available**, and **Update** opens that server's Downloads page.
 
 Building it is in `android/README.md`.

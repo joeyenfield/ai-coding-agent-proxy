@@ -121,7 +121,7 @@ On the **API host**:
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/api/auth/status` | Public authentication requirement, current identity, issuer, audience and CLI client id; no credentials disclosed. |
+| GET | `/api/auth/status` | Public authentication requirement, current identity, issuer, audience, CLI client id and the registered browser callbacks (`redirect_uris`); no credentials disclosed. |
 | GET | `/api/auth/login` | Start browser sign-in. Optional `return_to` must match an allowed console origin. |
 | GET | `/api/auth/callback` | Verify state, PKCE exchange and OIDC identity; set cookies. |
 | POST | `/api/auth/refresh` | Renew the active account's access token using its refresh token. |

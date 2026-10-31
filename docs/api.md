@@ -180,7 +180,7 @@ See [Accounts](accounts.md). Changes answer with the directory (`orgs` and `user
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
-| GET | `/api/auth/status` | Public | Always `required: true`; current identity, HTTPS, issuer, audience and CLI client id. |
+| GET | `/api/auth/status` | Public | Always `required: true`; current identity, HTTPS, issuer, audience, CLI client id and `redirect_uris` (the browser sign-in's registered callbacks; the Android app keeps sign-in in its WebView on their hosts). |
 | GET | `/api/auth/login` | Public | Starts PKCE browser authorization; `return_to` must match an allowed console origin. |
 | GET | `/api/auth/callback` | Public | Validates OIDC state, code exchange and nonce; adds the account to the browser's sign-ins and makes it active. A sixth account goes back with `?sign_in=too_many`. |
 | POST | `/api/auth/refresh` | Public, Same origin | Rotates the active account's refresh token and renews the access cookie. |

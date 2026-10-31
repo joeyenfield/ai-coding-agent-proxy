@@ -69,6 +69,8 @@ def test_everything_but_sign_in_and_the_console_files_needs_an_account(tmp_path)
         assert anonymous.get("/health").status_code == 200
         assert anonymous.get("/api/auth/status").json()["required"] is True
         assert anonymous.get("/api/auth/status").json()["identity"] is None
+        # The Android app keeps sign-in in its WebView on the API hosts these name.
+        assert anonymous.get("/api/auth/status").json()["redirect_uris"] == ["https://api.aicontrolmesh.com/api/auth/callback"]
         assert anonymous.get("/terminals").status_code in (200, 404)  # the console's page, which shows sign-in
         for path in ("/api/sessions", "/api/status", "/api/terminals", "/api/containers", "/docs", "/v1/models", "/api/tags"):
             assert anonymous.get(path).status_code == 401, path

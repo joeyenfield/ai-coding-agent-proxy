@@ -8,15 +8,29 @@ class ConsoleNavigationTest {
     @Test
     fun oidcIssuerAndApiCallbacksStayInTheAppWithoutAllowingOtherSites() {
         val api = "https://api.aicontrolmesh.com"
+        val apis = listOf(api)
         val issuer = "https://auth.aicontrolmesh.com"
-        assertTrue(isOidcNavigation(api, issuer, "$api/api/auth/login"))
-        assertTrue(isOidcNavigation(api, issuer, "$api/api/auth/callback?code=one-time"))
-        assertTrue(isOidcNavigation(api, issuer, "$issuer/authorize"))
-        assertFalse(isOidcNavigation(api, null, "$issuer/authorize"))
-        assertFalse(isOidcNavigation(api, issuer, "https://evil.test/authorize"))
-        assertFalse(isOidcNavigation(api, issuer, "https://api.aicontrolmesh.com.evil.test/api/auth/callback"))
-        assertFalse(isOidcNavigation(api, issuer, "$api/unrelated"))
-        assertFalse(isOidcNavigation(api, issuer, "http://auth.aicontrolmesh.com/authorize"))
+        assertTrue(isOidcNavigation(apis, issuer, "$api/api/auth/login"))
+        assertTrue(isOidcNavigation(apis, issuer, "$api/api/auth/callback?code=one-time"))
+        assertTrue(isOidcNavigation(apis, issuer, "$issuer/authorize"))
+        assertFalse(isOidcNavigation(apis, null, "$issuer/authorize"))
+        assertFalse(isOidcNavigation(apis, issuer, "https://evil.test/authorize"))
+        assertFalse(isOidcNavigation(apis, issuer, "https://api.aicontrolmesh.com.evil.test/api/auth/callback"))
+        assertFalse(isOidcNavigation(apis, issuer, "$api/unrelated"))
+        assertFalse(isOidcNavigation(apis, issuer, "http://auth.aicontrolmesh.com/authorize"))
+    }
+
+    @Test
+    fun splitHostingSignInStaysInTheAppOnTheApiItsCallbacksName() {
+        // The app was given aicontrolmesh.com; the console it redirects to calls api.aicontrolmesh.com.
+        val apis = listOf("https://aicontrolmesh.com", "https://api.aicontrolmesh.com/api/auth/callback")
+        val issuer = "https://auth.aicontrolmesh.com"
+        assertTrue(isOidcNavigation(apis, issuer, "https://api.aicontrolmesh.com/api/auth/login?return_to=https%3A%2F%2Fconsole.aicontrolmesh.com"))
+        assertTrue(isOidcNavigation(apis, issuer, "https://api.aicontrolmesh.com/api/auth/callback?code=one-time"))
+        assertFalse(isOidcNavigation(apis, issuer, "https://api.aicontrolmesh.com/docs"))
+        assertFalse(isOidcNavigation(apis, issuer, "https://other.aicontrolmesh.com/api/auth/login"))
+        // Without the callbacks (an older server) only the address the app was given counts.
+        assertFalse(isOidcNavigation(listOf("https://aicontrolmesh.com"), issuer, "https://api.aicontrolmesh.com/api/auth/login"))
     }
 
     @Test

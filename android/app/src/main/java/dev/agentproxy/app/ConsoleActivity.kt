@@ -28,6 +28,7 @@ class ConsoleActivity : Activity() {
     private lateinit var base: Uri
     private var openingConsole = true
     private var issuer: String? = null
+    private var apis: List<String> = emptyList()
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -37,6 +38,7 @@ class ConsoleActivity : Activity() {
         val url = intent.getStringExtra(EXTRA_URL) ?: return finish()
         base = Uri.parse(savedInstanceState?.getString("console_base") ?: url)
         issuer = savedInstanceState?.getString("oidc_issuer")
+        apis = savedInstanceState?.getStringArrayList("oidc_apis") ?: listOf(url)
         openingConsole = savedInstanceState == null
         web = findViewById(R.id.web)
         val progress = findViewById<ProgressBar>(R.id.progress)
@@ -76,7 +78,7 @@ class ConsoleActivity : Activity() {
         web.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val target = request.url
-                if (request.isForMainFrame && isOidcNavigation(url, issuer, target.toString())) return false
+                if (request.isForMainFrame && isOidcNavigation(apis, issuer, target.toString())) return false
                 val launchRedirect = openingConsole && request.isForMainFrame && request.isRedirect && !request.hasGesture()
                 if (isInternalConsoleUrl(base.toString(), target.toString(), launchRedirect)) {
                     if (launchRedirect) base = target
@@ -117,6 +119,7 @@ class ConsoleActivity : Activity() {
         super.onSaveInstanceState(outState)
         outState.putString("console_base", base.toString())
         outState.putString("oidc_issuer", issuer)
+        outState.putStringArrayList("oidc_apis", ArrayList(apis))
         web.saveState(outState)
     }
 
@@ -136,7 +139,8 @@ class ConsoleActivity : Activity() {
                 val discovered = authIssuer(url) ?: throw java.io.IOException(getString(R.string.signin_unavailable))
                 runOnUiThread {
                     if (!isFinishing && !isDestroyed) {
-                        issuer = discovered
+                        issuer = discovered.issuer
+                        apis = discovered.apis
                         web.loadUrl(url + (intent.getStringExtra(EXTRA_PATH) ?: "/terminals"))
                     }
                 }
