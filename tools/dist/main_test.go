@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -26,6 +27,16 @@ func TestWriteUninstaller(t *testing.T) {
 		if err != nil || string(got) != want {
 			t.Errorf("%s: %q, %v; want %q", name, got, err, want)
 		}
+	}
+	// The archives' install.sh too: a CR after `set -eu` stops sh with "Illegal option -".
+	if got := string(scriptText("install.sh", []byte("#!/bin/sh\r\nset -eu\r\n"))); got != "#!/bin/sh\nset -eu\n" {
+		t.Errorf("install.sh: %q", got)
+	}
+	if bytes.Contains(scriptText("install.sh", installSh), []byte("\r")) {
+		t.Error("the embedded install.sh would go out with CR in it")
+	}
+	if got := string(scriptText("install.ps1", []byte("param()\r\n"))); got != "param()\r\n" {
+		t.Errorf("install.ps1: %q", got)
 	}
 	// The real ones are where the build looks for them.
 	for _, name := range []string{"uninstall.sh", "uninstall.ps1"} {

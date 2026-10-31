@@ -162,7 +162,7 @@ func run(root, out, version string, targets []string, components []Component, na
 			if goos == "windows" {
 				installer, script, uninstaller = "install.ps1", installPs1, "uninstall.ps1"
 			}
-			if err := os.WriteFile(filepath.Join(artifacts, installer), script, 0o755); err != nil {
+			if err := os.WriteFile(filepath.Join(artifacts, installer), scriptText(installer, script), 0o755); err != nil {
 				return err
 			}
 			if err := writeUninstaller(root, artifacts, uninstaller); err != nil {
@@ -231,11 +231,17 @@ func writeUninstaller(root, folder, name string) error {
 	if err != nil {
 		return err
 	}
+	return os.WriteFile(filepath.Join(folder, name), scriptText(name, data), 0o755)
+}
+
+// scriptText is a script as it goes into an archive: a .sh with LF line endings, whatever the
+// checkout's are. sh reads `set -eu` with a CR after it as an unknown option and stops, so one
+// CRLF checkout (core.autocrlf on Windows) would break every Linux, macOS and FreeBSD install.
+func scriptText(name string, data []byte) []byte {
 	if strings.HasSuffix(name, ".sh") {
-		// sh needs LF, whatever the checkout's line endings.
-		data = bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
+		return bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
 	}
-	return os.WriteFile(filepath.Join(folder, name), data, 0o755)
+	return data
 }
 
 // appendNew adds value unless it's there: both components write the same installer.

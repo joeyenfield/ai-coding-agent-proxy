@@ -1,2 +1,7 @@
 # Run inside Linux containers as they are, whatever the checkout's line endings.
 server/docker/postgres-init.sh text eol=lf
+
+# Shell scripts run as they are on Linux, macOS and FreeBSD, where a CR breaks them (`set: Illegal
+# option -`): keep them LF in every checkout, whatever core.autocrlf says. tools/dist embeds
+# tools/dist/install/install.sh into every archive exactly as it is on disk.
+*.sh text eol=lf
