@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { Link } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { ApiError, api, askModel, followReply, preferredModel, providerModels, type AskMessage } from "../api";
+import { ApiError, MACHINE_TYPES, api, askModel, followReply, preferredModel, providerModels, type AskMessage } from "../api";
 import { useModels, useToast } from "../hooks";
 import { Icon } from "../components/Icon";
 import { PartTag } from "../components/PartTag";
 import { Prose } from "../components/SessionChat";
 import { providerLabel } from "../routes";
 
+// Every model server machines run (Ollama, llama.cpp, Strata, Docker Model Runner) takes OpenAI Chat from here.
 // Hosted APIs need the agent's own sign-in, which the console doesn't have.
-const ASKABLE = new Set(["ollama", "strata", "docker"]);
+const ASKABLE = new Set(MACHINE_TYPES);
 // What the session is called on Sessions and Traffic.
 const CLIENT = "console-chat";
 
