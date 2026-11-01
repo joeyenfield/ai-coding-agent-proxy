@@ -1,6 +1,19 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "./api";
+import { api, ApiError } from "./api";
+
+/**
+ * A refetchInterval that keeps polling after an error, more slowly, so a page recovers by itself
+ * from a dropped network or a sign-in renewed elsewhere. Only a 403 (this device may never see it)
+ * stops it.
+ */
+export function pollEvery(ms: number, afterError = 20000) {
+  return (query: { state: { status: string; error: unknown } }) => {
+    if (query.state.status !== "error") return ms;
+    const error = query.state.error;
+    return error instanceof ApiError && error.status === 403 ? false : afterError;
+  };
+}
 
 export function useStatus() {
   return useQuery({ queryKey: ["status"], queryFn: api.status, refetchInterval: 2000 });

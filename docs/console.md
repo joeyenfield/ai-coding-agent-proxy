@@ -115,12 +115,15 @@ Opening one (`/terminals/<session>`) shows the agent's live terminal (xterm.js) 
 - **A−/A+** change the font size; **Fit width** sizes it to the window; **Light background** switches the terminal's colours; **Latest** jumps to the bottom.
 - **Session traffic** opens the session's requests on Traffic.
 - If the session is shared with you to watch only, the input is off.
+- If the connection drops (a phone changing networks, the server restarting, the sign-in renewing), the page reconnects by itself and carries on from the last output it showed, rather than redrawing the whole history. A server from before this redraws it, as before. If the sign-in has run out, the page renews it once before asking you to sign in again.
 
 ![A shared terminal on a phone](screenshots/terminal-phone.png)
 
 ### Use it from your phone
 
 On a phone, open the console and sign in through OIDC. Legacy pairing codes no longer grant access.
+
+In the Android app, a server that can't be reached, or that answers with a server error (5xx), shows **Can't reach** with **Try again** and **Servers**. **Try again** reloads the page you were on. When the phone's network comes back while that panel is up, the app tries again by itself.
 
 ## Ask a model
 
@@ -139,6 +142,8 @@ On a phone, open the console and sign in through OIDC. Legacy pairing codes no l
 ![Live](screenshots/live.png)
 
 `/live` streams model calls as they happen: one card per request in flight, with the reply, reasoning and tool calls as they arrive, time to first token and speed. **Just finished** keeps the last few. Each card opens its full details (headers, the request, the payload sent to Ollama and the raw stream), and **Open in request history** goes to the saved request.
+
+If the stream is cut off, the page reconnects by itself: at once when the browser comes back online or the page is shown again, otherwise after 1, 2, 5, 10 and then every 30 seconds, renewing the sign-in first. Each new connection starts from what's in flight now.
 
 Account agents' other calls (sign-in, telemetry, MCP) aren't shown here; they're on Traffic. Set `AI_PROXY_LIVE=0` on the server to stop streaming request text (counts still stream).
 
@@ -333,6 +338,8 @@ Each model server has its own tab, named after its provider (or `Ollama :11434` 
 - **Ollama**: **Models** (each model's size, whether it's loaded and where, the agent requests it served, and load, unload and delete), **Aliases** (the model tuning's aliases that point at it, with their settings; change them on [Server settings](#server-settings)) and **Find and pull** (search the Ollama library and Hugging Face, or pull by name, with progress).
 - **Strata**: **Overview** (state, profile, engine, uptime, model, context, prompt and generation speed, speculative decoding, with **Load** and **Unload**, then its **Hardware** and **Models**), **Connect agents** (the agent commands for it) and **Log** (server and engine logs, key blanked).
 - **Docker Model Runner**: **Models**, **Get models** (search Docker Hub's `ai/` models and their tags, or pull by name) and **Connect agents**.
+
+A pull runs on the machine. If the page loses its connection before the pull ends, it says so (**Lost the connection to the pull. It may still be running on the machine.**) rather than reporting it pulled, and refreshes the model list, where the model shows up once the machine has it.
 
 When the machine doesn't report an Ollama or Strata running, its tab says why at the top and what to do: **Start Ollama**, or **Start** a Strata profile, when it's installed there and you may manage the machine's servers (`agent-machine servers on`); otherwise whether it isn't installed, or how to let the console start it.
 

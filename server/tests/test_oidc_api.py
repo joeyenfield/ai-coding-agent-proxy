@@ -73,6 +73,48 @@ def test_unsafe_oidc_configuration_is_rejected(settings):
         Settings(**settings)
 
 
+def test_the_issuers_answer_is_reused_briefly_and_outlasts_a_blip(api_app, monkeypatch):
+    client, runtime, claims = api_app
+    calls = []
+    real = runtime.auth.client
+    failing = {"on": False}
+
+    def introspect(request):
+        calls.append(request)
+        if failing["on"]:
+            raise httpx.ConnectError("the issuer is unreachable")
+        if request.content != b"token=access":
+            return httpx.Response(200, json={"active": False})
+        return httpx.Response(200, json=claims)
+
+    real.close()
+    runtime.auth.client = httpx.Client(transport=httpx.MockTransport(introspect))
+    bearer = {"authorization": "Bearer access"}
+    monkeypatch.setattr("agent_server.auth.INTROSPECTION_CACHE_SECONDS", 10.0)
+    # Every new request asks the issuer, so a sign-out applies at once.
+    assert client.get("/api/status", headers=bearer).status_code == 200
+    assert client.get("/api/status", headers=bearer).status_code == 200
+    assert len(calls) == 2
+
+    class Open:
+        headers = {"x-ai-proxy-token": "access"}
+        cookies: dict = {}
+
+    # Rechecks of an open connection (every event of a stream) reuse the answer for a few seconds.
+    assert runtime.auth.recheck(Open()).user == "alice" and runtime.auth.recheck(Open()).user == "alice"
+    assert len(calls) == 2
+    # Past the cache, the issuer is asked again; when it can't answer, a token it confirmed (and that
+    # hasn't expired) still works, so open connections aren't all closed at once.
+    monkeypatch.setattr("agent_server.auth.INTROSPECTION_CACHE_SECONDS", 0.0)
+    failing["on"] = True
+    assert client.get("/api/status", headers=bearer).status_code == 200
+    # A token it never confirmed isn't taken on trust.
+    assert client.get("/api/status", headers={"authorization": "Bearer other"}).status_code == 503
+    # Nor one past its expiry.
+    runtime.auth._confirmed = {key: (at, user, time.time() - 1) for key, (at, user, _) in runtime.auth._confirmed.items()}
+    assert client.get("/api/status", headers=bearer).status_code == 503
+
+
 def test_legacy_credentials_and_id_tokens_are_not_access_tokens(api_app):
     client, runtime, _ = api_app
     old, launcher = plant_legacy_credentials("alice")

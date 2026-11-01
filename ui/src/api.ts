@@ -1119,6 +1119,18 @@ async function refreshSignIn(): Promise<Response> {
   return refreshing;
 }
 
+/**
+ * Renews the sign-in's access cookie, for connections that can't see a 401 themselves (EventSource,
+ * WebSockets). Resolves true if it was renewed; false if it wasn't or the server couldn't be reached.
+ */
+export async function renewSignIn(): Promise<boolean> {
+  try {
+    return (await refreshSignIn()).ok;
+  } catch {
+    return false;
+  }
+}
+
 async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   const response = await fetch(apiUrl(path), { ...init, credentials: "include" });
   if (response.status !== 401 || path.startsWith("/api/auth/")) return response;
@@ -1199,18 +1211,24 @@ export function followReply(
   signal?: AbortSignal,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const source = new EventSource(apiUrl(`/api/live?session_id=${encodeURIComponent(sessionId)}`), { withCredentials: true });
     const key = `${sessionId}:${requestId}`;
     let following = false;
+    let finished = false;
     let quiet: ReturnType<typeof setTimeout>;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let source: EventSource;
     const finish = (error?: Error) => {
+      if (finished) return;
+      finished = true;
       clearTimeout(quiet);
+      clearTimeout(retry);
       source.close();
       signal?.removeEventListener("abort", aborted);
       if (error) reject(error);
       else resolve();
     };
-    // A reply that says nothing for this long (no text, no keep-alive) has gone.
+    // A reply that says nothing for this long (no text, no keep-alive) has gone. Reopening after a
+    // closed connection doesn't reset it, so the retries below stop with it.
     const awake = () => {
       clearTimeout(quiet);
       quiet = setTimeout(() => finish(new Error("The reply stopped arriving")), 60_000);
@@ -1219,37 +1237,62 @@ export function followReply(
     signal?.addEventListener("abort", aborted);
     awake();
     type Entry = { key: string; content: string; reasoning: string };
-    source.addEventListener("snapshot", (event) => {
-      awake();
-      const snapshot = JSON.parse((event as MessageEvent).data) as { enabled: boolean; active: Entry[]; recent: Entry[] };
-      // Without the live view's text (AI_PROXY_LIVE=0) there's nothing to pick up.
-      if (!snapshot.enabled) return finish(new Error("The server doesn't keep replies' text in flight"));
-      const active = snapshot.active.find((entry) => entry.key === key);
-      const ended = active ? undefined : snapshot.recent.find((entry) => entry.key === key);
-      const entry = active ?? ended;
-      if (!entry) return finish(new Error("The reply is no longer on the server"));
-      // Its text so far replaces what arrived before the drop (the server keeps the last 24,000 characters).
-      onSoFar({ content: entry.content, reasoning: entry.reasoning });
-      following = true;
-      if (ended) finish();
-    });
-    source.addEventListener("delta", (event) => {
-      awake();
-      const delta = JSON.parse((event as MessageEvent).data) as { key: string; kind: string; text: string };
-      if (!following || delta.key !== key || !delta.text) return;
-      if (delta.kind === "content") onText({ content: delta.text });
-      else if (delta.kind === "reasoning") onText({ reasoning: delta.text });
-    });
-    source.addEventListener("end", (event) => {
-      if ((JSON.parse((event as MessageEvent).data) as { key: string }).key === key) finish();
-    });
-    // EventSource reconnects by itself after a dropped connection (each time with a new snapshot);
-    // one it gave up on is closed.
-    source.addEventListener("error", () => {
-      if (source.readyState === EventSource.CLOSED) finish(new Error("Couldn't reach the server to pick the reply up"));
-    });
+    let attempt = 0;
+    const open = () => {
+      source = new EventSource(apiUrl(`/api/live?session_id=${encodeURIComponent(sessionId)}`), { withCredentials: true });
+      listen(source);
+    };
+    // EventSource reconnects by itself after a dropped connection (each time with a new snapshot), but
+    // gives up for good when a reconnect is refused (401 after the access token expired, 502 or 503
+    // during a restart). Renew the sign-in and open a new one, a little later each time.
+    const reopen = async () => {
+      source.close();
+      const delay = LIVE_RETRY_MS[Math.min(attempt, LIVE_RETRY_MS.length - 1)];
+      attempt += 1;
+      await renewSignIn();
+      if (finished) return;
+      retry = setTimeout(() => {
+        if (!finished) open();
+      }, delay);
+    };
+    const listen = (source: EventSource) => {
+      source.addEventListener("open", () => {
+        attempt = 0;
+      });
+      source.addEventListener("snapshot", (event) => {
+        awake();
+        const snapshot = JSON.parse((event as MessageEvent).data) as { enabled: boolean; active: Entry[]; recent: Entry[] };
+        // Without the live view's text (AI_PROXY_LIVE=0) there's nothing to pick up.
+        if (!snapshot.enabled) return finish(new Error("The server doesn't keep replies' text in flight"));
+        const active = snapshot.active.find((entry) => entry.key === key);
+        const ended = active ? undefined : snapshot.recent.find((entry) => entry.key === key);
+        const entry = active ?? ended;
+        if (!entry) return finish(new Error("The reply is no longer on the server"));
+        // Its text so far replaces what arrived before the drop (the server keeps the last 24,000 characters).
+        onSoFar({ content: entry.content, reasoning: entry.reasoning });
+        following = true;
+        if (ended) finish();
+      });
+      source.addEventListener("delta", (event) => {
+        awake();
+        const delta = JSON.parse((event as MessageEvent).data) as { key: string; kind: string; text: string };
+        if (!following || delta.key !== key || !delta.text) return;
+        if (delta.kind === "content") onText({ content: delta.text });
+        else if (delta.kind === "reasoning") onText({ reasoning: delta.text });
+      });
+      source.addEventListener("end", (event) => {
+        if ((JSON.parse((event as MessageEvent).data) as { key: string }).key === key) finish();
+      });
+      source.addEventListener("error", () => {
+        if (source.readyState === EventSource.CLOSED && !finished) void reopen();
+      });
+    };
+    open();
   });
 }
+
+/** How long to wait before each new attempt at a live connection the browser gave up on, in ms. */
+export const LIVE_RETRY_MS = [1_000, 2_000, 5_000, 10_000, 30_000];
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await apiFetch(url, {
@@ -1460,9 +1503,14 @@ export const api = {
 };
 
 /** The browser sends the API host's session cookie on the viewer WebSocket. */
-export function terminalSocketUrl(sessionId: string): string {
+/**
+ * The terminal viewer's socket. `from` is the byte offset of the end of the output the viewer already
+ * has, so a reconnect can carry on from there instead of replaying everything.
+ */
+export function terminalSocketUrl(sessionId: string, from?: number | null): string {
   const url = new URL(apiUrl(`/api/terminals/${encodeURIComponent(sessionId)}/view`), location.origin);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  if (from != null) url.searchParams.set("from", String(from));
   return url.href;
 }
 
@@ -1550,6 +1598,9 @@ export async function pullModel(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  // The server ends every pull with a success or an error line; a stream that stops without one
+  // was cut off (a dropped network, a restart), and the machine may well still be pulling.
+  let succeeded = false;
   const consume = (line: string) => {
     const text = line.trim();
     if (!text) return;
@@ -1561,11 +1612,18 @@ export async function pullModel(
     }
     onProgress(obj);
     if (obj.error) throw new ApiError(obj.error, 502);
+    if (obj.status === "success") succeeded = true;
   };
   for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
+    let chunk: ReadableStreamReadResult<Uint8Array>;
+    try {
+      chunk = await reader.read();
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      throw new PullConnectionLost();
+    }
+    if (chunk.done) break;
+    buffer += decoder.decode(chunk.value, { stream: true });
     let index: number;
     while ((index = buffer.indexOf("\n")) >= 0) {
       consume(buffer.slice(0, index));
@@ -1573,6 +1631,14 @@ export async function pullModel(
     }
   }
   consume(buffer);
+  if (!succeeded) throw new PullConnectionLost();
+}
+
+/** pullModel lost its connection before the pull finished: it may still be running on the machine. */
+export class PullConnectionLost extends Error {
+  constructor() {
+    super("Lost the connection to the pull. It may still be running on the machine.");
+  }
 }
 
 export const requestKey = (record: { session_id: string; request_id: string }) =>

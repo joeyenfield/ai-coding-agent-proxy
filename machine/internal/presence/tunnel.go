@@ -71,8 +71,19 @@ func (p *Presence) tunnel(server string, request Tunnel, extra []int) error {
 	write := func(kind int, data []byte) error {
 		writeMu.Lock()
 		defer writeMu.Unlock()
+		// A server that stopped reading (a half-open connection) mustn't hold this tunnel forever.
+		_ = conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
 		return conn.WriteMessage(kind, data)
 	}
+	// The server pings every 20 s: a tunnel silent for readTimeout is gone, and ends.
+	alive := func() { _ = conn.SetReadDeadline(time.Now().Add(readTimeout)) }
+	alive()
+	conn.SetPingHandler(func(data string) error {
+		alive()
+		_ = conn.WriteControl(websocket.PongMessage, []byte(data), time.Now().Add(10*time.Second))
+		return nil
+	})
+	conn.SetPongHandler(func(string) error { alive(); return nil })
 	stop := make(chan struct{})
 	defer close(stop)
 	// The server closes the tunnel once the token it was opened with expires, which a long reply
@@ -82,6 +93,7 @@ func (p *Presence) tunnel(server string, request Tunnel, extra []int) error {
 		if err != nil || token == "" {
 			return
 		}
+		sent := time.Now()
 		ticker := time.NewTicker(renewEvery)
 		defer ticker.Stop()
 		for {
@@ -90,12 +102,13 @@ func (p *Presence) tunnel(server string, request Tunnel, extra []int) error {
 				return
 			case <-ticker.C:
 				next, err := p.Upstream.AccessToken(server)
-				if err != nil || next == token {
+				// A new token at once; the current one again every resendEvery, in case the server missed it.
+				if err != nil || (next == token && time.Since(sent) < resendEvery) {
 					continue
 				}
 				message, _ := json.Marshal(map[string]string{"type": "token", "token": next})
 				if write(websocket.TextMessage, message) == nil {
-					token = next
+					token, sent = next, time.Now()
 				}
 			}
 		}
@@ -108,6 +121,7 @@ func (p *Presence) tunnel(server string, request Tunnel, extra []int) error {
 			if err != nil {
 				return
 			}
+			alive()
 			if kind == websocket.BinaryMessage {
 				if _, err := local.Write(data); err != nil {
 					return

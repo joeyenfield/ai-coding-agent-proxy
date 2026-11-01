@@ -142,6 +142,41 @@ def test_host_streams_to_viewers_and_viewer_input_reaches_the_host(tmp_path):
         assert (meta["cols"], meta["rows"], meta["exit_status"], meta["total"]) == (80, 24, 3, 47)
 
 
+def test_a_reconnecting_viewer_gets_only_what_it_missed(tmp_path):
+    with local_client(tmp_path) as client:
+        session_id = new_session(client)
+        with open_host(client, session_id) as (ws, _):
+            ws.send_bytes(b"first\r\n")
+            with ws_connect(client, f"/api/terminals/{session_id}/view") as viewer:
+                state = json.loads(viewer.receive_text())
+                assert json.loads(viewer.receive_text()) == {"type": "replay", "start": 0, "resumed": False}
+                assert viewer.receive_bytes() == b"first\r\n"
+                assert json.loads(viewer.receive_text())["type"] == "replayed"
+            # It had 7 bytes; more came while it was away.
+            ws.send_bytes(b"second\r\n")
+            with ws_connect(client, f"/api/terminals/{session_id}/view?from=7") as viewer:
+                assert json.loads(viewer.receive_text())["type"] == "state"
+                assert json.loads(viewer.receive_text()) == {"type": "replay", "start": 7, "resumed": True}
+                assert viewer.receive_bytes() == b"second\r\n"
+                assert json.loads(viewer.receive_text())["type"] == "replayed"
+            # An offset the server can't continue from (past the end) starts over.
+            with ws_connect(client, f"/api/terminals/{session_id}/view?from=999") as viewer:
+                assert json.loads(viewer.receive_text())["type"] == "state"
+                assert json.loads(viewer.receive_text()) == {"type": "replay", "start": 0, "resumed": False}
+                assert viewer.receive_bytes() == b"first\r\nsecond\r\n"
+            # The launcher skipping output (a gap) moves viewers on, and nobody resumes from before it.
+            with ws_connect(client, f"/api/terminals/{session_id}/view?from=15") as viewer:
+                assert json.loads(viewer.receive_text())["type"] == "state"
+                assert json.loads(viewer.receive_text())["resumed"] is True
+                assert json.loads(viewer.receive_text())["type"] == "replayed"
+                ws.send_text(json.dumps({"type": "gap", "from": 40}))
+                assert json.loads(viewer.receive_text()) == {"type": "gap", "to": 40}
+            with ws_connect(client, f"/api/terminals/{session_id}/view?from=15") as viewer:
+                json.loads(viewer.receive_text())
+                assert json.loads(viewer.receive_text())["resumed"] is False
+        assert state["type"] == "state"
+
+
 def test_viewer_input_without_a_host_explains_and_unknown_sessions_close(tmp_path):
     with local_client(tmp_path) as client:
         session_id = new_session(client)

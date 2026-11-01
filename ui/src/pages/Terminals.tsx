@@ -58,7 +58,8 @@ const byRecent = (a: TerminalSummary, b: TerminalSummary) =>
   (b.last_output_at ?? b.started_at ?? "").localeCompare(a.last_output_at ?? a.started_at ?? "");
 
 export function TerminalsPage() {
-  const remote = useQuery({ queryKey: ["remote"], queryFn: api.remote });
+  // While it fails (offline, or the server restarting), keep asking so the page recovers by itself.
+  const remote = useQuery({ queryKey: ["remote"], queryFn: api.remote, refetchInterval: (query) => (query.state.status === "error" ? 10000 : false) });
   const trusted = remote.data?.trusted === true;
   const terminals = useQuery({ queryKey: ["terminals"], queryFn: api.terminals, refetchInterval: 3000, enabled: trusted });
   const [showEnded, setShowEnded] = useState(false);

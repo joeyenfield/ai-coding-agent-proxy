@@ -265,6 +265,8 @@ class Fleet:
         self._waiting: dict[str, asyncio.Future[dict[str, Any]]] = {}
         # Which machine each waiting request went to, so its answer fails when the machine goes.
         self._asked: dict[str, str] = {}
+        # Which connection each waiting request went out on: its answer can only come back on that one.
+        self._via: dict[str, Any] = {}
         # Progress of streamed requests (pulls), by request id.
         self._progress: dict[str, asyncio.Queue[dict[str, Any]]] = {}
         # Machines removed from the server, by id: refused when they connect until allowed back.
@@ -322,23 +324,31 @@ class Fleet:
         self.machines[machine_id] = machine
         self._save()
         if old is not None and old is not socket:
-            # The machine reconnected before the old connection was noticed as gone.
+            # The machine reconnected before the old connection was noticed as gone: what was asked over
+            # it will never be answered (reads are asked again over this one).
+            self._fail_sent(old)
             asyncio.ensure_future(_close_quietly(old))
         return machine
 
     def disconnect(self, machine_id: str, socket: Any) -> None:
-        if socket is not None and self.sockets.get(machine_id) is socket:
+        if socket is None:
+            return
+        self._fail_sent(socket)
+        if self.sockets.get(machine_id) is socket:
             del self.sockets[machine_id]
-            for request_id, asked in list(self._asked.items()):
-                future = self._waiting.get(request_id)
-                if asked == machine_id and future and not future.done():
-                    future.set_exception(ConnectionError("the machine disconnected"))
             machine = self.machines.get(machine_id)
             if machine:
+                # Its Strata and MCP keys stay while it's likely to be back (requests wait for it); its
+                # next hello replaces them.
                 machine.last_seen = time.time()
-                machine.keys = {}
-                machine.mcp_key = None
                 self._save()
+
+    def _fail_sent(self, socket: Any) -> None:
+        """Ends the requests waiting for an answer over a connection that's gone."""
+        for request_id, via in list(self._via.items()):
+            future = self._waiting.get(request_id)
+            if via is socket and future and not future.done():
+                future.set_exception(ConnectionError("the machine disconnected"))
 
     def message(self, machine: Machine, data: dict[str, Any], client_host: str) -> None:
         kind = data.get("type")
@@ -475,10 +485,16 @@ class Fleet:
         future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
         self._waiting[request_id] = future
         self._asked[request_id] = machine.id
+        self._via[request_id] = socket
         if progress is not None:
             self._progress[request_id] = progress
         try:
-            await socket.send_text(json.dumps({"type": channel, "request": request_id, "op": op, **fields}))
+            try:
+                await socket.send_text(json.dumps({"type": channel, "request": request_id, "op": op, **fields}))
+            except Exception:
+                # A connection that can't be written to is gone, whether or not its reader noticed yet.
+                self.disconnect(machine.id, socket)
+                raise
             answer = await asyncio.wait_for(future, timeout)
         except asyncio.TimeoutError as exc:
             raise FleetError(504, f"{machine.name} didn't answer within {int(timeout or 0)} s") from exc
@@ -487,6 +503,7 @@ class Fleet:
         finally:
             self._waiting.pop(request_id, None)
             self._asked.pop(request_id, None)
+            self._via.pop(request_id, None)
             self._progress.pop(request_id, None)
         if not answer.get("ok"):
             raise FleetError(409, str(answer.get("error") or f"{machine.name} refused it"))
@@ -701,6 +718,7 @@ class Fleet:
         future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
         self._waiting[launch_id] = future
         self._asked[launch_id] = machine.id
+        self._via[launch_id] = socket
         try:
             await socket.send_text(json.dumps(message))
             answer = await asyncio.wait_for(future, LAUNCH_TIMEOUT)
@@ -711,6 +729,7 @@ class Fleet:
         finally:
             self._waiting.pop(launch_id, None)
             self._asked.pop(launch_id, None)
+            self._via.pop(launch_id, None)
         if answer.get("type") == "launched" and answer.get("session_id"):
             session = self.sessions.get(str(answer["session_id"])) if self.sessions else None
             if (

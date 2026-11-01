@@ -96,12 +96,66 @@ def refuse() -> JSONResponse:
     return JSONResponse({"detail": "agent-proxy only serves programs on this computer."}, status_code=403)
 
 
+# How often an open socket's access token is checked, how long the current one goes unsent at most
+# (a renewal the server missed is retried long before the old token expires), how long a write may
+# take, and the keepalive: a ping every 20 s, and a socket whose pong doesn't come in 20 s is taken
+# for dead (Go: a 70 s read deadline the server's pings, every 20 s, keep moving).
+RENEW_EVERY = 10.0
+RESEND_EVERY = 60.0
+WRITE_TIMEOUT = 30.0
+KEEPALIVE = 20
+
+
 async def dial(upstream: common.Upstream, server: str, path: str):
     """A WebSocket to path on server, signed with the machine's sign-in, never through an environment proxy."""
+    return (await dial_with_token(upstream, server, path))[0]
+
+
+async def dial_with_token(upstream: common.Upstream, server: str, path: str):
+    """dial, also returning the access token the socket was opened with."""
     headers = common.identify({}, settings.PROGRAM)
     token = await asyncio.to_thread(upstream.token, server)
     headers[common.TOKEN_HEADER] = token
-    return await common.signed_connect(common.websocket_url(server, path), additional_headers=headers, proxy=None, open_timeout=10, max_size=None, compression=None, user_agent_header=None)
+    conn = await common.signed_connect(common.websocket_url(server, path), additional_headers=headers, proxy=None, open_timeout=10, max_size=None,
+                                       compression=None, user_agent_header=None, ping_interval=KEEPALIVE, ping_timeout=KEEPALIVE)
+    return conn, token
+
+
+class ServerSide:
+    """The server's end of a relayed socket: one writer at a time, a write timeout, and the machine's
+    access token sent over it whenever it's refreshed. The server closes a socket (4410) once the token
+    it opened with expires; renewing over it keeps a long reply, a kept-alive connection or a shared
+    terminal up. Dead connections are found by the keepalive dial_with_token sets."""
+
+    def __init__(self, upstream: common.Upstream, server: str, conn, token: str) -> None:
+        self.conn = conn
+        self.lock = asyncio.Lock()
+        self.renewing = asyncio.ensure_future(self.renew(upstream, server, token))
+
+    async def send(self, data: Any) -> None:
+        async with self.lock:
+            await asyncio.wait_for(self.conn.send(data), WRITE_TIMEOUT)
+
+    def close(self) -> None:
+        self.renewing.cancel()
+
+    async def renew(self, upstream: common.Upstream, server: str, token: str) -> None:
+        if not token:
+            return
+        loop = asyncio.get_running_loop()
+        sent = loop.time()
+        while True:
+            await asyncio.sleep(RENEW_EVERY)
+            try:
+                latest = await asyncio.to_thread(upstream.token, server)
+                if not latest or (latest == token and loop.time() - sent < RESEND_EVERY):
+                    continue
+                await self.send(json.dumps({"type": "token", "token": latest}))
+                token, sent = latest, loop.time()
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 - try again; the server closes the socket with 4410 if it never comes
+                continue
 
 
 def refused_status(error: BaseException) -> Optional[int]:
@@ -240,7 +294,7 @@ class AgentProxy:
             return
         server = self.upstream.server()
         try:
-            remote = await dial(self.upstream, server, f"/api/terminals/{quote(match.group(1), safe='')}/host")
+            remote, token = await dial_with_token(self.upstream, server, f"/api/terminals/{quote(match.group(1), safe='')}/host")
         except Exception as error:
             status = refused_status(error)
             if getattr(error, "code", "") == "login_required":
@@ -254,11 +308,16 @@ class AgentProxy:
             else:
                 await launcher.close(1011, f"couldn't reach the agent-server at {server}: {error}"[:120])
             return
-        code, reason = await relay(launcher, remote)
+        side = ServerSide(self.upstream, server, remote, token)
+        try:
+            code, reason = await relay(launcher, remote, side.send)
+        finally:
+            side.close()
         await remote.close()
         if code == 4410:
             try:
-                await asyncio.to_thread(self.upstream.reject_access_token, server)
+                # Only the token this socket opened with: another socket may have refreshed it already.
+                await asyncio.to_thread(self.upstream.reject_access_token, server, token)
             except (RuntimeError, ValueError, OSError) as error:
                 reason = str(error)
         if code == 4401:
@@ -275,9 +334,11 @@ class AgentProxy:
         await self.http.aclose()
 
 
-async def relay(launcher: WebSocket, remote) -> Tuple[int, str]:
-    """Copies messages both ways until either side ends. Returns how the server's side closed, when it did."""
+async def relay(launcher: WebSocket, remote, send=None) -> Tuple[int, str]:
+    """Copies messages both ways until either side ends. Returns how the server's side closed, when it did.
+    send writes to the server's side (ServerSide.send, serialized with its token renewals); remote.send by default."""
     closed: Dict[str, Any] = {"code": 0, "reason": ""}
+    send = send or remote.send
 
     async def up() -> None:
         try:
@@ -286,8 +347,8 @@ async def relay(launcher: WebSocket, remote) -> Tuple[int, str]:
                 if message["type"] == "websocket.disconnect":
                     return
                 data = message.get("bytes")
-                await remote.send(data if data is not None else message.get("text") or "")
-        except (WebSocketDisconnect, websockets.ConnectionClosed, RuntimeError):
+                await send(data if data is not None else message.get("text") or "")
+        except (WebSocketDisconnect, websockets.ConnectionClosed, RuntimeError, asyncio.TimeoutError):
             return
 
     async def down() -> None:
@@ -332,7 +393,7 @@ class TunnelServer:
     async def tunnel(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         server = self.upstream.server()
         try:
-            remote = await dial(self.upstream, server, "/api/proxy/tunnel")
+            remote, token = await dial_with_token(self.upstream, server, "/api/proxy/tunnel")
         except Exception as error:
             status = refused_status(error)
             await read_head(reader)
@@ -344,13 +405,14 @@ class TunnelServer:
                 await refuse_tunnel(reader, writer, 502, f"couldn't reach the agent-server at {server}: {error}")
             return
         state = {"answered": False}
+        side = ServerSide(self.upstream, server, remote, token)
 
         async def up() -> None:
             while True:
                 data = await reader.read(65536)
                 if not data:
                     return
-                await remote.send(data)
+                await side.send(data)
 
         async def down() -> None:
             async for message in remote:
@@ -360,18 +422,22 @@ class TunnelServer:
                     await writer.drain()
 
         tasks = [asyncio.ensure_future(up()), asyncio.ensure_future(down())]
-        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-        if pending:  # both may end at once; asyncio.wait refuses an empty set
-            await asyncio.wait(pending, timeout=0.05)
-        for task in pending:
-            task.cancel()
-        for task in done:
-            if not task.cancelled():
-                task.exception()
+        try:
+            done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            if pending:  # both may end at once; asyncio.wait refuses an empty set
+                await asyncio.wait(pending, timeout=0.05)
+            for task in pending:
+                task.cancel()
+            for task in done:
+                if not task.cancelled():
+                    task.exception()
+        finally:
+            side.close()
         code, reason = remote.close_code or 0, remote.close_reason or ""
         await remote.close()
         if code == 4410:
-            await asyncio.to_thread(self.upstream.reject_access_token, server)
+            # Only the token this socket opened with: another socket may have refreshed it already.
+            await asyncio.to_thread(self.upstream.reject_access_token, server, token)
         if not state["answered"] and code >= 4000:
             await refuse_tunnel(reader, writer, 407 if code in (4401, 4403) else 502, reason or "the agent-server refused")
 
@@ -513,6 +579,8 @@ def main(name: str, args: List[str]) -> int:
 async def serve(upstream: common.Upstream, http_socket: socket.socket, tunnel_socket: socket.socket) -> None:
     actual = tunnel_socket.getsockname()[1]
     proxy = AgentProxy(upstream, actual)
+    # asyncio's accept loop already rides out transient accept errors (out of file handles: it waits
+    # and tries again; aborted connections are skipped), which Go's ServeTunnels does by hand.
     tunnels = await asyncio.start_server(TunnelServer(upstream).handle, sock=tunnel_socket)
     server = uvicorn.Server(uvicorn.Config(proxy, lifespan="off", log_level="warning", access_log=False, ws_max_size=64 * 1024 * 1024, timeout_graceful_shutdown=1))
     print(f"agent-proxy: 127.0.0.1:{http_socket.getsockname()[1]}, HTTPS proxy 127.0.0.1:{actual}, carrying traffic to {upstream.server()}", file=sys.stderr)

@@ -71,7 +71,7 @@ sequenceDiagram
 | `tunnel` | port reported, a container's port, or the bridge | pipes bytes to `127.0.0.1:<port>`; closes 4502 if nothing answers |
 
 - An update also goes out at once after a `server` request that changed something and after a launch.
-- Reconnects back off 2, 5, 10, 30 s (reset after a connection that lasted a minute). A 426 or close 4426 means a protocol mismatch; a close 4410 means the access token expired, so it's rejected and the machine reconnects at once (without the back-off, the first time) with a refreshed one. To avoid that, `session` checks `AccessToken` every `renewEvery` (10 s) and sends each newer token as `{"type": "token"}` over the open connection.
+- Reconnects back off 2, 5, 10, 30 s with jitter (half to one and a half times; reset after a connection that lasted a minute). After the welcome the connection has a 70 s read deadline (`readTimeout`) that the server's pings, the machine's own WebSocket pings (every 25 s) and every message move on, so a half-open connection is noticed; a failed write closes it, so `Run` reconnects at once. Tunnels have the same read deadline and a 30 s write deadline. A 426 or close 4426 means a protocol mismatch; a close 4410 means the access token expired, so it's rejected and the machine reconnects at once (without the back-off, the first time) with a refreshed one. To avoid that, a goroutine of its own checks `AccessToken` every `renewEvery` (10 s) and sends each newer token as `{"type": "token"}` over the open connection, and the current one every `resendEvery` (60 s); tunnels do the same.
 
 ## State (`settings.Home()`: `AI_PROXY_MACHINE_HOME`, `%APPDATA%\agent-machine`, `~/.config/agent-machine`)
 

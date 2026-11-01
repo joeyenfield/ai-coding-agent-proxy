@@ -66,10 +66,28 @@ def set_token(entry: common.ServerEntry, token: dict) -> None:
     entry.token = entry.token_id = ""
 
 
+# How long before its expiry an access token is refreshed: long enough that a refresh on a slow or
+# dropping network (it may take 20 s, and be tried again) still finishes before the server stops
+# accepting the old token and closes the sockets it opened. The same as Go's RefreshBefore.
+REFRESH_BEFORE = 120
+
+# How old a credentials lock must be before it's taken for one a killed process left behind. Whoever
+# holds it does one read, one refresh (at most 20 s) and one write, so a lock this old has no live
+# owner; without this, every later sign-in and request would wait and fail until someone deleted it.
+STALE_LOCK = 120
+
+
+def _stale(lock: Path) -> bool:
+    try:
+        return time.time() - lock.stat().st_mtime > STALE_LOCK
+    except OSError:
+        return False
+
+
 @contextlib.contextmanager
 def credential_lock(path: Path):
-    # The directory name and acquisition rules match Go. Never steal a lock while
-    # another process might still be exchanging a rotating refresh credential.
+    # The directory name and acquisition rules match Go. A timed-out lock isn't stolen (another
+    # process might still be exchanging a rotating refresh credential), only one past STALE_LOCK.
     lock = path.with_name(path.name + ".lock")
     lock.parent.mkdir(parents=True, exist_ok=True)
     deadline = time.monotonic() + 30
@@ -78,6 +96,11 @@ def credential_lock(path: Path):
             lock.mkdir(mode=0o700)
             break
         except FileExistsError:
+            if _stale(lock):
+                # Left by a process that died holding it: take it over.
+                with contextlib.suppress(OSError):
+                    lock.rmdir()
+                continue
             if time.monotonic() >= deadline:
                 raise OAuthError("credentials are locked; another sign-in or refresh is in progress (remove a stale credentials.json.lock only after stopping clients)")
             time.sleep(0.05)
@@ -103,7 +126,7 @@ def access_token(upstream: common.Upstream, server: str) -> str:
         entry = credentials.servers.get(common.normalize(server))
         if not entry or not entry.access_token or not entry.issuer or not entry.client_id:
             raise OAuthError("OAuth sign-in required: run login (legacy passwords and access keys are no longer supported)", "login_required")
-        if entry.expires_at > time.time() + 30:
+        if entry.expires_at > time.time() + REFRESH_BEFORE:
             return entry.access_token
         if not entry.refresh_token:
             raise OAuthError("OAuth access token expired: run login again", "login_required")
@@ -124,14 +147,18 @@ def access_token(upstream: common.Upstream, server: str) -> str:
         return entry.access_token
 
 
-def reject_access_token(upstream: common.Upstream, server: str) -> None:
+def reject_access_token(upstream: common.Upstream, server: str, token: str = "") -> None:
+    """Forces the next access_token() to refresh after a server invalidated a credential early. With
+    token (the one a socket was opened with), only while it's still the stored one: several sockets
+    opened with one token are closed together when it expires; the first refreshes, and the others
+    mustn't throw that new token away and refresh again each. Go's RejectAccessTokenIf."""
     name = "AI_PROXY_TOKEN" if upstream.use_env else "AI_PROXY_MACHINE_TOKEN"
     if os.environ.get(name):
         return
     with credential_lock(upstream.credentials_path()):
         credentials = upstream.credentials()
         entry = credentials.servers.get(common.normalize(server))
-        if entry:
+        if entry and (not token or entry.access_token == token):
             entry.expires_at = 0
             credentials.save()
 

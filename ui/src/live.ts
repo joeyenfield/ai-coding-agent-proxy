@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { apiUrl, type RequestRecord, type TrafficKind } from "./api";
+import { apiUrl, LIVE_RETRY_MS, renewSignIn, type RequestRecord, type TrafficKind } from "./api";
 
 export type DeltaKind = "reasoning" | "content" | "tool";
 
@@ -73,7 +73,38 @@ export function useLive(sessionId?: string): LiveState {
   const frame = useRef<number | null>(null);
 
   useEffect(() => {
-    const source = new EventSource(apiUrl(sessionId ? `/api/live?session_id=${encodeURIComponent(sessionId)}` : "/api/live"), { withCredentials: true });
+    const url = apiUrl(sessionId ? `/api/live?session_id=${encodeURIComponent(sessionId)}` : "/api/live");
+    let source: EventSource | null = null;
+    let stopped = false;
+    let attempt = 0;
+    let retry: number | undefined;
+    // EventSource reconnects by itself after a dropped connection, but gives up for good when a
+    // reconnect is refused (401 once the access token expired, 502 or 503 during a restart). Then
+    // renew the sign-in and open a new one, backing off; each new one starts with a snapshot.
+    const connect = () => {
+      window.clearTimeout(retry);
+      retry = undefined;
+      if (stopped) return;
+      source?.close();
+      source = new EventSource(url, { withCredentials: true });
+      listen(source);
+    };
+    const reconnect = async () => {
+      const delay = LIVE_RETRY_MS[Math.min(attempt, LIVE_RETRY_MS.length - 1)];
+      attempt += 1;
+      await renewSignIn();
+      if (stopped || retry !== undefined || source?.readyState !== EventSource.CLOSED) return;
+      retry = window.setTimeout(connect, delay);
+    };
+    // Coming back online or to the page needn't wait for the backoff.
+    const wake = () => {
+      if (stopped || document.visibilityState !== "visible" || source?.readyState !== EventSource.CLOSED) return;
+      void renewSignIn().then(() => {
+        if (source?.readyState === EventSource.CLOSED) connect();
+      });
+    };
+    window.addEventListener("online", wake);
+    document.addEventListener("visibilitychange", wake);
     const publish = (connected = true) => {
       if (frame.current != null) return;
       frame.current = requestAnimationFrame(() => {
@@ -82,57 +113,70 @@ export function useLive(sessionId?: string): LiveState {
         setState({ connected, enabled, active: [...active.values()], recent: [...recent] });
       });
     };
-    source.addEventListener("open", () => publish(true));
-    source.addEventListener("error", () => setState((current) => ({ ...current, connected: false })));
-    source.addEventListener("snapshot", (event) => {
-      const data = JSON.parse((event as MessageEvent).data) as Snapshot;
-      store.current = {
-        enabled: data.enabled,
-        active: new Map(data.active.map((entry) => [entry.key, hydrate(entry)])),
-        recent: data.recent.map(hydrate),
-      };
-      publish();
-    });
-    source.addEventListener("start", (event) => {
-      const { request } = JSON.parse((event as MessageEvent).data) as { request: LiveRequest };
-      store.current.active.set(request.key, hydrate(request));
-      publish();
-    });
-    source.addEventListener("summary", (event) => {
-      const { key, summary } = JSON.parse((event as MessageEvent).data) as { key: string; summary: LiveSummary };
-      const entry = store.current.active.get(key);
-      if (!entry) return;
-      store.current.active.set(key, { ...entry, summary });
-      publish();
-    });
-    source.addEventListener("delta", (event) => {
-      const delta = JSON.parse((event as MessageEvent).data) as Delta;
-      const entry = store.current.active.get(delta.key);
-      if (!entry) return;
-      const now = Date.now();
-      const arrivals = entry.arrivals.filter((time) => now - time < RATE_WINDOW_MS);
-      arrivals.push(now);
-      store.current.active.set(delta.key, {
-        ...entry,
-        [delta.kind]: entry[delta.kind] + delta.text,
-        chunks: { ...entry.chunks, [delta.kind]: entry.chunks[delta.kind] + 1 },
-        first_token_at: entry.first_token_at ?? now / 1000,
-        arrivals,
-        lastKind: delta.kind,
+    function listen(source: EventSource) {
+      source.addEventListener("open", () => {
+        attempt = 0;
+        publish(true);
       });
-      publish();
-    });
-    source.addEventListener("end", (event) => {
-      const { key, record } = JSON.parse((event as MessageEvent).data) as { key: string; record: RequestRecord };
-      const entry = store.current.active.get(key);
-      store.current.active.delete(key);
-      if (entry) {
-        store.current.recent = [{ ...entry, done: true, ended_at: Date.now() / 1000, record }, ...store.current.recent].slice(0, RECENT_LIMIT);
-      }
-      publish();
-    });
+      source.addEventListener("error", () => {
+        setState((current) => ({ ...current, connected: false }));
+        if (source.readyState === EventSource.CLOSED) void reconnect();
+      });
+      source.addEventListener("snapshot", (event) => {
+        const data = JSON.parse((event as MessageEvent).data) as Snapshot;
+        store.current = {
+          enabled: data.enabled,
+          active: new Map(data.active.map((entry) => [entry.key, hydrate(entry)])),
+          recent: data.recent.map(hydrate),
+        };
+        publish();
+      });
+      source.addEventListener("start", (event) => {
+        const { request } = JSON.parse((event as MessageEvent).data) as { request: LiveRequest };
+        store.current.active.set(request.key, hydrate(request));
+        publish();
+      });
+      source.addEventListener("summary", (event) => {
+        const { key, summary } = JSON.parse((event as MessageEvent).data) as { key: string; summary: LiveSummary };
+        const entry = store.current.active.get(key);
+        if (!entry) return;
+        store.current.active.set(key, { ...entry, summary });
+        publish();
+      });
+      source.addEventListener("delta", (event) => {
+        const delta = JSON.parse((event as MessageEvent).data) as Delta;
+        const entry = store.current.active.get(delta.key);
+        if (!entry) return;
+        const now = Date.now();
+        const arrivals = entry.arrivals.filter((time) => now - time < RATE_WINDOW_MS);
+        arrivals.push(now);
+        store.current.active.set(delta.key, {
+          ...entry,
+          [delta.kind]: entry[delta.kind] + delta.text,
+          chunks: { ...entry.chunks, [delta.kind]: entry.chunks[delta.kind] + 1 },
+          first_token_at: entry.first_token_at ?? now / 1000,
+          arrivals,
+          lastKind: delta.kind,
+        });
+        publish();
+      });
+      source.addEventListener("end", (event) => {
+        const { key, record } = JSON.parse((event as MessageEvent).data) as { key: string; record: RequestRecord };
+        const entry = store.current.active.get(key);
+        store.current.active.delete(key);
+        if (entry) {
+          store.current.recent = [{ ...entry, done: true, ended_at: Date.now() / 1000, record }, ...store.current.recent].slice(0, RECENT_LIMIT);
+        }
+        publish();
+      });
+    }
+    connect();
     return () => {
-      source.close();
+      stopped = true;
+      window.clearTimeout(retry);
+      window.removeEventListener("online", wake);
+      document.removeEventListener("visibilitychange", wake);
+      source?.close();
       if (frame.current != null) cancelAnimationFrame(frame.current);
       frame.current = null;
     };

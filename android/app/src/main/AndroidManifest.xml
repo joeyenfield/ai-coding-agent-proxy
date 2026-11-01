@@ -2,6 +2,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- The WebView needs it for navigator.onLine and the online/offline events, which the console
+         reconnects on; the console activity also uses it to retry when the network comes back. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!-- Servers are often plain HTTP on a LAN or Tailscale; see network_security_config. -->
     <application

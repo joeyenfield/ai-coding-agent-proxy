@@ -3,7 +3,7 @@ import { Link, NavLink, Navigate, Route, Routes, useLocation } from "react-route
 import { useQuery } from "@tanstack/react-query";
 import { api, type Identity } from "./api";
 import { AccountMenu, useAccountChanges } from "./components/AccountMenu";
-import { useAuth, useStatus, useTheme, useVersion, type ThemeChoice } from "./hooks";
+import { pollEvery, useAuth, useStatus, useTheme, useVersion, type ThemeChoice } from "./hooks";
 import { LoginPage } from "./pages/Login";
 import { OrganizationPage } from "./pages/Organization";
 import { OverviewPage } from "./pages/Overview";
@@ -75,18 +75,19 @@ function Shell({ identity }: { identity: Identity | null }) {
   const closeMenu = () => (window.history.state?.menu ? window.history.back() : setMenuOpen(false));
   const parts = visibleParts(Boolean(identity?.site_admin));
   const inFlight = status.data?.current_requests.length ?? 0;
-  // A sign-in that has lapsed gets a 401 here; stop asking until the page is reloaded.
+  // After an error (a lapsed sign-in, a dropped network) these keep asking, more slowly, so the
+  // counts come back by themselves; only a 403 stops them.
   const terminals = useQuery({
     queryKey: ["terminals"],
     queryFn: api.terminals,
     retry: false,
-    refetchInterval: (query) => (query.state.status === "error" ? false : 5000),
+    refetchInterval: pollEvery(5000),
   });
   const machines = useQuery({
     queryKey: ["machines"],
     queryFn: api.machines,
     retry: false,
-    refetchInterval: (query) => (query.state.status === "error" ? false : 15000),
+    refetchInterval: pollEvery(15000, 30000),
   });
   const counts = {
     "/machines": machines.data?.machines.filter((machine) => machine.connected).length ?? 0,

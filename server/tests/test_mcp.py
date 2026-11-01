@@ -147,8 +147,12 @@ def test_a_launch_gives_the_agent_the_mcp_servers_it_chose_and_the_server_record
         ]
         assert records[1]["status"] == 200 and records[1]["error_type"] is None
 
-        # When the machine goes, its servers can't be reached.
-        app.state.runtime.fleet.disconnect("desk", app.state.runtime.fleet.sockets["desk"])
+        # A machine that just dropped is on its way back: its servers are still tried (its key is kept).
+        fleet = app.state.runtime.fleet
+        fleet.disconnect("desk", fleet.sockets["desk"])
+        assert client.post(base, json={"jsonrpc": "2.0", "id": 3, "method": "tools/list"}).status_code == 200
+        # Once it's been gone a while, they can't be reached.
+        fleet.machines["desk"].last_seen -= 3600
         assert client.post(base, json={"jsonrpc": "2.0", "id": 3, "method": "tools/list"}).status_code == 503
         assert client.get("/api/mcp").json()[0]["connected"] is False
 

@@ -71,6 +71,9 @@ class Terminal:
     # Whether the agent asked for bracketed paste, so multi-line input can be sent as one paste.
     bracketed_paste: bool = False
     history: bytearray = field(default_factory=bytearray)
+    # The offset from which history's tail is the output byte for byte (no gap since): a viewer that
+    # reconnects with an offset at or after it gets only what it missed. None: nobody resumes.
+    contiguous_from: int | None = 0
     host: Any = None
     # Who each viewer is, so they can be dropped when the session stops being shared with them.
     watchers: dict[asyncio.Queue, Any] = field(default_factory=dict)
@@ -166,7 +169,10 @@ class TerminalHub:
         if offset > terminal.total:
             terminal.skipped += offset - terminal.total
             terminal.total = offset
+            terminal.contiguous_from = offset
             self._save(terminal)
+            # Viewers count the output's offset to resume from; they skip ahead too.
+            self._broadcast(terminal, {"type": "gap", "to": offset})
 
     def resize(self, terminal: Terminal, message: dict[str, Any]) -> None:
         terminal.cols, terminal.rows = _size(message, terminal)
@@ -197,12 +203,18 @@ class TerminalHub:
         question = screen_question(bytes(terminal.history[-SCREEN_TAIL:]))
         return {"kind": "question" if question else "idle", "since": since, "question": question}
 
-    def subscribe(self, terminal: Terminal, identity: Any = None) -> tuple[bytes, asyncio.Queue]:
+    def subscribe(self, terminal: Terminal, identity: Any = None, since: int | None = None) -> tuple[bytes, asyncio.Queue, int, bool]:
+        """Joins a viewer: the history to send it first, its queue for what follows, the offset the history
+        starts at, and whether that's the viewer's own `since` (it reconnected and gets only what it missed)."""
         # No await between the snapshot and joining, so no output falls between them.
         queue: asyncio.Queue = asyncio.Queue(maxsize=VIEWER_BACKLOG)
         terminal.viewers.add(queue)
         terminal.watchers[queue] = identity
-        return bytes(terminal.history), queue
+        history = bytes(terminal.history)
+        oldest = terminal.total - len(history)
+        if since is not None and terminal.contiguous_from is not None and max(oldest, terminal.contiguous_from) <= since <= terminal.total:
+            return history[len(history) - (terminal.total - since):], queue, since, True
+        return history, queue, oldest, False
 
     def unsubscribe(self, terminal: Terminal, queue: asyncio.Queue) -> None:
         terminal.viewers.discard(queue)
@@ -329,6 +341,9 @@ class TerminalHub:
         if not terminal.log_full:
             # The meta is only rewritten on events, so after a crash the recording is the better count.
             terminal.total = max(terminal.total, size + terminal.skipped)
+        # The recording may lack bytes the launcher skipped: viewers from before this load start over,
+        # and only output from here on is resumable.
+        terminal.contiguous_from = terminal.total
         return terminal
 
 

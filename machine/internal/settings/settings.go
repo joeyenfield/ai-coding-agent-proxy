@@ -256,7 +256,21 @@ func writeJSON(path string, value any) error {
 	if err := os.WriteFile(temporary, append(data, '\n'), 0o600); err != nil {
 		return err
 	}
-	return os.Rename(temporary, path)
+	return replaceFile(temporary, path)
+}
+
+// replaceFile renames temporary over path. On Windows the rename is refused while another program
+// (another client reading the file, an antivirus scan) has it open, for a moment: try again then,
+// because losing this write can mean losing a rotated refresh token, and with it the sign-in.
+func replaceFile(temporary, path string) error {
+	var err error
+	for attempt := 0; attempt < 40; attempt++ {
+		if err = os.Rename(temporary, path); err == nil || runtime.GOOS != "windows" {
+			return err
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	return err
 }
 
 // Detail is the server's error message from a JSON body ({"detail": ...}), or the body itself.

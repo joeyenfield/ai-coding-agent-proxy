@@ -515,3 +515,58 @@ def test_a_tunnel_renews_its_token_while_it_carries_a_reply(tmp_path, monkeypatc
                 model.close()
 
     asyncio.run(scenario())
+
+
+def test_presence_resends_an_unchanged_token_and_survives_a_failing_sign_in(tmp_path, monkeypatch):
+    """The current token goes again every RESEND_EVERY, in case the server missed it; a token check
+    that fails (a lock, a refresh) leaves the hello's agents empty instead of ending the connection."""
+    from websockets.asyncio.server import serve
+
+    monkeypatch.setattr(presence, "RENEW_EVERY", 0.05)
+    monkeypatch.setattr(presence, "RESEND_EVERY", 0.1)
+    # The real describe() runs: it reads (and makes) the machine's folder, which must be this test's.
+    monkeypatch.setenv("AI_PROXY_MACHINE_HOME", str(tmp_path / "machine"))
+
+    async def scenario() -> None:
+        hellos: List[Dict[str, Any]] = []
+        renewed: asyncio.Queue = asyncio.Queue()
+
+        async def handler(connection) -> None:
+            async for raw in connection:
+                message = json.loads(raw)
+                if message["type"] == "hello":
+                    hellos.append(message)
+                    await connection.send(json.dumps({"type": "welcome"}))
+                elif message["type"] == "token":
+                    await renewed.put(message["token"])
+
+        async with serve(handler, "127.0.0.1", 0) as server:
+            port = server.sockets[0].getsockname()[1]
+            machine = presence.Presence(common.Upstream(credentials_path=lambda: tmp_path / "credentials.json", fixed=f"http://127.0.0.1:{port}", use_env=False))
+            calls = {"count": 0}
+
+            def token(server: str) -> str:
+                calls["count"] += 1
+                # The hello's agent listing is the second call (after dial's): it fails.
+                if calls["count"] == 2:
+                    raise oauth.OAuthError("credentials are locked")
+                return "access-1"
+
+            monkeypatch.setattr(machine.upstream, "token", token)
+            monkeypatch.setattr(machine, "detect", lambda: [])
+            monkeypatch.setattr(machine, "check_version", lambda server: None)
+            stop = asyncio.Event()
+            running = asyncio.ensure_future(machine.run(stop))
+            try:
+                assert await asyncio.wait_for(renewed.get(), 10) == "access-1"
+                assert len(hellos) == 1 and hellos[0]["agents"] == []
+            finally:
+                stop.set()
+                await asyncio.wait_for(running, 10)
+
+    asyncio.run(scenario())
+
+
+def test_reconnect_delays_are_jittered():
+    delays = {presence.jitter(10) for _ in range(50)}
+    assert all(5 <= delay <= 15 for delay in delays) and len(delays) > 1

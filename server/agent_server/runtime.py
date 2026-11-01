@@ -366,6 +366,9 @@ class Runtime:
             return detail
         message = f"{backend.name} ({backend.url}): {detail}"
         machine = self.fleet.machines.get(getattr(backend, "machine", None) or "")
+        if machine and self.tunnels.tunnelled(backend) and not self.fleet.connected(machine.id) and isinstance(exc, httpx.TransportError):
+            # The tunnel listener closes a connection it got no tunnel for: say why, not "disconnected".
+            return f"{message}. Its machine, {machine.name}, isn't connected and didn't come back in time: check agent-machine there."
         if machine and not self.tunnels.tunnelled(backend) and isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout)):
             # A machine behind NAT, or on the server's own public address, is only reachable through its fleet connection.
             if not self.fleet.connected(machine.id):

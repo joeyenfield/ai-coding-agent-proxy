@@ -61,7 +61,8 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         if machine is None or identity is None or not mcp.usable(fleet, identity, machine):
             raise HTTPException(status_code=403, detail="You may no longer use this machine's MCP servers")
         shared = machine.mcp or {}
-        if not fleet.connected(machine.id) or not shared.get("port") or not machine.mcp_key:
+        # A machine that dropped a moment ago is on its way back: the tunnel waits for it.
+        if not (fleet.connected(machine.id) or fleet.reconnecting(machine)) or not shared.get("port") or not machine.mcp_key:
             raise HTTPException(status_code=503, detail=f"{machine.name} isn't connected: agent-machine isn't running there")
         if not any(item["name"] == name for item in shared.get("servers") or []):
             raise HTTPException(status_code=404, detail=f"{machine.name} no longer shares an MCP server called {name}")
@@ -81,8 +82,11 @@ def register(app: FastAPI, runtime: Runtime) -> None:
 async def _pass(runtime: Runtime, method: str, target: str, headers: dict[str, str], body: bytes) -> Response:
     """A GET stream or a DELETE, as it is: what the MCP server says outside a request's reply isn't recorded."""
     assert runtime.client
+    # A session's GET stream stays open, silent, for as long as the agent runs: no read timeout.
+    timeout = httpx.Timeout(10, read=None) if method == "GET" else None
     try:
-        upstream = await runtime.client.send(runtime.client.build_request(method, target, headers=headers, content=body or None), stream=True)
+        request = runtime.client.build_request(method, target, headers=headers, content=body or None, **({"timeout": timeout} if timeout else {}))
+        upstream = await runtime.client.send(request, stream=True)
     except httpx.HTTPError as exc:
         return JSONResponse({"detail": f"Couldn't reach the machine's MCP server: {runtime.unavailable(exc)}"}, status_code=502)
 
@@ -90,6 +94,9 @@ async def _pass(runtime: Runtime, method: str, target: str, headers: dict[str, s
         try:
             async for chunk in upstream.aiter_bytes():
                 yield chunk
+        except httpx.HTTPError as exc:
+            # The machine's side went (its tunnel dropped): end the stream cleanly; the agent reconnects it.
+            LOGGER.info("MCP stream from the machine ended: %s", type(exc).__name__)
         finally:
             await upstream.aclose()
 

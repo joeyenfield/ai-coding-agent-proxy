@@ -137,6 +137,7 @@ class Share:
         try:
             attempt = 0
             while True:
+                started = time.monotonic()
                 try:
                     self.stream()
                     return
@@ -145,8 +146,13 @@ class Share:
                     return
                 except Exception as error:
                     self.problem = f"lost the connection to the proxy ({error})"
+                # A connection that held a while was fine: the next drop starts the delays over, so a socket
+                # closed for its token every few minutes doesn't wait the longest delay each time.
+                if time.monotonic() - started > 30:
+                    attempt = 0
                 with self.history.changed:
-                    if self.exit is not None and attempt >= 1:
+                    # Once the agent has exited, a few more tries to get its last output and exit status there.
+                    if self.exit is not None and attempt >= 3:
                         return
                 if self.revive is not None:
                     self.revive()
@@ -564,7 +570,8 @@ def run(command: List[str], cwd: str, env: Dict[str, str], share: Optional[Share
         agent.close()
         screen.restore()
     if share:
-        share.finish(status, 3)
+        # Long enough for a reconnect or two (the delays are 1, 2, 5 s), so the exit isn't lost to a blip.
+        share.finish(status, 10)
     return status
 
 
@@ -586,5 +593,5 @@ def run_headless(command: List[str], cwd: str, env: Dict[str, str], share: Share
     status = agent.wait()
     reader.join(2)
     agent.close()
-    share.finish(status, 5)
+    share.finish(status, 15)
     return status

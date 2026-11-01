@@ -255,6 +255,7 @@ A shared terminal has one host (the launcher) and any number of viewers (console
 | launcher → server | text `{"type": "resize", "cols", "rows"}` | The terminal changed size |
 | launcher → server | text `{"type": "gap", "from": n}` | Output was dropped: the launcher keeps the last 4 MiB, and more than that came out while it was disconnected |
 | launcher → server | text `{"type": "exit", "status": n}` | The agent exited |
+| agent-proxy → server | text `{"type": "token", "token": "…"}` | Its new access token, before the one the socket opened with expires (also every minute) |
 | server → launcher | text `{"type": "input", "parts": ["text", "\r"]}` | A viewer's input, typed in as separate writes a short gap apart |
 
 **Viewer: `WS /api/terminals/<id>/view`**:
@@ -262,7 +263,10 @@ A shared terminal has one host (the launcher) and any number of viewers (console
 | Direction | Frame | Meaning |
 | --- | --- | --- |
 | server → viewer | text `{"type": "state", "terminal": {…}}` | Size, whether the launcher is connected, whether it has exited; sent again whenever that changes |
+| viewer → server | query `?from=<offset>` | When reconnecting: the byte offset of the end of the output it has |
+| server → viewer | text `{"type": "replay", "start": n, "resumed": bool}` | Where the history that follows starts; resumed means it continues from `from`, so the viewer keeps what it shows |
 | server → viewer | binary | The history, in 256 KiB pieces, then live output |
+| server → viewer | text `{"type": "gap", "to": n}` | The launcher skipped output: the offset moves on |
 | server → viewer | text `{"type": "replayed"}` | The history is all sent |
 | server → viewer | text `{"type": "resize", …}`, `{"type": "error", "message"}` | Size changes, refused input |
 | viewer → server | text `{"type": "input", "keys": "…"}` or `{"type": "input", "text": "…", "enter": true}` | Keys, or a message and Enter; checked against the session's sharing on every message |
@@ -271,7 +275,7 @@ A shared terminal has one host (the launcher) and any number of viewers (console
 
 - **The launcher** tries again after 1, 2, 5, then every 10 seconds, for as long as the agent runs. It gives up only on a refusal (`4401`, `4403`, `4404`). Between tries it starts the `agent-proxy` again if it has gone away (`agent update` stops it).
 - **The `agent-proxy`'s relay** passes a refusal from the server through as it is. It turns any other failure, such as a reverse proxy's `502`, `503` or `504` while the server restarts, into `1011`, which the launcher retries.
-- **A viewer** reconnects after 2 seconds and replays the history. A `4404` (no terminal yet) is retried every 1.5 seconds for a minute: a launch from the console opens its page as soon as the session exists, a moment before the launcher has connected.
+- **A viewer** reconnects after 2 seconds with `?from=<offset>`, the end of the output it has, and gets only what it missed (`replay` says `resumed`). Output from before a server restart, or before a gap the launcher skipped, can't be resumed from: the viewer then gets the whole history again. A `4404` (no terminal yet) is retried every 1.5 seconds for a minute: a launch from the console opens its page as soon as the session exists, a moment before the launcher has connected.
 
 ## Headers
 
@@ -299,7 +303,7 @@ A shared terminal has one host (the launcher) and any number of viewers (console
 | `4404` | terminals, tunnels | No such session, terminal or tunnel | viewers, for a minute after opening |
 | `4408` | terminal viewer | It fell behind the output; reconnect to catch up | the viewer |
 | `4409` | terminal host, fleet | Replaced by the same launcher or machine reconnecting | nobody (the new one carries on) |
-| `4410` | every signed-in socket | The access token expired or was revoked while connected (machines renew theirs over the fleet socket first) | the client, after renewing its token |
+| `4410` | every signed-in socket | The access token expired or was revoked while connected (agent-machine and agent-proxy renew theirs over their open sockets first) | the client, after renewing its token |
 | `4426` | every socket | Protocol out of range: update the program | nobody |
 
 ## Behind a reverse proxy

@@ -15,6 +15,7 @@ import asyncio
 import json
 import logging
 import os
+import random
 import socket
 import subprocess
 import sys
@@ -30,12 +31,27 @@ from . import containers, mcp, providers, servers, settings
 
 UPDATE_EVERY = 60
 PING_EVERY = 25
-# How often the machine checks its access token. The token is refreshed in its last 30 seconds
-# and the server checks every 15, so a new one reaches the server in time.
+# How often the machine checks its access token. A refreshed one goes to the server at once, and the
+# current one again every RESEND_EVERY, so a renewal the server missed (its issuer was slow) is retried
+# long before the old token expires.
 RENEW_EVERY = 10
+RESEND_EVERY = 60
+# WebSocket keepalive on the fleet socket and tunnels: a ping every 20 s, and a connection whose pong
+# doesn't come within 20 s is taken for dead (a phone that changed networks, the old one half-open),
+# where writes would otherwise go on landing in the kernel's buffer for many minutes. Go uses a 70 s
+# read deadline the server's and its own pings keep moving.
+KEEPALIVE = 20
+# How long a write to a tunnel may take before the server is taken for gone.
+TUNNEL_WRITE_TIMEOUT = 30
 # How long a launched agent may take to open its session.
 LAUNCH_TIMEOUT = 50
 RETRY_DELAYS = (2, 5, 10, 30)
+
+
+def jitter(delay: float) -> float:
+    """Spreads delay over half to one and a half times itself, so machines dropped together (a server
+    restart) don't all come back in the same instant."""
+    return delay / 2 + random.uniform(0, delay)
 CLOSE_UPGRADE_REQUIRED = 4426
 
 log = logging.getLogger("agent-machine")
@@ -279,6 +295,9 @@ class Presence:
         self.tunnel_ports: set = set()
         # Shares the MCP servers in mcp.json (agent-machine mcp add) through the tunnel.
         self.mcp = mcp.Bridge()
+        # Tunnels in flight. They outlive the fleet connection that asked for them (as Go's goroutines
+        # do), so a reconnect doesn't cut off the agents' replies they carry; they end with run().
+        self.tunnels: set = set()
         self.status = ""
 
     def set_status(self, status: str) -> None:
@@ -292,13 +311,15 @@ class Presence:
         if token:
             headers[common.TOKEN_HEADER] = token
         return await common.signed_connect(common.websocket_url(server, path), additional_headers=headers, proxy=None, open_timeout=10,
-                             max_size=None, compression=None, user_agent_header=None, ping_interval=None)
+                             max_size=None, compression=None, user_agent_header=None, ping_interval=KEEPALIVE, ping_timeout=KEEPALIVE)
 
     async def run(self, stop: asyncio.Event) -> None:
-        """Connects and reconnects until stop is set; the MCP sessions it runs end with it."""
+        """Connects and reconnects until stop is set; the MCP sessions and tunnels it runs end with it."""
         try:
             await self.connect(stop)
         finally:
+            for task in list(self.tunnels):
+                task.cancel()
             self.mcp.close()
 
     async def connect(self, stop: asyncio.Event) -> None:
@@ -327,7 +348,7 @@ class Presence:
                 attempt += 1
                 continue
             try:
-                await asyncio.wait_for(stop.wait(), RETRY_DELAYS[min(attempt, len(RETRY_DELAYS) - 1)])
+                await asyncio.wait_for(stop.wait(), jitter(RETRY_DELAYS[min(attempt, len(RETRY_DELAYS) - 1)]))
             except asyncio.TimeoutError:
                 pass
             attempt += 1
@@ -346,7 +367,17 @@ class Presence:
 
             async def send(value: Dict[str, Any]) -> None:
                 async with lock:
-                    await asyncio.wait_for(conn.send(json.dumps(value)), 15)
+                    try:
+                        await asyncio.wait_for(conn.send(json.dumps(value)), 15)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:
+                        # A write that failed or hung leaves the connection unusable: end it so the
+                        # session ends and connect() reconnects, instead of reading on while nothing
+                        # can be answered.
+                        if conn.transport is not None:
+                            conn.transport.abort()
+                        raise
 
             await send(await asyncio.to_thread(self.describe, server, "hello"))
             try:
@@ -374,28 +405,40 @@ class Presence:
                 while True:
                     await asyncio.sleep(PING_EVERY)
                     since_update += PING_EVERY
-                    await send({"type": "ping"})
-                    if since_update >= UPDATE_EVERY:
-                        since_update = 0
-                        await send(await asyncio.to_thread(self.describe, server, "update"))
+                    # One failure (a slow probe, a send that failed and ended the connection) mustn't end
+                    # the loop silently: a failed send has already closed the connection, and the session ends.
+                    try:
+                        await send({"type": "ping"})
+                        if since_update >= UPDATE_EVERY:
+                            since_update = 0
+                            await send(await asyncio.to_thread(self.describe, server, "update"))
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as error:  # noqa: BLE001
+                        log.info("fleet: couldn't send an update: %s", error)
 
             async def renew() -> None:
-                # The token this connection opened with (dial's, still cached). The server closes the
-                # connection once it expires, so each newer one is sent over it before then.
+                # On its own, so a slow update never holds a token back past its expiry. The token this
+                # connection opened with (dial's, still cached): the server closes the connection once it
+                # expires, so each newer one is sent over it before then, and the current one again every
+                # RESEND_EVERY in case the server missed it.
                 try:
                     token = await asyncio.to_thread(self.upstream.token, server)
                 except Exception:  # noqa: BLE001 - no credentials to renew (a fixed token, tests)
                     return
+                sent = loop.time()
                 while token:
                     await asyncio.sleep(RENEW_EVERY)
                     try:
                         latest = await asyncio.to_thread(self.upstream.token, server)
+                        if not latest or (latest == token and loop.time() - sent < RESEND_EVERY):
+                            continue
+                        await send({"type": "token", "token": latest})
+                        token, sent = latest, loop.time()
+                    except asyncio.CancelledError:
+                        raise
                     except Exception as error:  # noqa: BLE001 - try again; the server closes it with 4410 if it never comes
                         log.info("fleet: couldn't renew the access token: %s", error)
-                        continue
-                    if latest and latest != token:
-                        await send({"type": "token", "token": latest})
-                        token = latest
 
             tasks = {asyncio.ensure_future(keep_up()), asyncio.ensure_future(renew())}
             try:
@@ -406,8 +449,10 @@ class Presence:
                         continue
                     if isinstance(message, dict):
                         task = asyncio.ensure_future(self.dispatch(message, server, send, send_from_thread))
-                        tasks.add(task)
-                        task.add_done_callback(tasks.discard)
+                        # Tunnels have their own WebSockets and outlive this one; the rest end with it.
+                        owner = self.tunnels if message.get("type") == "tunnel" else tasks
+                        owner.add(task)
+                        task.add_done_callback(owner.discard)
             except websockets.ConnectionClosed as closed:
                 if closed.rcvd and closed.rcvd.code == 4410:
                     await asyncio.to_thread(self.upstream.reject_access_token, server)
@@ -424,7 +469,12 @@ class Presence:
             if kind == "provider":
                 # A pull streams its progress until the model is in, which can take an hour.
                 def progress(update: Dict[str, Any]) -> None:
-                    send_from_thread({"type": "provider_progress", "request": message.get("request"), "progress": update})
+                    # Progress that can't be sent (the connection dropped) is skipped, as Go ignores it:
+                    # raising here would abort the pull itself.
+                    try:
+                        send_from_thread({"type": "provider_progress", "request": message.get("request"), "progress": update})
+                    except Exception:  # noqa: BLE001
+                        pass
 
                 await send(await asyncio.to_thread(self.providers.handle, message, progress))
             elif kind == "tunnel":
@@ -518,6 +568,14 @@ class Presence:
                 await conn.close(4502, "the model server isn't answering")
                 return
 
+            lock = asyncio.Lock()
+
+            async def write(data: Any) -> None:
+                # One writer at a time, and a server that stopped reading (a half-open connection)
+                # mustn't hold this tunnel forever.
+                async with lock:
+                    await asyncio.wait_for(conn.send(data), TUNNEL_WRITE_TIMEOUT)
+
             async def to_model_server() -> None:
                 async for message in conn:
                     if isinstance(message, bytes):
@@ -530,24 +588,30 @@ class Presence:
                     if not data:
                         await conn.close()
                         return
-                    await conn.send(data)
+                    await write(data)
 
             async def renew() -> None:
                 # The server closes the tunnel once the token it was opened with expires, which a long reply
-                # (or a kept-alive connection) outlasts: each newer token goes over it as a text frame.
+                # (or a kept-alive connection) outlasts: each newer token goes over it as a text frame, and
+                # the current one again every RESEND_EVERY in case the server missed it.
+                loop = asyncio.get_running_loop()
                 try:
                     token = await asyncio.to_thread(self.upstream.token, server)
                 except Exception:  # noqa: BLE001 - no credentials to renew (a fixed token, tests)
                     return
+                sent = loop.time()
                 while token:
                     await asyncio.sleep(RENEW_EVERY)
                     try:
                         latest = await asyncio.to_thread(self.upstream.token, server)
+                        if not latest or (latest == token and loop.time() - sent < RESEND_EVERY):
+                            continue
+                        await write(json.dumps({"type": "token", "token": latest}))
+                        token, sent = latest, loop.time()
+                    except asyncio.CancelledError:
+                        raise
                     except Exception:  # noqa: BLE001 - try again; the server closes the tunnel if it never comes
                         continue
-                    if latest and latest != token:
-                        await conn.send(json.dumps({"type": "token", "token": latest}))
-                        token = latest
 
             tasks = [asyncio.ensure_future(to_model_server()), asyncio.ensure_future(to_server())]
             renewing = asyncio.ensure_future(renew())
@@ -592,7 +656,11 @@ class Presence:
     def installed_agents(self, server: str) -> List[str]:
         """Which of the server's agents have their executable on this machine's PATH."""
         headers = {}
-        token = self.upstream.token(server)
+        try:
+            token = self.upstream.token(server)
+        except Exception as error:  # noqa: BLE001 - a sign-in or lock problem mustn't fail the hello; none listed, as Go does
+            log.info("fleet: couldn't list the server's agents: %s", error)
+            return []
         if token:
             headers[common.TOKEN_HEADER] = token
         try:

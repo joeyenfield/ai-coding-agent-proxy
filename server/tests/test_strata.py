@@ -195,8 +195,12 @@ def test_key_comes_from_the_container_the_environment_or_the_machine(tmp_path, i
     assert fleet.machines["desk"].keys == {18500: KEY}
     monkeypatch.setenv("STRATA_API_KEY", "from-env")
     assert strata.key_for(Backend("s", "http://10.0.0.5:18500", type="strata", machine="desk")) == ("from-env", "environment")
+    # A machine that drops keeps its key while it's on its way back (requests wait for it), and its next
+    # hello says what it has now.
     fleet.disconnect("desk", fleet.sockets["desk"])
     monkeypatch.delenv("STRATA_API_KEY")
+    assert strata.key_for(Backend("s", "http://10.0.0.5:18500", type="strata", machine="desk")) == (KEY, "machine")
+    fleet.connect(object(), ROOT_ADMIN, "10.0.0.5", {"id": "desk", "providers": [{"type": "strata", "port": 18500}]})
     assert strata.key_for(Backend("s", "http://10.0.0.5:18500", type="strata", machine="desk")) == (None, None)
 
 

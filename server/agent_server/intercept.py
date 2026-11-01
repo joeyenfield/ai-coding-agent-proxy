@@ -173,7 +173,7 @@ class InterceptProxy:
             await self.server.wait_closed()
             self.server = None
 
-    async def serve_tunnel(self, websocket: Any) -> None:
+    async def serve_tunnel(self, websocket: Any, renew: Any = None) -> None:
         """One agent connection, carried here over a WebSocket by the agent-proxy on its machine.
 
         The handler upgrades to TLS in place, which needs a real transport, so the
@@ -201,6 +201,15 @@ class InterceptProxy:
                 if message.get("bytes"):
                     writer.write(message["bytes"])
                     await writer.drain()
+                elif message.get("text") and renew is not None:
+                    # The agent-proxy's next access token (the agent's bytes are binary), so a long reply
+                    # or a kept-alive connection outlives the token the tunnel opened with.
+                    try:
+                        control = json.loads(message["text"])
+                    except ValueError:
+                        continue
+                    if isinstance(control, dict) and control.get("type") == "token":
+                        await renew(websocket, control.get("token"))
 
         async def to_agent() -> None:
             while data := await reader.read(65536):

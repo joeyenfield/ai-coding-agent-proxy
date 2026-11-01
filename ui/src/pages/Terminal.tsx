@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { api, terminalSocketUrl, type TerminalInfo } from "../api";
+import { api, renewSignIn, terminalSocketUrl, type TerminalInfo } from "../api";
 import { SharingControl } from "../components/Sharing";
 import { useToast } from "../hooks";
 import { PairPanel, terminalState } from "./Terminals";
@@ -142,6 +142,10 @@ export function TerminalPage() {
     term.current = terminal;
     let stopped = false;
     let retry: number | undefined;
+    // The byte offset of the end of the output shown, when the server has said (null: unknown).
+    let position: number | null = null;
+    // Whether a 4401 has already been answered by renewing the sign-in, since the last good connection.
+    let renewed = false;
     const waitUntil = Date.now() + WAIT_FOR_TERMINAL_MS;
     const typed = terminal.onData((data) => {
       if ((WHEEL.test(data) || !REPLY.test(data)) && !watchOnlyRef.current) send({ keys: data });
@@ -161,25 +165,46 @@ export function TerminalPage() {
         retry = window.setTimeout(connect, 5000);
         return;
       }
-      const ws = new WebSocket(terminalSocketUrl(sessionId));
+      const ws = new WebSocket(terminalSocketUrl(sessionId, position));
       ws.binaryType = "arraybuffer";
       socket.current = ws;
+      // After its state, the server says where its replay starts ("replay") and whether that carries
+      // on from `from`. Until then nothing is reset: an older server sends no "replay" and starts the
+      // history from the beginning, so the first history frame (or "replayed") resets instead.
       let replaying = true;
+      let awaitingReplay = false;
+      const startOver = () => {
+        awaitingReplay = false;
+        position = null;
+        terminal.reset();
+      };
       ws.onmessage = (event) => {
         if (typeof event.data !== "string") {
-          terminal.write(new Uint8Array(event.data as ArrayBuffer));
+          if (awaitingReplay) startOver();
+          const bytes = new Uint8Array(event.data as ArrayBuffer);
+          if (position != null) position += bytes.byteLength;
+          terminal.write(bytes);
           return;
         }
         const message = JSON.parse(event.data);
         if (message.type === "state") {
-          if (replaying) terminal.reset();
+          if (replaying) awaitingReplay = true;
           const next = message.terminal as TerminalInfo;
           if (terminal.cols !== next.cols || terminal.rows !== next.rows) terminal.resize(next.cols, next.rows);
           setInfo(next);
           setConnection("open");
+          renewed = false;
+        } else if (message.type === "replay") {
+          awaitingReplay = false;
+          if (!message.resumed) terminal.reset();
+          position = typeof message.start === "number" ? message.start : null;
         } else if (message.type === "replayed") {
+          if (awaitingReplay) startOver();
           replaying = false;
           terminal.scrollToBottom();
+        } else if (message.type === "gap") {
+          // The launcher skipped some output; what follows starts here.
+          if (typeof message.to === "number") position = message.to;
         } else if (message.type === "resize") {
           terminal.resize(message.cols, message.rows);
         } else if (message.type === "error") {
@@ -188,13 +213,20 @@ export function TerminalPage() {
       };
       ws.onclose = (event) => {
         if (stopped) return;
-        if (event.code === 4401) setConnection("unauthorized");
+        if (event.code === 4401 && !renewed) {
+          // The access token ran out between the status check and the dial: renew it once and try again.
+          renewed = true;
+          setConnection("retrying");
+          void renewSignIn().then(() => {
+            if (!stopped) connect();
+          });
+        } else if (event.code === 4401) setConnection("unauthorized");
         else if (event.code === 4404 && Date.now() < waitUntil) {
           setConnection("waiting");
           retry = window.setTimeout(connect, 1500);
         } else if (event.code === 4404) setConnection("missing");
         else {
-          // The proxy restarted or a network blip: reconnect and replay from the start.
+          // The proxy restarted or a network blip: reconnect, carrying on from what's already shown.
           setConnection("retrying");
           retry = window.setTimeout(connect, 2000);
         }

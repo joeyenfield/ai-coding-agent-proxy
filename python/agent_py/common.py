@@ -16,6 +16,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -194,7 +195,21 @@ def write_json(path: Path, value: Any) -> None:
         os.chmod(temporary, 0o600)
     except OSError:
         pass
-    os.replace(temporary, path)
+    replace_file(temporary, path)
+
+
+def replace_file(temporary: Path, path: Path) -> None:
+    """Renames temporary over path. On Windows the rename is refused while another program (another
+    client reading the file, an antivirus scan) has it open, for a moment: try again then, because
+    losing this write can mean losing a rotated refresh token, and with it the sign-in."""
+    for attempt in range(40):
+        try:
+            os.replace(temporary, path)
+            return
+        except PermissionError:
+            if sys.platform != "win32" or attempt == 39:
+                raise
+            time.sleep(0.025)
 
 
 @dataclass
@@ -277,9 +292,10 @@ class Upstream:
         from .oauth import access_token
         return access_token(self, server)
 
-    def reject_access_token(self, server: str) -> None:
+    def reject_access_token(self, server: str, token: str = "") -> None:
+        """Forces the next token() to refresh; with token, only while that's still the stored one."""
         from .oauth import reject_access_token
-        reject_access_token(self, server)
+        reject_access_token(self, server, token)
 
     def user(self, server: str) -> str:
         entry = self.credentials().servers.get(normalize(server))

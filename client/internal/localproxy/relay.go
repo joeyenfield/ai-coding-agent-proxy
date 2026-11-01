@@ -1,6 +1,7 @@
 package localproxy
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -23,12 +24,27 @@ var reservedClose = map[int]bool{1005: true, 1006: true, 1015: true}
 // the launcher as a close code it can show.
 var upgrader = websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 
+// How often an open socket's access token is checked, how long the current one goes unsent at most
+// (a renewal the server missed is retried long before the old token expires), and how long the
+// server's side may be silent before it's taken for dead (the server pings every 20 s).
+var (
+	renewEvery  = 10 * time.Second
+	resendEvery = 60 * time.Second
+	readTimeout = 70 * time.Second
+)
+
 // Dial opens a WebSocket to path on server, signed with the machine's sign-in. Like the
 // HTTP client it never uses the environment's proxy.
 func Dial(upstream settings.Upstream, server, path string) (*websocket.Conn, *http.Response, error) {
+	conn, response, _, err := dial(upstream, server, path)
+	return conn, response, err
+}
+
+// dial is Dial, also returning the access token the socket was opened with.
+func dial(upstream settings.Upstream, server, path string) (*websocket.Conn, *http.Response, string, error) {
 	parsed, err := url.Parse(server)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, "", err
 	}
 	scheme := "ws"
 	if parsed.Scheme == "https" {
@@ -39,11 +55,79 @@ func Dial(upstream settings.Upstream, server, path string) (*websocket.Conn, *ht
 	settings.Identify(header, true)
 	token, err := upstream.AccessToken(server)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, "", err
 	}
 	header.Set(settings.TokenHeader, token)
 	dialer := websocket.Dialer{Proxy: nil, HandshakeTimeout: 10 * time.Second, EnableCompression: false}
-	return dialer.Dial(target, header)
+	conn, response, err := dialer.Dial(target, header)
+	return conn, response, token, err
+}
+
+// serverSide is the server's end of a relayed socket: one writer at a time (gorilla allows one),
+// a write deadline, a read deadline the server's pings keep moving, and the machine's access token
+// sent over it whenever it's refreshed. The server closes a socket (4410) once the token it opened
+// with expires; renewing over it keeps a long reply, a kept-alive connection or a shared terminal up.
+type serverSide struct {
+	conn *websocket.Conn
+	mu   sync.Mutex
+	stop chan struct{}
+	once sync.Once
+}
+
+func newServerSide(upstream settings.Upstream, server string, conn *websocket.Conn, token string) *serverSide {
+	side := &serverSide{conn: conn, stop: make(chan struct{})}
+	alive := func() { _ = conn.SetReadDeadline(time.Now().Add(readTimeout)) }
+	alive()
+	conn.SetPingHandler(func(data string) error {
+		alive()
+		_ = conn.WriteControl(websocket.PongMessage, []byte(data), time.Now().Add(10*time.Second))
+		return nil
+	})
+	conn.SetPongHandler(func(string) error { alive(); return nil })
+	go side.renew(upstream, server, token)
+	return side
+}
+
+func (s *serverSide) write(kind int, data []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_ = s.conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
+	return s.conn.WriteMessage(kind, data)
+}
+
+// read is ReadMessage, keeping the read deadline moving while the server talks.
+func (s *serverSide) read() (int, []byte, error) {
+	kind, data, err := s.conn.ReadMessage()
+	if err == nil {
+		_ = s.conn.SetReadDeadline(time.Now().Add(readTimeout))
+	}
+	return kind, data, err
+}
+
+func (s *serverSide) close() { s.once.Do(func() { close(s.stop) }) }
+
+func (s *serverSide) renew(upstream settings.Upstream, server, token string) {
+	if token == "" {
+		return
+	}
+	sent := time.Now()
+	ticker := time.NewTicker(renewEvery)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-s.stop:
+			return
+		case <-ticker.C:
+			next, err := upstream.AccessToken(server)
+			if err != nil || (next == token && time.Since(sent) < resendEvery) {
+				continue
+			}
+			message, _ := json.Marshal(map[string]string{"type": "token", "token": next})
+			if s.write(websocket.TextMessage, message) == nil {
+				token, sent = next, time.Now()
+			}
+		}
+	}
 }
 
 // terminal relays a terminal shared with --control to the server, signed as this machine.
@@ -58,7 +142,7 @@ func (p *Proxy) terminal(w http.ResponseWriter, r *http.Request, sessionID strin
 		return
 	}
 	server := p.Upstream.Server()
-	remote, response, err := Dial(p.Upstream, server, "/api/terminals/"+url.PathEscape(sessionID)+"/host")
+	remote, response, token, err := dial(p.Upstream, server, "/api/terminals/"+url.PathEscape(sessionID)+"/host")
 	if err != nil {
 		if errors.Is(err, settings.ErrLoginRequired) {
 			closeWith(launcher, 4401, "OAuth sign-in required: run `agent login`")
@@ -74,10 +158,12 @@ func (p *Proxy) terminal(w http.ResponseWriter, r *http.Request, sessionID strin
 		return
 	}
 	defer remote.Close()
-	code, reason := relay(launcher, remote)
+	side := newServerSide(p.Upstream, server, remote, token)
+	defer side.close()
+	code, reason := relay(launcher, side)
 	closeWith(remote, websocket.CloseNormalClosure, "")
 	if code == 4410 {
-		if err := p.Upstream.RejectAccessToken(server); err != nil {
+		if err := p.Upstream.RejectAccessTokenIf(server, token); err != nil {
 			reason = err.Error()
 		}
 	}
@@ -97,7 +183,7 @@ func (p *Proxy) terminal(w http.ResponseWriter, r *http.Request, sessionID strin
 
 // relay copies messages both ways until either side ends. It returns how the server
 // (second) side closed, when it did.
-func relay(local, server *websocket.Conn) (int, string) {
+func relay(local *websocket.Conn, server *serverSide) (int, string) {
 	var once sync.Once
 	done := make(chan struct{})
 	finish := func() { once.Do(func() { close(done) }) }
@@ -111,7 +197,7 @@ func relay(local, server *websocket.Conn) (int, string) {
 			if err != nil {
 				return
 			}
-			if server.WriteMessage(kind, data) != nil {
+			if server.write(kind, data) != nil {
 				return
 			}
 		}
@@ -119,7 +205,7 @@ func relay(local, server *websocket.Conn) (int, string) {
 	go func() {
 		defer finish()
 		for {
-			kind, data, err := server.ReadMessage()
+			kind, data, err := server.read()
 			if err != nil {
 				var closed *websocket.CloseError
 				if errors.As(err, &closed) {
@@ -152,11 +238,22 @@ func closeWith(conn *websocket.Conn, code int, reason string) {
 // ServeTunnels accepts account agents' connections to the HTTPS proxy port, each carried
 // to the server's intercept over its own WebSocket.
 func (p *Proxy) ServeTunnels(listener net.Listener) error {
+	delay := 5 * time.Millisecond
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			return err
+			// Out of file handles and the like pass; only a closed listener ends it (as http.Server does).
+			if errors.Is(err, net.ErrClosed) {
+				return err
+			}
+			if p.Logger != nil {
+				p.Logger.Printf("HTTPS proxy: accept: %v; retrying in %v", err, delay)
+			}
+			time.Sleep(delay)
+			delay = min(delay*2, time.Second)
+			continue
 		}
+		delay = 5 * time.Millisecond
 		go p.tunnel(conn)
 	}
 }
@@ -164,7 +261,7 @@ func (p *Proxy) ServeTunnels(listener net.Listener) error {
 func (p *Proxy) tunnel(conn net.Conn) {
 	defer conn.Close()
 	server := p.Upstream.Server()
-	remote, response, err := Dial(p.Upstream, server, "/api/proxy/tunnel")
+	remote, response, token, err := dial(p.Upstream, server, "/api/proxy/tunnel")
 	if err != nil {
 		if response != nil {
 			status := 502
@@ -181,6 +278,8 @@ func (p *Proxy) tunnel(conn net.Conn) {
 		return
 	}
 	defer remote.Close()
+	side := newServerSide(p.Upstream, server, remote, token)
+	defer side.close()
 	var once sync.Once
 	done := make(chan struct{})
 	finish := func() { once.Do(func() { close(done) }) }
@@ -193,7 +292,7 @@ func (p *Proxy) tunnel(conn net.Conn) {
 		buffer := make([]byte, 65536)
 		for {
 			n, err := conn.Read(buffer)
-			if n > 0 && remote.WriteMessage(websocket.BinaryMessage, buffer[:n]) != nil {
+			if n > 0 && side.write(websocket.BinaryMessage, buffer[:n]) != nil {
 				return
 			}
 			if err != nil {
@@ -204,7 +303,7 @@ func (p *Proxy) tunnel(conn net.Conn) {
 	go func() {
 		defer finish()
 		for {
-			kind, data, err := remote.ReadMessage()
+			kind, data, err := side.read()
 			if err != nil {
 				var closed *websocket.CloseError
 				if errors.As(err, &closed) {
@@ -230,7 +329,7 @@ func (p *Proxy) tunnel(conn net.Conn) {
 	mu.Lock()
 	defer mu.Unlock()
 	if closeCode == 4410 {
-		if err := p.Upstream.RejectAccessToken(server); err != nil {
+		if err := p.Upstream.RejectAccessTokenIf(server, token); err != nil {
 			closeReason = err.Error()
 		}
 	}

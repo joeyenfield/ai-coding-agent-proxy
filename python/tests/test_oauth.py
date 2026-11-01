@@ -170,3 +170,97 @@ def test_missing_oauth_login_answers_connect_with_407(tmp_path, monkeypatch):
             await server.wait_closed()
 
     asyncio.run(run())
+
+
+def test_a_lock_left_by_a_dead_process_is_taken_over_and_only_the_refused_token_is_rejected(tmp_path, monkeypatch):
+    """settings/lock_test.go: TestALockLeftByADeadProcessIsTakenOverAndOnlyTheRefusedTokenIsRejected."""
+    import os
+
+    monkeypatch.delenv("AI_PROXY_TOKEN", raising=False)
+    path = tmp_path / "credentials.json"
+    # A lock some killed process left behind, long ago: taken over at once, not waited on.
+    lock = path.with_name(path.name + ".lock")
+    lock.mkdir()
+    old = time.time() - 2 * oauth.STALE_LOCK
+    os.utime(lock, (old, old))
+    started = time.monotonic()
+    with oauth.credential_lock(path):
+        pass
+    assert time.monotonic() - started < 5 and not lock.exists()
+    server = "https://server.example"
+    entry = common.ServerEntry(server, access_token="new", refresh_token="r", expires_at=int(time.time()) + 3600, issuer=server, client_id="c")
+    common.Credentials(path, {common.normalize(server): entry}).save()
+    upstream = common.Upstream(lambda: path)
+    # A socket opened with an older token was closed for it: the newer one another socket refreshed stays.
+    upstream.reject_access_token(server, "old")
+    assert upstream.credentials().servers[common.normalize(server)].expires_at != 0
+    upstream.reject_access_token(server, "new")
+    assert upstream.credentials().servers[common.normalize(server)].expires_at == 0
+
+
+def test_a_fresh_lock_is_still_waited_on(tmp_path, monkeypatch):
+    """A lock someone holds right now is never taken: it could be a rotating refresh in progress."""
+    path = tmp_path / "credentials.json"
+    lock = path.with_name(path.name + ".lock")
+    lock.mkdir()
+    clock = iter(range(0, 1000, 10))
+    monkeypatch.setattr(oauth.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(oauth.time, "sleep", lambda wait: None)
+    with pytest.raises(oauth.OAuthError, match="locked"):
+        with oauth.credential_lock(path):
+            pass
+    assert lock.exists()
+
+
+def test_an_https_tunnel_renews_its_token_while_it_carries_a_connection(tmp_path, monkeypatch):
+    """localproxy/renew_test.go: TestAnHTTPSTunnelRenewsItsTokenWhileItCarriesAConnection."""
+    import asyncio
+    import json
+    from websockets.asyncio.server import serve
+    from agent_py.client import localproxy
+
+    monkeypatch.delenv("AI_PROXY_TOKEN", raising=False)
+    monkeypatch.setattr(localproxy, "RENEW_EVERY", 0.05)
+    issued = iter(range(1, 10000))
+
+    def token_endpoint(request):
+        # Tokens always inside REFRESH_BEFORE, so every check refreshes one.
+        return httpx.Response(200, json={"access_token": f"access-{next(issued)}", "refresh_token": "refresh",
+                                         "expires_in": oauth.REFRESH_BEFORE + 1, "token_type": "Bearer"})
+
+    mock_http(monkeypatch, token_endpoint)
+
+    async def run():
+        dialled: asyncio.Queue = asyncio.Queue()
+        renewed: asyncio.Queue = asyncio.Queue()
+
+        async def handler(connection):
+            if connection.request.path != "/api/proxy/tunnel":
+                return
+            await dialled.put(connection.request.headers.get(common.TOKEN_HEADER, ""))
+            async for message in connection:
+                if isinstance(message, str):
+                    value = json.loads(message)
+                    if value.get("type") == "token":
+                        await renewed.put(value["token"])
+
+        async with serve(handler, "127.0.0.1", 0) as ws:
+            url = f"http://127.0.0.1:{ws.sockets[0].getsockname()[1]}"
+            path = tmp_path / "credentials.json"
+            entry = common.ServerEntry(url, access_token="access-0", refresh_token="refresh", expires_at=1, issuer=url,
+                                       client_id="mesh-cli", token_endpoint=url + "/token")
+            common.Credentials(path, {common.normalize(url): entry}).save()
+            proxy = localproxy.TunnelServer(common.Upstream(lambda: path, fixed=url))
+            server = await asyncio.start_server(proxy.handle, "127.0.0.1", 0)
+            try:
+                reader, writer = await asyncio.open_connection("127.0.0.1", server.sockets[0].getsockname()[1])
+                writer.write(b"CONNECT api.anthropic.com:443 HTTP/1.1\r\n\r\n")
+                await writer.drain()
+                first = await asyncio.wait_for(dialled.get(), 5)
+                token = await asyncio.wait_for(renewed.get(), 5)
+                assert token != first and token.startswith("access-")
+                writer.close()
+            finally:
+                server.close()
+
+    asyncio.run(run())

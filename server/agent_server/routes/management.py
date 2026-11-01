@@ -29,6 +29,10 @@ LOGGER = logging.getLogger("agent-proxy")
 STALE_SESSION_SECONDS = 15 * 60
 
 
+# How often a live stream's credential is checked with the issuer.
+LIVE_RECHECK_SECONDS = 15.0
+
+
 def register(app: FastAPI, runtime: Runtime) -> None:
     settings = runtime.settings
     stats = ServerStats(settings)
@@ -388,6 +392,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
 
         async def events():
             nonlocal visible
+            checked_at = time.monotonic()
             try:
                 snapshot = runtime.live.snapshot(session_id)
                 snapshot = {**snapshot, **{part: [entry for entry in snapshot[part] if visible(entry["session_id"])] for part in ("active", "recent")}}
@@ -397,13 +402,17 @@ def register(app: FastAPI, runtime: Runtime) -> None:
                         event = await asyncio.wait_for(queue.get(), timeout=15)
                     except asyncio.TimeoutError:
                         event = {"type": "keep-alive"}
-                    try:
-                        identity = await asyncio.to_thread(runtime.auth.identify, request)
-                    except auth.AuthUnavailable:
-                        return
-                    if identity is None:
-                        return
-                    request.scope["state"]["identity"] = identity
+                    if time.monotonic() - checked_at >= LIVE_RECHECK_SECONDS:
+                        # The credential, every few seconds (not the issuer on every token of a reply);
+                        # what this user may see, from memory, on every event.
+                        try:
+                            identity = await asyncio.to_thread(runtime.auth.recheck, request)
+                        except auth.AuthUnavailable:
+                            return
+                        if identity is None:
+                            return
+                        request.scope["state"]["identity"] = identity
+                        checked_at = time.monotonic()
                     visible = visible_ids(request)
                     if event is not None and event.get("type") == "keep-alive":
                         yield b": keep-alive\n\n"

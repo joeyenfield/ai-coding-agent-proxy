@@ -313,10 +313,25 @@ def test_refresh_rotation_replay_revokes_whole_family(issuer):
     rotated = rotated.json()
     assert rotated["refresh_token"] != original["refresh_token"]
     assert introspect(client, service, rotated["access_token"]).json()["active"]
+    # A retry moments later (its answer was lost on the way back) is allowed once and revokes nothing.
+    retried = refresh(client, service, original["refresh_token"])
+    assert retried.status_code == 200, retried.text
+    assert introspect(client, service, rotated["access_token"]).json()["active"]
+    # Any further replay is theft: the whole family goes.
     assert refresh(client, service, original["refresh_token"]).json()["error"] == "invalid_grant"
     assert refresh(client, service, rotated["refresh_token"]).status_code == 400
-    for token in (original["access_token"], rotated["access_token"]):
+    for token in (original["access_token"], rotated["access_token"], retried.json()["access_token"]):
         assert introspect(client, service, token).json() == {"active": False}
+
+
+def test_a_refresh_token_replayed_after_the_grace_revokes_its_family(issuer, monkeypatch):
+    client, service, _ = issuer
+    monkeypatch.setattr("agent_server.issuer.REFRESH_REUSE_GRACE", -1)
+    code, verifier, params = browser_code(client, service)
+    original = exchange(client, service, code, verifier, params).json()
+    rotated = refresh(client, service, original["refresh_token"]).json()
+    assert refresh(client, service, original["refresh_token"]).json()["error"] == "invalid_grant"
+    assert introspect(client, service, rotated["access_token"]).json() == {"active": False}
 
 
 def test_refresh_absolute_expiry_scopes_and_revocation_ownership(issuer):

@@ -8,7 +8,7 @@ import { FolderPicker } from "../components/FolderPicker";
 import { Icon } from "../components/Icon";
 import { ShareChoice } from "../components/Sharing";
 import { StateDot } from "../components/ProviderState";
-import { useAgents, useAuth, useClipboard, useMachines, useModels, useSessions, useStatus, useToast } from "../hooks";
+import { pollEvery, useAgents, useAuth, useClipboard, useMachines, useModels, useSessions, useStatus, useToast } from "../hooks";
 import { providerLabel } from "../routes";
 import { formatRelative } from "../format";
 import { OllamaProvider } from "./Models";
@@ -690,7 +690,7 @@ function MachineSessions({ machine }: { machine: FleetMachine }) {
   const sessions = useSessions();
   const agents = useAgents();
   // The rail polls the same list; devices that can't watch terminals get a 401 and see sessions only.
-  const terminals = useQuery({ queryKey: ["terminals"], queryFn: api.terminals, retry: false, refetchInterval: (query) => (query.state.status === "error" ? false : 3000) });
+  const terminals = useQuery({ queryKey: ["terminals"], queryFn: api.terminals, retry: false, refetchInterval: pollEvery(3000) });
   const byId = new Map((terminals.data?.terminals ?? []).map((item) => [item.session_id, item]));
   const now = Date.now();
   const running = (sessions.data ?? [])

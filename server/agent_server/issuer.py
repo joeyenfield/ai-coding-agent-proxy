@@ -43,6 +43,10 @@ from .db import Database, kv, migrate, schema, sqlite_url
 DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 SCOPES = "openid profile offline_access mesh-api"
 ACCESS_TTL = 300
+# A refresh token used this recently may be used once more without revoking its family: the client
+# may never have received the answer (a phone's network dropped it, or the process was killed before
+# it saved the new tokens), and would otherwise be signed out for good on its next try.
+REFRESH_REUSE_GRACE = 60
 FAMILY_TTL = 30 * 86400
 CODE_TTL = 120
 DEVICE_TTL = 600
@@ -317,9 +321,14 @@ class RefreshGrant(RefreshTokenGrant):
         if not family or family["revoked"] or family["exp"] <= time.time():
             return None
         if data.get("used"):
-            family["revoked"] = True
-            service.state.put("family", data["family"], family)
-            return None
+            if time.time() - float(data.get("used_at") or 0) <= REFRESH_REUSE_GRACE and not data.get("reused"):
+                # A retry of a refresh whose answer was lost: allowed once, and the family stays good.
+                data["reused"] = True
+                service.state.put("refresh", key, data)
+            else:
+                family["revoked"] = True
+                service.state.put("family", data["family"], family)
+                return None
         if not service.bound_user(data["user"], data["version"]):
             return None
         return Credential(key=key, **data)
@@ -330,7 +339,9 @@ class RefreshGrant(RefreshTokenGrant):
     def revoke_old_credential(self, token):
         data = vars(token).copy()
         key = data.pop("key")
-        data["used"] = True
+        if not data.get("used"):
+            data["used"] = True
+            data["used_at"] = time.time()
         self.server.service.state.put("refresh", key, data)
 
 

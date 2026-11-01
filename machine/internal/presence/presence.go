@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"os"
@@ -46,9 +47,24 @@ const (
 	launchTimeout = 50 * time.Second
 )
 
-// How often the machine checks its access token. The token is refreshed in its last 30
-// seconds and the server checks every 15, so a new one reaches the server in time.
+// How often the machine checks its access token. A refreshed one goes to the server at once, and the
+// current one again every resendEvery, so a renewal the server missed (its issuer was slow) is retried
+// long before the old token expires.
 var renewEvery = 10 * time.Second
+
+const resendEvery = 60 * time.Second
+
+// How long the connection may be silent before it's taken for dead. The server pings every 20 s and
+// the machine pings it every pingEvery, so only a connection that's gone (a phone that changed
+// networks, with the old one half-open) stays silent this long; without it, writes go on landing in
+// the kernel's buffer and the machine would think it's connected for many minutes.
+const readTimeout = 70 * time.Second
+
+// jitter spreads delay over half to one and a half times itself, so machines dropped together (a server
+// restart) don't all come back in the same instant.
+func jitter(delay time.Duration) time.Duration {
+	return delay/2 + time.Duration(rand.Int64N(int64(delay)+1))
+}
 
 var retryDelays = []time.Duration{2 * time.Second, 5 * time.Second, 10 * time.Second, 30 * time.Second}
 
@@ -182,7 +198,7 @@ func (p *Presence) Run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(retryDelays[min(attempt, len(retryDelays)-1)]):
+		case <-time.After(jitter(retryDelays[min(attempt, len(retryDelays)-1)])):
 		}
 	}
 }
@@ -207,7 +223,13 @@ func (p *Presence) session(ctx context.Context) error {
 		writeMu.Lock()
 		defer writeMu.Unlock()
 		_ = conn.SetWriteDeadline(time.Now().Add(15 * time.Second))
-		return conn.WriteMessage(websocket.TextMessage, data)
+		err := conn.WriteMessage(websocket.TextMessage, data)
+		if err != nil {
+			// After a failed write gorilla fails every later one: end the session so Run reconnects,
+			// instead of reading on while nothing can be answered.
+			_ = conn.Close()
+		}
+		return err
 	}
 	if err := send(p.describe(server, "hello")); err != nil {
 		return err
@@ -227,7 +249,15 @@ func (p *Presence) session(ctx context.Context) error {
 		}
 		return err
 	}
-	_ = conn.SetReadDeadline(time.Time{})
+	alive := func() { _ = conn.SetReadDeadline(time.Now().Add(readTimeout)) }
+	alive()
+	conn.SetPongHandler(func(string) error { alive(); return nil })
+	conn.SetPingHandler(func(data string) error {
+		alive()
+		// WriteControl may run alongside WriteMessage; a pong that can't be sent shows up as a read error.
+		_ = conn.WriteControl(websocket.PongMessage, []byte(data), time.Now().Add(10*time.Second))
+		return nil
+	})
 	var welcome struct {
 		Type string `json:"type"`
 	}
@@ -240,30 +270,46 @@ func (p *Presence) session(ctx context.Context) error {
 	sessionCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	go func() {
-		ping, update, renew := time.NewTicker(pingEvery), time.NewTicker(updateEvery), time.NewTicker(renewEvery)
+		ping, update := time.NewTicker(pingEvery), time.NewTicker(updateEvery)
 		defer ping.Stop()
 		defer update.Stop()
-		defer renew.Stop()
-		// The token this connection opened with (Dial's, still cached). The server closes the
-		// connection once it expires, so each newer one is sent over it before then.
-		token, _ := p.Upstream.AccessToken(server)
 		for {
 			select {
 			case <-sessionCtx.Done():
 				_ = conn.Close()
 				return
 			case <-ping.C:
+				// A WebSocket ping, which the server answers: the pong keeps the read deadline moving.
+				_ = conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(10*time.Second))
 				_ = send(map[string]any{"type": "ping"})
 			case <-update.C:
 				_ = send(p.describe(server, "update"))
+			}
+		}
+	}()
+	// Renewal on its own, so a slow update (probing model servers, asking the server for its agents)
+	// never holds a token back past its expiry.
+	go func() {
+		renew := time.NewTicker(renewEvery)
+		defer renew.Stop()
+		// The token this connection opened with (Dial's, still cached). The server closes the
+		// connection once it expires, so each newer one is sent over it before then.
+		token, _ := p.Upstream.AccessToken(server)
+		sent := time.Now()
+		for {
+			select {
+			case <-sessionCtx.Done():
+				return
 			case <-renew.C:
 				if token == "" {
 					continue
 				}
-				if next, err := p.Upstream.AccessToken(server); err == nil && next != token {
-					if send(map[string]any{"type": "token", "token": next}) == nil {
-						token = next
-					}
+				next, err := p.Upstream.AccessToken(server)
+				if err != nil || (next == token && time.Since(sent) < resendEvery) {
+					continue
+				}
+				if send(map[string]any{"type": "token", "token": next}) == nil {
+					token, sent = next, time.Now()
 				}
 			}
 		}
@@ -273,6 +319,7 @@ func (p *Presence) session(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		alive()
 		var kind struct {
 			Type string `json:"type"`
 		}

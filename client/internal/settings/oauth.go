@@ -121,8 +121,19 @@ func (entry *ServerEntry) SetToken(token *OAuthToken) {
 	entry.Token, entry.TokenID = "", ""
 }
 
+// RefreshBefore is how long before its expiry an access token is refreshed: long enough that a
+// refresh on a slow or dropping network (it may take 20 s, and be tried again) still finishes before
+// the server stops accepting the old token and closes the sockets it opened.
+const RefreshBefore = 120
+
+// StaleLock is how old a credentials lock must be before it's taken for one a killed process left
+// behind. Whoever holds it does one read, one refresh (at most 20 s) and one write, so a lock this old
+// has no live owner; without this, every later sign-in and request would wait and fail until someone
+// deleted it by hand (Android kills background processes, and an update stops the old one).
+const StaleLock = 2 * time.Minute
+
 // LockCredentials serializes the whole read/refresh/save transaction across Go and Python.
-// Never steal a timed-out lock: doing so could reuse a rotating refresh token.
+// A timed-out lock isn't stolen (that could reuse a rotating refresh token), only one past StaleLock.
 func LockCredentials() (func(), error) {
 	path := CredentialsPath() + ".lock"
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -133,6 +144,11 @@ func LockCredentials() (func(), error) {
 		err := os.Mkdir(path, 0o700)
 		if err == nil {
 			return func() { _ = os.Remove(path) }, nil
+		}
+		if info, statErr := os.Stat(path); statErr == nil && time.Since(info.ModTime()) > StaleLock {
+			// Left by a process that died holding it: take it over.
+			_ = os.Remove(path)
+			continue
 		}
 		// On Windows, creating the directory while another process is removing it is refused
 		// as access denied, not as already existing: that's the lock being released, so wait.
@@ -167,7 +183,7 @@ func (u Upstream) AccessToken(server string) (string, error) {
 	if entry == nil || entry.AccessToken == "" || entry.Issuer == "" || entry.ClientID == "" {
 		return "", ErrLoginRequired
 	}
-	if entry.ExpiresAt > time.Now().Unix()+30 {
+	if entry.ExpiresAt > time.Now().Unix()+RefreshBefore {
 		return entry.AccessToken, nil
 	}
 	if entry.RefreshToken == "" {
@@ -199,6 +215,13 @@ func (u Upstream) AccessToken(server string) (string, error) {
 // RejectAccessToken forces the next call to refresh after a server invalidates a
 // credential before its advertised expiry. It never exchanges credentials unlocked.
 func (u Upstream) RejectAccessToken(server string) error {
+	return u.RejectAccessTokenIf(server, "")
+}
+
+// RejectAccessTokenIf is RejectAccessToken for the token a socket was opened with: only while it's
+// still the stored one. Several sockets opened with one token are closed together when it expires;
+// the first refreshes, and the others mustn't throw that new token away and refresh again each.
+func (u Upstream) RejectAccessTokenIf(server, token string) error {
 	if os.Getenv(TokenEnvironment) != "" {
 		return nil
 	}
@@ -209,7 +232,7 @@ func (u Upstream) RejectAccessToken(server string) error {
 	defer unlock()
 	credentials := LoadCredentials()
 	entry := credentials.Servers[Normalize(server)]
-	if entry == nil {
+	if entry == nil || (token != "" && entry.AccessToken != token) {
 		return nil
 	}
 	entry.ExpiresAt = 0

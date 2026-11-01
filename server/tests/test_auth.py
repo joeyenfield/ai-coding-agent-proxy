@@ -467,6 +467,7 @@ def test_shared_terminals_follow_the_session_sharing(tmp_path):
             assert bob.get("/api/terminals").json()["terminals"][0]["you"]["control"] is False
             with bob.websocket_connect(f"/api/terminals/{session}/view", headers=ws_headers(bob)) as viewer:
                 assert json.loads(viewer.receive_text())["type"] == "state"
+                assert json.loads(viewer.receive_text()) == {"type": "replay", "start": 0, "resumed": False}
                 assert viewer.receive_bytes() == b"> ready\r\n"
                 assert json.loads(viewer.receive_text())["type"] == "replayed"
                 viewer.send_text(json.dumps({"type": "input", "text": "rm -rf /", "enter": True}))
@@ -505,6 +506,7 @@ def test_connected_terminal_viewers_lose_revoked_access(tmp_path, monkeypatch, c
             assert host.receive_json()["type"] == "resume"
             with client.websocket_connect(f"/api/terminals/{sid}/view", headers=headers) as viewer:
                 assert viewer.receive_json()["type"] == "state"
+                assert viewer.receive_json()["type"] == "replay"
                 assert viewer.receive_json()["type"] == "replayed"
                 sent = []
 

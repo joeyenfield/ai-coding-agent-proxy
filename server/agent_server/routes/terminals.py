@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from typing import Any, Awaitable, Callable
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -27,6 +28,8 @@ CLOSE_BEHIND = 4408
 REPLAY_CHUNK = 256 * 1024
 # Also revoke an idle viewer after a credential or membership changes outside this process.
 ACCESS_POLL_SECONDS = 1.0
+# How often a viewer's credential is checked with the issuer (memberships and sharing: on every event).
+IDENTITY_RECHECK_SECONDS = 5.0
 
 
 def register(app: FastAPI, runtime: Runtime) -> None:
@@ -120,10 +123,19 @@ def register(app: FastAPI, runtime: Runtime) -> None:
                 message = await websocket.receive()
                 if message["type"] == "websocket.disconnect":
                     break
+                if terminal.host is not websocket:
+                    # The launcher reconnected on another socket, which resumed from the server's count:
+                    # anything still arriving here would be recorded twice.
+                    break
                 if message.get("bytes") is not None:
                     hub.output(terminal, message["bytes"])
                 elif message.get("text"):
-                    _control(hub, terminal, message["text"])
+                    renewal = _renewal(message["text"])
+                    if renewal is not None:
+                        # The agent-proxy's next access token, before the one it connected with expires.
+                        await auth.renew_socket(runtime, websocket, renewal)
+                    else:
+                        _control(hub, terminal, message["text"])
         except (WebSocketDisconnect, RuntimeError):
             pass
         finally:
@@ -143,19 +155,29 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             await websocket.close(code=CLOSE_NOT_FOUND, reason="This session has no shared terminal")
             return
 
+        checked: dict[str, Any] = {"identity": identity, "at": time.monotonic()}
+
         async def permitted(control: bool = False) -> int:
-            # Re-read the credential and memberships, not the middleware's connection-time snapshot.
-            try:
-                current = await asyncio.to_thread(runtime.auth.identify, websocket)
-            except auth.AuthUnavailable:
-                return 4410
+            # Re-read the credential (every few seconds: the issuer isn't asked on every byte) and the
+            # memberships and sharing (every time, from memory), not the connection-time snapshot.
+            if time.monotonic() - checked["at"] >= IDENTITY_RECHECK_SECONDS:
+                try:
+                    current = await asyncio.to_thread(runtime.auth.recheck, websocket)
+                except auth.AuthUnavailable:
+                    return 4410
+                if current is None:
+                    return 4410
+                checked.update(identity=current, at=time.monotonic())
+            current = runtime.auth.identity_for(checked["identity"].user, checked["identity"].via)
             if current is None:
                 return 4410
             check = sharing.can_control if control else sharing.can_view
             return 0 if runtime.sessions.get(session_id) is session and check(current, session) else 4403
 
-        history, queue = hub.subscribe(terminal, identity)
-        sender = asyncio.create_task(_send_to_viewer(websocket, terminal, history, queue, permitted))
+        # A viewer that reconnects says how much it has (?from=<offset>) and gets only what it missed.
+        since = websocket.query_params.get("from")
+        history, queue, start, resumed = hub.subscribe(terminal, identity, int(since) if since and since.isdigit() else None)
+        sender = asyncio.create_task(_send_to_viewer(websocket, terminal, history, queue, permitted, start, resumed))
         try:
             while True:
                 try:
@@ -182,6 +204,17 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             sender.cancel()
 
 
+def _renewal(text: str) -> Any:
+    """The token in a {"type": "token"} message, else None."""
+    if '"token"' not in text:
+        return None
+    try:
+        message = json.loads(text)
+    except ValueError:
+        return None
+    return message.get("token") if isinstance(message, dict) and message.get("type") == "token" else None
+
+
 def _control(hub: Any, terminal: Terminal, text: str) -> None:
     try:
         message = json.loads(text)
@@ -200,6 +233,7 @@ def _control(hub: Any, terminal: Terminal, text: str) -> None:
 
 async def _send_to_viewer(
     websocket: WebSocket, terminal: Terminal, history: bytes, queue: asyncio.Queue, still_allowed: Callable[[], Awaitable[int]],
+    start: int = 0, resumed: bool = False,
 ) -> None:
     """The only task that writes to a viewer's socket, so messages never interleave."""
     async def authorized() -> bool:
@@ -213,10 +247,12 @@ async def _send_to_viewer(
         if not await authorized():
             return
         await websocket.send_text(json.dumps({"type": "state", "terminal": terminal.public()}))
-        for start in range(0, len(history), REPLAY_CHUNK):
+        # Where the bytes that follow start in the output, and whether they continue what the viewer has.
+        await websocket.send_text(json.dumps({"type": "replay", "start": start, "resumed": resumed}))
+        for offset in range(0, len(history), REPLAY_CHUNK):
             if not await authorized():
                 return
-            await websocket.send_bytes(history[start:start + REPLAY_CHUNK])
+            await websocket.send_bytes(history[offset:offset + REPLAY_CHUNK])
         if not await authorized():
             return
         await websocket.send_text(json.dumps({"type": "replayed"}))

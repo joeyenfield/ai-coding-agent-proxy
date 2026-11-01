@@ -119,7 +119,8 @@ func Run(command []string, dir string, env []string, share *Share) (int, error) 
 	}
 	screen.Restore()
 	if share != nil {
-		share.Finish(status, 3*time.Second)
+		// Long enough for a reconnect or two (the delays are 1, 2, 5 s), so the exit isn't lost to a blip.
+		share.Finish(status, 10*time.Second)
 	}
 	return status, nil
 }
@@ -157,7 +158,7 @@ func RunHeadless(command []string, dir string, env []string, share *Share) (int,
 	case <-output:
 	case <-time.After(2 * time.Second):
 	}
-	share.Finish(status, 5*time.Second)
+	share.Finish(status, 15*time.Second)
 	return status, nil
 }
 

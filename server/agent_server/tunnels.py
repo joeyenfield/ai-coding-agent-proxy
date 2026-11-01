@@ -114,7 +114,12 @@ class TunnelHub:
         future: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
         self._pending[tunnel_id] = (machine_id, future)
         try:
-            await socket.send_text(json.dumps({"type": "tunnel", "tunnel": tunnel_id, "port": port}))
+            try:
+                await socket.send_text(json.dumps({"type": "tunnel", "tunnel": tunnel_id, "port": port}))
+            except Exception:
+                # A connection that can't be written to is gone: the next try waits for the new one.
+                self.fleet.disconnect(machine_id, socket)
+                raise
             return await asyncio.wait_for(future, OPEN_TIMEOUT)
         except Exception as exc:  # noqa: BLE001 - the fleet connection went, or the machine didn't dial back
             LOGGER.warning("tunnel to %s port %s didn't open: %s", machine_id, port, exc or type(exc).__name__)

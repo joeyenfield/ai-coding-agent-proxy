@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI, WebSocket
 
-from .. import remote
+from .. import auth, remote
 from ..runtime import Runtime
 from .terminals import CLOSE_NOT_FOUND, CLOSE_UNAUTHORIZED
 
@@ -25,4 +25,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         if runtime.intercept is None:
             await websocket.close(code=CLOSE_NOT_FOUND, reason="HTTPS interception is off on this server")
             return
-        await runtime.intercept.serve_tunnel(websocket)
+        async def renew(socket: WebSocket, token: object) -> bool:
+            return await auth.renew_socket(runtime, socket, token)
+
+        await runtime.intercept.serve_tunnel(websocket, renew)

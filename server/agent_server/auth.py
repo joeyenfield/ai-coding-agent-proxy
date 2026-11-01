@@ -517,6 +517,12 @@ def _checked_password(password: str) -> str:
     return password
 
 
+# How long the issuer's answer about an access token is reused: long-lived streams (the live view,
+# terminal viewers) re-check their caller on every event, which must not mean a call to the issuer each.
+# A revocation or an account change reaches open connections within this time.
+INTROSPECTION_CACHE_SECONDS = 10.0
+
+
 class Auth:
     """Who a request comes from: OAuth access tokens introspected at the issuer, mapped to current accounts."""
 
@@ -524,6 +530,8 @@ class Auth:
         self.store = store
         self.settings = settings
         self.client = httpx.Client(timeout=5, trust_env=False, follow_redirects=False)
+        # Tokens the issuer confirmed: digest -> (when it said so, whose it is, when it expires).
+        self._confirmed: dict[str, tuple[float, str, float]] = {}
 
     @property
     def environment_user(self) -> tuple[str, str] | None:
@@ -590,12 +598,23 @@ class Auth:
 
         return self.identify(Carrier())  # type: ignore[arg-type]
 
-    def identify(self, connection: HTTPConnection) -> Identity | None:
+    def recheck(self, connection: HTTPConnection) -> Identity | None:
+        """identify, for a connection already open: the issuer's answer may be up to INTROSPECTION_CACHE_SECONDS old."""
+        return self.identify(connection, cached=True)
+
+    def identify(self, connection: HTTPConnection, cached: bool = False) -> Identity | None:
         token, via = self.request_token(connection)
         if not token or len(token) > 8192:
             return None
         if not self.settings or not self.settings.oidc_introspection_secret:
             raise AuthUnavailable("OIDC introspection credentials are not configured")
+        key = _digest(token)
+        now = time.time()
+        confirmed = self._confirmed.get(key)
+        # Only rechecks of open connections reuse an answer: a new request always asks, so a sign-out applies at once.
+        if cached and confirmed and now - confirmed[0] < INTROSPECTION_CACHE_SECONDS and confirmed[2] > now:
+            # Permissions are read fresh every time; only the issuer's answer about the token is reused.
+            return self.identity_for(confirmed[1], via)
         try:
             response = self.client.post(
                 self.settings.oidc_issuer + "/introspect", data={"token": token},
@@ -605,8 +624,13 @@ class Auth:
             claims = response.json()
         except (httpx.HTTPError, ValueError) as exc:
             logging.getLogger(__name__).warning("OIDC introspection is unavailable (%s)", type(exc).__name__)
+            if confirmed and confirmed[2] > now:
+                # A token the issuer confirmed, still within its own lifetime: one slow or failed answer
+                # mustn't close every open connection at once. A new or expired token is still refused.
+                return self.identity_for(confirmed[1], via)
             raise AuthUnavailable("The authentication service is unavailable") from exc
         if not isinstance(claims, dict) or claims.get("active") is not True:
+            self._confirmed.pop(key, None)
             return None
         audience = claims.get("aud")
         audiences = audience if isinstance(audience, list) else [audience]
@@ -619,7 +643,12 @@ class Auth:
             or not isinstance(expires, (int, float)) or not math.isfinite(expires) or expires <= time.time()
             or not isinstance(claims.get("username"), str)
         ):
+            self._confirmed.pop(key, None)
             return None
+        if len(self._confirmed) > 4096:
+            for stale in [item for item, (_, _, expires) in list(self._confirmed.items()) if expires <= now]:
+                self._confirmed.pop(stale, None)
+        self._confirmed[key] = (now, claims["username"], float(expires))
         return self.identity_for(claims["username"], via)
 
     def check_password(self, user: str, password: str) -> bool:
@@ -738,7 +767,7 @@ class AuthMiddleware:
                     if renewed:
                         current = await asyncio.to_thread(self.runtime.auth.identify_token, renewed)
                     else:
-                        current = await asyncio.to_thread(self.runtime.auth.identify, connection)
+                        current = await asyncio.to_thread(self.runtime.auth.recheck, connection)
                 except AuthUnavailable:
                     renewal_required = True
                     group.cancel_scope.cancel()

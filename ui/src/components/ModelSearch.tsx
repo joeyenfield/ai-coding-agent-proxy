@@ -1,6 +1,6 @@
 import { useId, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { useQuery, type UseQueryResult } from "@tanstack/react-query";
-import { api, pullModel, type HfSearch, type LibrarySearch, type ProviderRef, type PullProgress } from "../api";
+import { useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
+import { api, pullModel, PullConnectionLost, type HfSearch, type LibrarySearch, type ProviderRef, type PullProgress } from "../api";
 import { formatBytes, formatNumber } from "../format";
 import { useToast } from "../hooks";
 import { TabBar, TabPanel } from "./Tabs";
@@ -31,6 +31,7 @@ export const pullPercent = (progress: PullProgress | null) =>
 /** One pull at a time to one model server, owned by its page so it keeps running while the user switches tabs. */
 export function usePull(target: ProviderRef, label: string, onPulled: () => void): Puller {
   const notify = useToast();
+  const client = useQueryClient();
   const [pull, setPull] = useState<Pull | null>(null);
   const abort = useRef<AbortController | null>(null);
 
@@ -52,6 +53,12 @@ export function usePull(target: ProviderRef, label: string, onPulled: () => void
       if (controller.signal.aborted) {
         notify("Pull cancelled");
         setPull(null);
+      } else if (error instanceof PullConnectionLost) {
+        // Not a failure: the machine may be finishing it. Refresh the list, which shows it once it's there.
+        notify(error.message);
+        setPull((current) => (current ? { ...current, progress: { ...(current.progress ?? {}), error: error.message } } : current));
+        client.invalidateQueries({ queryKey: ["provider", target.machine, target.provider] });
+        onPulled();
       } else {
         const message = (error as Error).message;
         notify(message);

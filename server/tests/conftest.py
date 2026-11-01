@@ -28,6 +28,10 @@ def isolated_storage(tmp_path_factory, monkeypatch):
     monkeypatch.setenv("AI_PROXY_LOG_DIR", str(home / "logs"))
     monkeypatch.setenv("AI_PROXY_REMOTE_KEY_FILE", str(home / "certs" / "remote-access-key"))
     monkeypatch.setenv("AI_PROXY_CA_DIR", str(home / "ca"))
+    # Tests revoke tokens and expect it to apply at once; test_auth covers the cache itself.
+    monkeypatch.setattr("agent_server.auth.INTROSPECTION_CACHE_SECONDS", 0.0)
+    monkeypatch.setattr("agent_server.routes.management.LIVE_RECHECK_SECONDS", 0.0)
+    monkeypatch.setattr("agent_server.routes.terminals.IDENTITY_RECHECK_SECONDS", 0.0)
     for name in ("AI_PROXY_DATABASE_URL", "AI_PROXY_AUTH_DATABASE_URL", "AI_PROXY_BACKENDS", "AI_PROXY_MODELS", "AI_PROXY_AGENTS"):
         monkeypatch.delenv(name, raising=False)
     database = _postgres_database()

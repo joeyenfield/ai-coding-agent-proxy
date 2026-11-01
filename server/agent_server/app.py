@@ -48,7 +48,13 @@ def create_app(settings: Settings | None = None, restart: Any = None, address_pi
     async def lifespan(_: FastAPI):
         settings.log_dir.joinpath("proxy").mkdir(parents=True, exist_ok=True)
         _configure_logging(settings.log_dir / "proxy" / "proxy.log")
-        runtime.client = upstream_client(timeout=httpx.Timeout(600, connect=10))
+        # A long reply may be silent for minutes (a model loading), but a full pool shouldn't make requests
+        # queue silently for that long. Connections are kept 30 s, so an agent's next call after a tool
+        # runs reuses its tunnel through the machine instead of asking for a new one.
+        runtime.client = upstream_client(
+            timeout=httpx.Timeout(600, connect=10, pool=30),
+            limits=httpx.Limits(max_connections=400, max_keepalive_connections=100, keepalive_expiry=30),
+        )
         if settings.intercept.enabled:
             runtime.intercept_client = upstream_client(
                 timeout=httpx.Timeout(600, connect=10), transport=InterceptTransport(), trust_env=False,

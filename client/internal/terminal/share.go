@@ -149,9 +149,15 @@ func (s *Share) finished() bool {
 func (s *Share) run() {
 	defer close(s.done)
 	for attempt := 0; ; attempt++ {
+		started := time.Now()
 		err := s.stream()
 		if err == nil {
 			return
+		}
+		// A connection that held a while was fine: the next drop starts the delays over, so a socket
+		// closed for its token every few minutes doesn't wait the longest delay each time.
+		if time.Since(started) > 30*time.Second {
+			attempt = 0
 		}
 		var refused refusedError
 		if errors.As(err, &refused) {
@@ -159,7 +165,8 @@ func (s *Share) run() {
 			return
 		}
 		s.setProblem(fmt.Sprintf("lost the connection to the proxy (%v)", err))
-		if s.finished() && attempt >= 1 {
+		// Once the agent has exited, a few more tries to get its last output and exit status there.
+		if s.finished() && attempt >= 3 {
 			return
 		}
 		if s.Revive != nil {
