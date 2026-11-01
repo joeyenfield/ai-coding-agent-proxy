@@ -1,6 +1,7 @@
 package presence
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -65,6 +66,40 @@ func (p *Presence) tunnel(server string, request Tunnel, extra []int) error {
 	}
 	defer local.Close()
 	done := make(chan struct{}, 2)
+	// One writer at a time on the WebSocket, as gorilla needs: the model server's bytes and the tokens.
+	var writeMu sync.Mutex
+	write := func(kind int, data []byte) error {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		return conn.WriteMessage(kind, data)
+	}
+	stop := make(chan struct{})
+	defer close(stop)
+	// The server closes the tunnel once the token it was opened with expires, which a long reply
+	// (or a kept-alive connection) outlasts: each newer token goes over it as a text frame.
+	go func() {
+		token, err := p.Upstream.AccessToken(server)
+		if err != nil || token == "" {
+			return
+		}
+		ticker := time.NewTicker(renewEvery)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				next, err := p.Upstream.AccessToken(server)
+				if err != nil || next == token {
+					continue
+				}
+				message, _ := json.Marshal(map[string]string{"type": "token", "token": next})
+				if write(websocket.TextMessage, message) == nil {
+					token = next
+				}
+			}
+		}
+	}()
 	// Server to model server.
 	go func() {
 		defer func() { done <- struct{}{} }()
@@ -87,13 +122,15 @@ func (p *Presence) tunnel(server string, request Tunnel, extra []int) error {
 		for {
 			n, err := local.Read(buffer)
 			if n > 0 {
-				if werr := conn.WriteMessage(websocket.BinaryMessage, buffer[:n]); werr != nil {
+				if werr := write(websocket.BinaryMessage, buffer[:n]); werr != nil {
 					return
 				}
 			}
 			if err != nil {
 				if err == io.EOF {
+					writeMu.Lock()
 					_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second))
+					writeMu.Unlock()
 				}
 				return
 			}

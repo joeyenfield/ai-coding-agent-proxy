@@ -63,6 +63,12 @@ LAUNCH_TIMEOUT = 60.0
 # networks, a token it couldn't renew in time): a request waits up to RECONNECT_WAIT for it.
 RECONNECT_WINDOW = 60.0
 RECONNECT_WAIT = 10.0
+# Requests that only read, so one cut off by the machine dropping is asked again once it's back:
+# (channel, op). Changes (pull, start, delete, ...) never are: the machine may have done them already.
+READ_ONLY = {
+    ("provider", "status"), ("provider", "models"), ("provider", "log"), ("provider", "metrics"), ("provider", "search"),
+    ("container", "status"), ("container", "logs"), ("folders", "list"), ("server", "settings"),
+}
 # The client a shell's session names (`agent --shell`): it stays private, as it's a remote terminal.
 SHELL_CLIENT = "shell"
 PROVIDER_TYPES = ("ollama", "docker", "strata")
@@ -127,6 +133,10 @@ class FleetError(Exception):
         super().__init__(detail)
         self.status = status
         self.detail = detail
+
+
+class MachineGone(FleetError):
+    """The machine's connection went while it was answering."""
 
 
 # What a machine's owner can let organizations and teams do there, in the order the console lists them.
@@ -317,7 +327,7 @@ class Fleet:
         return machine
 
     def disconnect(self, machine_id: str, socket: Any) -> None:
-        if self.sockets.get(machine_id) is socket:
+        if socket is not None and self.sockets.get(machine_id) is socket:
             del self.sockets[machine_id]
             for request_id, asked in list(self._asked.items()):
                 future = self._waiting.get(request_id)
@@ -402,10 +412,14 @@ class Fleet:
     def connected(self, machine_id: str) -> bool:
         return machine_id in self.sockets
 
-    async def _socket(self, machine: Machine) -> Any:
+    def reconnecting(self, machine: Machine) -> bool:
+        """Whether a machine that isn't connected was a moment ago, so it's probably on its way back."""
+        return machine.id not in self.sockets and time.time() - machine.last_seen <= RECONNECT_WINDOW
+
+    async def wait_socket(self, machine: Machine) -> Any:
         """The machine's connection; one that just dropped gets a few seconds to come back first."""
         socket = self.sockets.get(machine.id)
-        if socket is not None or time.time() - machine.last_seen > RECONNECT_WINDOW:
+        if socket is not None or not self.reconnecting(machine):
             return socket
         deadline = time.monotonic() + RECONNECT_WAIT
         while socket is None and time.monotonic() < deadline and machine.id in self.machines:
@@ -423,6 +437,18 @@ class Fleet:
         self, machine: Machine, op: str, timeout: float | None = 30.0, channel: str = "container",
         progress: asyncio.Queue[dict[str, Any]] | None = None, **fields: Any,
     ) -> dict[str, Any]:
+        """One request to the machine and its answer (see _ask); a read cut off by the machine dropping is asked again."""
+        try:
+            return await self._ask(machine, op, timeout, channel, progress, **fields)
+        except MachineGone:
+            if (channel, op) not in READ_ONLY:
+                raise
+            return await self._ask(machine, op, timeout, channel, progress, **fields)
+
+    async def _ask(
+        self, machine: Machine, op: str, timeout: float | None = 30.0, channel: str = "container",
+        progress: asyncio.Queue[dict[str, Any]] | None = None, **fields: Any,
+    ) -> dict[str, Any]:
         """One request to the machine, and its answer; FleetError when it can't be done.
 
         channel is "container" (containers.py), "server" (starting Ollama and Strata and
@@ -434,7 +460,7 @@ class Fleet:
         messages until the answer comes. timeout None waits for as long as the machine
         stays connected.
         """
-        socket = await self._socket(machine)
+        socket = await self.wait_socket(machine)
         if socket is None:
             raise FleetError(409, f"{machine.name} isn't connected: agent-machine isn't running there, or isn't signed in here (agent-machine login, then agent-machine start).")
         if channel == "container" and not machine.containers.get("enabled"):
@@ -457,7 +483,7 @@ class Fleet:
         except asyncio.TimeoutError as exc:
             raise FleetError(504, f"{machine.name} didn't answer within {int(timeout or 0)} s") from exc
         except Exception as exc:  # noqa: BLE001 - the machine went away mid-request
-            raise FleetError(502, f"lost the connection to {machine.name} ({exc})") from exc
+            raise MachineGone(502, f"lost the connection to {machine.name} ({exc})") from exc
         finally:
             self._waiting.pop(request_id, None)
             self._asked.pop(request_id, None)
@@ -628,7 +654,7 @@ class Fleet:
     async def launch(self, machine: Machine, identity: Identity | None, request: dict[str, Any]) -> dict[str, Any]:
         if not can_launch(identity, machine):
             raise FleetError(403, "Only the machine's owner, or the teams it lets, can start agents on it.")
-        socket = await self._socket(machine)
+        socket = await self.wait_socket(machine)
         if socket is None:
             raise FleetError(409, f"{machine.name} isn't connected: agent-machine isn't running there, or isn't signed in here (agent-machine login, then agent-machine start).")
         if not machine.launches:
@@ -655,7 +681,7 @@ class Fleet:
         the machine allows it (agent-machine commands on), and the machine checks that again."""
         if not allowed(identity, machine, "terminal"):
             raise FleetError(403, "Only the machine's owner, or the teams it lets, can open a terminal on it.")
-        socket = await self._socket(machine)
+        socket = await self.wait_socket(machine)
         if socket is None:
             raise FleetError(409, f"{machine.name} isn't connected: agent-machine isn't running there, or isn't signed in here (agent-machine login, then agent-machine start).")
         if not machine.commands:

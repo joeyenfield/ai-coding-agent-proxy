@@ -15,6 +15,12 @@ through it instead of to its address:
 It's plain TCP inside, so HTTP, streaming and keep-alive all work unchanged, and the
 shared HTTP client reuses a tunnel like any other connection. A machine on this computer
 is reached directly, and so are backends whose machine isn't connected or can't tunnel.
+
+A machine that dropped its connection a moment ago (Fleet.reconnecting) still tunnels: a new
+connection waits for it to come back, and asks again once if the tunnel doesn't open, since
+nothing of the request has been read yet. Bytes already on their way can't be replayed: the
+model would answer again. The tunnel's own WebSocket outlives the machine's access token the
+way the fleet connection does: the machine sends each new token as a text frame (renew).
 """
 
 from __future__ import annotations
@@ -23,7 +29,7 @@ import asyncio
 import json
 import logging
 import secrets
-from typing import Any
+from typing import Any, Awaitable, Callable
 from urllib.parse import urlsplit
 
 from .fleet import Fleet
@@ -44,13 +50,15 @@ class TunnelHub:
         self._pending: dict[str, tuple[str, asyncio.Future[Any]]] = {}
         self._open: set[asyncio.Task[Any]] = set()
         self._sockets: set[Any] = set()
+        # Takes a new access token sent over a tunnel's WebSocket (auth.renew_socket, set by the route).
+        self.renew: Callable[[Any, Any], Awaitable[bool]] | None = None
 
     def tunnelled(self, backend: Any) -> bool:
         """Whether this backend's traffic goes through its machine rather than to its address."""
         machine = self.fleet.machines.get(backend.machine or "")
         return bool(
-            machine and machine.tunnel and self.fleet.connected(machine.id) and not self.fleet.loopback(machine)
-            and urlsplit(backend.url).port
+            machine and machine.tunnel and (self.fleet.connected(machine.id) or self.fleet.reconnecting(machine))
+            and not self.fleet.loopback(machine) and urlsplit(backend.url).port
         )
 
     async def base_url(self, backend: Any) -> str:
@@ -75,26 +83,44 @@ class TunnelHub:
         task = asyncio.current_task()
         if task:
             self._open.add(task)
+        try:
+            opened = await self._open_tunnel(machine_id, port)
+            if opened is None:
+                # Asked, but no tunnel came: the connection it went over may have been dying. Once more,
+                # over the connection the machine has now (or is about to have).
+                opened = await self._open_tunnel(machine_id, port)
+            if not opened:
+                return
+            websocket, done = opened
+            try:
+                await _pipe(reader, writer, websocket, self.renew)
+            finally:
+                done.set()
+        except (ConnectionError, RuntimeError) as exc:
+            LOGGER.warning("tunnel to %s port %s: %s", machine_id, port, exc or type(exc).__name__)
+        finally:
+            writer.close()
+            if task:
+                self._open.discard(task)
+
+    async def _open_tunnel(self, machine_id: str, port: int) -> tuple[Any, asyncio.Event] | bool | None:
+        """Asks the machine for a tunnel and waits for it to dial back: None if it didn't, False if the
+        machine isn't connected (and didn't come back in time)."""
+        machine = self.fleet.machines.get(machine_id)
+        socket = await self.fleet.wait_socket(machine) if machine else None
+        if socket is None:
+            return False
         tunnel_id = secrets.token_urlsafe(16)
         future: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
         self._pending[tunnel_id] = (machine_id, future)
         try:
-            socket = self.fleet.sockets.get(machine_id)
-            if socket is None:
-                return
             await socket.send_text(json.dumps({"type": "tunnel", "tunnel": tunnel_id, "port": port}))
-            websocket, done = await asyncio.wait_for(future, OPEN_TIMEOUT)
-            try:
-                await _pipe(reader, writer, websocket)
-            finally:
-                done.set()
-        except (asyncio.TimeoutError, ConnectionError, RuntimeError) as exc:
-            LOGGER.warning("tunnel to %s port %s: %s", machine_id, port, exc or type(exc).__name__)
+            return await asyncio.wait_for(future, OPEN_TIMEOUT)
+        except Exception as exc:  # noqa: BLE001 - the fleet connection went, or the machine didn't dial back
+            LOGGER.warning("tunnel to %s port %s didn't open: %s", machine_id, port, exc or type(exc).__name__)
+            return None
         finally:
             self._pending.pop(tunnel_id, None)
-            writer.close()
-            if task:
-                self._open.discard(task)
 
     async def attach(self, tunnel_id: str, websocket: Any, identity: Any) -> bool:
         """A machine dialled back for a tunnel: hand its WebSocket over, and hold it until the pipe ends."""
@@ -131,7 +157,7 @@ class TunnelHub:
             task.cancel()
 
 
-async def _pipe(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, websocket: Any) -> None:
+async def _pipe(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, websocket: Any, renew: Callable[[Any, Any], Awaitable[bool]] | None = None) -> None:
     async def outward() -> None:
         while True:
             data = await reader.read(CHUNK)
@@ -148,6 +174,14 @@ async def _pipe(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, webs
             if data:
                 writer.write(data)
                 await writer.drain()
+            elif message.get("text") and renew is not None:
+                # The machine's next access token: the model's bytes are binary, its own messages text.
+                try:
+                    control = json.loads(message["text"])
+                except ValueError:
+                    continue
+                if isinstance(control, dict) and control.get("type") == "token":
+                    await renew(websocket, control.get("token"))
 
     tasks = [asyncio.ensure_future(outward()), asyncio.ensure_future(inward())]
     try:

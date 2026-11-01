@@ -196,7 +196,7 @@ async def _native_chat(
         record = runtime.complete(session, telemetry, original, response, ollama_payload)
         return JSONResponse(response, headers=telemetry_headers(record))
     return StreamingResponse(
-        _translated_stream(runtime, session, telemetry, original, ollama_payload, upstream, stream()),
+        _finishing(runtime, request, session, _translated_stream(runtime, session, telemetry, original, ollama_payload, upstream, stream())),
         media_type=media_type,
         headers={"X-Request-ID": request_id, "X-Session-ID": session.session_id, "Cache-Control": "no-cache"},
     )
@@ -252,6 +252,37 @@ async def _translated_stream(
     finally:
         await upstream.aclose()
         runtime.complete(session, telemetry, original, collected, ollama_payload)
+
+
+# A client that sends this header (the console's Ask a model) has its streamed reply read to the end
+# even if it disconnects, so it can find the rest on /api/live and the reply is recorded whole.
+FINISH_HEADER = "x-ai-proxy-finish"
+
+
+def _finishing(runtime: Runtime, request: Request, session: Session, body: AsyncIterator[bytes]) -> AsyncIterator[bytes]:
+    """The reply's stream, read in a task of its own (Runtime.finish_later) when the client asked for it."""
+    if request.headers.get(FINISH_HEADER) != "1":
+        return body
+    return _outliving(runtime, session.session_id, body)
+
+
+async def _outliving(runtime: Runtime, session_id: str, body: AsyncIterator[bytes]) -> AsyncIterator[bytes]:
+    queue: asyncio.Queue[bytes | None] = asyncio.Queue()
+
+    async def read() -> None:
+        try:
+            async for chunk in body:
+                queue.put_nowait(chunk)
+        finally:
+            queue.put_nowait(None)
+
+    # Everything the reply's generator does (telemetry, the live view, recording) runs in the task;
+    # this only passes on what it yields, for as long as the client is there to take it.
+    task = runtime.finish_later(session_id, read())
+    while (chunk := await queue.get()) is not None:
+        yield chunk
+    if not task.cancelled():
+        await task
 
 
 KEEPALIVE_SECONDS = 10.0
@@ -359,7 +390,7 @@ async def _forward(
             return Response(response_body, status_code=upstream.status_code, media_type=content_type, headers={**response_headers, **telemetry_headers(record)})
         return JSONResponse(obj, status_code=upstream.status_code, headers=telemetry_headers(record))
     return StreamingResponse(
-        _stream_upstream(runtime, session, telemetry, original_payload, upstream_request, upstream),
+        _finishing(runtime, request, session, _stream_upstream(runtime, session, telemetry, original_payload, upstream_request, upstream)),
         status_code=upstream.status_code,
         media_type=content_type,
         headers={**response_headers, "X-Request-ID": request_id, "X-Session-ID": session.session_id},
@@ -510,7 +541,7 @@ def _error_message(body: Any) -> str:
 
 
 def _upstream_headers(headers: Any) -> dict[str, str]:
-    excluded = {"host", "content-length", "connection", "x-ai-proxy-session", "x-ai-proxy-backend", "x-ai-proxy-token", "cookie", "origin", "accept-encoding"}
+    excluded = {"host", "content-length", "connection", "x-ai-proxy-session", "x-ai-proxy-backend", "x-ai-proxy-token", FINISH_HEADER, "cookie", "origin", "accept-encoding"}
     if not headers.get("x-ai-proxy-token") and headers.get("authorization", "").lower().startswith("bearer "):
         excluded.add("authorization")
     return {key: value for key, value in headers.items() if key.lower() not in excluded}

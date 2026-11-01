@@ -532,7 +532,25 @@ class Presence:
                         return
                     await conn.send(data)
 
+            async def renew() -> None:
+                # The server closes the tunnel once the token it was opened with expires, which a long reply
+                # (or a kept-alive connection) outlasts: each newer token goes over it as a text frame.
+                try:
+                    token = await asyncio.to_thread(self.upstream.token, server)
+                except Exception:  # noqa: BLE001 - no credentials to renew (a fixed token, tests)
+                    return
+                while token:
+                    await asyncio.sleep(RENEW_EVERY)
+                    try:
+                        latest = await asyncio.to_thread(self.upstream.token, server)
+                    except Exception:  # noqa: BLE001 - try again; the server closes the tunnel if it never comes
+                        continue
+                    if latest and latest != token:
+                        await conn.send(json.dumps({"type": "token", "token": latest}))
+                        token = latest
+
             tasks = [asyncio.ensure_future(to_model_server()), asyncio.ensure_future(to_server())]
+            renewing = asyncio.ensure_future(renew())
             try:
                 done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
                 for task in pending:
@@ -540,6 +558,7 @@ class Presence:
                 for task in done:
                     task.exception()
             finally:
+                renewing.cancel()
                 writer.close()
 
     def check_version(self, server: str) -> None:

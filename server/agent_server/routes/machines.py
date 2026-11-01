@@ -105,6 +105,11 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         finally:
             fleet.disconnect(machine.id, websocket)
 
+    async def renew(websocket: WebSocket, token: Any) -> bool:
+        return await auth.renew_socket(runtime, websocket, token)
+
+    runtime.tunnels.renew = renew
+
     @app.websocket("/api/machines/tunnel/{tunnel_id}")
     async def tunnel(websocket: WebSocket, tunnel_id: str) -> None:
         """A machine dialling back for a tunnel the server asked it for: agents' bytes to one of its model servers."""

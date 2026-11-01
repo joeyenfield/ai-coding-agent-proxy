@@ -1144,14 +1144,18 @@ export async function askModel(
   body: { model: string; messages: AskMessage[] },
   onText: (piece: { content?: string; reasoning?: string }) => void,
   signal?: AbortSignal,
+  onStart?: (requestId: string) => void,
 ): Promise<void> {
   const response = await apiFetch(`/session/${encodeURIComponent(sessionId)}/v1/chat/completions`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    // The server reads the reply to the end even if this connection drops, so followReply can pick it up.
+    headers: { "content-type": "application/json", "x-ai-proxy-finish": "1" },
     body: JSON.stringify({ ...body, stream: true }),
     signal,
   });
   if (!response.ok || !response.body) throw await failure(response);
+  const requestId = response.headers.get("x-request-id");
+  if (requestId) onStart?.(requestId);
   const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
   let buffer = "";
   for (;;) {
@@ -1179,6 +1183,72 @@ export async function askModel(
       }
     }
   }
+}
+
+/**
+ * Picks a reply back up after askModel's connection dropped: the server went on reading it (askModel
+ * asks it to), and /api/live has its text so far and the rest as it comes. Calls onSoFar once with the
+ * reply's text up to now (from the newest request of the session started at or after `since`, in ms),
+ * then onText with each later piece; resolves when the reply ends. Rejects if there's nothing to follow.
+ */
+export function followReply(
+  sessionId: string,
+  requestId: string,
+  onSoFar: (text: { content: string; reasoning: string }) => void,
+  onText: (piece: { content?: string; reasoning?: string }) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const source = new EventSource(apiUrl(`/api/live?session_id=${encodeURIComponent(sessionId)}`), { withCredentials: true });
+    const key = `${sessionId}:${requestId}`;
+    let following = false;
+    let quiet: ReturnType<typeof setTimeout>;
+    const finish = (error?: Error) => {
+      clearTimeout(quiet);
+      source.close();
+      signal?.removeEventListener("abort", aborted);
+      if (error) reject(error);
+      else resolve();
+    };
+    // A reply that says nothing for this long (no text, no keep-alive) has gone.
+    const awake = () => {
+      clearTimeout(quiet);
+      quiet = setTimeout(() => finish(new Error("The reply stopped arriving")), 60_000);
+    };
+    const aborted = () => finish(new DOMException("Stopped", "AbortError"));
+    signal?.addEventListener("abort", aborted);
+    awake();
+    type Entry = { key: string; content: string; reasoning: string };
+    source.addEventListener("snapshot", (event) => {
+      awake();
+      const snapshot = JSON.parse((event as MessageEvent).data) as { enabled: boolean; active: Entry[]; recent: Entry[] };
+      // Without the live view's text (AI_PROXY_LIVE=0) there's nothing to pick up.
+      if (!snapshot.enabled) return finish(new Error("The server doesn't keep replies' text in flight"));
+      const active = snapshot.active.find((entry) => entry.key === key);
+      const ended = active ? undefined : snapshot.recent.find((entry) => entry.key === key);
+      const entry = active ?? ended;
+      if (!entry) return finish(new Error("The reply is no longer on the server"));
+      // Its text so far replaces what arrived before the drop (the server keeps the last 24,000 characters).
+      onSoFar({ content: entry.content, reasoning: entry.reasoning });
+      following = true;
+      if (ended) finish();
+    });
+    source.addEventListener("delta", (event) => {
+      awake();
+      const delta = JSON.parse((event as MessageEvent).data) as { key: string; kind: string; text: string };
+      if (!following || delta.key !== key || !delta.text) return;
+      if (delta.kind === "content") onText({ content: delta.text });
+      else if (delta.kind === "reasoning") onText({ reasoning: delta.text });
+    });
+    source.addEventListener("end", (event) => {
+      if ((JSON.parse((event as MessageEvent).data) as { key: string }).key === key) finish();
+    });
+    // EventSource reconnects by itself after a dropped connection (each time with a new snapshot);
+    // one it gave up on is closed.
+    source.addEventListener("error", () => {
+      if (source.readyState === EventSource.CLOSED) finish(new Error("Couldn't reach the server to pick the reply up"));
+    });
+  });
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -1245,6 +1315,8 @@ export const api = {
     request<Session>("/api/sessions", { method: "POST", body: JSON.stringify(body) }),
   setTrace: (sessionId: string, trace: boolean) =>
     request<Session>(sessionUrl(sessionId), { method: "PATCH", body: JSON.stringify({ ended: false, trace }) }),
+  /** Stops the session's replies the server goes on reading for a client that dropped (Ask a model's Stop). */
+  stopReplies: (sessionId: string) => request<{ stopped: number }>(`${sessionUrl(sessionId)}/stop`, { method: "POST", body: "{}" }),
   endSession: (sessionId: string) =>
     request<Session>(sessionUrl(sessionId), { method: "PATCH", body: JSON.stringify({ ended: true }) }),
   clearSession: (sessionId: string) => request<Session>(`${sessionUrl(sessionId)}/data`, { method: "DELETE" }),

@@ -141,7 +141,7 @@ The request goes to the backend's address, or through its machine:
 
 ```mermaid
 flowchart TD
-  start(["Backend for the request"]) --> q1{"Has a machine,<br/>and it's connected?"}
+  start(["Backend for the request"]) --> q1{"Has a machine, and it's connected<br/>(or dropped in the last minute)?"}
   q1 -- no --> direct["Direct: the backend's own URL"]
   q1 -- yes --> q2{"Its hello says it<br/>can tunnel?"}
   q2 -- no --> direct
@@ -154,7 +154,7 @@ flowchart TD
 
 ### 6. Headers and streaming
 
-- **To the backend**, the request goes with the agent's own headers, `Authorization` included, minus `Host`, `Content-Length`, `Connection`, `Accept-Encoding`, `X-AI-Proxy-Session` and `X-AI-Proxy-Backend`. For Strata the server puts in Strata's key: a container's, `STRATA_API_KEY`, or the one its machine reported.
+- **To the backend**, the request goes with the agent's own headers, `Authorization` included, minus `Host`, `Content-Length`, `Connection`, `Accept-Encoding`, `X-AI-Proxy-Session`, `X-AI-Proxy-Backend` and `X-AI-Proxy-Finish`. For Strata the server puts in Strata's key: a container's, `STRATA_API_KEY`, or the one its machine reported.
 - **Back to the agent**, a passed-through reply keeps `retry-after`, `x-should-retry`, `request-id` and `anthropic-ratelimit-*`, so agents' own retry logic still works. Every reply adds `X-Request-ID` and `X-Session-ID`.
 - **Streaming** passes through as it arrives: server-sent events and Ollama's newline-delimited JSON. After 10 seconds of silence (a big prompt still being read), the server sends a keep-alive so the agent doesn't time out: an SSE comment (`: keep-alive`) between events, or the translated protocol's own ping.
 - **The shared HTTP client** keeps no cookies: it carries every user's traffic, so a cookie one agent's service set must never go out with another's request.
@@ -194,7 +194,7 @@ When a backend's traffic goes through its machine (step 5 above):
 3. The machine checks the port is one it reported (a model server, a container it runs, or its MCP bridge), connects to `127.0.0.1:<port>`, and dials `WS /api/machines/tunnel/<id>` back, signed with its token.
 4. The server checks the id is one it's waiting for, and that the machine dialling back is the machine it asked (the same owner). Then it pipes the bytes both ways until either side closes.
 
-If the machine doesn't dial back within 10 seconds, the connection is dropped and the agent sees a gateway error. Inside it's plain TCP, so HTTP keep-alive, chunked replies and streaming all work unchanged, and the server's HTTP client reuses an open tunnel like any other connection. The listener only takes connections from the server's own process, on loopback; nothing outside can open a tunnel.
+If the machine doesn't dial back within 10 seconds, the server asks once more; nothing of the request has been read yet, so that's safe. A machine that dropped its fleet connection in the last minute is still tunnelled: the connection waits up to 10 seconds for it to come back. If it still can't get a tunnel, the connection is dropped and the agent sees a gateway error. Bytes already on their way are never replayed (the model would answer again); the agent retries the whole request, as it does for any failed call. The tunnel's WebSocket renews its token as the fleet connection does: the machine sends `{"type": "token", "token": ...}` as a text frame (the model's bytes are binary), so a long reply isn't cut when the token it opened with expires. Inside it's plain TCP, so HTTP keep-alive, chunked replies and streaming all work unchanged, and the server's HTTP client reuses an open tunnel like any other connection. The listener only takes connections from the server's own process, on loopback; nothing outside can open a tunnel.
 
 ## The fleet socket
 
@@ -281,6 +281,7 @@ A shared terminal has one host (the launcher) and any number of viewers (console
 | `X-AI-Proxy-Version`, `X-AI-Proxy-Protocol` | `agent`, `agent-proxy`, `agent-machine` | Their build and protocol, checked by the server (426 outside its range) |
 | `X-AI-Proxy-Session` | tools using bare `/v1` or `/anthropic` | The session, when it isn't in the path |
 | `X-AI-Proxy-Backend` | tools | Use this backend for this request instead of the session's |
+| `X-AI-Proxy-Finish: 1` | the console (Ask a model) | Read a streamed reply to the end and record it even if this client disconnects; `/api/live` has the rest, and `POST /api/sessions/{id}/stop` or ending the session stops it. Never sent on to the backend |
 | `Proxy-Authorization` | account agents, from `HTTPS_PROXY=http://<id>:agent-proxy@127.0.0.1:8183` | The session for their HTTPS |
 | `X-Request-ID`, `X-Session-ID` | the server, on replies | Which recorded request and session this was |
 | `X-Agent-Proxy-Error` | `agent-proxy`, on a refused `CONNECT` | Why |

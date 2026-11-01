@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { Link } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { api, askModel, preferredModel, providerModels, type AskMessage } from "../api";
+import { ApiError, api, askModel, followReply, preferredModel, providerModels, type AskMessage } from "../api";
 import { useModels, useToast } from "../hooks";
 import { Icon } from "../components/Icon";
 import { PartTag } from "../components/PartTag";
@@ -94,8 +94,15 @@ export function AskPage() {
     setBusy(true);
     const controller = new AbortController();
     stop.current = controller;
+    let id = sessionId;
+    let requestId: string | null = null;
+    const append = (piece: { content?: string; reasoning?: string }) =>
+      setMessages((current) => {
+        const last = current[current.length - 1];
+        const next = { ...last, content: last.content + (piece.content ?? ""), reasoning: (last.reasoning ?? "") + (piece.reasoning ?? "") };
+        return [...current.slice(0, -1), next];
+      });
     try {
-      let id = sessionId;
       if (!id || session?.backend !== choice.backend || session?.model !== choice.model) {
         if (id) api.endSession(id).catch(() => undefined);
         const created = await api.createSession({ client: CLIENT, model: choice.model, backend: choice.backend, trace: true });
@@ -108,17 +115,26 @@ export function AskPage() {
         ...(system.trim() ? [{ role: "system" as const, content: system.trim() }] : []),
         ...history.map(({ role, content }) => ({ role, content })),
       ];
-      await askModel(
-        id,
-        { model: choice.model, messages: conversation },
-        (piece) =>
-          setMessages((current) => {
-            const last = current[current.length - 1];
-            const next = { ...last, content: last.content + (piece.content ?? ""), reasoning: (last.reasoning ?? "") + (piece.reasoning ?? "") };
-            return [...current.slice(0, -1), next];
-          }),
-        controller.signal,
-      );
+      try {
+        await askModel(id, { model: choice.model, messages: conversation }, append, controller.signal, (started) => (requestId = started));
+      } catch (error) {
+        // The connection dropped mid-reply (a phone changing networks): the server went on reading it,
+        // so pick the rest up from the live view. Only when that fails too is the reply lost.
+        if (controller.signal.aborted || !id || !requestId || error instanceof ApiError) throw error;
+        await followReply(
+          id,
+          requestId,
+          (soFar) =>
+            setMessages((current) => {
+              const last = current[current.length - 1];
+              // The server keeps the last 24,000 characters: a longer reply keeps what arrived here.
+              if (soFar.content.length < last.content.length) return current;
+              return [...current.slice(0, -1), { ...last, content: soFar.content, reasoning: soFar.reasoning || last.reasoning }];
+            }),
+          append,
+          controller.signal,
+        ).catch(() => Promise.reject(error));
+      }
     } catch (error) {
       const stopped = controller.signal.aborted;
       setMessages((current) => {
@@ -131,6 +147,12 @@ export function AskPage() {
       setBusy(false);
       stop.current = null;
     }
+  };
+
+  // The server goes on reading a reply whose connection drops, so Stop tells it to stop too.
+  const stopReply = () => {
+    stop.current?.abort();
+    if (sessionId) api.stopReplies(sessionId).catch(() => undefined);
   };
 
   const onKey = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -244,7 +266,7 @@ export function AskPage() {
               placeholder={`Message ${choice?.model ?? ""}`}
             />
             {busy ? (
-              <button type="button" onClick={() => stop.current?.abort()}>
+              <button type="button" onClick={stopReply}>
                 Stop
               </button>
             ) : (

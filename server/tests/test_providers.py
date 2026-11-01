@@ -183,21 +183,45 @@ def test_a_pull_streams_the_machines_progress_and_its_failure(tmp_path):
         assert failed[-1] == {"status": "error", "error": "pull model manifest: file does not exist"}
 
 
-def test_a_machine_going_away_ends_its_waiting_requests(tmp_path):
+def test_a_machine_going_away_ends_its_waiting_requests(tmp_path, monkeypatch):
+    monkeypatch.setattr("agent_server.fleet.RECONNECT_WAIT", 0.5)
     app = local_app(tmp_path)
+    hello = {"id": "desk", "providers": [{"type": "ollama", "port": 11434}]}
 
     class Silent(FakeSocket):
+        comes_back = False
+
         async def send_text(self, text: str) -> None:
             self.requests.append(json.loads(text))
-            # Gone before answering.
+            # Gone before answering, and (when it comes back) connected again at once.
             self.fleet.disconnect(self.machine_id, self)
+            if self.comes_back:
+                self.fleet.connect(FakeSocket(self.fleet, "desk"), ROOT_ADMIN, "127.0.0.1", hello)
 
     with TestClient(app, **LOCAL) as client:
         with_refusing_client(app)
         fleet = app.state.runtime.fleet
-        fleet.connect(Silent(fleet, "desk"), ROOT_ADMIN, "127.0.0.1", {"id": "desk", "providers": [{"type": "ollama", "port": 11434}]})
+        fleet.connect(Silent(fleet, "desk"), ROOT_ADMIN, "127.0.0.1", hello)
+        # A read is asked again once; a machine that doesn't come back isn't connected.
         response = client.get("/api/machines/desk/providers/ollama-11434")
+        assert response.status_code == 409 and "isn't connected" in response.json()["detail"]
+        # One that does answers the second time.
+        silent = Silent(fleet, "desk")
+        silent.comes_back = True
+        # The machine's last connection goes first (replacing a live one needs the app's loop to close it).
+        fleet.disconnect("desk", fleet.sockets.get("desk"))
+        fleet.connect(silent, ROOT_ADMIN, "127.0.0.1", hello)
+        response = client.get("/api/machines/desk/providers/ollama-11434")
+        assert response.status_code == 200, response.text
+        # A change is never asked twice: the machine may have made it already.
+        silent = Silent(fleet, "desk")
+        silent.comes_back = True
+        # The machine's last connection goes first (replacing a live one needs the app's loop to close it).
+        fleet.disconnect("desk", fleet.sockets.get("desk"))
+        fleet.connect(silent, ROOT_ADMIN, "127.0.0.1", hello)
+        response = client.post("/api/machines/desk/providers/ollama-11434/models/delete", json={"name": "qwen"})
         assert response.status_code == 502 and "lost the connection" in response.json()["detail"]
+        assert [request["op"] for request in silent.requests] == ["delete"]
 
 
 def test_ollama_settings_and_restarts_are_the_machines_and_its_owners(tmp_path):

@@ -86,6 +86,7 @@ its in-flight entry and records `client_closed`.
 | DELETE | `/api/sessions` | Signed in | Deletes all saved traffic. Ended sessions and open ones idle for 15 minutes are deleted; recently active ones keep running but lose their data; ones with requests in flight are skipped. Only your own (and your organization's admins: its sessions without an owner). |
 | GET | `/api/sessions/{session_id}` | Signed in, can view | One session. |
 | PATCH | `/api/sessions/{session_id}` | Signed in, can control | Ends it (`ended`, `exit_status`), switches capture (`trace`), or for its owner changes its sharing (`visibility`, `team`, `org`, `access`). Narrowing the sharing drops terminal viewers who lose access. A shell can't be shared. |
+| POST | `/api/sessions/{session_id}/stop` | Signed in, can control | Stops the session's replies the server is still reading for a client that dropped (Ask a model's **Stop**): `{"stopped": <count>}`. Ending the session does it too. |
 | DELETE | `/api/sessions/{session_id}` | Signed in, can control | Deletes it. `409` while requests are in flight. |
 | DELETE | `/api/sessions/{session_id}/data` | Signed in, can control | Clears its saved requests and traces, keeping the session. |
 | GET | `/api/requests` | Signed in | Requests you can see, newest first, with `trace_available`. `?session_id=` for one session, `?model=` and `?kind=` to filter, `?limit=` (1 to 5000) and `?before=` (a timestamp: only older ones) to page. Without `limit`, all of them. |

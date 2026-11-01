@@ -376,6 +376,83 @@ def test_tunnels_only_go_to_the_machine_that_was_asked(tmp_path):
             with pytest.raises(Exception):
                 socket.receive_bytes()
         assert future.done() and isinstance(future.exception(), ConnectionError)
+    # A machine that dropped a moment ago still tunnels (its requests wait for it); one gone longer doesn't.
+    assert hub.tunnelled(far)
+    app.state.runtime.fleet.machines["m1"].last_seen -= 3600
+    assert not hub.tunnelled(far)
+
+
+def test_a_tunnel_is_asked_for_again_once_and_renews_its_token():
+    import asyncio
+    from types import SimpleNamespace
+
+    from agent_server.tunnels import TunnelHub, _pipe
+
+    async def scenario():
+        class Dying:
+            async def send_text(self, text):
+                raise ConnectionError("gone")
+
+        class Answering:
+            def __init__(self, hub):
+                self.hub = hub
+
+            async def send_text(self, text):
+                tunnel_id = json.loads(text)["tunnel"]
+                _, future = self.hub._pending[tunnel_id]
+                future.set_result(("the-websocket", asyncio.Event()))
+
+        sockets = []
+        fleet = SimpleNamespace(machines={"m1": SimpleNamespace(id="m1")})
+
+        async def wait_socket(machine):
+            return sockets.pop(0) if sockets else None
+
+        fleet.wait_socket = wait_socket
+        hub = TunnelHub(fleet)
+        sockets[:] = [Dying(), Answering(hub)]
+        # The first ask went over a dying connection; nothing of the request was read, so it's asked again.
+        first = await hub._open_tunnel("m1", 11434)
+        second = await hub._open_tunnel("m1", 11434)
+        assert first is None and second[0] == "the-websocket" and hub._pending == {}
+        # No connection at all (and none came back): nothing to ask again.
+        assert await hub._open_tunnel("m1", 11434) is False
+
+        # The machine's text frames carry its next token; the model's bytes are binary.
+        renewed = []
+
+        async def renew(websocket, token):
+            renewed.append(token)
+            return True
+
+        class Tunnel:
+            def __init__(self):
+                self.messages = [{"type": "websocket.receive", "text": json.dumps({"type": "token", "token": "next"})},
+                                 {"type": "websocket.receive", "bytes": b"HTTP/1.1 200 OK"}, {"type": "websocket.disconnect"}]
+
+            async def receive(self):
+                return self.messages.pop(0) if self.messages else await asyncio.sleep(3600)
+
+            async def send_bytes(self, data):
+                pass
+
+            async def close(self):
+                pass
+
+        written = []
+
+        class Writer:
+            def write(self, data):
+                written.append(data)
+
+            async def drain(self):
+                pass
+
+        reader = asyncio.StreamReader()
+        await asyncio.wait_for(_pipe(reader, Writer(), Tunnel(), renew), 5)
+        assert renewed == ["next"] and written == [b"HTTP/1.1 200 OK"]
+
+    asyncio.run(scenario())
 
 
 def test_the_owner_browses_folders_inside_the_launch_folders_only(tmp_path):

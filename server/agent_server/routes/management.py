@@ -322,9 +322,17 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             runtime.terminals.drop_viewers(session.session_id, lambda viewer: access.can_view(viewer, session))
         if data.get("ended", not any(key in data for key in ("visibility", "access", "team", "org"))):
             runtime.sessions.end(session, data.get("exit_status"))
+            # Replies still being read for a client that went (the console's chat) end with it.
+            runtime.stop_finishing(session.session_id)
         if "trace" in data:
             runtime.sessions.set_trace(session, bool(data["trace"]))
         return described(session, request)
+
+    @app.post("/api/sessions/{session_id}/stop")
+    async def stop_replies(session_id: str, request: Request) -> dict[str, Any]:
+        """Stop the session's replies that are read to the end for their client (Ask a model's Stop)."""
+        session = controllable(session_id, request)
+        return {"stopped": runtime.stop_finishing(session.session_id)}
 
     @app.get("/api/sessions/{session_id}/telemetry")
     async def download_telemetry(session_id: str, request: Request) -> PlainTextResponse:

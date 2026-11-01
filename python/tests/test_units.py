@@ -477,3 +477,41 @@ def test_presence_renews_its_token_over_the_open_connection(tmp_path, monkeypatc
                 await asyncio.wait_for(running, 10)
 
     asyncio.run(scenario())
+
+
+def test_a_tunnel_renews_its_token_while_it_carries_a_reply(tmp_path, monkeypatch):
+    """machine/internal/presence: TestATunnelRenewsItsTokenWhileItCarriesAReply."""
+    from websockets.asyncio.server import serve
+
+    monkeypatch.setattr(presence, "RENEW_EVERY", 0.05)
+
+    async def scenario() -> None:
+        renewed: asyncio.Queue = asyncio.Queue()
+
+        async def model_server(reader, writer) -> None:
+            await reader.read(1)
+
+        async def handler(connection) -> None:
+            async for message in connection:
+                if isinstance(message, str) and json.loads(message).get("type") == "token":
+                    await renewed.put(json.loads(message)["token"])
+                    return
+
+        model = await asyncio.start_server(model_server, "127.0.0.1", 0)
+        port = model.sockets[0].getsockname()[1]
+        async with serve(handler, "127.0.0.1", 0) as server:
+            url = f"http://127.0.0.1:{server.sockets[0].getsockname()[1]}"
+            machine = presence.Presence(common.Upstream(credentials_path=lambda: tmp_path / "credentials.json", fixed=url, use_env=False))
+            current = {"token": "access-1"}
+            monkeypatch.setattr(machine.upstream, "token", lambda server: current["token"])
+            machine.tunnel_ports = {port}
+            carrying = asyncio.ensure_future(machine.tunnel(url, {"type": "tunnel", "tunnel": "t1", "port": port}))
+            try:
+                await asyncio.sleep(0.1)
+                current["token"] = "access-2"
+                assert await asyncio.wait_for(renewed.get(), 10) == "access-2"
+            finally:
+                carrying.cancel()
+                model.close()
+
+    asyncio.run(scenario())

@@ -224,3 +224,67 @@ def test_an_unreachable_machine_backend_says_why(tmp_path, install):
         assert "isn't connected" in message
     finally:
         close_app(app, client, old)
+
+
+def test_the_consoles_chat_is_read_to_the_end_and_its_header_stays_here(tmp_path, install):
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["headers"] = {name.lower() for name in request.headers}
+        body = b'data: {"choices":[{"delta":{"content":"hi"}}]}\n\ndata: {"choices":[],"usage":{"prompt_tokens":5,"completion_tokens":1}}\n\ndata: [DONE]\n\n'
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=body)
+
+    app, client, old = make_app(tmp_path, handler)
+    try:
+        session = strata_session(client)
+        payload = {"model": "qwen-strata", "stream": True, "messages": [{"role": "user", "content": "Hi"}]}
+        with client.stream("POST", f"/session/{session}/v1/chat/completions", json=payload, headers={"x-ai-proxy-finish": "1"}) as response:
+            assert response.status_code == 200 and "hi" in response.read().decode()
+        assert "x-ai-proxy-finish" not in seen["headers"]
+        record = json.loads(client.get(f"/api/sessions/{session}/telemetry").text)
+        assert record["error_type"] is None
+        assert client.post(f"/api/sessions/{session}/stop").json() == {"stopped": 0}
+    finally:
+        close_app(app, client, old)
+
+
+def test_a_reply_read_to_the_end_outlives_its_client_until_stopped():
+    from types import SimpleNamespace
+
+    from agent_server.routes.compat import _outliving
+    from agent_server.runtime import Runtime
+
+    async def scenario():
+        runtime = SimpleNamespace(finishing={})
+        runtime.finish_later = lambda session_id, work: Runtime.finish_later(runtime, session_id, work)
+        runtime.stop_finishing = lambda session_id: Runtime.stop_finishing(runtime, session_id)
+        read, finished = [], asyncio.Event()
+
+        async def reply(parts):
+            try:
+                for part in parts:
+                    read.append(part)
+                    yield part
+                    await asyncio.sleep(0.01)
+            finally:
+                finished.set()
+
+        # The client takes one chunk and goes: the rest is still read, by the task.
+        stream = _outliving(runtime, "s1", reply([b"a", b"b", b"c", b"d"]))
+        assert await stream.__anext__() == b"a"
+        await stream.aclose()
+        await asyncio.wait_for(finished.wait(), 5)
+        await asyncio.sleep(0.05)
+        assert read == [b"a", b"b", b"c", b"d"] and runtime.finishing == {}
+
+        # Stopping it ends the reading too.
+        finished.clear()
+        read.clear()
+        stream = _outliving(runtime, "s2", reply([b"x"] * 1000))
+        assert await stream.__anext__() == b"x"
+        await stream.aclose()
+        assert runtime.stop_finishing("s2") == 1
+        await asyncio.wait_for(finished.wait(), 5)
+        assert len(read) < 1000
+
+    asyncio.run(scenario())

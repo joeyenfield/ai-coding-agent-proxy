@@ -81,6 +81,8 @@ class Runtime:
         self.address_pinned = False
         self.restarting = False
         self.started_at = time.time()
+        # Replies read to the end whether or not their client is still there (finish_later), by session.
+        self.finishing: dict[str, set[asyncio.Task[Any]]] = {}
         self.reload_history()
 
     @cached_property
@@ -211,6 +213,35 @@ class Runtime:
         if self.intercept:
             await self.intercept.close_tunnels()
         self.restart_hook()
+
+    def finish_later(self, session_id: str, work: Any) -> asyncio.Task[Any]:
+        """Runs a reply's reading and recording as a task of its own, so it outlives its client.
+
+        The console's chat (Ask a model) asks for this: a phone that drops its connection mid-reply
+        finds the rest on /api/live when it's back, and the reply is recorded whole. Stopping it
+        (stop_finishing) is the only way to end it early: ending the session does, and so does Stop.
+        """
+        task = asyncio.ensure_future(work)
+        self.finishing.setdefault(session_id, set()).add(task)
+
+        def done(task: asyncio.Task[Any]) -> None:
+            tasks = self.finishing.get(session_id)
+            if tasks is not None:
+                tasks.discard(task)
+                if not tasks:
+                    self.finishing.pop(session_id, None)
+            if not task.cancelled() and task.exception() is not None:
+                LOGGER.warning("a reply finished without its client failed: %s", task.exception())
+
+        task.add_done_callback(done)
+        return task
+
+    def stop_finishing(self, session_id: str) -> int:
+        """Cancels the session's replies still being read for a client that went; how many there were."""
+        tasks = list(self.finishing.get(session_id, ()))
+        for task in tasks:
+            task.cancel()
+        return len(tasks)
 
     def backend_traffic(self, name: str) -> dict[str, Any]:
         """Requests in flight to a backend, and its recent generation speed."""

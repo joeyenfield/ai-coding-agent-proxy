@@ -88,6 +88,8 @@ def create_app(settings: Settings | None = None, restart: Any = None, address_pi
     app.add_middleware(
         CORSMiddleware, allow_origins=settings.console_origins,
         allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
+        # Ask a model follows a reply whose connection dropped by its request's id.
+        expose_headers=["X-Request-ID", "X-Session-ID"],
     )
     auth.register(app, runtime)
     # Every console route before compat: its /api/{path} catch-all forwards agents' native Ollama calls.
