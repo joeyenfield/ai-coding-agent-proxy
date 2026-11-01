@@ -84,6 +84,7 @@ The console starts agents on a machine the same way: `POST /api/machines/{id}/la
 | Server files | `logs/proxy/proxy.log`, the CA's public files (`logs/ca/`), `certs/first-user-password`; an older install's `config/`, `certs/` and `logs/sessions/` files are only read once, by the import into an empty database |
 | Agent computer | `credentials.json` (+ `agent-proxy.log`), `~/.cache/agent-proxy/` (CA copy, per-session files) |
 | Server database, provider accounts | `provider_accounts` and their assignments, hourly usage and events; `provider_credentials` (Copilot tokens, AES-GCM under `AI_PROXY_VAULT_KEYS`, which never enters the database) |
+| Server database, usage limits | `provider_usage` (hourly tokens and calls per organization, person and provider), `usage_limits` (an organization's token limits per person or everyone, provider and window) |
 | Machine | its folder: `credentials.json`, `machine.json`, `status.json`, `mcp.json`, `servers.json`, `ollama.json`, `llamacpp.json`, `llamacpp-install.json`, `llamacpp/` (installed builds), logs |
 
 ## Ports

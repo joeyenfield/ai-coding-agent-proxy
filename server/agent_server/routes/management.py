@@ -525,6 +525,11 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         try:
             backend = DIRECT_BACKEND if agent.intercept else settings.backend_for(agent.backend_type, data.get("backend") or None, agent.protocol, usable(request)).name
             tags = {**access.client_tags(data.get("tags")), "prepared_by": "agent" if data.get("launcher") else "ui"}
+            # A launch the console sent to a machine runs under the machine's sign-in: its usage, and the
+            # check, are for whoever asked (routes/machines.launch), not the machine's owner.
+            refused = None if tags.get("launch") else runtime.launch_blocked(auth.request_identity(request), agent, backend)
+            if refused:
+                raise HTTPException(status_code=429, detail=refused)
             if project_path:
                 tags["project_path"] = project_path
             session = runtime.sessions.create({

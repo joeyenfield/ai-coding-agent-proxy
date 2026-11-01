@@ -16,6 +16,7 @@ import { SessionPage } from "./pages/Session";
 import { AgentsPage } from "./pages/Agents";
 import { AskPage } from "./pages/Ask";
 import { SubscriptionsPage } from "./pages/Subscriptions";
+import { ProvidersPage } from "./pages/Providers";
 import { ServerStatsPage } from "./pages/ServerStats";
 import { AccessLogPage } from "./pages/AccessLog";
 import { SettingsPage } from "./pages/Settings";
@@ -216,6 +217,7 @@ function Shell({ identity }: { identity: Identity | null }) {
           <Route path="/terminals" element={<TerminalsPage />} />
           <Route path="/ask" element={<AskPage />} />
           <Route path="/subscriptions" element={<SubscriptionsPage />} />
+          <Route path="/providers" element={<ProvidersPage />} />
           <Route path="/machines" element={<MachinesPage />} />
           <Route path="/approve-device" element={<ApproveDevicePage />} />
           <Route path="/machines/:id" element={<MachinePage />} />

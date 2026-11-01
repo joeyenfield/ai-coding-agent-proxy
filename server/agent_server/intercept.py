@@ -40,6 +40,7 @@ from . import access, auth
 from .sessions import Session
 from .telemetry import RequestTelemetry, has_content, parse_json_line
 from .translate import estimate_tokens
+from .usage_limits import subscription_for_host
 from .websocket_tap import CLOSE, TEXT, WebSocketTap
 
 if TYPE_CHECKING:
@@ -390,6 +391,17 @@ class InterceptProxy:
         runtime.track(telemetry)
         runtime.attach(telemetry, payload)
         runtime.live.http(_key(telemetry), http)
+        provider = subscription_for_host(host)
+        blocked = runtime.over_limit(session, provider) if provider and method.upper() == "POST" else None
+        if blocked is not None:
+            # The person has used their organization's limit on this subscription: the provider never sees the call.
+            _, refusal, extra = runtime.refuse_over_limit(session, telemetry, payload, provider, blocked)
+            data = json.dumps(refusal).encode()
+            answer = [("content-type", "application/json"), ("content-length", str(len(data))), *extra.items()]
+            writer.write(connection.send(h11.Response(status_code=429, headers=answer)))
+            writer.write(connection.send(h11.Data(data=data)))
+            writer.write(connection.send(h11.EndOfMessage()))
+            return
         upstream_headers = [(name, value) for name, value in headers if name.lower() not in HOP_HEADERS]
         assert runtime.intercept_client
         try:
@@ -511,6 +523,18 @@ class InterceptProxy:
         http = {"method": telemetry.method, "url": _redact_query(url), "request_headers": redact_headers(
             [(name.decode("latin-1"), value.decode("latin-1")) for name, value in request.headers]
         )}
+        provider = subscription_for_host(host)
+        blocked = self.runtime.over_limit(session, provider) if provider else None
+        if blocked is not None:
+            # A WebSocket to the provider (Codex's Responses turns) is refused like a model call.
+            self.runtime.track(telemetry)
+            _, refusal, extra = self.runtime.refuse_over_limit(session, telemetry, None, provider, blocked)
+            data = json.dumps(refusal).encode()
+            head = [("content-type", "application/json"), ("content-length", str(len(data))), ("connection", "close"), *extra.items()]
+            writer.write(connection.send(h11.Response(status_code=429, headers=head)))
+            writer.write(connection.send(h11.Data(data=data)))
+            writer.write(connection.send(h11.EndOfMessage()))
+            return
         try:
             address = (await _public_addresses(host, port, DESTINATION_LOOKUP_TIMEOUT))[0]
             upstream_reader, upstream_writer = await asyncio.open_connection(

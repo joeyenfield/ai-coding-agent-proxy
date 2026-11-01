@@ -30,6 +30,9 @@ TAGS = [
     ("Provider accounts", "agent_server.routes.provider_accounts",
      "People's own AI subscriptions (Claude, ChatGPT through Codex, GitHub Copilot): the machines they run on, their "
      "observed usage and estimated remaining balance, choosing one for a task, and the one-time token handover to a launch."),
+    ("Providers and usage", "agent_server.routes.providers",
+     "Providers as people use them (backends on machines, hosted APIs, kinds of subscription), each person's usage of "
+     "each, and the token limits an organization's admins set (`/api/providers`, `/api/orgs/{org}/usage`, `/api/orgs/{org}/limits`)."),
     ("Containers", "agent_server.routes.containers", "Strata and Ollama containers that machines run for the server."),
     ("Terminals", "agent_server.routes.terminals", "Shared agent terminals. OAuth authentication and session permissions required."),
     ("Downloads", "agent_server.app", "The builds of agent, agent-machine and the Android app this server hands out, and the documentation the console shows (`/help-files/...`); public, like /health."),

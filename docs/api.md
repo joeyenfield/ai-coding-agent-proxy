@@ -178,6 +178,19 @@ People's own AI plans and where they run; see [Subscriptions](subscriptions.md).
 
 `POST /api/agents/{agent_id}/sessions` takes `account` too: the session is tagged `provider_account` (a server tag clients can't set) after the same checks, and the answer's `account` says whether a token waits (`credential: true`).
 
+## Providers and usage limits
+
+Each person's usage of each provider (a backend, or a kind of subscription) and the token limits an organization sets on it. See [Providers and usage limits](usage-limits.md).
+
+| Method | Path | Who | What |
+| --- | --- | --- | --- |
+| GET | `/api/providers` | Signed in | The providers your organization can use (`backend:<name>` for model servers and hosted APIs, `subscription:<claude\|codex\|copilot>`), each with your `usage` in every window, the `limits` on you and `blocked`. |
+| GET | `/api/orgs/{org}/usage` | Its members (their own rows), its admins and site admins (everyone's) | Usage by person and provider in every window, with each row's `limits` and `blocked`; for admins also the organization's `limits` (`manage: true`). |
+| PUT | `/api/orgs/{org}/limits` | Admin of that organization, site admins | One limit: `user` (a person in it, or `*` for everyone), `provider`, `window` (`5h`, `24h`, `7d`, `30d`, `month`), `tokens` (0 or more; 0 turns it off). Answers the usage report. |
+| DELETE | `/api/orgs/{org}/limits?user=&provider=&window=` | Admin of that organization, site admins | Removes one limit. |
+
+A person who has reached a limit gets `429` with `error.code: "usage_limit"` and `Retry-After` from the agent APIs (`/v1`, `/anthropic`, `/api` model calls, and account agents' calls to the subscription's hosts), and `429` from `POST /api/agents/{agent_id}/sessions` and `POST /api/machines/{id}/launch` for that provider.
+
 ## Containers
 
 Containers the fleet's machines run as backends. See [Machines](machines.md). Changes also need **Same origin**.

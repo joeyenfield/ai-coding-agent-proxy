@@ -117,6 +117,24 @@ async def test_intercepted_stream_is_forwarded_and_recorded(intercept):
     assert live["http"]["status"] == 200
 
 
+async def test_a_usage_limit_on_the_subscription_stops_calls_before_the_provider(intercept):
+    runtime, session, client, seen, _ = intercept
+    body = {"model": "claude-x", "stream": True, "max_tokens": 50, "messages": [{"role": "user", "content": "hi"}]}
+    async with client.stream("POST", "https://api.anthropic.com/v1/messages", json=body) as response:
+        await response.aread()
+    assert response.status_code == 200 and len(seen) == 1
+    runtime.db.writer.flush()
+    # Counted against Claude, the kind of subscription whose host it reached.
+    assert runtime.usage.windows("root", "alice")[("alice", "subscription:claude")]["24h"]["input_tokens"] == 12
+    runtime.usage.set_limit("root", "alice", "subscription:claude", "24h", 10, "admin")
+    refused = await client.post("https://api.anthropic.com/v1/messages", json=body)
+    assert refused.status_code == 429 and refused.json()["error"]["code"] == "usage_limit"
+    assert len(seen) == 1  # the provider never saw it
+    # Other hosts (sign-in, telemetry) still pass; and the refusal isn't taken for the provider's own 429.
+    assert (await client.post("https://api.anthropic.test/oauth/token", json={})).status_code == 200
+    assert runtime.over_limit(session, "subscription:claude")["used"] == 19
+
+
 async def test_token_endpoints_are_redacted_and_errors_pass_through(intercept):
     runtime, session, client, _, _ = intercept
     response = await client.post("https://auth.example.test/oauth/token", json={"refresh_token": "r-secret", "grant_type": "refresh_token"})

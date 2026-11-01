@@ -25,6 +25,7 @@ from . import strata
 from .containers import ContainerManager, KeyStore
 from .live import LiveHub
 from .provider_accounts import ProviderAccounts, Vault
+from .usage_limits import REFUSED, UsageLimits, provider_label, refusal
 from .remote import RemoteAccess
 from .sessions import Session, SessionStore
 from .telemetry import RequestTelemetry, stream_deltas
@@ -68,6 +69,8 @@ class Runtime:
         self.containers = ContainerManager(settings, KeyStore(self.db), self.fleet)
         # People's own subscriptions (Claude, Codex, Copilot), where they run, and what they used.
         self.provider_accounts = ProviderAccounts(self.db, self.fleet, Vault.from_environment())
+        # Everyone's usage of each provider, and their organizations' limits on it.
+        self.usage = UsageLimits(self.db)
         self.client: httpx.AsyncClient | None = None
         self.intercept_client: httpx.AsyncClient | None = None
         # Every HTTP request and WebSocket received, and how it ended (memory only, site admins).
@@ -128,6 +131,7 @@ class Runtime:
     def prune(self) -> int:
         """Delete recordings older than the retention setting (traces, chat indexes, terminal output)."""
         self.provider_accounts.prune()
+        self.usage.prune()
         # Saved access log entries go even when recordings are kept forever (after access_log.SAVED_DAYS).
         self.access_log.prune()
         days = self.settings.retention_days
@@ -341,8 +345,11 @@ class Runtime:
         counted = self.tokens.setdefault(record["session_id"], [0, 0])
         counted[0] += record["input_tokens"]
         counted[1] += record["output_tokens"]
-        # A provider account's session: its usage, and the provider's 429s.
-        self.provider_accounts.observe(session, record, http)
+        # A provider account's session: its usage, and the provider's 429s (not this server's own refusals).
+        if record.get("error_type") != REFUSED:
+            self.provider_accounts.observe(session, record, http)
+        # Its person's usage of the provider, which their organization's limits count.
+        self.usage.observe(session, record)
         if session.trace:
             trace = {
                 "metadata": {"proxy_instance_id": self.proxy_instance_id, **record},
@@ -354,6 +361,37 @@ class Runtime:
                 trace["http"] = http
             self.sessions.write_trace(session, telemetry.request_id, trace)
         return record
+
+    def over_limit(self, session: Session, provider: str) -> dict[str, Any] | None:
+        """The usage limit the session's person has reached on this provider, if any."""
+        return self.usage.blocked_session(session, provider)
+
+    def launch_blocked(self, identity: Any, agent: Any, backend: str | None) -> str | None:
+        """Why a usage limit stops this person starting this agent (on this backend), or None.
+        Account agents count against their kind of subscription, others against their backend."""
+        if identity is None:
+            return None
+        if agent.intercept:
+            provider = f"subscription:{agent.subscription}" if agent.subscription else None
+        else:
+            provider = f"backend:{backend}" if backend else None
+        blocked = self.usage.blocked(identity.tenant, identity.user, provider)
+        if blocked is None or provider is None:
+            return None
+        return refusal(blocked, provider_label(provider, self.settings, self.fleet), time.time())[0]
+
+    def refuse_over_limit(self, session: Session, telemetry: RequestTelemetry, payload: Any, provider: str, blocked: dict[str, Any]) -> tuple[str, dict[str, Any], dict[str, str]]:
+        """Record a call a usage limit stopped (it's in Requests, so people can see why) and say what to answer."""
+        message, body, headers = refusal(blocked, provider_label(provider, self.settings, self.fleet), time.time())
+        telemetry.status = 429
+        telemetry.error_type = REFUSED
+        # Nothing reached the model: no estimate of tokens it would have read.
+        telemetry.estimated_input_tokens = None
+        telemetry.streaming = False
+        telemetry.completed = True
+        telemetry.response_bytes = len(message)
+        record = self.complete(session, telemetry, payload, body)
+        return message, body, {**headers, **telemetry_headers(record)}
 
     def proxy_error(self, session: Session, telemetry: RequestTelemetry, payload: Any, exc: Exception, backend: Any = None) -> JSONResponse:
         telemetry.status = 502

@@ -99,6 +99,10 @@ An organization's admins (and site admins, for the users and teams of any organi
 
 Everything else is open to any signed-in user, limited to their organization, session sharing and machine grants. Another organization's sessions, machines, users and teams answer `404`, as if they didn't exist.
 
+### Usage limits
+
+An organization's admins can limit how many tokens each person (or everyone) uses on each provider in a window, on the organization's **Usage** tab. A person who reaches one is blocked from that provider until it frees up. See [Providers and usage limits](usage-limits.md).
+
 ## Session sharing
 
 Whoever starts a session owns it and decides who else gets it. The sharing lives in the session's tags, which only the server writes (`server/agent_server/access.py`).

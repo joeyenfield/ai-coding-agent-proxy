@@ -103,6 +103,8 @@ The providers don't offer the server a supported way to read your plan's meter, 
 | Throttled until, limit used up until | `observed`: the provider's `429` answers and their `Retry-After` | Medium: it's what the provider said |
 | The provider's own numbers | `reported` | None is wired up yet, so this is empty |
 
+These figures are the subscription's own. Separately, an organization's admins can limit how many tokens each person uses on each kind of subscription, and block them once they've used it: see [Providers and usage limits](usage-limits.md).
+
 Without a declared limit, the remaining balance is **unknown**, not a made-up percentage. Set one on the subscription's **Usage and settings**, with when it warns (`warning_percent`, 75 by default: the state becomes *Near its limit*) and when automatic choices stop using it (`stop_percent`, 90).
 
 A `429` from the provider with a short `Retry-After` (under 15 minutes) is a throttle: the subscription is *Rate limited* until then. A longer one means its window is used up: *Limit used up* until then. A 429 without `Retry-After` cools it down for a minute. 429s from other hosts (telemetry, package registries) don't count. **Forget the limits seen** clears them early.

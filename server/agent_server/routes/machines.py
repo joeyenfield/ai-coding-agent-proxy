@@ -168,6 +168,15 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         data = {**data, "mcp": [item["id"] for item in chosen]}
         identity = auth.request_identity(request)
         try:
+            backend = None if agent.intercept else runtime.settings.backend_for(
+                agent.backend_type, data.get("backend") or None, agent.protocol, fleet.usable_by(identity),
+            ).name
+        except ValueError:
+            backend = None  # the machine's launcher says what's wrong
+        refused = runtime.launch_blocked(identity, agent, backend)
+        if refused:
+            raise HTTPException(status_code=429, detail=refused)
+        try:
             # An account agent runs with a provider account whoever asked may use (account_id, or "auto" to
             # let the scheduler pick); only the machine's owner may leave it out, for the machine's own sign-in.
             account = runtime.provider_accounts.for_launch(identity, agent, target, data.get("account_id"))

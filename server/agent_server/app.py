@@ -24,7 +24,7 @@ from .auth import ROOT_TENANT, AuthMiddleware, UserStore
 from .config import Settings
 from .downloads import Downloads
 from .intercept import InterceptProxy, InterceptTransport
-from .routes import auth, compat, containers, machines, management, mcp, provider_accounts, proxy, terminals
+from .routes import auth, compat, containers, machines, management, mcp, provider_accounts, providers, proxy, terminals
 from .runtime import LOGGER, Runtime, upstream_client
 from .ui_build import ensure_built
 
@@ -102,6 +102,7 @@ def create_app(settings: Settings | None = None, restart: Any = None, address_pi
     # Every console route before compat: its /api/{path} catch-all forwards agents' native Ollama calls.
     # Before management: /api/sessions/{id}/provider-credential sits beside its session routes.
     provider_accounts.register(app, runtime)
+    providers.register(app, runtime)
     management.register(app, runtime)
     terminals.register(app, runtime)
     proxy.register(app, runtime)

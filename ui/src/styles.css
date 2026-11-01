@@ -737,6 +737,19 @@ details.collapsible > summary::-webkit-details-marker { display: none; }
 .meter-bar { height: 8px; border-radius: 4px; background: var(--ground); overflow: hidden; }
 .meter-bar span { display: block; height: 100%; background: var(--accent); transition: width 0.3s ease; }
 .meter-bar span.high { background: var(--live); }
+.meter-bar span.over { background: var(--bad); }
+/* Providers (pages/Providers.tsx) and an organization's usage (pages/OrgUsage.tsx). */
+.provider-usage-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.provider-usage.blocked { border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
+.provider-usage-name { overflow-wrap: anywhere; }
+.provider-usage-counts { display: flex; flex-direction: column; gap: 2px; }
+.provider-usage-counts strong { font-size: 18px; font-variant-numeric: tabular-nums; }
+.limit-meter { display: flex; flex-direction: column; gap: 6px; }
+.usage-table .usage-limits { min-width: 220px; display: flex; flex-direction: column; gap: 10px; }
+.usage-table tr.blocked td { background: var(--bad-soft); }
+.limit-form { align-items: flex-end; }
+.limit-form .field { flex: 1 1 150px; }
+.limit-form .field input { flex: none; width: 100%; }
 .totals > div > small { margin-top: 2px; }
 .fact-list dd small { font-weight: 400; }
 @media (prefers-reduced-motion: reduce) { .meter-bar span { transition: none; } }

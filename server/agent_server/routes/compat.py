@@ -164,6 +164,9 @@ async def _native_chat(
     telemetry.backend = backend.name
     runtime.track(telemetry)
     runtime.attach(telemetry, original, ollama_payload)
+    refused = _over_limit(runtime, request, session, telemetry, original, backend)
+    if refused is not None:
+        return refused
     assert runtime.client
     try:
         upstream = await runtime.client.send(
@@ -346,6 +349,9 @@ async def _forward(
     telemetry.backend = backend.name
     runtime.track(telemetry)
     runtime.attach(telemetry, original_payload, payload if payload != original_payload else None)
+    refused = _over_limit(runtime, request, session, telemetry, original_payload, backend)
+    if refused is not None:
+        return refused
     headers = _upstream_headers(request.headers)
     if backend.type == "strata":
         headers = strata.with_key(backend, headers)
@@ -498,6 +504,18 @@ async def _list_models(runtime: Runtime, request: Request, backend_name: str | N
         for alias in runtime.settings.models if alias not in known
     ]
     return JSONResponse({"object": "list", "data": models}, status_code=response.status_code)
+
+
+def _over_limit(runtime: Runtime, request: Request, session: Session, telemetry: RequestTelemetry, payload: Any, backend: Any) -> JSONResponse | None:
+    """A 429 when the session's person has used their organization's limit on this backend; None to go ahead."""
+    if request.method != "POST":
+        return None
+    provider = f"backend:{backend.name}"
+    blocked = runtime.over_limit(session, provider)
+    if blocked is None:
+        return None
+    _, body, headers = runtime.refuse_over_limit(session, telemetry, payload, provider, blocked)
+    return JSONResponse(body, status_code=429, headers=headers)
 
 
 def _backend(runtime: Runtime, request: Request, name: str | None):

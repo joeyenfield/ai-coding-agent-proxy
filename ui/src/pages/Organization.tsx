@@ -6,6 +6,7 @@ import { CodeLine } from "../components/CodeLine";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { PartTag } from "../components/PartTag";
 import { TabBar, TabPanel, useTabParam } from "../components/Tabs";
+import { OrgUsageTab } from "./OrgUsage";
 import { useAuth, useClipboard, useStatus, useToast } from "../hooks";
 
 const NAME_PATTERN = "[a-z0-9][a-z0-9._\\-]*";
@@ -233,7 +234,7 @@ function OrgDetail({ org, users, identity, onDelete }: { org: Org; users: User[]
   const [name, setName] = useState(org.name);
   const [team, setTeam] = useState({ id: "", name: "" });
   // Root holds only site admins: no teams.
-  const [tab, setTab] = useTabParam(org.root ? (["members", "settings"] as const) : (["teams", "members", "settings"] as const), "orgTab");
+  const [tab, setTab] = useTabParam(org.root ? (["members", "usage", "settings"] as const) : (["teams", "members", "usage", "settings"] as const), "orgTab");
   const [params, setParams] = useSearchParams();
   const selected = org.teams.find((item) => item.id === params.get("team"));
   const people = users.filter((user) => user.tenant === org.id);
@@ -262,7 +263,7 @@ function OrgDetail({ org, users, identity, onDelete }: { org: Org; users: User[]
         </p>
       </header>
       <TabBar label={`${org.name} sections`} idPrefix="org-" active={tab} onSelect={setTab}
-        tabs={[...(org.root ? [] : [{ id: "teams" as const, label: "Teams" }]), { id: "members" as const, label: org.root ? "Site admins" : "People" }, { id: "settings" as const, label: "Settings" }]} />
+        tabs={[...(org.root ? [] : [{ id: "teams" as const, label: "Teams" }]), { id: "members" as const, label: org.root ? "Site admins" : "People" }, { id: "usage" as const, label: "Usage" }, { id: "settings" as const, label: "Settings" }]} />
       {!org.root && (
         <TabPanel idPrefix="org-" id="teams" active={tab === "teams"}>
           {selected ? (
@@ -306,6 +307,9 @@ function OrgDetail({ org, users, identity, onDelete }: { org: Org; users: User[]
         </p>
         <UserTable users={people} orgs={[org]} identity={identity} showOrg={false} />
         {manager && <CreateUser key={org.id} orgs={[org]} fixed={org.id} />}
+      </TabPanel>
+      <TabPanel idPrefix="org-" id="usage" active={tab === "usage"}>
+        <OrgUsageTab org={org.id} />
       </TabPanel>
       <TabPanel idPrefix="org-" id="settings" active={tab === "settings"}>
         <p className="subtle">The organization id stays the same when its name changes.</p>

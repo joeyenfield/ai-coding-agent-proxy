@@ -191,6 +191,31 @@ access_log = Table(
     Index("access_log_day", "day"),
 )
 
+# Usage by person and provider (usage_limits.py), by hour: provider is backend:<name> or subscription:<kind>.
+provider_usage = Table(
+    "provider_usage", api,
+    Column("tenant", String(40), primary_key=True),
+    Column("user", String(100), primary_key=True),
+    Column("provider", String(200), primary_key=True),
+    Column("bucket", BigInteger, primary_key=True, autoincrement=False),
+    Column("requests", BigInteger, nullable=False, default=0),
+    Column("input_tokens", BigInteger, nullable=False, default=0),
+    Column("output_tokens", BigInteger, nullable=False, default=0),
+    Index("provider_usage_tenant", "tenant", "bucket"),
+)
+
+# The limits an organization's admins set: tokens per window, for one user or everyone in it ("*").
+usage_limits = Table(
+    "usage_limits", api,
+    Column("tenant", String(40), primary_key=True),
+    Column("user", String(100), primary_key=True),
+    Column("provider", String(200), primary_key=True),
+    Column("window", String(8), primary_key=True),
+    Column("tokens", BigInteger, nullable=False),
+    Column("set_by", String(100)),
+    Column("set_at", Float),
+)
+
 PROVIDER_ACCOUNT_TABLES = (provider_accounts, provider_account_assignments, provider_account_usage, provider_account_events, provider_credentials)
 
 auth_versions = _versions(auth)

@@ -95,7 +95,13 @@ def _access_log(connection: Connection) -> None:
     schema.access_log.create(connection, checkfirst=True)
 
 
-API_STEPS: list[Step] = [_create(schema.api), _tenants, _provider_accounts, _access_log]
+def _usage_limits(connection: Connection) -> None:
+    """Usage by person and provider, and organizations' limits on it (step 1 already made them in a database created since)."""
+    schema.provider_usage.create(connection, checkfirst=True)
+    schema.usage_limits.create(connection, checkfirst=True)
+
+
+API_STEPS: list[Step] = [_create(schema.api), _tenants, _provider_accounts, _access_log, _usage_limits]
 AUTH_STEPS: list[Step] = [_create(schema.auth)]
 
 # One lock id per component, so two processes starting at once don't both migrate.

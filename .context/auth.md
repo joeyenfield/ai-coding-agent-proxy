@@ -77,6 +77,10 @@ Every organization is a **tenant**, under the one **root** organization (`auth.R
 
 Subscriptions (`provider_accounts.py`) are not identities: never store one in `mesh_auth` or treat one as a sign-in. Their checks are separate from machine grants: a `launch` grant never lets someone use the machine owner's subscription (`for_launch`), assignments go only to the account owner's own machines, and `may_use` excludes admins (a subscription is personal). Site admins see metadata only. A managed token leaves the vault only through `deliver`, bound to a server-made grant for one launch on one assigned machine, once. `tests/test_provider_accounts.py` covers it.
 
+## Usage limits
+
+Limits (`usage_limits.py`, `routes/providers.py`) are an organization's: `PUT`/`DELETE /api/orgs/{org}/limits` need `administers(identity, org)` (and are in `ADMIN_ONLY` with the rest of `/api/orgs/*`), name only that organization's users (or `*`) and the providers it can use (its machines' backends and the shared hosted ones, plus the subscription kinds). `GET /api/orgs/{org}/usage` is for its members (`same_tenant`), who see only their own rows; another organization's answers 404. Usage is counted for a session's `launched_by` (else `owner`) in its `tenant` tag, both server tags clients can't set, so nobody can spend someone else's limit or dodge their own by tagging a session. `tests/test_usage_limits.py` covers it.
+
 ## Extending and testing
 
 Add admin policy, session checks or machine-feature checks for each new route, document it in `docs/api.md`, and cover signed-out, wrong-user and role/grant failures. Public paths must be deliberately added, never inferred from an open session.

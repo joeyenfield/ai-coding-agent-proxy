@@ -465,6 +465,88 @@ export type SubscriptionProvider = "claude" | "codex" | "copilot";
 export type AccountState = "available" | "near_limit" | "unknown" | "rate_limited" | "quota_exhausted" | "auth_expired" | "offline";
 export type UsageWindow = "5h" | "24h" | "7d" | "30d" | "month";
 
+/** One provider as people use it (usage_limits.py): a backend (on a machine, or hosted) or a kind of subscription. */
+export interface ProviderEntry {
+  /** backend:<name> or subscription:<claude|codex|copilot>. */
+  id: string;
+  /** "removed": usage of a backend that's gone, in organization reports only. */
+  kind: "local" | "hosted" | "subscription" | "removed";
+  type: string;
+  type_label: string;
+  name: string;
+  label: string;
+  machine: { id: string; name: string; online: boolean } | null;
+  container: boolean;
+  default: boolean;
+  /** Subscriptions: how many of yours (or shared with you) the server has. */
+  accounts?: number;
+}
+
+export interface UsageCounts {
+  requests: number;
+  input_tokens: number;
+  output_tokens: number;
+}
+
+export interface UsageLimit {
+  /** A person's name, or "*" for everyone in the organization. */
+  user: string;
+  provider: string;
+  window: UsageWindow;
+  tokens: number;
+  set_by: string | null;
+  set_at: number | null;
+}
+
+/** A limit as it applies to one person, with what they've used of it. */
+export interface LimitStatus extends UsageLimit {
+  /** It's everyone's limit, not the person's own. */
+  inherited: boolean;
+  used: number;
+  remaining: number;
+  percent_used: number;
+  reached: boolean;
+  /** When it frees up (seconds since the epoch), once reached. */
+  until: number | null;
+}
+
+export interface ProviderWithUsage extends ProviderEntry {
+  usage: Record<UsageWindow, UsageCounts>;
+  limits: LimitStatus[];
+  blocked: LimitStatus | null;
+}
+
+export interface UsageWindowInfo {
+  id: UsageWindow;
+  label: string;
+}
+
+export interface ProvidersResponse {
+  providers: ProviderWithUsage[];
+  windows: UsageWindowInfo[];
+  user: string;
+  tenant: string;
+}
+
+export interface UsageRow {
+  user: string;
+  provider: string;
+  usage: Record<UsageWindow, UsageCounts>;
+  limits: LimitStatus[];
+  blocked: LimitStatus | null;
+}
+
+export interface OrgUsage {
+  org: string;
+  /** Whether you see everyone's and may set limits (its admins, site admins); members see their own. */
+  manage: boolean;
+  users: string[];
+  providers: ProviderEntry[];
+  rows: UsageRow[];
+  limits: UsageLimit[];
+  windows: UsageWindowInfo[];
+}
+
 /** One provider CLI on a machine, as `agent accounts detect` found it there: never a token. */
 export interface ProviderCli {
   provider: SubscriptionProvider;
@@ -1812,6 +1894,12 @@ export const api = {
       body: JSON.stringify({ user_code: userCode, action: approve ? "approve" : "deny" }),
     }),
   orgs: () => request<{ orgs: Org[] }>("/api/orgs"),
+  providers: () => request<ProvidersResponse>("/api/providers"),
+  orgUsage: (org: string) => request<OrgUsage>(`/api/orgs/${encodeURIComponent(org)}/usage`),
+  setUsageLimit: (org: string, limit: Pick<UsageLimit, "user" | "provider" | "window" | "tokens">) =>
+    request<OrgUsage>(`/api/orgs/${encodeURIComponent(org)}/limits`, { method: "PUT", body: JSON.stringify(limit) }),
+  removeUsageLimit: (org: string, limit: Pick<UsageLimit, "user" | "provider" | "window">) =>
+    request<OrgUsage>(`/api/orgs/${encodeURIComponent(org)}/limits?${new URLSearchParams(limit)}`, { method: "DELETE" }),
   addOrg: (id: string, name: string) => request<Directory>("/api/orgs", { method: "POST", body: JSON.stringify({ id, name }) }),
   renameOrg: (id: string, name: string) => request<Directory>(`/api/orgs/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ name }) }),
   removeOrg: (id: string) => request<Directory>(`/api/orgs/${encodeURIComponent(id)}`, { method: "DELETE" }),
