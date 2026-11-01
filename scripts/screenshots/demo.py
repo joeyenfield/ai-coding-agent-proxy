@@ -733,11 +733,21 @@ ENGINES = [
      "options": [{"env": env, "label": label, "choices": [], "hint": ""} for env, label in
                  (("OLLAMA_CONTEXT_LENGTH", "Context"), ("OLLAMA_KV_CACHE_TYPE", "KV cache"), ("OLLAMA_FLASH_ATTENTION", "Flash attention"))],
      "summary": "The official Ollama image. Models pulled into the shared volume are there for every Ollama container."},
+    {"id": "llamacpp", "label": "llama.cpp", "backend_type": "llamacpp", "image": "ghcr.io/ggml-org/llama.cpp:server-cuda",
+     "images": ["ghcr.io/ggml-org/llama.cpp:server-cuda", "ghcr.io/ggml-org/llama.cpp:server"],
+     "port": 8080, "data_path": "/root/.cache/llama.cpp", "volume": "llamacpp-models", "health_path": "/health", "stop_timeout": 30,
+     "options": [{"env": env, "label": label, "choices": [], "hint": ""} for env, label in
+                 (("LLAMA_ARG_CTX_SIZE", "Context"), ("LLAMA_ARG_N_PARALLEL", "Parallel requests"), ("LLAMA_ARG_THINK_BUDGET", "Thinking budget"))],
+     "summary": "llama.cpp's official server image (server-cuda for NVIDIA, server for CPU). Download models from Hugging Face on its model server's tab."},
 ]
 RUNS_CONTAINERS = {"enabled": True, "cli": "docker", "found": True, "online": True, "version": "28.4.0", "error": "", "engines": ENGINES}
 
 # The demo server's own version (VERSION and the commit), so the model machines are up to date.
 SERVER_VERSION = build_version()
+
+# A phone in Termux running llama.cpp (Termux's OpenCL build), installed and started from the console.
+LLAMA_STATE = {"known": True, "found": True, "running": True, "managed": True, "port": 9931, "version": "b12032",
+               "source": "termux", "variant": "opencl", "release": None, "platform": "termux", "install": None}
 
 # Model machines say they're this computer (127.0.0.1), where the demo's fake model servers listen, so the
 # backends above are theirs. build-box runs an Ollama nobody has added yet.
@@ -764,6 +774,12 @@ FLEET = [
          {"name": "postgres", "transport": "stdio", "description": "The staging database, read-only", "found": True},
          {"name": "docs", "transport": "http", "description": "Internal docs search", "found": True},
      ]}},
+    {"id": "pocket", "name": "pocket", "os": "linux", "arch": "arm64", "version": SERVER_VERSION, "address": "127.0.0.1",
+     "agents": ["codex"], "providers": [{"type": "llamacpp", "port": 9931, "models": 2}],
+     "containers": {"enabled": False, "cli": "docker", "found": False, "online": False, "version": "", "error": "", "engines": []},
+     "servers": {"enabled": True, "ollama": {"found": False, "running": False, "managed": False, "version": None},
+                 "strata": {"found": False, "profiles": []}, "llamacpp": LLAMA_STATE},
+     "launches": False, "roots": []},
 ]
 
 # build-box's folders inside its launch folders, for the folder picker (agent-machine lists them there).
@@ -829,6 +845,7 @@ class FakeContainers:
 HARDWARE = {
     "ai-laptop": {"cores": 16, "ram_gb": 64, "gpu": "NVIDIA RTX 5000 Ada Laptop", "gpu_gb": 32},
     "ai-desktop": {"cores": 24, "ram_gb": 128, "gpu": "NVIDIA RTX 5090", "gpu_gb": 32},
+    "pocket": {"cores": 8, "ram_gb": 12, "gpu": "Adreno 750", "gpu_gb": 12},
     "build-box": {"cores": 32, "ram_gb": 256, "gpu": "NVIDIA RTX 6000 Ada", "gpu_gb": 48},
 }
 # A few of the settings agent-machine starts Ollama with (machine/internal/servers has them all).
@@ -844,9 +861,29 @@ OLLAMA_SETTINGS = [
     {"key": "keep_alive", "group": "Concurrency / scheduling", "label": "Keep alive", "kind": "choice", "default": "-1",
      "help": "-1 = keep loaded forever.", "env": ["OLLAMA_KEEP_ALIVE"], "choices": ["-1", "0", "5m", "30m"], "editable": True, "minimum": 0, "maximum": 0},
 ]
+# A few of the settings agent-machine starts llama-server with (machine/internal/servers/llamacpp_settings.go has them all).
+LLAMA_SETTINGS = [
+    {"key": "ctx_size", "group": "Memory / KV cache", "label": "Context length (tokens)", "kind": "int", "default": 16384,
+     "help": "16384 = recommended. 0 = the model's own (with Fit on, the largest that fits).", "env": ["LLAMA_ARG_CTX_SIZE"], "choices": [], "editable": False, "minimum": 0, "maximum": 1048576},
+    {"key": "cache_type_k", "group": "Memory / KV cache", "label": "KV cache type (K)", "kind": "choice", "default": "f16",
+     "help": "q8_0 is about half of f16.", "env": ["LLAMA_ARG_CACHE_TYPE_K"], "choices": ["f16", "q8_0", "q4_0"], "editable": False, "minimum": 0, "maximum": 0},
+    {"key": "models_max", "group": "Concurrency / scheduling", "label": "Max loaded models", "kind": "int", "default": 1,
+     "help": "The least recently used is unloaded first.", "env": ["LLAMA_ARG_MODELS_MAX"], "choices": [], "editable": False, "minimum": 0, "maximum": 128},
+    {"key": "gpu_layers", "group": "Hardware", "label": "GPU layers", "kind": "choice", "default": "auto",
+     "help": "auto, all, or a number. 0 = CPU only.", "env": ["LLAMA_ARG_N_GPU_LAYERS"], "choices": ["auto", "all", "0"], "editable": True, "minimum": 0, "maximum": 0},
+    {"key": "reasoning_budget", "group": "Reasoning", "label": "Thinking budget (tokens)", "kind": "int", "default": -1,
+     "help": "-1 = no limit, 0 = don't think.", "env": ["LLAMA_ARG_THINK_BUDGET"], "choices": [], "editable": False, "minimum": -1, "maximum": 1048576},
+]
+LLAMA_MODELS = [
+    {"name": "unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M", "state": "loaded", "loaded": True, "failed": False, "size": int(2.5 * GB),
+     "path": "/data/data/com.termux/files/home/.cache/llama.cpp/unsloth_Qwen3-4B-Instruct-2507-GGUF_Qwen3-4B-Instruct-2507-Q4_K_M.gguf", "context_train": 262144, "progress": None},
+    {"name": "ggml-org/gemma-3-1b-it-GGUF:Q8_0", "state": "unloaded", "loaded": False, "failed": False, "size": int(1.1 * GB),
+     "path": "/data/data/com.termux/files/home/.cache/llama.cpp/ggml-org_gemma-3-1b-it-GGUF_gemma-3-1b-it-Q8_0.gguf", "context_train": 32768, "progress": None},
+]
 LOGS = {
     "strata": "[strata] serving qwen3.6-35b-a3b IQ3_XXS on :8080\n[strata] done: 812 tokens in 9.4 s\n",
     "ollama": "time=2026-10-26T09:00:00Z level=INFO msg=\"Listening on 0.0.0.0:11434\"\n",
+    "llamacpp": "# agent-machine: starting llama-server (router mode) on 127.0.0.1:9931\nggml_opencl: device: 'QUALCOMM Adreno(TM) 750'\nmain: server is listening on http://127.0.0.1:9931 (router mode)\n",
 }
 
 
@@ -860,6 +897,8 @@ class FakeProviders:
     def __init__(self, machine_id: str):
         self.machine_id = machine_id
         self.ollama_config: dict[str, Any] = {setting["key"]: setting["default"] for setting in OLLAMA_SETTINGS} | {"extra_env": ""}
+        self.llama_config: dict[str, Any] = {setting["key"]: setting["default"] for setting in LLAMA_SETTINGS} | {"extra_env": "", "reasoning_budget": 512}
+        self.llama_models = json.loads(json.dumps(LLAMA_MODELS))
 
     def handle(self, request: dict, send: Any) -> dict:
         op, kind = request.get("op"), request.get("kind")
@@ -878,7 +917,16 @@ class FakeProviders:
             for step in range(1, 21):
                 time.sleep(0.15)
                 send({"type": "provider_progress", "request": request["request"], "progress": {"status": "downloading", "total": total, "completed": total * step // 20}})
+            if kind == "llamacpp":
+                self.llama_models.append({"name": request["model"], "state": "unloaded", "loaded": False, "failed": False, "size": total,
+                                          "path": "", "context_train": None, "progress": None})
             return {"ok": True}
+        if op in {"delete", "load", "unload"} and kind == "llamacpp":
+            for model in self.llama_models:
+                if model["name"] == request.get("model"):
+                    model.update(loaded=op == "load", state="loaded" if op == "load" else "unloaded")
+            if op == "delete":
+                self.llama_models = [model for model in self.llama_models if model["name"] != request.get("model")]
         if op in {"delete", "load", "unload"}:
             if kind == "strata":
                 return {"ok": True, "result": {"status": "loaded" if op == "load" else "unloaded"}}
@@ -888,6 +936,9 @@ class FakeProviders:
         return {"ok": False, "error": f"unknown request: {op} {kind}"}
 
     def status(self, kind: str, base: str, request: dict) -> dict:
+        if kind == "llamacpp":
+            # The demo serves no llama-server: answer as its router would.
+            return {"online": True, "router": True, "models": self.llama_models}
         if kind == "ollama" and request.get("port") not in DEMO_PORTS:
             # build-box's Ollama isn't served by the demo: never ask a real one on this computer.
             return {"online": True, "version": "0.12.3", "models": [
@@ -947,6 +998,17 @@ class FakeProviders:
             "gpu_source": "nvidia-smi", "gpu_error": None,
         }
 
+    def llama_settings(self, request: dict) -> dict:
+        if request["op"] == "configure":
+            self.llama_config.update({key: value for key, value in (request.get("config") or {}).items() if key in self.llama_config})
+        env = {name: str(self.llama_config[setting["key"]]) for setting in LLAMA_SETTINGS for name in setting["env"]}
+        groups = list(dict.fromkeys(setting["group"] for setting in LLAMA_SETTINGS))
+        return {
+            "schema": {"groups": groups, "settings": LLAMA_SETTINGS}, "config": self.llama_config, "env": env, "warnings": [],
+            "applied_matches_saved": True, "config_path": "/data/data/com.termux/files/home/.config/agent-machine/llamacpp.json",
+            "log_path": "/data/data/com.termux/files/home/.config/agent-machine/llamacpp.log",
+        }
+
     def ollama_settings(self, request: dict, servers: dict) -> dict:
         if request["op"] == "configure":
             self.ollama_config.update({key: value for key, value in (request.get("config") or {}).items() if key in self.ollama_config})
@@ -975,6 +1037,32 @@ def search(request: dict) -> dict:
     return {"repo": repo, "tags": [{"tag": "latest", "size": int(17.3 * GB), "engine": None, "updated": "2026-10-01T00:00:00Z"}]}
 
 
+def llama_server(request: dict, servers: dict, providers: FakeProviders) -> dict:
+    """A machine's llama.cpp, as agent-machine answers: settings, install options, an install that takes a few seconds, start and stop."""
+    op, llama = request["op"], servers.setdefault("llamacpp", {**LLAMA_STATE, "found": False, "running": False, "managed": False})
+    if op in {"settings", "configure"}:
+        return {"llamacpp_settings": providers.llama_settings(request)}
+    if op == "install_options":
+        return {"llamacpp_install": {"source": "termux", "variants": [
+            {"id": "opencl", "label": "OpenCL (phone GPU)", "help": "Adreno and other phone GPUs, through the phone's own OpenCL driver. The fastest on Snapdragon phones.", "recommended": True},
+            {"id": "vulkan", "label": "Vulkan (phone GPU)", "help": "Through Android's Vulkan driver; often slower than OpenCL on Adreno.", "recommended": False},
+            {"id": "cpu", "label": "CPU only", "recommended": False}]}}
+    if op == "install":
+        llama["install"] = {"state": "installing", "variant": request.get("variant"), "release": None, "step": "apt-get install", "done": 0, "total": 0, "error": None, "at": None}
+
+        def finish() -> None:
+            time.sleep(4)
+            llama.update(found=True, variant=request.get("variant"), source="termux")
+            llama["install"] = {**llama["install"], "state": "installed", "step": None}
+
+        threading.Thread(target=finish, daemon=True).start()
+    elif op in {"start", "restart"}:
+        llama.update(running=True, managed=True)
+    elif op == "stop":
+        llama.update(running=False, managed=False)
+    return {}
+
+
 def join_fleet() -> None:
     """The made-up machines, joined the way the client's agent-proxy joins: build-box takes launches, two run containers."""
     def member(hello: dict) -> None:
@@ -997,6 +1085,9 @@ def join_fleet() -> None:
             if request.get("type") == "provider":
                 # Pulls take a while: each request on its own thread, as agent-machine does.
                 threading.Thread(target=provide, args=(request,), daemon=True).start()
+                continue
+            if request.get("type") == "server" and request.get("kind") == "llamacpp":
+                send({"type": "server_result", "request": request["request"], "ok": True, "servers": servers, **llama_server(request, servers, providers)})
                 continue
             if request.get("type") == "server" and request.get("op") in {"settings", "configure"}:
                 send({"type": "server_result", "request": request["request"], "ok": True, "servers": servers,
@@ -1135,6 +1226,8 @@ def main() -> None:
             "laptop": {"type": "ollama", "url": f"http://127.0.0.1:{LAPTOP}", "machine": "ai-laptop"},
             "desktop": {"type": "ollama", "url": f"http://127.0.0.1:{DESKTOP}", "machine": "ai-desktop"},
             "docker": {"type": "docker", "url": f"http://127.0.0.1:{DOCKER}", "machine": "ai-desktop"},
+            # The phone's llama.cpp (FakeProviders answers for it; nothing serves agents' traffic there in the demo).
+            "pocket": {"type": "llamacpp", "url": "http://127.0.0.1:9931", "machine": "pocket"},
             "anthropic": {"type": "anthropic", "url": f"http://127.0.0.1:{ANTHROPIC}"},
             # Containers the machines run, answered by FakeContainers.
             **{name: {"type": spec["engine"], "url": f"http://127.0.0.1:{spec['port']}", "machine": CONTAINER_MACHINES[name], "container": spec}

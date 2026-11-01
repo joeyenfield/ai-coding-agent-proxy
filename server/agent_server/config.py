@@ -37,26 +37,27 @@ LOCAL_PROXY_PORT = 8184
 LOCAL_INTERCEPT_PORT = 8183
 LOCAL_PROXY_URL = f"http://127.0.0.1:{LOCAL_PROXY_PORT}"
 # ollama: Ollama servers, translated and tuned by the proxy. strata: a local Strata
-# server, and docker: Docker Model Runner; both speak the agents' APIs themselves and
-# are passed through. anthropic: hosted pass-through.
-BACKEND_TYPES = {"ollama", "strata", "docker", "anthropic"}
+# server, docker: Docker Model Runner, and llamacpp: llama.cpp's llama-server (router mode);
+# all three speak the agents' APIs themselves and are passed through. anthropic: hosted pass-through.
+BACKEND_TYPES = {"ollama", "strata", "docker", "llamacpp", "anthropic"}
 # Agent protocols the pass-through local servers speak natively.
 NATIVE_PROTOCOLS = {
     "strata": {"openai-chat", "openai-responses", "anthropic"},
     "docker": {"openai-chat", "openai-responses", "anthropic", "ollama"},
+    "llamacpp": {"openai-chat", "openai-responses", "anthropic"},
 }
 # Model servers run on the fleet's machines: a backend of these types is added from a machine
 # (a model server it reports, or a container it runs), never by URL alone. Hosted APIs are the exception.
-MACHINE_TYPES = {"ollama", "strata", "docker"}
-PROVIDER_NAMES = {"ollama": "Ollama", "strata": "Strata", "docker": "Docker Model Runner", "anthropic": "Anthropic API"}
+MACHINE_TYPES = {"ollama", "strata", "docker", "llamacpp"}
+PROVIDER_NAMES = {"ollama": "Ollama", "strata": "Strata", "docker": "Docker Model Runner", "llamacpp": "llama.cpp", "anthropic": "Anthropic API"}
 
 
 def serves(backend: "Backend", backend_type: str, protocol: str | None = None) -> bool:
     """Whether an agent declared for backend_type, speaking protocol, can use this backend.
 
-    Agents declared for Ollama are local-model agents; Strata and Docker Model
-    Runner serve them too when they speak the agent's protocol. Only Strata lacks
-    Ollama's native /api.
+    Agents declared for Ollama are local-model agents; Strata, Docker Model Runner
+    and llama.cpp serve them too when they speak the agent's protocol. Strata and
+    llama.cpp lack Ollama's native /api.
     """
     if backend.type == backend_type:
         return True

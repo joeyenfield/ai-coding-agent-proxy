@@ -26,7 +26,7 @@ flowchart TB
   subgraph MACHINES["3 · Machines, the fleet"]
     direction LR
     am["agent-machine"]
-    models["Model servers<br/>Ollama, Strata, Docker"]
+    models["Model servers<br/>Ollama, llama.cpp, Strata, Docker"]
     mcp["MCP servers"]
     shell["Agents and terminals<br/>started from the console"]
     am --- models & mcp & shell
@@ -42,7 +42,7 @@ flowchart TB
 
 - **The server** (`agent-server`) is the hub. Agent traffic goes through it, and allowed requests are recorded in a **session** per agent run, in its database. It owns all configuration, kept in the same database: the agents it knows, the providers it routes to, its users. It serves the **console**, the web app you manage everything from.
 - **Agents** run on any computer with the client installed (`agent`). `agent claude .` asks the server for a session, starts the agent pointed at that computer's **agent-proxy** (a small proxy on `127.0.0.1:8184`), and the agent-proxy carries the agent's traffic to the server. The agent needs nothing but the right environment, which the server renders for it.
-- **Machines** are computers in the server's **fleet**, kept there by `agent-machine`. They supply every local model: the Ollama, Strata and Docker Model Runner servers they run, and containers they run for the server. They can also share MCP servers, take agent launches from the console, open terminals, and update themselves to the server's build. A machine holds one WebSocket to the server, and the server reaches everything on it through that connection, so a machine behind NAT or in WSL needs no open port.
+- **Machines** are computers in the server's **fleet**, kept there by `agent-machine`. They supply every local model: the Ollama, llama.cpp, Strata and Docker Model Runner servers they run, and containers they run for the server. They can also share MCP servers, take agent launches from the console, open terminals, and update themselves to the server's build. A machine holds one WebSocket to the server, and the server reaches everything on it through that connection, so a machine behind NAT or in WSL needs no open port.
 
 A computer can be all three: the server, an agent machine and a fleet machine.
 
@@ -53,7 +53,7 @@ How an agent's request reaches a model depends on the agent:
 | Route | For | What happens |
 | --- | --- | --- |
 | **Your accounts** | Claude Code, Copilot CLI and Codex signed in to your own Claude, GitHub Copilot or ChatGPT plan | Nothing is redirected. The agent's HTTPS goes through its agent-proxy to the server, which decrypts and records it with its own certificate authority (trusted only by that agent's process tree) and sends it to public destinations. Private and reserved IP addresses are refused. |
-| **Local models** | Qwen Code, OpenCode, Claude Code, Copilot CLI, Codex, Aider, Goose against your own models | The agent talks to the proxy's OpenAI, Anthropic or Ollama endpoint. For Ollama, the server translates the request to Ollama's native API and applies the context size and sampling settings from the server's Ollama model tuning. Strata and Docker Model Runner take the request as it is. |
+| **Local models** | Qwen Code, OpenCode, Claude Code, Copilot CLI, Codex, Aider, Goose against your own models | The agent talks to the proxy's OpenAI, Anthropic or Ollama endpoint. For Ollama, the server translates the request to Ollama's native API and applies the context size and sampling settings from the server's Ollama model tuning. llama.cpp, Strata and Docker Model Runner take the request as it is. |
 | **Hosted API** | Claude Code with your Anthropic login or key | The request is passed through to the hosted API unchanged, and recorded. |
 
 ### What a session is
@@ -79,7 +79,7 @@ Everyone signs in through OIDC, including on loopback. Sessions are private unti
 | [Agents](agents.md) | The `agent` command and every option, the agent-proxy, every supported agent, what the requests are, sharing terminals, adding a new agent on Server settings. |
 | [MCP servers](mcp.md) | Sharing MCP servers from a machine with agents anywhere: `agent-machine mcp`, choosing them for a launch, how the bridge works, recording and access. |
 | [Machines](machines.md) | The fleet and `agent-machine`: every command, its files, launches, terminals, remote updates, tunnels, access grants, services, the sandbox machine, the Python version. |
-| [Providers](providers.md) | Ollama (translation, model tuning, Qwen), Strata, Docker Model Runner, containers machines run, hosted APIs, which agent can use which provider. |
+| [Providers](providers.md) | Ollama (translation, model tuning, Qwen), llama.cpp (installing it, its settings, phones' GPUs), Strata, Docker Model Runner, containers machines run, hosted APIs, which agent can use which provider. |
 | [The console](console.md) | Every page of the web console and what each control does, with screenshots. |
 | [OIDC authentication](oidc.md) | Auth service deployment, browser PKCE, CLI device flow, service accounts, access tokens and migration. |
 | [Security](security.md) | How each device pairs with the server, device approval step by step and what protects it, tokens and where they're kept, which connections are encrypted, where plain HTTP appears and why, and a checklist for a public server. |
@@ -100,7 +100,7 @@ Everyone signs in through OIDC, including on loopback. Sessions are private unti
 | List the server's agents | `agent --list` | Start an agent | [Agents](agents.md#agent---list) |
 | Capture full payloads | `--trace` | Capture full request and response payloads | [Agents](agents.md#options) |
 | Record account agents' HTTPS | `agent claude-account` and the other `-account` agents | Traffic | [Agents](agents.md#your-accounts-https-capture) |
-| Local models on Ollama, Strata, Docker | `--model`, `--backend` | Start an agent, a machine's model server tabs | [Providers](providers.md) |
+| Local models on Ollama, llama.cpp, Strata, Docker | `--model`, `--backend` | Start an agent, a machine's model server tabs | [Providers](providers.md) |
 | Tune Ollama per model | `agent-server config import` | Server settings › Ollama model tuning, a model server's Aliases tab | [Providers](providers.md#model-tuning) |
 | Add or change an agent | `PUT /api/config/agents/<id>` | Server settings › Agents | [Agents](agents.md#adding-a-new-agent) |
 | Hosted API pass-through | `agent claude-subscription` | Server settings › Add hosted API | [Providers](providers.md#backend-types) |
@@ -116,6 +116,7 @@ Everyone signs in through OIDC, including on loopback. Sessions are private unti
 | Add a machine's model server as a provider | | Add as a provider | [Providers](providers.md#where-providers-come-from) |
 | Manage models (pull, load, delete, search) | `agent-machine servers on` | A machine's model server tabs | [Providers](providers.md#managing-models) |
 | Start, stop and configure Ollama and Strata | `agent-machine servers on` | Ollama server tab, Strata tab | [Providers](providers.md#ollamas-server-settings) |
+| Install, start and configure llama.cpp | `agent-machine servers on` | llama.cpp server tab | [Providers](providers.md#llamacpp) |
 | Containers on a machine | `agent-machine containers on`, `agent --switch` | Containers tab | [Providers](providers.md#containers-machines-run) |
 | Start agents on a machine from the console | `agent-machine launches on`, `roots add` | A machine's Agents tab | [Machines](machines.md#launches) |
 | Share MCP servers | `agent-machine mcp add`, `agent --mcp` | MCP servers tab, Start an agent | [MCP servers](mcp.md) |
@@ -144,7 +145,7 @@ For maintaining the public brochure, see [Marketing website](website.md): local 
 | **agent-proxy** | The proxy on each agent machine (`127.0.0.1:8184`, and `8183` for HTTPS capture), started by `agent`. It signs the launcher's calls with the computer's sign-in and carries agents' traffic to the server. |
 | **agent-server** | The server: the hub that records and routes everything, and serves the console. |
 | **agent-machine** | The program that keeps a computer in the server's fleet. |
-| **backend**, **provider** | Where model requests go: an Ollama, Strata or Docker Model Runner server on a machine, a container a machine runs, or a hosted API. Listed on Server settings › Providers. |
+| **backend**, **provider** | Where model requests go: an Ollama, llama.cpp, Strata or Docker Model Runner server on a machine, a container a machine runs, or a hosted API. Listed on Server settings › Providers. |
 | **session** | One run of one agent, and everything recorded for it. |
 | **route** | How an agent reaches a model: your accounts, local models or hosted API. |
 | **fleet** | The machines signed in to the server. |

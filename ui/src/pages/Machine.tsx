@@ -15,6 +15,7 @@ import { OllamaProvider } from "./Models";
 import { StrataProvider } from "./Strata";
 import { DockerGuide, DockerProvider } from "./Docker";
 import { MachineOllama } from "./OllamaServer";
+import { LlamaCppProvider, MachineLlamaCpp } from "./LlamaCpp";
 import { MachineLoad } from "./Hosts";
 import { terminalState } from "./Terminals";
 import { MachineAccess } from "./MachineAccess";
@@ -61,6 +62,8 @@ export function MachinePage() {
   }
   const provider = providers.find((item) => item.id === section);
   const ollamaInstalled = Boolean(machine.servers.ollama?.found);
+  // llama.cpp can be installed from here, so its tab is there whenever the machine knows about it.
+  const llamaKnown = Boolean(machine.servers.enabled && machine.servers.llamacpp?.known);
   const runsContainers = Boolean(machine.containers.enabled) || providers.some((item) => item.container);
 
   return (
@@ -81,6 +84,7 @@ export function MachinePage() {
           </NavLink>
         ))}
         {ollamaInstalled && <NavLink to={machinePath(machine.id, "ollama")}>Ollama server</NavLink>}
+        {llamaKnown && <NavLink to={machinePath(machine.id, "llamacpp")}>llama.cpp server</NavLink>}
         {runsContainers && <NavLink to={machinePath(machine.id, "containers")}>Containers</NavLink>}
         <NavLink to={machinePath(machine.id, "load")}>Load</NavLink>
         {(machine.you.owner || (machine.mcp?.servers?.length ?? 0) > 0) && <NavLink to={machinePath(machine.id, "mcp")}>MCP servers</NavLink>}
@@ -100,6 +104,7 @@ export function MachinePage() {
         />
       )}
       {section === "ollama" && <MachineOllama machine={machine} />}
+      {section === "llamacpp" && <MachineLlamaCpp machine={machine} />}
       {section === "containers" && (
         <Suspense fallback={<p className="subtle">Loading…</p>}>
           <MachineContainers machine={machine.id} />
@@ -118,7 +123,7 @@ export function MachinePage() {
 const refOf = (machine: FleetMachine, provider: MachineProvider): ProviderRef => ({ machine: machine.id, provider: provider.id });
 
 // The tabs that aren't one of the machine's model servers.
-const SECTIONS = ["agents", "terminal", "model-servers", "load", "ollama", "containers", "mcp", "access"];
+const SECTIONS = ["agents", "terminal", "model-servers", "load", "ollama", "llamacpp", "containers", "mcp", "access"];
 
 /** Why the machine won't change its model servers now, or null when it will. */
 function unmanageable(machine: FleetMachine): string | null {
@@ -138,6 +143,7 @@ function ProviderView({ machine, provider }: { machine: FleetMachine; provider: 
       <ProviderHead machine={machine} provider={provider} />
       <OfflineServer machine={machine} provider={provider} />
       {provider.kind === "ollama" && <OllamaProvider target={target} label={label} backend={provider.backend} manageable={manageable} />}
+      {provider.kind === "llamacpp" && <LlamaCppProvider target={target} label={label} backend={provider.backend} manageable={manageable} />}
       {provider.kind === "strata" && <StrataProvider target={target} label={label} backend={provider.backend} manageable={manageable} />}
       {provider.kind === "docker" && <DockerProvider target={target} label={label} backend={provider.backend} manageable={manageable} />}
     </>
@@ -396,11 +402,11 @@ function MachineSummary({ machine, providers }: { machine: FleetMachine; provide
           />
           <Feature
             machine={machine}
-            name="Running Ollama and Strata"
+            name="Running Ollama, llama.cpp and Strata"
             tab={machine.servers.ollama?.found ? "ollama" : undefined}
             on={Boolean(machine.servers.enabled)}
             you={machine.you.servers}
-            detail={machine.servers.enabled ? "Start, stop and configure the ones installed there" : off("agent-machine servers on")}
+            detail={machine.servers.enabled ? "Start, stop and configure the ones installed there, and install llama.cpp" : off("agent-machine servers on")}
           />
           <Feature
             machine={machine}
@@ -756,7 +762,7 @@ function MachineSessions({ machine }: { machine: FleetMachine }) {
   );
 }
 
-type ServerAction = { kind: "ollama" | "strata"; action: "start" | "stop" | "remove" | "prune" | "cleanup"; profile?: string };
+type ServerAction = { kind: "ollama" | "strata" | "llamacpp"; action: "start" | "stop" | "remove" | "prune" | "cleanup"; profile?: string };
 
 const DONE: Record<ServerAction["action"], string> = {
   start: "started",
@@ -780,7 +786,7 @@ function useServerAction(machine: FleetMachine) {
   const act = useMutation({
     mutationFn: ({ kind, action, profile }: ServerAction) => api.machineServer(machine.id, kind, action, profile),
     onSuccess: (_, { kind, action, profile }) => {
-      const what = kind === "ollama" ? "Ollama" : `Strata ${profile}`;
+      const what = kind === "ollama" ? "Ollama" : kind === "llamacpp" ? "llama.cpp" : `Strata ${profile}`;
       notify(
         action === "prune"
           ? `Removed the Strata profiles whose model is gone on ${machine.name}.`
@@ -873,9 +879,9 @@ function StrataTidy({
  */
 function OfflineServer({ machine, provider }: { machine: FleetMachine; provider: MachineProvider }) {
   const { allowed, button } = useServerAction(machine);
-  if (provider.detected || provider.container || (provider.kind !== "ollama" && provider.kind !== "strata")) return null;
+  if (provider.detected || provider.container || (provider.kind !== "ollama" && provider.kind !== "strata" && provider.kind !== "llamacpp")) return null;
   const servers = machine.servers ?? {};
-  const name = provider.kind === "ollama" ? "Ollama" : "Strata";
+  const name = provider.kind === "ollama" ? "Ollama" : provider.kind === "llamacpp" ? "llama.cpp" : "Strata";
   let body: ReactNode;
   if (!machine.connected) {
     body = <p>{machine.name} isn't connected, so it can't start {name} now.</p>;
@@ -883,6 +889,18 @@ function OfflineServer({ machine, provider }: { machine: FleetMachine; provider:
     body = (
       <p>
         {name} isn't running on {machine.name}. Start it there, or run <code>agent-machine servers on</code> there to start it from here.
+      </p>
+    );
+  } else if (provider.kind === "llamacpp") {
+    const llama = servers.llamacpp;
+    body = llama?.found ? (
+      <div className="row wrap">
+        <p>llama.cpp is installed on {machine.name} but not running.</p>
+        {button({ kind: "llamacpp", action: "start" }, "Start llama.cpp", true)}
+      </div>
+    ) : (
+      <p>
+        llama.cpp isn't installed on {machine.name}. Install it from its <Link to={machinePath(machine.id, "llamacpp")}>llama.cpp server</Link> tab.
       </p>
     );
   } else if (provider.kind === "ollama") {
@@ -943,13 +961,15 @@ function InstalledServers({ machine }: { machine: FleetMachine }) {
   if (!servers.enabled) {
     return machine.you.owner ? (
       <p className="subtle">
-        To start and stop the Ollama or Strata installed there, tune Ollama, and pull, load and delete models from here, run{" "}
+        To start and stop the Ollama, llama.cpp or Strata installed there, install llama.cpp, tune them, and pull, load and delete models from
+        here, run{" "}
         <code>agent-machine servers on</code> there.
       </p>
     ) : null;
   }
   const ollama = servers.ollama;
   const strata = servers.strata;
+  const llama = servers.llamacpp;
   return (
     <>
       <h3 className="subhead">Installed there</h3>
@@ -979,6 +999,33 @@ function InstalledServers({ machine }: { machine: FleetMachine }) {
             )}
           </span>
         </li>
+        {llama?.known && (
+          <li>
+            <StateDot tone={llama.running ? "good" : "idle"} />
+            <span className="provider-backend-name">
+              <strong>llama.cpp</strong>
+              {llama.version && <span className="subtle">{llama.version}</span>}
+            </span>
+            <span className="subtle">
+              {llama.install?.state === "installing"
+                ? "Installing…"
+                : !llama.found
+                  ? "Not installed there: install it from here"
+                  : llama.running
+                    ? llama.managed
+                      ? "Running, started from here"
+                      : "Running, started outside agent-machine"
+                    : "Installed, not running"}
+            </span>
+            <span className="state-text">
+              {llama.found && !llama.running && button({ kind: "llamacpp", action: "start" }, "Start", true)}
+              {llama.managed && llama.running && button({ kind: "llamacpp", action: "stop" }, "Stop")}
+              <Link className="button small" to={machinePath(machine.id, "llamacpp")}>
+                {llama.found ? "Settings" : "Install"}
+              </Link>
+            </span>
+          </li>
+        )}
         {!strata?.found && (
           <li>
             <StateDot tone="idle" />

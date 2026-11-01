@@ -186,6 +186,10 @@ func RunArgsFor(cli, name string, spec Spec, key, bind string) ([]string, string
 		env["PRESET"] = name
 		env["API_KEY"] = key
 	}
+	if engine.ID == "llamacpp" {
+		// Router mode on the published port, and only with the server's key: the port is open to the network.
+		env["LLAMA_ARG_HOST"], env["LLAMA_ARG_PORT"], env["LLAMA_API_KEY"] = "0.0.0.0", strconv.Itoa(engine.Port), key
+	}
 	volume := spec.Volume
 	if volume == "" {
 		volume = engine.Volume

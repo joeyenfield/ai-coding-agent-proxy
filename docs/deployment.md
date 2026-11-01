@@ -424,6 +424,7 @@ So to roll out a new version: build it on the server's computer (`scripts/build-
 | 9980, 9443, 9998 | nginx from `setup-https.ps1`: HTTP for Let's Encrypt, HTTPS | All interfaces |
 | 11434 | Ollama | On its machine |
 | 18500 | Strata | On its machine |
+| 9931 | llama.cpp's `llama-server` | Loopback on its machine |
 | 12434 | Docker Model Runner | On its machine |
 | 5173 | Vite, in development | This computer |
 

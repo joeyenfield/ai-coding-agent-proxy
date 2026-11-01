@@ -486,7 +486,7 @@ def test_a_fleet_machine_runs_the_containers_the_server_asks_for(tmp_path, agent
     with machine(tmp_path, agent_binary) as m, fleet_machine(m, machine_binary, tmp_path, ["containers", "on"], env=docker):
         [box] = httpx.get(f"{m.server}/api/containers", headers=m.headers).json()["machines"]
         assert box["connected"]
-        assert box["enabled"] and box["online"] and {engine["id"] for engine in box["engines"]} == {"strata", "ollama"}
+        assert box["enabled"] and box["online"] and {engine["id"] for engine in box["engines"]} == {"strata", "ollama", "llamacpp"}
         created = httpx.post(f"{m.server}/api/containers", headers=m.headers, json={"name": "s1", "machine": box["id"], "engine": "strata", "port": 18555, "env": {"MODEL": "IQ3_XXS"}})
         assert created.status_code == 201, created.text
         assert httpx.post(f"{m.server}/api/containers/s1/start", headers=m.headers, json={}, timeout=30).status_code == 202
@@ -613,6 +613,55 @@ def test_a_fleet_machine_manages_its_model_server_for_the_console(tmp_path, agen
         refused = httpx.post(f"{base}/providers/ollama-{port}/models/delete", headers=m.headers, json={"name": "gemma3:4b"}, timeout=30)
         assert refused.status_code == 409 and "agent-machine servers on" in refused.json()["detail"]
         assert httpx.get(f"{base}/providers/ollama-{port}", headers=m.headers, timeout=30).json()["online"]
+
+
+def test_a_fleet_machine_runs_llamacpp_and_its_models_serve_agents_through_its_tunnel(tmp_path, agent_binary, machine_binary):
+    port = free_port()
+    fake = {
+        "AI_PROXY_LLAMACPP_COMMAND": json.dumps([sys.executable, str(Path(__file__).with_name("fake_llamacpp.py"))]),
+        "AI_PROXY_LLAMACPP_PORT": str(port),
+    }
+    cache = tmp_path / "llama-cache"
+    with machine(tmp_path, agent_binary) as m, fleet_machine(m, machine_binary, tmp_path, ["servers", "on"], ["address", "203.0.113.9"], env=fake) as fleet:
+        base = f"{m.server}/api/machines/{fleet.box['id']}"
+        llama = httpx.get(base, headers=m.headers).json()["servers"]["llamacpp"]
+        assert llama["found"] and not llama["running"] and llama["version"] == "b9999" and llama["source"] == "found", llama
+        # Its settings live on the machine, in agent-machine's folder; where it listens isn't one of them.
+        settings = httpx.get(f"{base}/servers/llamacpp", headers=m.headers, timeout=30).json()
+        assert {"ctx_size", "reasoning_budget", "cache_dir"} <= {setting["key"] for setting in settings["schema"]["settings"]}
+        refused = httpx.put(f"{base}/servers/llamacpp", headers=m.headers, json={**settings["config"], "extra_env": "LLAMA_ARG_HOST=0.0.0.0"}, timeout=30)
+        assert refused.status_code == 409 and "listens" in refused.json()["detail"]
+        saved = httpx.put(f"{base}/servers/llamacpp", headers=m.headers, json={**settings["config"], "ctx_size": 8192, "cache_dir": str(cache)}, timeout=30)
+        assert saved.status_code == 200 and saved.json()["env"]["LLAMA_ARG_CTX_SIZE"] == "8192"
+        assert json.loads((tmp_path / "machine-home" / "llamacpp.json").read_text())["ctx_size"] == 8192
+        started = httpx.post(f"{base}/servers/llamacpp/start", headers=m.headers, timeout=90)
+        assert started.status_code == 200 and started.json()["servers"]["llamacpp"]["running"], started.text
+        try:
+            provider = f"{base}/providers/llamacpp-{port}"
+            assert httpx.get(provider, headers=m.headers, timeout=30).json()["models"] == []
+            lines = [json.loads(line) for line in httpx.post(f"{provider}/models/pull", headers=m.headers, json={"name": "ggml-org/tiny-GGUF:Q4_K_M"}, timeout=60).text.splitlines()]
+            assert lines[-1] == {"status": "success"} and any(line.get("completed") == 3000 for line in lines), lines
+            state = httpx.get(provider, headers=m.headers, timeout=30).json()
+            assert state["online"] and state["router"] and [(model["name"], model["state"]) for model in state["models"]] == [("ggml-org/tiny-GGUF:Q4_K_M", "unloaded")]
+            assert (cache / "ggml-org_tiny-GGUF_Q4_K_M.gguf").exists()
+            assert httpx.post(f"{provider}/models/load", headers=m.headers, json={"name": "ggml-org/tiny-GGUF:Q4_K_M"}, timeout=60).status_code == 200
+            assert "router mode" in httpx.get(f"{provider}/log", headers=m.headers, timeout=30).text
+            # Added as a provider, its models serve agents; the machine's address answers nothing, so it's the tunnel.
+            deadline = time.monotonic() + 20
+            while time.monotonic() < deadline and not any(item["type"] == "llamacpp" for item in m.runtime.fleet.machines[fleet.box["id"]].providers):
+                time.sleep(0.2)
+            adopted = httpx.post(f"{base}/providers/adopt", headers=m.headers, json={"type": "llamacpp"}, timeout=30)
+            assert adopted.status_code == 201, adopted.text
+            m.runtime.client = httpx.AsyncClient(trust_env=False, timeout=30)
+            session = new_session(m.server, backend=adopted.json()["backend"], headers=m.headers)
+            answer = httpx.post(f"{m.server}/session/{session}/v1/chat/completions", headers=m.headers, timeout=30,
+                                json={"model": "ggml-org/tiny-GGUF:Q4_K_M", "messages": [{"role": "user", "content": "hi"}]})
+            assert answer.status_code == 200 and answer.json()["choices"][0]["message"]["content"] == "hello from ggml-org/tiny-GGUF:Q4_K_M", answer.text
+            assert httpx.post(f"{provider}/models/delete", headers=m.headers, json={"name": "ggml-org/tiny-GGUF:Q4_K_M"}, timeout=30).status_code == 200
+            assert httpx.get(provider, headers=m.headers, timeout=30).json()["models"] == []
+        finally:
+            stopped = httpx.post(f"{base}/servers/llamacpp/stop", headers=m.headers, timeout=60)
+        assert stopped.status_code == 200 and not stopped.json()["servers"]["llamacpp"]["running"], stopped.text
 
 
 def test_the_programs_speak_the_servers_protocol(agent_binary, machine_binary):

@@ -89,7 +89,7 @@ podman run -d --name agent-test-postgres -e POSTGRES_PASSWORD=testpass -p 55432:
 cd server && AI_PROXY_TEST_DATABASE_URL=postgresql+psycopg://postgres:testpass@127.0.0.1:55432/postgres python -m pytest -q
 ```
 
-Each server test file has `make_app(tmp_path, handler, ...)` and `close_app(...)`: they build `Settings` in code, run `create_app`, and swap the shared HTTP client's transport for a mock whose `handler(request)` plays the upstream. Assert on what the upstream received as well as what the agent got back. `fake_docker.py`, `fake_ollama.py`, `fake_strata.py`, `fake_mcp.py` and `fake_systemctl.py` stand in for real programs.
+Each server test file has `make_app(tmp_path, handler, ...)` and `close_app(...)`: they build `Settings` in code, run `create_app`, and swap the shared HTTP client's transport for a mock whose `handler(request)` plays the upstream. Assert on what the upstream received as well as what the agent got back. `fake_docker.py`, `fake_ollama.py`, `fake_llamacpp.py` (llama-server's router), `fake_strata.py`, `fake_mcp.py` and `fake_systemctl.py` stand in for real programs.
 
 ## The demo and screenshots
 

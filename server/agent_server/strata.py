@@ -26,7 +26,7 @@ from .config import Backend
 
 CREDENTIAL_HEADERS = {"authorization", "x-api-key"}
 
-# Keys of the Strata containers the server runs, by backend name; filled in by containers.KeyStore.
+# Keys of the containers the server runs (Strata's and llama.cpp's), by backend name; filled in by containers.KeyStore.
 managed_keys: dict[str, str] = {}
 # The fleet, set by the runtime, for the keys machines report.
 fleet: Any = None
@@ -60,6 +60,16 @@ def key_for(backend: Backend) -> tuple[str | None, str | None]:
         if key:
             return key, "machine"
     return None, None
+
+
+def with_container_key(backend: Backend, headers: dict[str, str]) -> dict[str, str]:
+    """Headers for a request to a container the server runs with a key of its own (llama.cpp's):
+    the agent's placeholder credential swapped for it. Anything else takes the agent's headers."""
+    key = managed_keys.get(backend.name) if backend.container else None
+    if not key:
+        return headers
+    kept = {name: value for name, value in headers.items() if name.lower() not in CREDENTIAL_HEADERS}
+    return {**kept, "authorization": f"Bearer {key}"}
 
 
 def with_key(backend: Backend, headers: dict[str, str]) -> dict[str, str]:

@@ -114,7 +114,7 @@ func TestJobsStartSwitchAndStopContainersWithTheCLI(t *testing.T) {
 	t.Setenv("FAKE_DOCKER_STATE", state)
 	manager := &Manager{Machine: func() *settings.Machine { return &settings.Machine{Containers: true} }}
 	described := manager.Describe()
-	if described["online"] != true || described["version"] != "27.3.1" || len(described["engines"].([]Engine)) != 2 {
+	if described["online"] != true || described["version"] != "27.3.1" || len(described["engines"].([]Engine)) != len(Engines) {
 		t.Fatalf("describe %v", described)
 	}
 	spec := map[string]any{"engine": "strata", "port": float64(18080), "env": map[string]any{"MODEL": "IQ3_XXS"}}
@@ -259,5 +259,25 @@ func TestTheCLIThatAnswersIsChosen(t *testing.T) {
 	// Neither answers: the installed one, so the console says why it isn't answering.
 	if chosen := pick(dockerDown, CLI{Name: "podman", Program: script(`import sys; sys.exit(125)`)}); chosen.Name != "docker" {
 		t.Fatalf("picked %s with nothing answering", chosen.Name)
+	}
+}
+
+func TestALlamaCppContainerServesItsRouterWithTheServersKey(t *testing.T) {
+	spec, err := Validate(map[string]any{"engine": "llamacpp", "image": "ghcr.io/ggml-org/llama.cpp:server-cuda", "port": float64(19931), "env": map[string]any{"LLAMA_ARG_CTX_SIZE": "32768"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Validate(map[string]any{"engine": "llamacpp", "port": float64(19931), "env": map[string]any{"LLAMA_ARG_AGENT": "1"}}); err == nil {
+		t.Fatal("an option the engine doesn't list was accepted")
+	}
+	args, _ := RunArgsFor("docker", "llama", spec, "s3cret", "0.0.0.0")
+	joined := strings.Join(args, " ")
+	for _, want := range []string{"-p 0.0.0.0:19931:8080", "-v llamacpp-models:/root/.cache/llama.cpp", "-e LLAMA_API_KEY=s3cret", "-e LLAMA_ARG_HOST=0.0.0.0", "-e LLAMA_ARG_PORT=8080", "-e LLAMA_ARG_CTX_SIZE=32768"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("%q isn't in %s", want, joined)
+		}
+	}
+	if shown := CommandLine("docker", args, "s3cret"); strings.Contains(shown, "s3cret") {
+		t.Fatalf("the key is shown: %s", shown)
 	}
 }

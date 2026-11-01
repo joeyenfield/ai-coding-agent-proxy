@@ -18,6 +18,7 @@ from test_client import (  # noqa: F401  (the tests are collected from here, wit
     test_a_fleet_machine_manages_its_model_server_for_the_console,
     test_a_fleet_machine_runs_an_agent_the_console_starts,
     test_a_fleet_machine_runs_the_containers_the_server_asks_for,
+    test_a_fleet_machine_runs_llamacpp_and_its_models_serve_agents_through_its_tunnel,
     test_a_machine_the_server_cant_reach_serves_agents_through_its_tunnel,
     test_a_fleet_machine_starts_and_stops_strata_when_the_owner_asks,
     test_account_agents_https_is_tunnelled_to_the_servers_intercept,

@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, fetchProviderLog, type FleetMachine, type OllamaConfig, type OllamaServerState, type OllamaSetting, type OllamaSettings } from "../api";
 import { CodeLine } from "../components/CodeLine";
@@ -9,7 +9,25 @@ import { formatNumber } from "../format";
 import { useClipboard, useToast } from "../hooks";
 
 type Action = "start" | "stop" | "restart";
-type Value = string | number | boolean;
+export type Value = string | number | boolean;
+/** What the settings editor reads: a model server's settings table, its saved config and the environment it makes. */
+export type SettingsInfo = Pick<OllamaSettings, "schema" | "config" | "env">;
+
+/** How the environment tab names a model server's variables and the command it runs. */
+export interface EnvironmentText {
+  name: string;
+  command: string;
+  /** The variable names the machine accepts as extra ones. */
+  prefixes: ReactNode;
+  placeholder: string;
+}
+
+const OLLAMA_ENV: EnvironmentText = {
+  name: "Ollama",
+  command: "ollama serve",
+  prefixes: <>names starting with <code>OLLAMA_</code></>,
+  placeholder: "# OLLAMA_EXPERIMENT=1\n# OLLAMA_INTEL_GPU=1",
+};
 const TABS = ["settings", "environment", "log"] as const;
 /** Where agent-machine runs the Ollama it starts, so its log is that provider's. */
 const OLLAMA_PROVIDER = "ollama-11434";
@@ -164,7 +182,7 @@ function OllamaControls({ machine }: { machine: FleetMachine }) {
           {config && <SettingsTab info={info} config={config} warnings={warnings} changed={changed} onChange={update} />}
         </TabPanel>
         <TabPanel idPrefix={tabs} id="environment" active={tab === "environment"}>
-          {config && <EnvironmentTab info={info} config={config} dirty={dirty} onChange={update} />}
+          {config && <EnvironmentTab info={info} config={config} dirty={dirty} onChange={update} text={OLLAMA_ENV} />}
         </TabPanel>
         <TabPanel idPrefix={tabs} id="log" active={tab === "log"}>
           <LogPanel
@@ -325,18 +343,22 @@ function StatusCard({
   );
 }
 
-function SettingsTab({
+/** A model server's settings, a group at a time, with what's unsaved marked. */
+export function SettingsTab({
   info,
   config,
   warnings,
   changed,
   onChange,
+  notes = GROUP_NOTES,
 }: {
-  info: OllamaSettings;
+  info: SettingsInfo;
   config: OllamaConfig;
   warnings: string[];
   changed: (key: string) => boolean;
   onChange: (key: string, value: Value) => void;
+  /** A line under each group. */
+  notes?: Record<string, string>;
 }) {
   const { groups, settings } = info.schema;
   const [group, setGroup] = useState(groups[0]);
@@ -369,7 +391,7 @@ function SettingsTab({
           <TabPanel key={name} idPrefix={ids} id={name} active={name === group} className="panel">
             <div className="panel-head">
               <h2>{name}</h2>
-              {GROUP_NOTES[name] && <p className="subtle">{GROUP_NOTES[name]}</p>}
+              {notes[name] && <p className="subtle">{notes[name]}</p>}
             </div>
             <div className="setting-grid">
               {settings
@@ -460,16 +482,19 @@ function SettingField({
   );
 }
 
-function EnvironmentTab({
+/** The extra variables a model server starts with, and every variable its saved settings set. */
+export function EnvironmentTab({
   info,
   config,
   dirty,
   onChange,
+  text,
 }: {
-  info: OllamaSettings;
+  info: SettingsInfo;
   config: OllamaConfig;
   dirty: boolean;
   onChange: (key: string, value: Value) => void;
+  text: EnvironmentText;
 }) {
   const sources = new Map<string, string>();
   for (const setting of info.schema.settings) for (const name of setting.env) sources.set(name, setting.label);
@@ -481,25 +506,24 @@ function EnvironmentTab({
         <div className="panel-head">
           <h2>Extra variables</h2>
           <p className="subtle">
-            Other <code>OLLAMA_*</code> variables the settings don't cover. One <code>KEY=VALUE</code> per line, applied on top of the
-            settings when the server starts. A blank value unsets the variable, and <code>#</code> starts a comment. The machine only
-            accepts names starting with <code>OLLAMA_</code>.
+            Other variables the settings don't cover. One <code>KEY=VALUE</code> per line, applied on top of the settings when the server
+            starts. A blank value unsets the variable, and <code>#</code> starts a comment. The machine only accepts {text.prefixes}.
           </p>
         </div>
         <textarea
           rows={6}
           aria-label="Extra environment variables"
           value={String(config.extra_env ?? "")}
-          placeholder={"# OLLAMA_EXPERIMENT=1\n# OLLAMA_INTEL_GPU=1"}
+          placeholder={text.placeholder}
           onChange={(event) => onChange("extra_env", event.target.value)}
         />
       </section>
 
       <section className="panel">
         <div className="panel-head">
-          <h2>What Ollama starts with</h2>
+          <h2>What {text.name} starts with</h2>
           <p className="subtle">
-            Variables the saved settings set or clear when agent-machine runs <code>ollama serve</code>. Everything else in agent-machine's
+            Variables the saved settings set or clear when agent-machine runs <code>{text.command}</code>. Everything else in agent-machine's
             environment passes through unchanged.{dirty && " Save to see your changes here."}
           </p>
         </div>

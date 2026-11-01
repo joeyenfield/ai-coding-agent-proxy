@@ -627,6 +627,18 @@ async def _backend_models(runtime: Runtime, name: str) -> dict[str, Any]:
             for item in state.get("models") or [] if isinstance(item, dict) and item.get("id")
         ]
         return {**base, "online": True, "version": (state.get("status") or {}).get("engine"), "models": models}
+    if backend.type == "llamacpp":
+        # What the router can serve: downloads still running (or left unfinished) can't answer yet.
+        models = [
+            {
+                "name": item.get("name"), "size": item.get("size"), "modified_at": None, "family": None,
+                "parameter_size": item.get("parameters"), "quantization": _quant(str(item.get("name") or "")), "loaded": bool(item.get("loaded")),
+                "context_length": None, "size_loaded": None, "size_vram": None,
+                "profile": ModelProfile(ollama_model=str(item.get("name") or ""), translate_openai=False).public(),
+            }
+            for item in state.get("models") or [] if isinstance(item, dict) and item.get("state") not in {"downloading", "incomplete"}
+        ]
+        return {**base, "online": True, "version": None, "models": models}
     models = [
         {
             "name": item.get("name"), "size": None, "modified_at": None, "family": item.get("architecture"),
@@ -637,6 +649,12 @@ async def _backend_models(runtime: Runtime, name: str) -> dict[str, Any]:
         for item in state.get("models") or [] if isinstance(item, dict)
     ]
     return {**base, "online": True, "version": None, "models": models}
+
+
+def _quant(name: str) -> str | None:
+    """The quant a llama.cpp model is named with (user/repo:Q4_K_M), if any."""
+    _, _, quant = name.rpartition(":")
+    return quant or None if ":" in name else None
 
 
 async def _context_window(runtime: Runtime, backend_name: str, model: str) -> int | None:

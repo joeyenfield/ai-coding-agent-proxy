@@ -68,7 +68,25 @@ var Engines = []Engine{
 		},
 		Summary: "The official Ollama image. Models pulled into the shared volume are there for every Ollama container.",
 	},
+	{
+		ID: "llamacpp", Label: "llama.cpp", BackendType: "llamacpp",
+		Image: llamaImage + ":server-cuda", Images: images(llamaImage+":", "server-cuda", "server"),
+		// llama-server in router mode; downloads go to its cache, the shared volume.
+		Port: 8080, DataPath: "/root/.cache/llama.cpp", Volume: "llamacpp-models", HealthPath: "/health",
+		StopTimeout: 30, Flags: []string{},
+		Options: []Option{
+			{"LLAMA_ARG_CTX_SIZE", "Context", []string{"8192", "16384", "32768", "65536", "131072"}, "Fitted to the card"},
+			{"LLAMA_ARG_CACHE_TYPE_K", "KV cache (K)", []string{"f16", "q8_0", "q4_0"}, "f16"},
+			{"LLAMA_ARG_CACHE_TYPE_V", "KV cache (V)", []string{"f16", "q8_0", "q4_0"}, "f16"},
+			{"LLAMA_ARG_N_PARALLEL", "Parallel requests", []string{"1", "2", "4"}, "Automatic"},
+			{"LLAMA_ARG_MODELS_MAX", "Models loaded at once", []string{"1", "2", "4"}, "4"},
+			{"LLAMA_ARG_THINK_BUDGET", "Thinking budget", []string{"-1", "0", "1024", "4096"}, "No limit"},
+		},
+		Summary: "llama.cpp's official server image (server-cuda for NVIDIA, server for CPU). Download models from Hugging Face on its model server's tab; they stay in the shared volume.",
+	},
 }
+
+const llamaImage = "ghcr.io/ggml-org/llama.cpp"
 
 func images(prefix string, flavors ...string) []string {
 	result := make([]string, len(flavors))

@@ -131,7 +131,7 @@ In the Android app, a server that can't be reached, or that answers with a serve
 
 `/ask` is a plain chat with one of your models, without an agent: pick a model, type, and the answer streams in.
 
-- **Model** lists the models of every Ollama, Strata and Docker Model Runner backend that's online, by backend. Hosted APIs aren't offered: they need an agent's own sign-in. Choosing another model starts a new chat.
+- **Model** lists the models of every Ollama, llama.cpp, Strata and Docker Model Runner backend that's online, by backend. Hosted APIs aren't offered: they need an agent's own sign-in. Choosing another model starts a new chat.
 - **Enter** sends; **Shift+Enter** starts a new line. **Stop** stops the answer. A model that thinks shows its thinking folded above the answer.
 - If the connection drops while the answer is coming in (a phone changing networks), the server keeps reading it and records it in full, and the page picks the rest up when it's back. Only **Stop**, **New chat** or leaving the page stop it on the server.
 - **System prompt** (optional) is sent before the conversation with every question.
@@ -303,11 +303,11 @@ Only approve a code from a sign-in you started yourself: approving lets that com
 
 ![A machine's summary](screenshots/machine.png)
 
-`/machines/<id>` has a header with the machine's name, state and system, **Start an agent** and **Open a terminal** (when you may use them), and, when the machine runs another build than the server, **Update now** (with **Update agent there too**) for its owner or an admin. Below it, a tab per function. **Ollama server** shows only when Ollama is installed there, **Containers** only when the machine runs containers, **MCP servers** for its owner or when it shares some, and **Access** for those who manage it.
+`/machines/<id>` has a header with the machine's name, state and system, **Start an agent** and **Open a terminal** (when you may use them), and, when the machine runs another build than the server, **Update now** (with **Update agent there too**) for its owner or an admin. Below it, a tab per function. **Ollama server** shows only when Ollama is installed there, **llama.cpp server** when the machine lets the server manage its model servers (so llama.cpp can be installed from it), **Containers** only when the machine runs containers, **MCP servers** for its owner or when it shares some, and **Access** for those who manage it.
 
 ### Summary
 
-Cards for its state, last contact, agent-machine version and running agents. **What it supports**: each feature (agents, terminals, model servers, running Ollama and Strata, containers, updates from here, the tunnel) and whether it's on there and open to you, with the command that turns it on. **Details**: owner, system, computer name, address, first seen, last contact, protocol and machine id. **Remove from this server** (owner or admin) disconnects it and refuses it until it's allowed back.
+Cards for its state, last contact, agent-machine version and running agents. **What it supports**: each feature (agents, terminals, model servers, running Ollama, llama.cpp and Strata, containers, updates from here, the tunnel) and whether it's on there and open to you, with the command that turns it on. **Details**: owner, system, computer name, address, first seen, last contact, protocol and machine id. **Remove from this server** (owner or admin) disconnects it and refuses it until it's allowed back.
 
 ### Agents
 
@@ -327,7 +327,7 @@ Cards for its state, last contact, agent-machine version and running agents. **W
 
 ![A machine's model servers](screenshots/machine-model-servers.png)
 
-The model servers it runs (Ollama, Strata, Docker Model Runner, and the containers it runs for the server), each with its address, version and whether it's a provider yet. A model server that isn't a provider has **Add as a provider** (admins of the machine's organization); after that, every agent of that organization that speaks its API can use it.
+The model servers it runs (Ollama, llama.cpp, Strata, Docker Model Runner, and the containers it runs for the server), each with its address, version and whether it's a provider yet. A model server that isn't a provider has **Add as a provider** (admins of the machine's organization); after that, every agent of that organization that speaks its API can use it.
 
 ### One tab per model server
 
@@ -337,11 +337,12 @@ Each model server has its own tab, named after its provider (or `Ollama :11434` 
 
 - **Ollama**: **Models** (each model's size, whether it's loaded and where, the agent requests it served, and load, unload and delete), **Aliases** (the model tuning's aliases that point at it, with their settings; change them on [Server settings](#server-settings)) and **Find and pull** (search the Ollama library and Hugging Face, or pull by name, with progress).
 - **Strata**: **Overview** (state, profile, engine, uptime, model, context, prompt and generation speed, speculative decoding, with **Load** and **Unload**, then its **Hardware** and **Models**), **Connect agents** (the agent commands for it) and **Log** (server and engine logs, key blanked).
+- **llama.cpp**: **Models** (what its router can serve: each model's size, state, download progress and file, with load, unload and delete) and **Find and download** (search Hugging Face for GGUF repos and pick a quant, or name one as `user/repo:quant`, with progress).
 - **Docker Model Runner**: **Models**, **Get models** (search Docker Hub's `ai/` models and their tags, or pull by name) and **Connect agents**.
 
 A pull runs on the machine. If the page loses its connection before the pull ends, it says so (**Lost the connection to the pull. It may still be running on the machine.**) rather than reporting it pulled, and refreshes the model list, where the model shows up once the machine has it.
 
-When the machine doesn't report an Ollama or Strata running, its tab says why at the top and what to do: **Start Ollama**, or **Start** a Strata profile, when it's installed there and you may manage the machine's servers (`agent-machine servers on`); otherwise whether it isn't installed, or how to let the console start it.
+When the machine doesn't report an Ollama, llama.cpp or Strata running, its tab says why at the top and what to do: **Start Ollama**, **Start llama.cpp**, or **Start** a Strata profile, when it's installed there and you may manage the machine's servers (`agent-machine servers on`); otherwise whether it isn't installed, or how to let the console start it.
 
 Changing models needs `agent-machine servers on` there; without it the tab shows the models but doesn't change them.
 
@@ -351,11 +352,15 @@ Changing models needs `agent-machine servers on` there; without it the tab shows
 
 For the Ollama installed on the machine: **Start**, **Stop** or **Restart** it (with `servers on`), **Settings** (the `OLLAMA_*` settings agent-machine starts it with, such as context length, parallel requests, flash attention and KV cache type, with warnings), **Environment** (what Ollama starts with, plus **Extra variables**) and **Log**.
 
+### llama.cpp server
+
+For llama.cpp on the machine (with `servers on`): its state, build and where it came from; **Install llama.cpp** (or **Update or change build**), which lists the builds that fit the machine, suggests one, and shows the install's progress; **Remove** for builds installed from here; **Start**, **Stop** and **Restart**; **Settings** (the `LLAMA_ARG_*` settings agent-machine starts it with: context, KV cache, GPU layers, devices, models loaded at once, thinking budget, download folder and more, with warnings), **Environment** (what llama-server starts with, plus **Extra variables**) and **Log**. See [llama.cpp](providers.md#llamacpp).
+
 ### Containers
 
 ![Containers a machine runs](screenshots/containers.png)
 
-Strata and Ollama containers the machine runs for the server. Each shows its phase (Not created, Pulling image, Starting, Loading model, Ready, Unhealthy, Stopping, Stopped, Failed), settings and GPU, with start, stop, restart, switch (stop the others holding its GPU), logs, edit and delete. **Add a container** picks the engine and its settings; **Shared model storage** is the volume or folder its models live in; **The command its machine runs** shows the exact `docker run`. See [Providers](providers.md#containers-machines-run).
+Strata, Ollama and llama.cpp containers the machine runs for the server. Each shows its phase (Not created, Pulling image, Starting, Loading model, Ready, Unhealthy, Stopping, Stopped, Failed), settings and GPU, with start, stop, restart, switch (stop the others holding its GPU), logs, edit and delete. **Add a container** picks the engine and its settings; **Shared model storage** is the volume or folder its models live in; **The command its machine runs** shows the exact `docker run`. See [Providers](providers.md#containers-machines-run).
 
 ### Load
 

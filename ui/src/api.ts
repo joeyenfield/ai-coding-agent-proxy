@@ -12,7 +12,7 @@ export interface Backend {
 }
 
 /** Local model servers run on machines; only hosted APIs don't. */
-export const MACHINE_TYPES = ["ollama", "strata", "docker"];
+export const MACHINE_TYPES = ["ollama", "llamacpp", "strata", "docker"];
 
 export interface ContainerSpec {
   engine: string;
@@ -494,6 +494,48 @@ export interface MachineServers {
     /** What this machine's agent-machine can do beyond start and stop (older ones don't say, and can't). */
     actions?: ("remove" | "prune" | "cleanup")[];
   };
+  /** llama.cpp's llama-server, in router mode on loopback; known is false for a machine from before llama.cpp. */
+  llamacpp?: LlamaServerState;
+}
+
+/** The llama.cpp on a machine: installed or found there, running, and an install the console started. */
+export interface LlamaServerState {
+  known: boolean;
+  found: boolean;
+  running: boolean;
+  /** Started by agent-machine, so it can stop it too. */
+  managed: boolean;
+  port?: number;
+  /** The build, such as b12032. */
+  version?: string | null;
+  /** github or termux when the console installed it (with which build), found when it was there already. */
+  source?: "github" | "termux" | "found" | null;
+  variant?: string | null;
+  release?: string | null;
+  /** termux, or the machine's os-arch. */
+  platform?: string | null;
+  install?: LlamaInstallJob | null;
+}
+
+/** An install of llama.cpp running (or just finished) on a machine. */
+export interface LlamaInstallJob {
+  state: "installing" | "installed" | "failed" | null;
+  variant: string | null;
+  release: string | null;
+  step: string | null;
+  done: number;
+  total: number;
+  error: string | null;
+  at: string | null;
+}
+
+/** How llama.cpp can be installed on a machine: Termux's packages, or a GitHub release's builds for its platform. */
+export interface LlamaInstallOptions {
+  source: "github" | "termux";
+  release?: string;
+  published_at?: string;
+  variants: { id: string; label: string; help?: string; size?: number; recommended: boolean }[];
+  error?: string;
 }
 
 /**
@@ -501,7 +543,7 @@ export interface MachineServers {
  * profile, remove one whose model is gone, prune (remove all of those), cleanup (clear the
  * leftovers of runtimes whose owner is gone, as after a restart).
  */
-export type ServerActionName = "start" | "stop" | "restart" | "remove" | "prune" | "cleanup";
+export type ServerActionName = "start" | "stop" | "restart" | "remove" | "prune" | "cleanup" | "install" | "uninstall";
 
 /** A machine signed in to this server: it runs agents, LLM providers, or both. */
 export interface FleetMachine {
@@ -784,6 +826,12 @@ export interface OllamaSettings {
   status?: OllamaServerState;
 }
 
+/** The LLAMA_ARG_* settings agent-machine starts a machine's llama-server with: the same shape as Ollama's. */
+export interface LlamaSettings extends Omit<OllamaSettings, "status"> {
+  /** The machine's servers.llamacpp state. */
+  status?: LlamaServerState;
+}
+
 /** A model server on a machine: the machine's id and the provider's, such as ollama-11434. */
 export interface ProviderRef {
   machine: string;
@@ -816,6 +864,29 @@ export interface OllamaProviderModel {
   size_vram: number | null;
   gpu_percent: number | null;
   expires_at: string | null;
+}
+
+/** A model llama.cpp's router can serve: cached from Hugging Face or in its GGUF folder. */
+export interface LlamaModel {
+  name: string;
+  state: "loaded" | "loading" | "unloaded" | "sleeping" | "downloading" | "incomplete" | string;
+  loaded: boolean;
+  /** The last load failed. */
+  failed: boolean;
+  path: string;
+  size: number | null;
+  /** The context the model was trained with, when llama-server says. */
+  context_train?: number | null;
+  parameters?: number | null;
+  progress: { completed: number; total: number } | null;
+}
+
+export interface LlamaState extends ProviderBase {
+  online: boolean;
+  error?: string;
+  /** Router mode: it serves many models and can change them. A llama-server run with one model (-m) can't. */
+  router: boolean;
+  models: LlamaModel[];
 }
 
 export interface OllamaState extends ProviderBase {
@@ -1398,6 +1469,10 @@ export const api = {
   ollamaSettings: (machine: string) => request<OllamaSettings>(`${machineUrl(machine)}/servers/ollama`),
   saveOllamaSettings: (machine: string, config: OllamaConfig) =>
     request<OllamaSettings>(`${machineUrl(machine)}/servers/ollama`, { method: "PUT", body: JSON.stringify(config) }),
+  llamaSettings: (machine: string) => request<LlamaSettings>(`${machineUrl(machine)}/servers/llamacpp`),
+  saveLlamaSettings: (machine: string, config: OllamaConfig) =>
+    request<LlamaSettings>(`${machineUrl(machine)}/servers/llamacpp`, { method: "PUT", body: JSON.stringify(config) }),
+  llamaInstallOptions: (machine: string) => request<LlamaInstallOptions>(`${machineUrl(machine)}/servers/llamacpp/install`),
   providerStatus: <T extends ProviderBase>(ref: ProviderRef) => request<T>(providerUrl(ref)),
   /** Delete, load or unload a model; Strata's load and unload take no name. */
   providerModelAction: (ref: ProviderRef, action: "delete" | "load" | "unload", name?: string) =>
@@ -1430,10 +1505,11 @@ export const api = {
     request<FleetLaunch>(`/api/machines/${encodeURIComponent(machineId)}/shell`, { method: "POST", body: JSON.stringify({ project }) }),
   adoptProvider: (machineId: string, type: string) =>
     request<{ backend: string; url: string }>(`/api/machines/${encodeURIComponent(machineId)}/providers/adopt`, { method: "POST", body: JSON.stringify({ type }) }),
-  machineServer: (machineId: string, kind: "ollama" | "strata", action: ServerActionName, profile?: string) =>
+  /** Start or stop a machine's model server; profile names a Strata profile, variant how to install llama.cpp. */
+  machineServer: (machineId: string, kind: "ollama" | "strata" | "llamacpp", action: ServerActionName, profile?: string, variant?: string) =>
     request<{ servers: MachineServers }>(`/api/machines/${encodeURIComponent(machineId)}/servers/${kind}/${action}`, {
       method: "POST",
-      body: JSON.stringify(profile ? { profile } : {}),
+      body: JSON.stringify(profile ? { profile } : variant ? { variant } : {}),
     }),
   removeMachine: (machineId: string) => request<{ removed: string }>(`/api/machines/${encodeURIComponent(machineId)}`, { method: "DELETE" }),
   containers: (fresh = false) => request<ContainersOverview>(`/api/containers${fresh ? "?fresh=1" : ""}`),

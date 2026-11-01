@@ -30,6 +30,8 @@ var probes = []struct {
 	{"ollama", "/api/version", 11434},
 	{"docker", "/engines/v1/models", 12434},
 	{"strata", "/v1/models", 18500},
+	// llama-server's router lists every model it can serve here, loaded or not (its port: providers.LlamaServerPort).
+	{"llamacpp", "/models", 0},
 }
 
 // withStrata adds the Strata profiles serving on another port than Strata's default, as
@@ -84,6 +86,9 @@ func DetectProviders() []Provider {
 	client := settings.Client(1500 * time.Millisecond)
 	found := []Provider{}
 	for _, probe := range probes {
+		if probe.kind == "llamacpp" {
+			probe.port = providers.LlamaServerPort()
+		}
 		response, err := client.Get("http://127.0.0.1:" + strconv.Itoa(probe.port) + probe.path)
 		if err != nil {
 			continue

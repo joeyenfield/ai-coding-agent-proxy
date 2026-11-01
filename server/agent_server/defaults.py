@@ -111,9 +111,9 @@ AGENTS_YAML = r"""
 # protocol: openai-chat | openai-responses | anthropic | ollama
 # backend_type: ollama (default) | anthropic - which of the server's providers
 # (backends) the agent can use; the launcher picks a matching backend when --backend is omitted.
-# ollama agents can also use a strata or docker (Docker Model Runner) backend,
-# e.g. --backend strata, unless their protocol is ollama and the backend is
-# Strata: Strata has no native Ollama API. Docker Model Runner has all four.
+# ollama agents can also use a strata, llamacpp (llama.cpp) or docker (Docker Model Runner)
+# backend, e.g. --backend strata, unless their protocol is ollama and the backend is
+# Strata or llama.cpp: neither has a native Ollama API. Docker Model Runner has all four.
 #
 # install is the command that installs the agent: one string for everywhere, or one per
 # environment (linux, macos, windows, wsl; wsl falls back to linux, and default covers the

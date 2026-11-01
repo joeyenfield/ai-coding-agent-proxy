@@ -33,7 +33,7 @@ flowchart LR
   subgraph M["Machine (loopback only)"]
     direction TB
     AM["agent-machine"]
-    MS["127.0.0.1:#lt;port#gt;<br/>Ollama, Strata, Docker,<br/>MCP bridge"]
+    MS["127.0.0.1:#lt;port#gt;<br/>Ollama, llama.cpp, Strata,<br/>Docker, MCP bridge"]
     AM --> MS
   end
   P == "HTTP and WebSockets<br/>(dialled by the proxy)" ==> API
@@ -63,7 +63,7 @@ Which of these are encrypted, and why the few plain-HTTP ones stay on one comput
 | `agent-machine` | server | WebSocket `/api/machines/tunnel/<id>` | the machine, when the server asks | its token | One TCP connection to a model server or the MCP bridge on the machine |
 | `agent-machine` | server | HTTP | now and then | its token | `/api/agents` (which agents are installed), `/downloads/…` (updates) |
 | `agent-machine` | `127.0.0.1:<port>` on its computer | HTTP, TCP | the machine | none (loopback) | Probing and managing its model servers; the far end of tunnels |
-| Server | a model server | HTTP | per request | Strata's key, if Strata | Agent traffic, when the backend isn't tunnelled |
+| Server | a model server | HTTP | per request | Strata's key, if Strata; a llama.cpp container's key | Agent traffic, when the backend isn't tunnelled |
 | Server | hosted API, vendors | HTTPS | per request | the agent's own `Authorization` or sign-in | Hosted pass-through and account agents' traffic |
 | Browser or phone | API / auth issuer | HTTPS, server-sent events, WebSocket | console, PKCE sign-in | Host-only access/refresh cookies | Issuer handles sign-in; API handles resources and terminals |
 
@@ -79,6 +79,7 @@ Every HTTP client and WebSocket dialer in `agent` and `agent-machine` ignores `H
 | random | the server | `127.0.0.1` only | One tunnel listener per machine and model server (see [Tunnels](#tunnels)) |
 | random | each machine | `127.0.0.1` only | agent-machine's MCP bridge, behind a key made for each run |
 | 11434, 12434, 18500 | machines | wherever the model server listens | Ollama, Docker Model Runner, Strata: where agent-machine looks for them |
+| 9931 | machines | `127.0.0.1` only (`AI_PROXY_LLAMACPP_PORT` on the machine) | llama.cpp's `llama-server`, which agent-machine starts and looks for there |
 | `intercept.listen_port` | the server | only if set | A direct HTTPS proxy for agents without an `agent-proxy` (the demo uses it); off by default |
 
 With HTTPS in front (see [Deployment](deployment.md#https)), agents, machines and browsers use the HTTPS port instead of 9999, and 9999 can stay on loopback.
@@ -121,6 +122,8 @@ The **backend** is `X-AI-Proxy-Backend` if the request sends it, else the sessio
 
 What the server does depends on both the endpoint the agent called and the backend's type:
 
+llama.cpp (`llamacpp`) is handled as Strata is below, apart from the key: the server adds none, except a container's own.
+
 | Agent calls | `ollama` backend | `strata` backend | `docker` backend | `anthropic` backend |
 | --- | --- | --- | --- | --- |
 | `GET /v1/models` | Lists `/api/tags` as OpenAI models, plus the aliases in the model tuning | `/v1/models`, with Strata's key | `/engines/v1/models` | Not supported: hosted agents list models through `/anthropic` |
@@ -154,7 +157,7 @@ flowchart TD
 
 ### 6. Headers and streaming
 
-- **To the backend**, the request goes with the agent's own headers, `Authorization` included, minus `Host`, `Content-Length`, `Connection`, `Accept-Encoding`, `X-AI-Proxy-Session`, `X-AI-Proxy-Backend` and `X-AI-Proxy-Finish`. For Strata the server puts in Strata's key: a container's, `STRATA_API_KEY`, or the one its machine reported.
+- **To the backend**, the request goes with the agent's own headers, `Authorization` included, minus `Host`, `Content-Length`, `Connection`, `Accept-Encoding`, `X-AI-Proxy-Session`, `X-AI-Proxy-Backend` and `X-AI-Proxy-Finish`. For Strata the server puts in Strata's key: a container's, `STRATA_API_KEY`, or the one its machine reported. For a llama.cpp container it puts in the key it gave the container.
 - **Back to the agent**, a passed-through reply keeps `retry-after`, `x-should-retry`, `request-id` and `anthropic-ratelimit-*`, so agents' own retry logic still works. Every reply adds `X-Request-ID` and `X-Session-ID`.
 - **Streaming** passes through as it arrives: server-sent events and Ollama's newline-delimited JSON. After 10 seconds of silence (a big prompt still being read), the server sends a keep-alive so the agent doesn't time out: an SSE comment (`: keep-alive`) between events, or the translated protocol's own ping.
 - **The shared HTTP client** keeps no cookies: it carries every user's traffic, so a cookie one agent's service set must never go out with another's request.
@@ -226,7 +229,7 @@ sequenceDiagram
 | --- | --- | --- |
 | `tunnel` | A tunnel to a loopback port (above) | the machine dialling `WS /api/machines/tunnel/<id>` |
 | `provider` | Something about one of its model servers: status, models, pull, delete, load, unload, log, metrics, catalogue search | `provider_result`; a pull also sends `provider_progress` as it goes |
-| `server` | Start, stop or restart its Ollama or a Strata profile; Ollama's settings | `server_result`, with the machine's `servers` state |
+| `server` | Start, stop or restart its Ollama, llama.cpp or a Strata profile; Ollama's and llama.cpp's settings; installing llama.cpp | `server_result`, with the machine's `servers` state |
 | `container` | Status, start, stop, restart, remove or logs of a container it runs | `container_result` |
 | `launch` | Start an agent in one of its launch folders | `launched` with the session id, or `launch_failed` |
 | `shell` | Open a terminal in one of its launch folders | `launched` or `launch_failed` |

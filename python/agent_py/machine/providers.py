@@ -9,8 +9,8 @@ Requests only name a kind, a loopback port and a model, and each op calls fixed 
 allowed; changing models needs `agent-machine servers on`.
 
 The same as the Go agent-machine's machine/internal/providers and presence/providers.go,
-op for op: Ollama, Docker Model Runner and Strata (its saved profiles and live instances read
-from Strata's own folders for its key and logs, its load and unload).
+op for op: Ollama, llama.cpp (llama-server's router), Docker Model Runner and Strata (its saved
+profiles and live instances read from Strata's own folders for its key and logs, its load and unload).
 """
 
 from __future__ import annotations
@@ -39,13 +39,27 @@ from . import catalog, settings
 
 Progress = Callable[[Dict[str, Any]], None]
 
-KINDS = {"ollama": "Ollama", "strata": "Strata", "docker": "Docker Model Runner"}
+KINDS = {"ollama": "Ollama", "strata": "Strata", "docker": "Docker Model Runner", "llamacpp": "llama.cpp"}
 CHANGES = {"pull", "delete", "load", "unload"}
 # Where the Ollama agent-machine starts listens (servers.py).
 OLLAMA_PORT = 11434
+# Where llama-server listens by default (and where agent-machine starts it); AI_PROXY_LLAMACPP_PORT moves it.
+LLAMA_PORT = 9931
+LLAMA_PORT_ENV = "AI_PROXY_LLAMACPP_PORT"
+
+
+def llama_server_port() -> int:
+    """The port agent-machine's llama-server uses: AI_PROXY_LLAMACPP_PORT, else 9931."""
+    try:
+        port = int(os.environ.get(LLAMA_PORT_ENV, ""))
+    except ValueError:
+        return LLAMA_PORT
+    return port if 0 < port < 65536 else LLAMA_PORT
+
 
 # Where each kind of model server listens by default, and the path that says it's there.
-PROBES = (("ollama", "/api/version", 11434), ("docker", "/engines/v1/models", 12434), ("strata", "/v1/models", 18500))
+# llama-server's router lists every model it can serve here, loaded or not (its port: llama_server_port()).
+PROBES = (("ollama", "/api/version", 11434), ("docker", "/engines/v1/models", 12434), ("strata", "/v1/models", 18500), ("llamacpp", "/models", 0))
 
 MINUTE = 60.0
 
@@ -263,6 +277,23 @@ class Manager:
             return {"result": {"status": strata_control(base, port, key, op)}}
         if which == "strata log":
             return {"text": strata_log(port, str(request.get("source") or ""), tail_size)}
+        if which == "llamacpp status":
+            return {"state": llama_status(base, key)}
+        if which == "llamacpp pull":
+            llama_pull(base, key, model, progress)
+            return {}
+        if which == "llamacpp delete":
+            llama_call("DELETE", base + "/models?model=" + quote(model, safe=""), key, None, MINUTE)
+            return result("deleted", model)
+        if which == "llamacpp load":
+            # The router answers once the model is loading; its status says when it's in.
+            llama_call("POST", base + "/models/load", key, {"model": model}, 10 * MINUTE)
+            return result("loaded", model)
+        if which == "llamacpp unload":
+            llama_call("POST", base + "/models/unload", key, {"model": model}, MINUTE)
+            return result("unloaded", model)
+        if which == "llamacpp log":
+            return {"text": llama_log(port, tail_size)}
         if which == "docker status":
             return {"state": docker_status(base)}
         if which == "docker pull":
@@ -358,6 +389,183 @@ def ollama_log(port: int, size: int) -> str:
         return tail(settings.home() / "ollama.log", size)
     except FileNotFoundError:
         return "No log yet: agent-machine writes one when it starts Ollama."
+
+
+# llama.cpp's llama-server in router mode (tools/server/README.md, "Using multiple models"). Routes used:
+#
+#   GET    /models               every model it can serve: the cache, its models folder; each with its status
+#                                (unloaded, loading, loaded, sleeping, downloading, incomplete)
+#   POST   /models               download a Hugging Face model ("user/repo:quant") into the cache, in the background
+#   GET    /models/sse           the download's progress (download_progress, then download_finished or download_failed)
+#   DELETE /models?model=        delete a cached model
+#   POST   /models/load|unload   load or unload one
+#
+# A llama-server run with one model (-m) has no router: it lists that model, loaded, and can't change models.
+
+def llama_model_name(model: str) -> None:
+    """What can be downloaded: a Hugging Face repo, and optionally its quant."""
+    repo, _, quant = model.partition(":")
+    parts = repo.split("/")
+    if len(parts) != 2 or not parts[0] or not parts[1] or any(char in model for char in " \t\r\n?#&") or len(model) > 300:
+        raise Refused("name a Hugging Face model as user/repo or user/repo:quant (Q4_K_M, ...)")
+    if "/" in quant:
+        raise Refused("a quant is a name such as Q4_K_M")
+
+
+def file_size(path: str) -> Optional[int]:
+    if not path:
+        return None
+    try:
+        if not os.path.isdir(path):
+            return os.stat(path).st_size
+    except OSError:
+        return None
+    total = 0
+    for folder, _, files in os.walk(path):
+        for name in files:
+            if name.lower().endswith(".gguf"):
+                try:
+                    total += os.stat(os.path.join(folder, name)).st_size
+                except OSError:
+                    pass
+    return total
+
+
+def llama_models(listed: Any) -> List[Dict[str, Any]]:
+    """The router's models as the console shows them, loaded first, then by name."""
+    models = []
+    for raw in items(obj(listed).get("data")) or []:
+        item = obj(raw)
+        model_id = text(item.get("id"))
+        if not model_id:
+            continue
+        status = obj(item.get("status"))
+        # One model, no router: it's what's loaded.
+        state = text(status.get("value")) or "loaded"
+        meta = obj(item.get("meta"))
+        path = text(item.get("path"))
+        model: Dict[str, Any] = {
+            "name": model_id, "state": state, "loaded": state in ("loaded", "sleeping"),
+            "failed": status.get("failed") is True, "path": path, "size": file_size(path),
+            "context_train": meta.get("n_ctx_train"), "parameters": meta.get("n_params"), "progress": None,
+            "input": obj(item.get("architecture")).get("input_modalities"),
+        }
+        if model["size"] is None and meta.get("size") is not None:
+            model["size"] = meta["size"]
+        progress = obj(status.get("progress"))
+        if progress:
+            done = sum(number(obj(file).get("done")) for file in progress.values())
+            total = sum(number(obj(file).get("total")) for file in progress.values())
+            model["progress"] = {"completed": int(done), "total": int(total)}
+        models.append(model)
+    models.sort(key=lambda model: (not model["loaded"], model["name"]))
+    return models
+
+
+def llama_headers(key: str) -> Optional[Dict[str, str]]:
+    """The key a llama.cpp container takes (the server's, sent with the request), if any."""
+    return {"Authorization": f"Bearer {key}"} if key else None
+
+
+def llama_status(base: str, key: str) -> Dict[str, Any]:
+    try:
+        listed, status = get_json(base + "/models", llama_headers(key), 8)
+    except httpx.HTTPError as error:
+        return {"online": False, "error": str(error), "models": [], "router": False}
+    if status >= 400:
+        return {"online": False, "error": f"llama-server returned {status}", "models": [], "router": False}
+    data = items(obj(listed).get("data")) or []
+    # The router gives every model a status; a llama-server with one model doesn't.
+    router = not data or any("status" in obj(raw) for raw in data)
+    return {"online": True, "router": router, "models": llama_models(listed)}
+
+
+def llama_call(method: str, url: str, key: str, body: Any, timeout: float) -> None:
+    try:
+        response = send(method, url, body, llama_headers(key), timeout)
+    except httpx.HTTPError as error:
+        raise unavailable("llama-server", error)
+    data = response.content[:1 << 20]
+    if response.status_code == 401:
+        raise Refused("llama-server wants an API key this machine doesn't have")
+    if response.status_code == 404:
+        raise Refused("this llama-server serves one model: start it in router mode (without -m) to change its models")
+    if response.status_code >= 400:
+        raise Refused(error_text(data, response.status_code, "llama-server"))
+    try:
+        answer = json.loads(data)
+    except ValueError:
+        answer = None
+    if obj(answer).get("success") is False:
+        raise Refused(error_text(data, response.status_code, "llama-server"))
+
+
+def same_model(event: str, model: str) -> bool:
+    """Whether an event is about the model being pulled: the router may name it with or without its quant, and in any case."""
+    event, model = event.lower(), model.lower()
+    if event == model:
+        return True
+    repo = model.partition(":")[0]
+    return ":" not in model and event.startswith(repo + ":")
+
+
+def llama_pull(base: str, key: str, model: str, progress: Progress) -> None:
+    """Starts the router's download and relays its progress, Ollama's style, until it finishes."""
+    llama_model_name(model)
+    headers = {"Accept": "text/event-stream", **(llama_headers(key) or {})}
+    with local() as http:
+        # Listen first, so no event is missed between starting the download and listening.
+        try:
+            events = http.send(http.build_request("GET", base + "/models/sse", headers=headers), stream=True)
+        except httpx.HTTPError as error:
+            raise unavailable("llama-server", error)
+        try:
+            if events.status_code >= 400:
+                raise Refused("this llama-server can't download models: start it in router mode (without -m)")
+            llama_call("POST", base + "/models", key, {"model": model}, MINUTE)
+            progress({"status": "pulling " + model})
+            try:
+                for raw in events.iter_lines():
+                    line = raw.strip()
+                    if not line.startswith("data:"):
+                        continue
+                    try:
+                        event = json.loads(line[len("data:"):].strip())
+                    except ValueError:
+                        continue
+                    if not isinstance(event, dict) or not same_model(text(event.get("model")), model):
+                        continue
+                    kind = text(event.get("event"))
+                    if kind == "download_progress":
+                        files = obj(event.get("data")).values()
+                        done = sum(number(obj(file).get("done")) for file in files)
+                        total = sum(number(obj(file).get("total")) for file in obj(event.get("data")).values())
+                        progress({"status": "downloading", "completed": int(done), "total": int(total)})
+                    elif kind == "download_finished":
+                        # The router lists it once its models are read again.
+                        attempt(base + "/models?reload=1", llama_headers(key), 30)
+                        progress({"status": "success"})
+                        return
+                    elif kind == "download_failed":
+                        data = obj(event.get("data"))
+                        message = text(data.get("error")) or text(data.get("message")) or "the download failed"
+                        progress({"status": "error", "error": message})
+                        raise Refused(message)
+            except httpx.HTTPError as error:
+                raise unavailable("llama-server", error)
+            raise Refused("llama-server stopped before the download finished")
+        finally:
+            events.close()
+
+
+def llama_log(port: int, size: int) -> str:
+    """The log of the llama-server agent-machine started (servers.py writes it)."""
+    if port != llama_server_port():
+        raise Refused(f"only the llama-server agent-machine starts (on port {llama_server_port()}) has a log here")
+    try:
+        return tail(settings.home() / "llamacpp.log", size)
+    except FileNotFoundError:
+        return "No log yet: agent-machine writes one when it starts llama.cpp."
 
 
 # Docker Model Runner, Docker's own model server. Routes used, from docker/model-runner (pkg/inference):
@@ -780,6 +988,8 @@ def detect() -> List[Dict[str, Any]]:
     found: List[Dict[str, Any]] = []
     with httpx.Client(trust_env=False, timeout=1.5) as http:
         for kind, path, port in PROBES:
+            if kind == "llamacpp":
+                port = llama_server_port()
             try:
                 response = http.get(f"http://127.0.0.1:{port}{path}")
             except httpx.HTTPError:

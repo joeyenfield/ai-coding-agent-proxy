@@ -1,5 +1,6 @@
 // Package providers answers the server's questions about the model servers running on
-// this machine ({"type": "provider"} over the fleet connection): their state, their
+// this machine ({"type": "provider"} over the fleet connection: Ollama, llama.cpp, Strata and
+// Docker Model Runner): their state, their
 // models (pull, delete, load, unload), their logs, this machine's load, and the model
 // catalogues (ollama.com, Hugging Face, Docker Hub) to pull from.
 //
@@ -99,7 +100,7 @@ func (m *Manager) handle(request Request, progress Progress) (map[string]any, er
 		result, err := m.search(request.Catalog, request.Query, request.Repo)
 		return map[string]any{"result": result}, err
 	}
-	if request.Kind != "ollama" && request.Kind != "strata" && request.Kind != "docker" {
+	if request.Kind != "ollama" && request.Kind != "strata" && request.Kind != "docker" && request.Kind != "llamacpp" {
 		return nil, fmt.Errorf("unknown model server kind %q", request.Kind)
 	}
 	if request.Port <= 0 || request.Port > 65535 {
@@ -138,6 +139,20 @@ func (m *Manager) handle(request Request, progress Progress) (map[string]any, er
 	case "strata log":
 		text, err := strataLog(request.Port, request.Source, request.Tail)
 		return map[string]any{"text": text}, err
+	case "llamacpp status":
+		return map[string]any{"state": llamaStatus(base, request.Key)}, nil
+	case "llamacpp pull":
+		return nil, llamaPull(base, request.Key, model, progress)
+	case "llamacpp delete":
+		return result("deleted", model), llamaDelete(base, request.Key, model)
+	case "llamacpp load":
+		// The router answers once the model is loading; its status says when it's in.
+		return result("loaded", model), llamaCall(http.MethodPost, base+"/models/load", request.Key, map[string]any{"model": model}, 10*time.Minute)
+	case "llamacpp unload":
+		return result("unloaded", model), llamaCall(http.MethodPost, base+"/models/unload", request.Key, map[string]any{"model": model}, time.Minute)
+	case "llamacpp log":
+		text, err := llamaLog(request.Port, request.Tail)
+		return map[string]any{"text": text}, err
 	case "docker status":
 		return map[string]any{"state": dockerStatus(base)}, nil
 	case "docker pull":
@@ -165,6 +180,8 @@ func kindLabel(kind string) string {
 		return "Docker Model Runner"
 	case "strata":
 		return "Strata"
+	case "llamacpp":
+		return "llama.cpp"
 	}
 	return "Ollama"
 }

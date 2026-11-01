@@ -78,6 +78,7 @@ class Engine:
 
 
 STRATA_IMAGE = "ghcr.io/niko1221/strata"
+LLAMA_IMAGE = "ghcr.io/ggml-org/llama.cpp"
 
 # Engines in the order the console offers them.
 ENGINES: List[Engine] = [
@@ -111,6 +112,22 @@ ENGINES: List[Engine] = [
             Option("OLLAMA_KEEP_ALIVE", "Keep a model loaded", ["5m", "30m", "-1"], "5m"),
         ],
         summary="The official Ollama image. Models pulled into the shared volume are there for every Ollama container.",
+    ),
+    Engine(
+        id="llamacpp", label="llama.cpp", backend_type="llamacpp",
+        image=LLAMA_IMAGE + ":server-cuda", images=[LLAMA_IMAGE + ":" + flavor for flavor in ("server-cuda", "server")],
+        # llama-server in router mode; downloads go to its cache, the shared volume.
+        port=8080, data_path="/root/.cache/llama.cpp", volume="llamacpp-models", health_path="/health",
+        stop_timeout=30, flags=[],
+        options=[
+            Option("LLAMA_ARG_CTX_SIZE", "Context", ["8192", "16384", "32768", "65536", "131072"], "Fitted to the card"),
+            Option("LLAMA_ARG_CACHE_TYPE_K", "KV cache (K)", ["f16", "q8_0", "q4_0"], "f16"),
+            Option("LLAMA_ARG_CACHE_TYPE_V", "KV cache (V)", ["f16", "q8_0", "q4_0"], "f16"),
+            Option("LLAMA_ARG_N_PARALLEL", "Parallel requests", ["1", "2", "4"], "Automatic"),
+            Option("LLAMA_ARG_MODELS_MAX", "Models loaded at once", ["1", "2", "4"], "4"),
+            Option("LLAMA_ARG_THINK_BUDGET", "Thinking budget", ["-1", "0", "1024", "4096"], "No limit"),
+        ],
+        summary="llama.cpp's official server image (server-cuda for NVIDIA, server for CPU). Download models from Hugging Face on its model server's tab; they stay in the shared volume.",
     ),
 ]
 
@@ -265,6 +282,9 @@ def run_args_for(cli: str, name: str, spec: Spec, key: str, bind: str) -> Tuple[
         # Its own preset inside the shared /data keeps settings, tuning and key per container.
         env["PRESET"] = name
         env["API_KEY"] = key
+    if engine.id == "llamacpp":
+        # Router mode on the published port, and only with the server's key: the port is open to the network.
+        env.update(LLAMA_ARG_HOST="0.0.0.0", LLAMA_ARG_PORT=str(engine.port), LLAMA_API_KEY=key)
     volume = spec.volume or engine.volume
     args = [
         "run", "-d", "--name", PREFIX + name,

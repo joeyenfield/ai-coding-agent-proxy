@@ -9,7 +9,7 @@ The machine only dials out. It holds one WebSocket to the server (`/api/machines
 ## Boundaries
 
 - Imports nothing from `client/`, `server/` or `tools/`. Dependencies: gorilla/websocket and x/sys (`go.mod` also lists x/term, which no code imports).
-- No inbound listeners except the MCP bridge on `127.0.0.1:0`. Outbound only: the server, loopback model servers, model catalogues.
+- No inbound listeners except the MCP bridge on `127.0.0.1:0` (and the llama-server it starts, on `127.0.0.1:9931`). Outbound only: the server, loopback model servers, model catalogues, and GitHub's llama.cpp releases when the console installs llama.cpp.
 - `Proxy: nil` on every client (`settings.Transport`). Server calls carry the version, protocol and token headers (`settings.ServerClient`, `Identify`).
 - Its own sign-in (`agent-machine login`), apart from `agent login`.
 - Device authorization and rotating OAuth credentials mirror the client in this separate Go module (`internal/settings/oauth.go`: `DeviceLogin`, `Upstream.AccessToken`, `RejectAccessToken`, `LockCredentials`, `Revoke`). Automation sets `AI_PROXY_MACHINE_TOKEN` (never `AI_PROXY_TOKEN`, which is the agent's). Every request and socket dial (`presence.Dial`) gets a fresh access token; a close 4410 calls `RejectAccessToken` and the reconnect refreshes. `login` refuses `--user`/`--key`. Never send passwords to the API or fall back to an old key. See `auth.md`.
@@ -30,8 +30,8 @@ The machine only dials out. It holds one WebSocket to the server (`/api/machines
 | `cmd/agent-machine` | Entry point, version from ldflags, cleans up old binaries | `main` |
 | `internal/command` | The command line and status display, restart after an update | `Main`, `configure`, `run`, `start`, `stop`, `show`, `restartAfterUpdate` |
 | `internal/presence` | The fleet connection: hello and updates, dispatching requests, tunnels, launches, shells, folders, remote update, provider detection | `Presence.Run`/`session`/`describe`, `DetectProviders`, `Check`, `CheckShell`, `Arguments`, `ShellArguments`, `AgentCommand`, `tunnelPorts`, `Folders`, `RemoteUpdate` |
-| `internal/providers` | Model-server operations and catalogue search, against fixed loopback paths | `Manager.Handle`, `ollama.go`, `strata.go`, `docker.go`, `Metrics`, `catalog.go` |
-| `internal/servers` | Starting and stopping Ollama (only the one it started, or through systemd) and Strata profiles; Ollama's `OLLAMA_*` settings. With servers on, `strataState` syncs profiles to `strata models list --installed` (`syncProfiles`: `profile create` for each ready model no profile uses, named `freeName(id)`; never removes: only the console's remove/prune do, and only `broken` profiles not serving, as `removable` checks) and marks a profile whose run config file is gone `broken` (`configGone`), which `strataAction` won't start; an older Strata without `models list` falls back to the saved profiles | `Manager.Handle`, `ollama_settings.go`, `systemd.go` |
+| `internal/providers` | Model-server operations and catalogue search, against fixed loopback paths | `Manager.Handle`, `ollama.go`, `llamacpp.go` (the router's `/models`: status, pull = `POST /models` with `/models/sse` progress, delete, load, unload; `LlamaServerPort`), `strata.go`, `docker.go`, `Metrics`, `catalog.go` |
+| `internal/servers` | Starting and stopping Ollama (only the one it started, or through systemd), llama.cpp and Strata profiles; Ollama's `OLLAMA_*` and llama.cpp's `LLAMA_ARG_*` settings, each a `table` (`settings_table.go`: settings, extra variables and what they may be, the file; values are one line). llama.cpp (`llamacpp.go`): `llama-server --host 127.0.0.1 --port <LlamaServerPort>` in router mode, the installed build first, else PATH, Termux or Homebrew; `llamacpp_install.go`: the install job (Termux's apt-get per variant, else the newest GitHub release's asset for the platform, `releaseVariants`/`variantOf`, SHA-256 against GitHub's digest, unpacked by `inside`-checked tar/zip into `llamacpp/<release>-<variant>/`, CUDA's runtime beside the binary, `prune` keeps the previous build); `llamacpp_settings.go` refuses host, port, keys, presets, CORS and anything naming TOOL, MCP, AGENT, SSL or PROPS. With servers on, `strataState` syncs profiles to `strata models list --installed` (`syncProfiles`: `profile create` for each ready model no profile uses, named `freeName(id)`; never removes: only the console's remove/prune do, and only `broken` profiles not serving, as `removable` checks) and marks a profile whose run config file is gone `broken` (`configGone`), which `strataAction` won't start; an older Strata without `models list` falls back to the saved profiles | `Manager.Handle`, `ollama_settings.go`, `systemd.go` |
 | `internal/containers` | Containers for the server: the engine table, spec checks, run arguments, the CLI, jobs | `Engines`, `Validate`, `RunArgsFor`, `Detect`, `Manager`, `Prefix = "ai-proxy-"` |
 | `internal/mcp` | Shared MCP servers (`mcp.json`) and the bridge | `Server.Check`, `Load`/`Save`, `Bridge.Describe`/`ServeHTTP` |
 | `internal/settings` | Its folder, credentials, `machine.json`, `status.json`, root checks; OAuth in `oauth.go` | `Home`, `Upstream`, `LoadMachine` (carries `agent-proxy/machine.json` over once), `Machine.Within`, `Status`, `Protocol`, `TokenHeader`, `DeviceLogin`, `AccessToken`, `TokenEnvironment` |
@@ -57,13 +57,13 @@ sequenceDiagram
   M->>S: WS /api/machines/tunnel/<id>, piped to 127.0.0.1:<port>
 ```
 
-- **Hello/update** (`describe`): id, name, hostname, os, arch, version, protocol, address, `agents` (the server's agents found on PATH), `providers` (`{type, port, version, models, api_key?}`, detected by probing 11434, 12434, 18500 and Strata profiles), `launches`, `roots`, `commands`, `updates`, `tunnel: 1`, `launcher`, `containers {enabled, cli, engines, ...}`, `servers {enabled, ollama, strata}`, `mcp {port, key, servers}`. Strata keys travel only as `providers[].api_key`, for loopback instances.
+- **Hello/update** (`describe`): id, name, hostname, os, arch, version, protocol, address, `agents` (the server's agents found on PATH), `providers` (`{type, port, version, models, api_key?}`, detected by probing 11434, 12434, 18500, llama.cpp's port (9931, `AI_PROXY_LLAMACPP_PORT`) and Strata profiles), `launches`, `roots`, `commands`, `updates`, `tunnel: 1`, `launcher`, `containers {enabled, cli, engines, ...}`, `servers {enabled, ollama, strata, llamacpp}` (`llamacpp`: found, running, managed, port, version, source, variant, release, platform, install progress), `mcp {port, key, servers}`. Strata keys travel only as `providers[].api_key`, for loopback instances.
 - **Requests**, each handled in its own goroutine, with writes serialised:
 
 | Type | Gate on the machine | Does |
 | --- | --- | --- |
 | `provider` | changes (pull, delete, load, unload) need `servers` | status, models, log, metrics, catalogue search |
-| `server` | `servers` | Ollama settings and start/stop/restart, Strata start/stop, remove/prune (profiles whose run config is gone, deleted from Strata's profiles folder) and cleanup (`strata runtime cleanup`) |
+| `server` | `servers` | Ollama settings and start/stop/restart; llama.cpp settings, start/stop/restart, `install_options`, `install` (a job: answers at once) and `uninstall` (GitHub builds only); Strata start/stop, remove/prune (profiles whose run config is gone, deleted from Strata's profiles folder) and cleanup (`strata runtime cleanup`) |
 | `container` | `containers` | status, start/restart/switch (jobs), stop, remove, logs |
 | `folders` | `launches` or `commands`, inside the roots | folder names only, at most 500 |
 | `launch` / `shell` | `launches` / `commands`, inside the roots | runs `agent ... --headless --launch-id` and reads its one `{"session_id"}` line |
@@ -75,7 +75,7 @@ sequenceDiagram
 
 ## State (`settings.Home()`: `AI_PROXY_MACHINE_HOME`, `%APPDATA%\agent-machine`, `~/.config/agent-machine`)
 
-`credentials.json` (OAuth access and refresh tokens, expiry, issuer, client id and endpoints, in the client's format; never a password), `credentials.json.lock` (the refresh lock directory, shared with the Python agent-machine), `machine.json` (id, name, toggles, roots, address, CLI), `status.json` (pid, state, server, at, server_version, started: background, service or terminal), `mcp.json`, `servers.json` (the Ollama it started), `ollama.json`, `agent-machine.log`, `ollama.log`. Files are 0600 in a 0700 folder, written atomically.
+`credentials.json` (OAuth access and refresh tokens, expiry, issuer, client id and endpoints, in the client's format; never a password), `credentials.json.lock` (the refresh lock directory, shared with the Python agent-machine), `machine.json` (id, name, toggles, roots, address, CLI), `status.json` (pid, state, server, at, server_version, started: background, service or terminal), `mcp.json`, `servers.json` (the Ollama and llama-server it started; Ollama's saves keep llama-server's fields and the other way round), `ollama.json`, `llamacpp.json`, `llamacpp-install.json` (what the console installed and where its `llama-server` is), `llamacpp/` (installed builds), `agent-machine.log`, `ollama.log`, `llamacpp.log`, `llamacpp-install.log`. Files are 0600 in a 0700 folder, written atomically.
 
 ## Invariants
 
@@ -83,7 +83,7 @@ sequenceDiagram
 2. Roots are checked after resolving links (`Machine.Within`). The server checks too (`within_roots`); keep both.
 3. Container specs come only from the engine table, with each engine's own options, plain images, `gpus` all/none/numbers, and a volume name or absolute folder. **Never add free-form docker arguments**: `docker run` is root on that machine. Podman gets GPUs as CDI devices.
 4. Tunnels reach only reported provider ports, containers' ports and the bridge.
-5. Provider operations call fixed loopback paths. Ollama stop only stops the Ollama it started.
+5. Provider operations call fixed loopback paths. Ollama stop only stops the Ollama it started, and the same for llama-server, which always listens on loopback only. llama.cpp is only installed from Termux's packages or a GitHub release whose SHA-256 matches GitHub's digest, unpacked inside its own folder; its settings never turn on llama-server's tools, MCP or agent mode.
 6. Strata keys are redacted in logs. MCP commands, env and headers never leave the machine (the hello carries names). The bridge checks its per-run key in constant time and re-reads `mcp.json` on every request.
 7. A launch is refused when this computer's agent-proxy carries traffic to another server.
 8. Updates install only the server's build, verified by SHA-256.
@@ -92,5 +92,5 @@ sequenceDiagram
 
 - **Provider kind**: a case in `providers.handle` (status, model operations, log), a probe in presence, Go tests, then the server and console sides (see the checklist in `AGENTS.md`).
 - **Message type**: a branch in `presence.session` answering `<type>_result` with its own toggle check; a new toggle goes into `settings.Machine`, `configure`, `show` and `describe`. Mirror it in `python/agent_py/machine/presence.py` and the server's `Fleet`.
-- `go test ./...`, and vet for Windows and Linux (the `process_*.go` files differ). End to end: `server/tests/test_client.py::fleet_machine` with `fake_docker.py`, `fake_strata.py`, `fake_mcp.py`.
+- `go test ./...`, and vet for Windows and Linux (the `process_*.go` files differ). End to end: `server/tests/test_client.py::fleet_machine` with `fake_docker.py`, `fake_strata.py`, `fake_llamacpp.py`, `fake_mcp.py`. The installer's tests play GitHub with `httptest` (`AI_PROXY_LLAMACPP_RELEASES`) and Termux's apt-get with a script (`AI_PROXY_LLAMACPP_APT`).
 - Don't test as the Ubuntu WSL user: it runs a real agent-machine in the real fleet.

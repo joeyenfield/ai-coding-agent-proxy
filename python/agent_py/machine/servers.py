@@ -1,7 +1,7 @@
 """Starts and stops the model servers installed on this machine when the server asks
 ({"type": "server"} over the fleet connection): Ollama (`ollama serve`, with the OLLAMA_* settings
 saved from the console, or its systemd ollama.service once `sudo agent-machine servers service`
-allowed it) and Strata (a saved profile, through Strata's own `strata runtime start|stop`). It's
+allowed it), llama.cpp (llama-server in router mode, installed from the console: llamacpp.py) and Strata (a saved profile, through Strata's own `strata runtime start|stop`). It's
 off until `agent-machine servers on`; once it's on, every model installed in Strata gets a saved
 profile of its own (`strata profile create`), so any of them can be started from the console, and
 a profile whose model has gone is reported rather than started. Mirrors machine/internal/servers
@@ -55,9 +55,12 @@ class Refused(Exception):
 
 
 def setting(key: str, group: str, label: str, kind: str, default: Any, help: str, *env: str,
-            choices: Optional[List[str]] = None, editable: bool = False, minimum: int = 0, maximum: int = MAX_INT, scale: int = 1) -> Dict[str, Any]:
+            choices: Optional[List[str]] = None, editable: bool = False, minimum: int = 0, maximum: int = MAX_INT, scale: int = 1,
+            false: str = "0", true: str = "1") -> Dict[str, Any]:
+    # false/true: how a bool is written to the environment ("0"/"1" unless set).
     return {"key": key, "group": group, "label": label, "kind": kind, "default": default, "help": help, "env": list(env),
-            "choices": choices or [], "editable": editable, "minimum": minimum, "maximum": maximum, "scale": scale}
+            "choices": choices or [], "editable": editable, "minimum": minimum, "maximum": maximum, "scale": scale,
+            "false": false, "true": true}
 
 
 # The table the console shows, in order: the same as the Go agent-machine's (ollama_settings.go).
@@ -90,34 +93,6 @@ SETTINGS = [
     setting("origins", SERVER, "CORS origins", "str", "", "Comma-separated extra allowed origins.", "OLLAMA_ORIGINS"),
     setting("debug", SERVER, "Debug logging", "bool", False, "Verbose server log.", "OLLAMA_DEBUG"),
 ]
-
-
-def schema() -> Dict[str, Any]:
-    return {"groups": GROUPS, "settings": [{k: v for k, v in item.items() if k != "scale"} for item in SETTINGS]}
-
-
-def default_config() -> Dict[str, Any]:
-    config: Dict[str, Any] = {"extra_env": ""}
-    for item in SETTINGS:
-        config[item["key"]] = item["default"]
-    return config
-
-
-def parse_extra_env(text: str) -> Dict[str, Optional[str]]:
-    """KEY=VALUE lines; a blank value unsets the variable, '#' starts a comment. Only OLLAMA_* ones."""
-    result: Dict[str, Optional[str]] = {}
-    for number, raw in enumerate(text.split("\n"), 1):
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        name, found, value = line.partition("=")
-        name = name.strip()
-        if not found or not name or " " in name or "\t" in name:
-            raise Refused(f"Extra environment line {number} is not KEY=VALUE: {json.dumps(raw.rstrip(chr(13)))}")
-        if not name.startswith("OLLAMA_") or name == "OLLAMA_HOST":
-            raise Refused(f"Extra environment line {number} sets {name}: only OLLAMA_* variables (other than OLLAMA_HOST) can be set here")
-        result[name] = value.strip() or None
-    return result
 
 
 def as_int(value: Any) -> Optional[int]:
@@ -156,64 +131,163 @@ def truthy(value: Any) -> bool:
     return number is None or number != 0
 
 
+class Table:
+    """A model server's settings, as environment variables agent-machine starts it with: a table of known
+    options the console shows and checks, and extra variables of the server's own prefix. Ollama's and
+    llama.cpp's (llamacpp.py) are each one, as in the Go agent-machine (settings_table.go)."""
+
+    def __init__(self, settings_: List[Dict[str, Any]], groups: List[str], file: str, extra: Callable[[str], str]) -> None:
+        self.settings = settings_
+        self.groups = groups
+        self.file = file
+        # Why a variable can't be set as an extra one, or "" when it can.
+        self.extra = extra
+
+    def path(self) -> Path:
+        return settings.home() / self.file
+
+    def schema(self) -> Dict[str, Any]:
+        return {"groups": self.groups, "settings": [{k: v for k, v in item.items() if k not in ("scale", "false", "true")} for item in self.settings]}
+
+    def defaults(self) -> Dict[str, Any]:
+        config: Dict[str, Any] = {"extra_env": ""}
+        for item in self.settings:
+            config[item["key"]] = item["default"]
+        return config
+
+    def parse_extra(self, text: str) -> Dict[str, Optional[str]]:
+        """KEY=VALUE lines; a blank value unsets the variable, '#' starts a comment."""
+        result: Dict[str, Optional[str]] = {}
+        for number, raw in enumerate(text.split("\n"), 1):
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            name, found, value = line.partition("=")
+            name = name.strip()
+            if not found or not name or " " in name or "\t" in name:
+                raise Refused(f"Extra environment line {number} is not KEY=VALUE: {json.dumps(raw.rstrip(chr(13)))}")
+            reason = self.extra(name)
+            if reason:
+                raise Refused(f"Extra environment line {number} sets {name}: {reason}")
+            result[name] = value.strip() or None
+        return result
+
+    def validate(self, data: Any) -> Dict[str, Any]:
+        """Checks and tidies a config from the console against the table."""
+        if not isinstance(data, dict):
+            raise Refused("Configuration must be an object")
+        config = self.defaults()
+        for item in self.settings:
+            key = item["key"]
+            if key not in data:
+                continue
+            value = data[key]
+            if item["kind"] == "bool":
+                config[key] = truthy(value)
+            elif item["kind"] == "int":
+                number = as_int(value)
+                if number is None:
+                    raise Refused(f"{item['label']} must be a number")
+                if not item["minimum"] <= number <= item["maximum"]:
+                    raise Refused(f"{item['label']} must be between {item['minimum']} and {item['maximum']}")
+                config[key] = number
+            else:
+                text = as_text(value).strip()
+                if item["kind"] == "choice" and not item["editable"] and item["choices"] and text not in item["choices"]:
+                    raise Refused(f"{item['label']} must be one of: {', '.join(item['choices'])}")
+                # A value goes into one environment variable: it's one line.
+                if "\r" in text or "\n" in text:
+                    raise Refused(f"{item['label']} must be one line")
+                config[key] = text
+        config["extra_env"] = as_text(data.get("extra_env"))
+        # A bad line is refused on saving rather than on starting.
+        self.parse_extra(config["extra_env"])
+        return config
+
+    def managed(self, config: Dict[str, Any]) -> Dict[str, Optional[str]]:
+        """The variables the config sets; None means unset."""
+        env: Dict[str, Optional[str]] = {}
+        for item in self.settings:
+            value = config.get(item["key"], item["default"])
+            if item["kind"] == "bool":
+                text: Optional[str] = item["true"] if truthy(value) else item["false"]
+            elif item["kind"] == "int":
+                text = str((as_int(value) or 0) * item["scale"])
+            else:
+                text = as_text(value).strip() or None
+            for name in item["env"]:
+                env[name] = text
+        try:
+            env.update(self.parse_extra(as_text(config.get("extra_env"))))
+        except Refused:
+            pass
+        return env
+
+    def environment(self, base: Dict[str, str], config: Dict[str, Any], drop: Callable[[str], bool]) -> Dict[str, str]:
+        """The environment the server starts with: base without the managed variables and the ones drop
+        names (where it listens, set by agent-machine), with the managed ones applied."""
+        managed = self.managed(config)
+        result = {name: value for name, value in base.items() if name not in managed and not drop(name)}
+        result.update({name: value for name, value in sorted(managed.items()) if value is not None})
+        return result
+
+    def load(self) -> Dict[str, Any]:
+        """The saved config over the defaults; a missing or broken file is the defaults."""
+        try:
+            return self.validate(json.loads(self.path().read_text(encoding="utf-8")))
+        except (OSError, ValueError, Refused):
+            return self.defaults()
+
+    def save(self, data: Any) -> Dict[str, Any]:
+        config = self.validate(data)
+        path = self.path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_name(path.name + ".tmp")
+        # Sorted keys, as Go writes a map, so the file is the same whichever agent-machine saved it.
+        temporary.write_text(json.dumps(config, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        try:
+            os.chmod(temporary, 0o600)
+        except OSError:
+            pass
+        os.replace(temporary, path)
+        return config
+
+
+def _ollama_extra(name: str) -> str:
+    if not name.startswith("OLLAMA_") or name == "OLLAMA_HOST":
+        return "only OLLAMA_* variables (other than OLLAMA_HOST) can be set here"
+    return ""
+
+
+OLLAMA_TABLE = Table(SETTINGS, GROUPS, "ollama.json", _ollama_extra)
+
+
+def schema() -> Dict[str, Any]:
+    return OLLAMA_TABLE.schema()
+
+
+def default_config() -> Dict[str, Any]:
+    return OLLAMA_TABLE.defaults()
+
+
+def parse_extra_env(text: str) -> Dict[str, Optional[str]]:
+    """KEY=VALUE lines; a blank value unsets the variable, '#' starts a comment. Only OLLAMA_* ones."""
+    return OLLAMA_TABLE.parse_extra(text)
+
+
 def validate_config(data: Any) -> Dict[str, Any]:
     """Checks and tidies a config from the console against the table."""
-    if not isinstance(data, dict):
-        raise Refused("Configuration must be an object")
-    config = default_config()
-    for item in SETTINGS:
-        key = item["key"]
-        if key not in data:
-            continue
-        value = data[key]
-        if item["kind"] == "bool":
-            config[key] = truthy(value)
-        elif item["kind"] == "int":
-            number = as_int(value)
-            if number is None:
-                raise Refused(f"{item['label']} must be a number")
-            if not item["minimum"] <= number <= item["maximum"]:
-                raise Refused(f"{item['label']} must be between {item['minimum']} and {item['maximum']}")
-            config[key] = number
-        elif item["kind"] == "choice":
-            text = as_text(value).strip()
-            if not item["editable"] and item["choices"] and text not in item["choices"]:
-                raise Refused(f"{item['label']} must be one of: {', '.join(item['choices'])}")
-            config[key] = text
-        else:
-            config[key] = as_text(value).strip()
-    config["extra_env"] = as_text(data.get("extra_env"))
-    # A bad line is refused on saving rather than on starting.
-    parse_extra_env(config["extra_env"])
-    return config
+    return OLLAMA_TABLE.validate(data)
 
 
 def managed_env(config: Dict[str, Any]) -> Dict[str, Optional[str]]:
     """The variables the config sets; None means unset."""
-    env: Dict[str, Optional[str]] = {}
-    for item in SETTINGS:
-        value = config.get(item["key"], item["default"])
-        if item["kind"] == "bool":
-            text: Optional[str] = "1" if truthy(value) else "0"
-        elif item["kind"] == "int":
-            text = str((as_int(value) or 0) * item["scale"])
-        else:
-            text = as_text(value).strip() or None
-        for name in item["env"]:
-            env[name] = text
-    try:
-        env.update(parse_extra_env(as_text(config.get("extra_env"))))
-    except Refused:
-        pass
-    return env
+    return OLLAMA_TABLE.managed(config)
 
 
 def environment(base: Dict[str, str], config: Dict[str, Any]) -> Dict[str, str]:
     """The environment Ollama starts with: base with the managed variables applied, and no OLLAMA_HOST."""
-    managed = managed_env(config)
-    result = {name: value for name, value in base.items() if name not in managed and name.upper() != "OLLAMA_HOST"}
-    result.update({name: value for name, value in sorted(managed.items()) if value is not None})
-    return result
+    return OLLAMA_TABLE.environment(base, config, lambda name: name.upper() == "OLLAMA_HOST")
 
 
 def config_warnings(config: Dict[str, Any]) -> List[str]:
@@ -231,7 +305,7 @@ def config_warnings(config: Dict[str, Any]) -> List[str]:
 
 
 def config_path() -> Path:
-    return settings.home() / "ollama.json"
+    return OLLAMA_TABLE.path()
 
 
 def log_path() -> Path:
@@ -244,31 +318,18 @@ def state_path() -> Path:
 
 def load_config() -> Dict[str, Any]:
     """The saved config over the defaults; a missing or broken file is the defaults."""
-    try:
-        return validate_config(json.loads(config_path().read_text(encoding="utf-8")))
-    except (OSError, ValueError, Refused):
-        return default_config()
+    return OLLAMA_TABLE.load()
 
 
 def save_config(data: Any) -> Dict[str, Any]:
-    config = validate_config(data)
-    path = config_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    # Sorted keys, as Go writes a map, so the file is the same whichever agent-machine saved it.
-    temporary.write_text(json.dumps(config, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    try:
-        os.chmod(temporary, 0o600)
-    except OSError:
-        pass
-    os.replace(temporary, path)
-    return config
+    return OLLAMA_TABLE.save(data)
 
 
 def load_state() -> Dict[str, Any]:
     """servers.json in agent-machine's folder: the Ollama it started (ollama_pid, ollama_bind, and
     ollama_env, the managed environment it was started with, to tell whether it runs the saved
-    settings), or service: true when it was started through its systemd service."""
+    settings), or service: true when it was started through its systemd service; and the
+    llama-server it started (llamacpp_pid, llamacpp_env)."""
     try:
         value = json.loads(state_path().read_text(encoding="utf-8"))
         return value if isinstance(value, dict) else {}
@@ -278,9 +339,10 @@ def load_state() -> Dict[str, Any]:
 
 def save_state(value: Dict[str, Any]) -> None:
     # The Go agent-machine's layout: its fields in order, empty ones left out, the environment sorted.
-    ordered = {key: value[key] for key in ("ollama_pid", "ollama_bind", "ollama_env", "service") if value.get(key)}
-    if isinstance(ordered.get("ollama_env"), dict):
-        ordered["ollama_env"] = dict(sorted(ordered["ollama_env"].items()))
+    ordered = {key: value[key] for key in ("ollama_pid", "ollama_bind", "ollama_env", "service", "llamacpp_pid", "llamacpp_env") if value.get(key)}
+    for key in ("ollama_env", "llamacpp_env"):
+        if isinstance(ordered.get(key), dict):
+            ordered[key] = dict(sorted(ordered[key].items()))
     path = state_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(ordered, indent=2) + "\n", encoding="utf-8")
@@ -288,6 +350,13 @@ def save_state(value: Dict[str, Any]) -> None:
         os.chmod(path, 0o600)
     except OSError:
         pass
+
+
+def with_ollama(pid: int, bind: str, env: Optional[Dict[str, Any]], service: bool) -> Dict[str, Any]:
+    """The saved state with the Ollama part replaced, keeping llama-server's (llamacpp.py)."""
+    value = load_state()
+    value.update(ollama_pid=pid, ollama_bind=bind, ollama_env=env, service=service)
+    return value
 
 
 def managed_pid() -> int:
@@ -809,9 +878,11 @@ def tail(path: Path, limit: int) -> str:
 class Manager:
     """Answers the server's server requests. machine reads the machine's settings fresh for each one."""
 
-    def __init__(self, machine: Callable[[], settings.Machine] = settings.Machine.load, port: Optional[int] = None) -> None:
+    def __init__(self, machine: Callable[[], settings.Machine] = settings.Machine.load, port: Optional[int] = None, llama_port: Optional[int] = None) -> None:
         self.machine = machine
         self._port = port
+        # llama-server's port; tests use another.
+        self._llama_port = llama_port
         self.lock = threading.Lock()
 
     @property
@@ -819,11 +890,17 @@ class Manager:
         # Read when used, so tests can point the module at another port.
         return self._port or OLLAMA_PORT
 
+    @property
+    def llama_port(self) -> int:
+        from .providers import llama_server_port
+        return self._llama_port or llama_server_port()
+
     def describe(self) -> Dict[str, Any]:
         """The "servers" part of the machine's hello: what's installed and running."""
         if not self.machine().servers:
             return {"enabled": False}
-        return {"enabled": True, "ollama": self.ollama_state(), "strata": strata_state()}
+        from . import llamacpp
+        return {"enabled": True, "ollama": self.ollama_state(), "strata": strata_state(), "llamacpp": llamacpp.state(self.llama_port)}
 
     def handle(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """One request, always answered with a server_result for its id."""
@@ -838,6 +915,12 @@ class Manager:
                 answer.update(ok=False, error=f"{type(error).__name__}: {error}")
             if request.get("kind") == "ollama" and request.get("op") in ("settings", "configure") and self.machine().servers:
                 answer["ollama_settings"] = self.ollama_settings()
+            if request.get("kind") == "llamacpp" and self.machine().servers:
+                from . import llamacpp
+                if request.get("op") in ("settings", "configure"):
+                    answer["llamacpp_settings"] = llamacpp.settings_answer(self.llama_port)
+                elif request.get("op") == "install_options":
+                    answer["llamacpp_install"] = llamacpp.install_options()
             answer["servers"] = self.describe()
             return answer
 
@@ -864,6 +947,9 @@ class Manager:
                 self.service_action("stop", "")
             else:
                 self.stop_ollama()
+        elif kind == "llamacpp":
+            from . import llamacpp
+            llamacpp.action(request, self.llama_port)
         elif kind == "strata" and op in ("start", "stop"):
             strata_action(op, request.get("profile"))
         elif kind == "strata" and op == "remove":
@@ -919,7 +1005,7 @@ class Manager:
         if op != "stop":
             env = managed_env(load_config())
             write_service_env(env, f"{bind}:{self.port}")
-            save_state({"ollama_bind": bind, "ollama_env": env, "service": True})
+            save_state(with_ollama(0, bind, env, True))
         output, error = run(90, service_control() or [], op, SERVICE_UNIT)
         if error:
             raise Refused(f"systemctl {op} {SERVICE_UNIT}: {error} {output}")
@@ -958,7 +1044,7 @@ class Manager:
                 raise Refused(f"couldn't start Ollama: {error}")
         # Reaped here, so a stopped Ollama doesn't linger as a zombie that still looks alive.
         threading.Thread(target=process.wait, name="ollama-wait", daemon=True).start()
-        save_state({"ollama_pid": process.pid, "ollama_bind": bind, "ollama_env": managed_env(config)})
+        save_state(with_ollama(process.pid, bind, managed_env(config), False))
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
             if self.ollama_version():
@@ -984,6 +1070,6 @@ class Manager:
                 os.killpg(pid, signal.SIGKILL)
             except (ProcessLookupError, PermissionError):
                 pass
-        save_state({})
+        save_state(with_ollama(0, "", None, False))
         if self.ollama_version():
             raise Refused("Ollama is still answering after being stopped")

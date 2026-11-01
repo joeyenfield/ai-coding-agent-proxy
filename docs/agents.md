@@ -25,9 +25,9 @@ Each agent takes one of three routes to a model. The console colours requests, s
 |---|---|---|---|
 | **Agents** | `claude-account`, `copilot-account`, `codex-account` | `qwen`, `opencode`, `copilot`, `claude`, `codex`, `aider`, `goose` | `claude-subscription` |
 | **Set in its definition by** | `intercept: true` | `backend_type: ollama` (the default) | `backend_type: anthropic` |
-| **Model** | The vendor's, on your plan | Ollama, Strata or Docker Model Runner on your machines | Anthropic's, through an `anthropic` backend |
+| **Model** | The vendor's, on your plan | Ollama, llama.cpp, Strata or Docker Model Runner on your machines | Anthropic's, through an `anthropic` backend |
 | **How the agent reaches the proxy** | `HTTPS_PROXY` pointing at the `agent-proxy` (`127.0.0.1:8183`) | Its API base URL points at the `agent-proxy` (`127.0.0.1:8184`) | `ANTHROPIC_BASE_URL` points at the `agent-proxy` |
-| **What the server does** | Decrypts, records and forwards unchanged | Ollama: translates to its native API and applies the model tuning. Strata and Docker Model Runner: forwards unchanged | Forwards unchanged |
+| **What the server does** | Decrypts, records and forwards unchanged | Ollama: translates to its native API and applies the model tuning. llama.cpp, Strata and Docker Model Runner: forwards unchanged | Forwards unchanged |
 | **What you see** | Requests to public hosts: model calls plus sign-in, settings, MCP, telemetry | Model calls, with the exact payload sent to Ollama | Model calls and other Anthropic API calls Claude Code makes |
 | **Credentials** | The agent's own login | None needed | The agent's own login |
 
@@ -65,7 +65,7 @@ Privacy and security:
 
 ### Local models
 
-Local-model agents get API base URLs on the `agent-proxy` that contain the session id. The server sends each request to the session's backend. For an Ollama backend it translates OpenAI Chat and Anthropic Messages requests to Ollama's native `/api/chat` and applies the server's Ollama model tuning. Strata and Docker Model Runner speak the agents' APIs themselves and get requests unchanged. See [Providers](providers.md).
+Local-model agents get API base URLs on the `agent-proxy` that contain the session id. The server sends each request to the session's backend. For an Ollama backend it translates OpenAI Chat and Anthropic Messages requests to Ollama's native `/api/chat` and applies the server's Ollama model tuning. llama.cpp, Strata and Docker Model Runner speak the agents' APIs themselves and get requests unchanged. See [Providers](providers.md).
 
 ```bash
 agent qwen . --model qwen3.6:35b                          # the server's default backend for the agent
@@ -73,7 +73,7 @@ agent opencode . --model qwen3.8:latest --backend desktop
 agent claude . --model qwen3.6:27b-coding -- --continue   # Claude Code, translated to Ollama
 ```
 
-An agent declared for Ollama can also use a Strata or Docker Model Runner backend when that backend speaks the agent's protocol. Strata has no native Ollama API, so `aider` and `goose` can't use it. The server decides which backends an agent can use and which one a launch picks, unless you name one with `--backend`.
+An agent declared for Ollama can also use a llama.cpp, Strata or Docker Model Runner backend when that backend speaks the agent's protocol. llama.cpp and Strata have no native Ollama API, so `aider` and `goose` can't use them. The server decides which backends an agent can use and which one a launch picks, unless you name one with `--backend`.
 
 ### Hosted API pass-through
 
@@ -374,7 +374,7 @@ Pair-programming agent that talks to Ollama's native chat API.
 
 - **Install:** `python -m pip install aider-install && aider-install`
 - **Sets:** `OLLAMA_API_BASE` (`{ollama_url}`). Runs `aider --model ollama_chat/<model>`.
-- **Notes:** speaks native Ollama, so it can use Ollama and Docker Model Runner backends, not Strata.
+- **Notes:** speaks native Ollama, so it can use Ollama and Docker Model Runner backends, not llama.cpp or Strata.
 - **MCP:** none. Aider has no MCP support.
 
 ### goose: Goose
@@ -383,7 +383,7 @@ Block's extensible open-source agent.
 
 - **Install:** `curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | bash`. On Windows, run it in Git Bash (it needs bash, curl and unzip).
 - **Sets:** `GOOSE_PROVIDER=ollama`, `OLLAMA_HOST` (`{ollama_url}`), `GOOSE_MODEL`. Runs `goose session`.
-- **Notes:** speaks native Ollama, so it can use Ollama and Docker Model Runner backends, not Strata.
+- **Notes:** speaks native Ollama, so it can use Ollama and Docker Model Runner backends, not llama.cpp or Strata.
 - **MCP:** one `--with-streamable-http-extension <url>` per server, after `session`.
 
 ## What the requests are
@@ -512,7 +512,7 @@ agents:
 | `name` | The display name. Default: the id. |
 | `executable` | The program the launcher runs, looked up on `PATH`. Default: the id. |
 | `protocol` | The API it speaks: `openai-chat`, `openai-responses`, `anthropic` or `ollama`. Default: `openai-chat`. The server uses it to decide which backends can serve it. |
-| `backend_type` | `ollama` (default) for local models: Ollama, and Strata or Docker Model Runner when they speak the protocol. `anthropic` for hosted pass-through. Ignored with `intercept`. |
+| `backend_type` | `ollama` (default) for local models: Ollama, and llama.cpp, Strata or Docker Model Runner when they speak the protocol. `anthropic` for hosted pass-through. Ignored with `intercept`. |
 | `intercept` | `true` for an agent that keeps its own login and is captured in transit. The launcher sets the HTTPS capture variables, the session's backend is `direct`, and `--model` becomes optional. |
 | `env` | Environment variables, as templates. A value written as a YAML mapping or list is rendered and passed as compact JSON (OpenCode's `OPENCODE_CONFIG_CONTENT` is one). |
 | `args` | Command-line arguments, as templates. Arguments you pass after `--` come after these. |
@@ -536,7 +536,7 @@ Strings in `env`, `args`, `files` and `mcp` are templates.
 | `{session_id}` | The session id. |
 | `{proxy_url}` | The `agent-proxy`'s address, `http://127.0.0.1:8184`. |
 | `{project}` | The project folder's full path (`.` when the console opens the session). |
-| `{context_window}` | The model's context size on the session's backend: Ollama's `num_ctx` from the model tuning, or what Strata or Docker Model Runner reports. Unknown for account agents. |
+| `{context_window}` | The model's context size on the session's backend: Ollama's `num_ctx` from the model tuning, or what Strata or Docker Model Runner reports (llama.cpp doesn't say, so it's unknown there). Unknown for account agents. |
 | `{files_dir}` | The folder the launcher writes this session's files to. |
 | `{intercept_url}` | Only with `intercept`: the `HTTPS_PROXY` value, with the session id in it. |
 | `{ca_cert}` | Only with `intercept`: the launcher's copy of the server's CA. |

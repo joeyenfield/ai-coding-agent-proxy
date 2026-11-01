@@ -1,6 +1,6 @@
 // Package servers starts and stops the model servers installed on this machine when the
-// server asks: Ollama (`ollama serve`, with the OLLAMA_* settings saved from the console)
-// and Strata (a saved profile, through Strata's own `strata runtime start|stop`). It's off
+// server asks: Ollama (`ollama serve`, with the OLLAMA_* settings saved from the console),
+// llama.cpp (llama-server in router mode, installed from the console: llamacpp.go) and Strata (a saved profile, through Strata's own `strata runtime start|stop`). It's off
 // until `agent-machine servers on`; once it's on, every model installed in Strata gets a
 // saved profile of its own (`strata profile create`), so any of them can be started from
 // the console, and a profile whose model has gone is reported rather than started.
@@ -48,7 +48,8 @@ var (
 )
 
 // Request is the server's {"type": "server", ...}: start, stop, restart or status of one
-// kind, or Ollama's settings (settings, configure).
+// kind, Ollama's or llama.cpp's settings (settings, configure), or installing llama.cpp
+// (install_options, install, uninstall).
 type Request struct {
 	Type    string `json:"type"`
 	ID      string `json:"request"`
@@ -57,8 +58,10 @@ type Request struct {
 	Profile string `json:"profile"`
 	// Bind is where Ollama listens: 127.0.0.1 when the server is this computer, else 0.0.0.0.
 	Bind string `json:"bind"`
-	// Config is Ollama's settings, for configure.
+	// Config is Ollama's or llama.cpp's settings, for configure.
 	Config map[string]any `json:"config"`
+	// Variant is how to install llama.cpp: one of the install_options' variants.
+	Variant string `json:"variant"`
 }
 
 // Manager answers the server's requests and remembers the Ollama it started.
@@ -67,7 +70,9 @@ type Manager struct {
 	Machine func() *settings.Machine
 	// Port is Ollama's port; tests use another so a real Ollama is never touched.
 	Port int
-	mu   sync.Mutex
+	// LlamaPort is llama-server's port; tests use another.
+	LlamaPort int
+	mu        sync.Mutex
 }
 
 func (m *Manager) machine() *settings.Machine {
@@ -89,7 +94,7 @@ func (m *Manager) Describe() map[string]any {
 	if !m.machine().Servers {
 		return map[string]any{"enabled": false}
 	}
-	return map[string]any{"enabled": true, "ollama": m.ollamaState(), "strata": strataState()}
+	return map[string]any{"enabled": true, "ollama": m.ollamaState(), "strata": strataState(), "llamacpp": m.llamaState()}
 }
 
 // Handle answers one request, always with a server_result for its id.
@@ -104,6 +109,14 @@ func (m *Manager) Handle(request Request) map[string]any {
 	}
 	if request.Kind == "ollama" && (request.Op == "settings" || request.Op == "configure") && m.machine().Servers {
 		answer["ollama_settings"] = m.ollamaSettings()
+	}
+	if request.Kind == "llamacpp" && m.machine().Servers {
+		switch request.Op {
+		case "settings", "configure":
+			answer["llamacpp_settings"] = m.llamaSettings()
+		case "install_options":
+			answer["llamacpp_install"] = installOptions()
+		}
 	}
 	answer["servers"] = m.Describe()
 	return answer
@@ -143,6 +156,8 @@ func (m *Manager) handle(request Request) error {
 			return m.serviceAction("stop", "")
 		}
 		return m.stopOllama()
+	case request.Kind == "llamacpp":
+		return m.llamaAction(request)
 	case request.Kind == "strata" && (request.Op == "start" || request.Op == "stop"):
 		return strataAction(request.Op, request.Profile)
 	case request.Kind == "strata" && request.Op == "remove":
@@ -229,6 +244,16 @@ type state struct {
 	OllamaEnv map[string]any `json:"ollama_env,omitempty"`
 	// Service: it was started through its systemd service (systemd.go), not by agent-machine itself.
 	Service bool `json:"service,omitempty"`
+	// The llama-server it started (llamacpp.go), and the managed environment it was started with.
+	LlamaPID int            `json:"llamacpp_pid,omitempty"`
+	LlamaEnv map[string]any `json:"llamacpp_env,omitempty"`
+}
+
+// withOllama is the saved state with the Ollama part replaced, keeping llama-server's.
+func withOllama(pid int, bind string, env map[string]any, service bool) state {
+	value := loadState()
+	value.OllamaPID, value.OllamaBind, value.OllamaEnv, value.Service = pid, bind, env, service
+	return value
 }
 
 func statePath() string { return filepath.Join(settings.Home(), "servers.json") }
@@ -314,7 +339,7 @@ func (m *Manager) startOllama(bind string) error {
 		_ = cmd.Wait()
 		close(exited)
 	}()
-	if err := (state{OllamaPID: pid, OllamaBind: bind, OllamaEnv: publicEnv(ManagedEnv(config))}).save(); err != nil {
+	if err := withOllama(pid, bind, publicEnv(ManagedEnv(config)), false).save(); err != nil {
 		return err
 	}
 	deadline := time.Now().Add(30 * time.Second)
@@ -347,7 +372,7 @@ func (m *Manager) stopOllama() error {
 			break
 		}
 	}
-	_ = (state{}).save()
+	_ = withOllama(0, "", nil, false).save()
 	if m.ollamaVersion() != "" {
 		return errors.New("Ollama is still answering after being stopped")
 	}

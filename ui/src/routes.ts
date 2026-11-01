@@ -3,7 +3,7 @@ import type { Backend, TrafficKind } from "./api";
 /**
  * The three ways traffic reaches a model through this proxy.
  *
- * ollama:  local models: Ollama machines (translated and tuned by the proxy), Strata and Docker Model Runner (passed through).
+ * ollama:  local models: Ollama machines (translated and tuned by the proxy), llama.cpp, Strata and Docker Model Runner (passed through).
  * hosted:  a hosted API backend (Anthropic) reached through a proxy endpoint, passed through unchanged.
  * account: an agent signed in to its own service; its HTTPS is captured by the intercept listener.
  */
@@ -14,7 +14,7 @@ export const ROUTE_ORDER: RouteKind[] = ["account", "ollama", "hosted"];
 export const ROUTES: Record<RouteKind, { label: string; description: string }> = {
   ollama: {
     label: "Local models",
-    description: "Your Ollama machines, the Strata server and Docker Model Runner. For Ollama the proxy translates each request and applies the model tuning from Server settings; Strata and Docker take requests as they are.",
+    description: "Your machines' Ollama, llama.cpp, Strata and Docker Model Runner. For Ollama the proxy translates each request and applies the model tuning from Server settings; the others take requests as they are.",
   },
   hosted: {
     label: "Hosted API",
@@ -29,6 +29,7 @@ export const ROUTES: Record<RouteKind, { label: string; description: string }> =
 /** What the console calls each backend type; short names go in badges. */
 export const PROVIDERS: Record<string, { label: string; short: string }> = {
   ollama: { label: "Ollama", short: "Ollama" },
+  llamacpp: { label: "llama.cpp", short: "llama.cpp" },
   strata: { label: "Strata", short: "Strata" },
   docker: { label: "Docker Model Runner", short: "Docker" },
   anthropic: { label: "Anthropic API", short: "Hosted API" },

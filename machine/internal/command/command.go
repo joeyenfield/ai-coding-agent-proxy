@@ -27,7 +27,7 @@ import (
 )
 
 const usage = `agent-machine puts this computer in an agent-server's fleet, so the server can use the
-LLM providers it runs (Ollama, Strata, Docker Model Runner, containers) and start agents on it.
+LLM providers it runs (Ollama, llama.cpp, Strata, Docker Model Runner, containers) and start agents on it.
 
 Usage: agent-machine                           this machine as the fleet sees it
        agent-machine login [url]                 (OIDC device sign-in)
@@ -35,7 +35,7 @@ Usage: agent-machine                           this machine as the fleet sees it
        agent-machine start                     join the fleet in the background
        agent-machine stop
        agent-machine run [--server url]        join the fleet in the foreground (Ctrl+C leaves)
-       agent-machine containers on|off         let the server run Strata or Ollama here in containers (off by default)
+       agent-machine containers on|off         let the server run Strata, Ollama or llama.cpp here in containers (off by default)
        agent-machine containers cli auto|docker|podman  which runs them (auto: whichever is installed and answering)
        agent-machine servers on|off            let the server manage the model servers here: start and stop them, their settings and models (off by default)
        agent-machine launches on|off           let the server start agents here (off by default)
@@ -52,11 +52,13 @@ Usage: agent-machine                           this machine as the fleet sees it
        agent-machine updates on|off            let the console update agent-machine and agent here to the server's build (off by default)
        agent-machine version
 
-Ollama, Strata and Docker Model Runner running here are found by themselves, and the console
-sees their models, logs and this machine's load through agent-machine. With servers on, it can
-also pull, delete, load and unload models, start Ollama (ollama serve, with the settings saved
-from the console) and Strata's saved profiles here, and stop them.
-Containers run Strata or Ollama images only, with their own settings; docker run is root here.
+Ollama, llama.cpp, Strata and Docker Model Runner running here are found by themselves, and the
+console sees their models, logs and this machine's load through agent-machine. With servers on,
+it can also pull, delete, load and unload models, start Ollama (ollama serve) and llama.cpp
+(llama-server, on loopback) with the settings saved from the console, install llama.cpp (Termux's
+packages, or llama.cpp's own build from GitHub, checked by SHA-256, into agent-machine's folder),
+start Strata's saved profiles here, and stop them.
+Containers run Strata, Ollama or llama.cpp images only, with their own settings; docker run is root here.
 Launches run the agent command (agent) from PATH, signed in to the same server with agent login.
 Only you, signed in as this machine's owner, can start agents, containers or terminals here.
 A terminal from the console (commands on) is a shell as this user: only you see it.
@@ -395,7 +397,7 @@ func show(machine *settings.Machine) {
 	}
 	providers := presence.DetectProviders()
 	if len(providers) == 0 {
-		fmt.Println("Providers : no Ollama, Strata or Docker Model Runner answering here")
+		fmt.Println("Providers : no Ollama, llama.cpp, Strata or Docker Model Runner answering here")
 	}
 	for index, provider := range providers {
 		label := "Providers :"

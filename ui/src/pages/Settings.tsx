@@ -13,6 +13,7 @@ const URL_PLACEHOLDERS: Record<string, string> = {
   ollama: "http://host:11434",
   docker: "http://localhost:12434",
   strata: "http://127.0.0.1:18500",
+  llamacpp: "http://127.0.0.1:9931",
   anthropic: "https://api.anthropic.com",
 };
 
@@ -21,6 +22,7 @@ const TYPE_HINTS: Record<string, string> = {
   ollama: "Local models; the proxy translates requests and applies the model tuning below.",
   docker: "Docker Model Runner; requests pass through unchanged.",
   strata: "A Strata server; requests pass through with Strata's API key added.",
+  llamacpp: "llama.cpp's llama-server; requests pass through unchanged (a container's with the key the server gave it).",
   anthropic: "Hosted API; requests pass through with the agent's own credentials.",
 };
 
@@ -191,6 +193,7 @@ function ServerSettings() {
                         <>
                           <option value="ollama">Ollama</option>
                           <option value="docker">Docker Model Runner</option>
+                          <option value="llamacpp">llama.cpp</option>
                           <option value="strata">Strata</option>
                         </>
                       )}

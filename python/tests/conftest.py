@@ -18,9 +18,10 @@ SERVER_TESTS = PYTHON.parent / "server" / "tests"
 sys.path[:0] = [str(PYTHON), str(SERVER_TESTS)]
 # The programs' own children (agent-proxy, launches) run `python -m agent_py...` and need to find it too.
 os.environ["PYTHONPATH"] = os.pathsep.join([str(PYTHON), *filter(None, [os.environ.get("PYTHONPATH")])])
-# This computer may have a real Strata or a systemd ollama.service: the programs under test find
-# none (an empty command), unless a test names a fake.
+# This computer may have a real Strata, llama-server or a systemd ollama.service: the programs under
+# test find none (an empty command), unless a test names a fake.
 os.environ.setdefault("AI_PROXY_STRATA_COMMAND", "[]")
+os.environ.setdefault("AI_PROXY_LLAMACPP_COMMAND", "[]")
 os.environ.setdefault("AI_PROXY_SYSTEMCTL_COMMAND", "[]")
 
 

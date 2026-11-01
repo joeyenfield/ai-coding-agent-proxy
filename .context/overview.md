@@ -15,7 +15,7 @@ flowchart LR
   end
   subgraph FL["Machines (the fleet)"]
     machine["agent-machine<br/>(machine/, python/)"]
-    models["Ollama · Strata ·<br/>Docker Model Runner ·<br/>containers · MCP servers"]
+    models["Ollama · llama.cpp · Strata ·<br/>Docker Model Runner ·<br/>containers · MCP servers"]
     machine --> models
   end
   issuer["agent-auth<br/>(OIDC issuer, issuer.py)"]
@@ -49,7 +49,7 @@ flowchart LR
 | Route | Agents | Path |
 | --- | --- | --- |
 | Account | `intercept: true` (signed in to their own Claude, Copilot or ChatGPT) | `HTTPS_PROXY` → agent-proxy :8183 → `WS /api/proxy/tunnel` → decrypted with the server's CA → the vendor |
-| Local models | `backend_type: ollama` (default) | `/session/<id>/v1` etc. on agent-proxy :8184 → `routes/compat.py` → `ollama` (translated to `/api/chat`), `strata` or `docker` (passed through), via the machine's tunnel |
+| Local models | `backend_type: ollama` (default) | `/session/<id>/v1` etc. on agent-proxy :8184 → `routes/compat.py` → `ollama` (translated to `/api/chat`), `strata`, `docker` or `llamacpp` (passed through), via the machine's tunnel |
 | Hosted | `backend_type: anthropic` | `ANTHROPIC_BASE_URL` → passed through unchanged |
 
 ## A launch, across components
@@ -83,11 +83,11 @@ The console starts agents on a machine the same way: `POST /api/machines/{id}/la
 | Issuer database (`AI_PROXY_AUTH_DATABASE_URL`, else schema `mesh_auth` of the same PostgreSQL, role `mesh_auth`; else `issuer-state.sqlite3` in `AI_PROXY_OIDC_STATE_DIR` or `certs/oidc/`) | OAuth grants and token hashes, service clients, the signing key; accounts are read-only from the server's tables |
 | Server files | `logs/proxy/proxy.log`, the CA's public files (`logs/ca/`), `certs/first-user-password`; an older install's `config/`, `certs/` and `logs/sessions/` files are only read once, by the import into an empty database |
 | Agent computer | `credentials.json` (+ `agent-proxy.log`), `~/.cache/agent-proxy/` (CA copy, per-session files) |
-| Machine | its folder: `credentials.json`, `machine.json`, `status.json`, `mcp.json`, `servers.json`, `ollama.json`, logs |
+| Machine | its folder: `credentials.json`, `machine.json`, `status.json`, `mcp.json`, `servers.json`, `ollama.json`, `llamacpp.json`, `llamacpp-install.json`, `llamacpp/` (installed builds), logs |
 
 ## Ports
 
-9999 server · 10000 agent-auth (its default, loopback) · 8184 agent-proxy (loopback) · 8183 agent-proxy HTTPS proxy (loopback) · 5173 Vite · 11434 Ollama · 18500 Strata · 12434 Docker Model Runner. Never test on 8183/8184/9999 on the dev machine.
+9999 server · 10000 agent-auth (its default, loopback) · 8184 agent-proxy (loopback) · 8183 agent-proxy HTTPS proxy (loopback) · 5173 Vite · 11434 Ollama · 18500 Strata · 9931 llama.cpp's llama-server (loopback on its machine) · 12434 Docker Model Runner. Never test on 8183/8184/9999 on the dev machine.
 
 ## Cross-component changes
 

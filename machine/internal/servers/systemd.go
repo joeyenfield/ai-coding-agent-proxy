@@ -129,7 +129,7 @@ func (m *Manager) serviceAction(op, bind string) error {
 		if err := writeServiceEnv(env, fmt.Sprintf("%s:%d", bind, m.port())); err != nil {
 			return err
 		}
-		if err := (state{OllamaBind: bind, OllamaEnv: publicEnv(env), Service: true}).save(); err != nil {
+		if err := withOllama(0, bind, publicEnv(env), true).save(); err != nil {
 			return err
 		}
 	}

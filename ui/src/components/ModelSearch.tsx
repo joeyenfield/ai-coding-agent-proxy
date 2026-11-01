@@ -108,9 +108,13 @@ export function PullStatus({ puller }: { puller: Puller }) {
   );
 }
 
-/** Search the Ollama library or Hugging Face for a model, or name one, and pull it to the puller's model server. Its machine searches and pulls. */
-export function ModelSearch({ puller, disabled }: { puller: Puller; disabled?: string | null }) {
-  const [source, setSource] = useState<Source>("library");
+/**
+ * Search the Ollama library or Hugging Face for a model, or name one, and pull it to the puller's model server. Its machine searches and pulls.
+ * For llama.cpp (flavor "llamacpp") there's no Ollama library, and a Hugging Face model is named user/repo:quant, as llama-server takes it.
+ */
+export function ModelSearch({ puller, disabled, flavor = "ollama" }: { puller: Puller; disabled?: string | null; flavor?: "ollama" | "llamacpp" }) {
+  const llama = flavor === "llamacpp";
+  const [source, setSource] = useState<Source>(llama ? "hf" : "library");
   const [input, setInput] = useState("");
   const [submitted, setSubmitted] = useState("");
   const ids = useId();
@@ -146,7 +150,7 @@ export function ModelSearch({ puller, disabled }: { puller: Puller; disabled?: s
         active={source}
         onSelect={setSource}
         tabs={[
-          { id: "library", label: "Ollama library" },
+          ...(llama ? [] : [{ id: "library" as const, label: "Ollama library" }]),
           { id: "hf", label: "Hugging Face (GGUF)" },
           { id: "name", label: "By name" },
         ]}
@@ -160,6 +164,7 @@ export function ModelSearch({ puller, disabled }: { puller: Puller; disabled?: s
           placeholder={
             source === "library" ? "Search ollama.com, e.g. qwen3"
             : source === "hf" ? "Search Hugging Face GGUF, e.g. qwen2.5 coder"
+            : llama ? "A Hugging Face GGUF repo, such as ggml-org/gemma-3-4b-it-GGUF:Q4_K_M"
             : "A tag such as qwen3:8b, or hf.co/user/repo:Q4_K_M"
           }
           aria-label={source === "name" ? "Model to pull" : "Search for a model"}
@@ -174,13 +179,21 @@ export function ModelSearch({ puller, disabled }: { puller: Puller; disabled?: s
         <LibraryResults query={submitted} result={library} onPull={onPull} busy={busy} />
       </TabPanel>
       <TabPanel idPrefix={ids} id="hf" active={source === "hf"}>
-        <HfResults query={submitted} machine={machine} result={hf} onPull={onPull} busy={busy} />
+        <HfResults query={submitted} machine={machine} result={hf} onPull={onPull} busy={busy} prefix={llama ? "" : "hf.co/"} />
       </TabPanel>
       <TabPanel idPrefix={ids} id="name" active={source === "name"}>
-        <p className="subtle">
-          Pull any tag from <a href="https://ollama.com/library" target="_blank" rel="noreferrer">ollama.com/library</a>, or a GGUF repo
-          from Hugging Face as <code>hf.co/user/repo:quant</code>.
-        </p>
+        {llama ? (
+          <p className="subtle">
+            Download any GGUF repo from <a href="https://huggingface.co/models?library=gguf" target="_blank" rel="noreferrer">Hugging Face</a> as{" "}
+            <code>user/repo:quant</code>, such as <code>unsloth/Qwen3-8B-GGUF:Q4_K_M</code>. Without a quant, llama.cpp picks Q4_K_M. A
+            vision model's projector comes with it.
+          </p>
+        ) : (
+          <p className="subtle">
+            Pull any tag from <a href="https://ollama.com/library" target="_blank" rel="noreferrer">ollama.com/library</a>, or a GGUF repo
+            from Hugging Face as <code>hf.co/user/repo:quant</code>.
+          </p>
+        )}
       </TabPanel>
     </div>
   );
@@ -250,12 +263,15 @@ function HfResults({
   result,
   onPull,
   busy,
+  prefix,
 }: {
   query: string;
   machine: string;
   result: UseQueryResult<HfSearch>;
   onPull: (ref: string) => void;
   busy: boolean;
+  /** Before user/repo:quant in the name pulled: Ollama's hf.co/, nothing for llama.cpp. */
+  prefix: string;
 }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const placeholder = searchPlaceholder(query, result, "Search Hugging Face for GGUF repos, then pick a quantization to pull.");
@@ -272,7 +288,7 @@ function HfResults({
               {item.downloads != null && <span className="subtle">{formatNumber(item.downloads)} downloads</span>}
               {item.likes != null && <span className="subtle">{formatNumber(item.likes)} likes</span>}
             </div>
-            {expanded === item.repo && <HfQuantPicker machine={machine} repo={item.repo} onPull={onPull} busy={busy} />}
+            {expanded === item.repo && <HfQuantPicker machine={machine} repo={item.repo} onPull={onPull} busy={busy} prefix={prefix} />}
           </div>
           <div className="model-actions">
             <button type="button" onClick={() => setExpanded(expanded === item.repo ? null : item.repo)}>
@@ -285,7 +301,7 @@ function HfResults({
   );
 }
 
-function HfQuantPicker({ machine, repo, onPull, busy }: { machine: string; repo: string; onPull: (ref: string) => void; busy: boolean }) {
+function HfQuantPicker({ machine, repo, onPull, busy, prefix }: { machine: string; repo: string; onPull: (ref: string) => void; busy: boolean; prefix: string }) {
   const quants = useQuery({ queryKey: ["hf-quants", machine, repo], queryFn: () => api.hfQuants(machine, repo) });
   if (quants.isPending) return <p className="subtle">Reading quantizations…</p>;
   if (quants.isError) return <p className="bad">{(quants.error as Error).message}</p>;
@@ -293,7 +309,7 @@ function HfQuantPicker({ machine, repo, onPull, busy }: { machine: string; repo:
   return (
     <div className="search-quants">
       {quants.data.quants.map((quant) => (
-        <button key={quant.quant} type="button" disabled={busy} className="quant" onClick={() => onPull(`hf.co/${repo}:${quant.quant}`)}>
+        <button key={quant.quant} type="button" disabled={busy} className="quant" onClick={() => onPull(`${prefix}${repo}:${quant.quant}`)}>
           <span className="mono">{quant.quant}</span>
           <small>
             {formatBytes(quant.size)}

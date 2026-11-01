@@ -9,7 +9,7 @@ Allowed agent traffic goes through one server. The server routes it and records 
 There are three kinds of things around the server:
 
 - **Agents** connect to it. They run on any computer with `agent` installed and signed in.
-- **Machines** supply local models. A computer running `agent-machine` joins the server's **fleet**, and the model servers it runs (Ollama, Strata, Docker Model Runner, or containers it runs for the server) become providers that any agent can use.
+- **Machines** supply local models. A computer running `agent-machine` joins the server's **fleet**, and the model servers it runs (Ollama, llama.cpp, Strata, Docker Model Runner, or containers it runs for the server) become providers that any agent can use.
 - **Hosted APIs** (the Anthropic API) are the one kind of provider that isn't on a machine.
 
 The server is the hub. It owns all configuration, accounts and recordings. Everything else talks to it over HTTP and WebSockets.
@@ -90,7 +90,7 @@ An agent takes one of three routes, set by its definition on the server:
 | Route | Agents | How the agent reaches the server | What the server does |
 | --- | --- | --- | --- |
 | Account | `intercept: true` (`claude-account`, `copilot-account`, `codex-account`) | `HTTPS_PROXY` to `agent-proxy` on `127.0.0.1:8183`, tunnelled to `WS /api/proxy/tunnel` | Decrypts with its own CA, records, forwards unchanged to the vendor. The session's backend is `direct`. |
-| Local models | `backend_type: ollama`, the default (`qwen`, `opencode`, `claude`, `copilot`, `codex`, `aider`, `goose`) | Base URLs on `agent-proxy` at `127.0.0.1:8184` | Sends the request to an `ollama`, `strata` or `docker` backend |
+| Local models | `backend_type: ollama`, the default (`qwen`, `opencode`, `claude`, `copilot`, `codex`, `aider`, `goose`) | Base URLs on `agent-proxy` at `127.0.0.1:8184` | Sends the request to an `ollama`, `llamacpp`, `strata` or `docker` backend |
 | Hosted | `backend_type: anthropic` (`claude-subscription`) | `ANTHROPIC_BASE_URL` on `agent-proxy` | Passes the request through to the hosted API |
 
 Account agents keep their own login, so the vendor sees the same client it always does; the server watches in transit. Local-model and hosted agents are pointed at the server's API endpoints instead, so the server can change the request on its way.
@@ -103,16 +103,17 @@ The backend types are in `config.BACKEND_TYPES`:
 | --- | --- |
 | `ollama` | Translated and tuned. OpenAI Chat and Anthropic Messages requests are rewritten to Ollama's native `/api/chat` (`translate/`), with the server's Ollama model tuning applied, and the reply is translated back, streaming included. Native `/api/*` calls pass through, for the paths agents use (`compat.NATIVE_AGENT_PATHS`: `chat`, `generate`, `embed`, `embeddings`, `tags`, `show`, `ps`, `version`). |
 | `strata` | Passed through. Strata speaks OpenAI Chat, OpenAI Responses and Anthropic Messages itself. The server swaps in Strata's API key (`strata.py`). |
+| `llamacpp` | Passed through to llama.cpp's `llama-server` in router mode, which speaks OpenAI Chat, OpenAI Responses and Anthropic Messages (`/v1/messages`) itself. A container's requests get the key the server gave it (`strata.with_container_key`); the one agent-machine runs is on loopback, reached through the tunnel, and takes none. |
 | `docker` | Passed through to Docker Model Runner, with its path prefixes: `/v1/messages*` goes to `/anthropic/v1/messages*`, other `/v1/*` to `/engines/v1/*`, and `/api/*` is unchanged (`model_runner.upstream_path`). |
 | `anthropic` | Passed through unchanged to the hosted API. The agent's own `Authorization` is kept. |
 
-Why translate for Ollama: its OpenAI-compatible `/v1` endpoint ignores per-request settings such as `num_ctx`, so agents' long conversations get cut to Ollama's default context without any error. Translating to the native API lets the server set the context size and sampling per model. Strata and Docker Model Runner honour the agents' APIs, so they get requests unchanged.
+Why translate for Ollama: its OpenAI-compatible `/v1` endpoint ignores per-request settings such as `num_ctx`, so agents' long conversations get cut to Ollama's default context without any error. Translating to the native API lets the server set the context size and sampling per model. Strata, Docker Model Runner and llama.cpp honour the agents' APIs, so they get requests unchanged.
 
-Which backends an agent can use is `config.serves()`. Agents with `backend_type: ollama` can also use `docker` backends, and `strata` backends unless they speak native Ollama (Strata has no native Ollama API; `config.NATIVE_PROTOCOLS` lists what each one speaks). `config.backend_for()` picks one when the launch doesn't name it: `default_backend` if it fits, else the first that does, preferring the agent's own type. The browser and the client never work this out themselves; they take it from `/api/agents`.
+Which backends an agent can use is `config.serves()`. Agents with `backend_type: ollama` can also use `docker` backends, and `strata` and `llamacpp` backends unless they speak native Ollama (neither has a native Ollama API; `config.NATIVE_PROTOCOLS` lists what each one speaks). `config.backend_for()` picks one when the launch doesn't name it: `default_backend` if it fits, else the first that does, preferring the agent's own type. The browser and the client never work this out themselves; they take it from `/api/agents`.
 
 ### Where local backends come from
 
-A local backend (`ollama`, `strata`, `docker`) always belongs to a machine: `Backend.machine` names it. It's added in one of two ways: an admin adopts a model server the machine reported (**Add as a provider**), or the machine runs a container for the server. The server refuses new or moved local backends by URL (`Settings.update_network_config`). This keeps a single path from an agent to a model server, through the machine that runs it, and means the server learns what's there from the machine rather than by probing addresses. Backends from before this rule have no `machine`; they keep working. An admin explicitly adopts a matching provider to link the existing backend without changing its name or settings.
+A local backend (`ollama`, `llamacpp`, `strata`, `docker`) always belongs to a machine: `Backend.machine` names it. It's added in one of two ways: an admin adopts a model server the machine reported (**Add as a provider**), or the machine runs a container for the server. The server refuses new or moved local backends by URL (`Settings.update_network_config`). This keeps a single path from an agent to a model server, through the machine that runs it, and means the server learns what's there from the machine rather than by probing addresses. Backends from before this rule have no `machine`; they keep working. An admin explicitly adopts a matching provider to link the existing backend without changing its name or settings.
 
 ## A session, step by step
 

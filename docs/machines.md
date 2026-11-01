@@ -2,7 +2,7 @@
 
 A **machine** is a computer that has joined the server's **fleet** with `agent-machine`. Machines do two jobs for the server:
 
-- They supply every local LLM provider. Ollama, Strata and Docker Model Runner run on machines, and so do the containers the server asks a machine to run. See [LLM providers](providers.md).
+- They supply every local LLM provider. Ollama, llama.cpp, Strata and Docker Model Runner run on machines, and so do the containers the server asks a machine to run. See [LLM providers](providers.md).
 - They run things for you when you allow it: agents started from the console, terminals, [MCP servers](mcp.md) and updates.
 
 `agent-machine` is its own program, apart from the `agent` client. It has its own sign-in and its own folder, so a machine can supply models to one server (or as one account) while its agents use another. It shares no code with `agent`. When it starts an agent, it runs `agent` as a program.
@@ -15,7 +15,7 @@ agent-machine start                      # join the fleet in the background
 agent-machine                            # how the fleet sees this machine
 ```
 
-The machine shows up on **Machines** in the console, with its own page. It belongs to your organization, from the first time it connects: nobody in another organization sees it or anything it runs, site admins included. Ollama, Strata and Docker Model Runner running on it are found by themselves. An admin of your organization turns each one into a provider with **Add as a provider**; that provider is for your organization's agents only.
+The machine shows up on **Machines** in the console, with its own page. It belongs to your organization, from the first time it connects: nobody in another organization sees it or anything it runs, site admins included. Ollama, llama.cpp, Strata and Docker Model Runner running on it are found by themselves. An admin of your organization turns each one into a provider with **Add as a provider**; that provider is for your organization's agents only.
 
 Everything that runs programs on the machine is off until you turn it on there:
 
@@ -24,7 +24,7 @@ agent-machine launches on          # let the server start agents here
 agent-machine roots add ~/code     # where they may start (and any folder inside)
 agent-machine commands on          # let you open a terminal here from the console
 agent-machine servers on           # let the server manage the model servers here
-agent-machine containers on        # let the server run Strata or Ollama containers here
+agent-machine containers on        # let the server run Strata, Ollama or llama.cpp containers here
 agent-machine updates on           # let the console update agent-machine and agent here
 ```
 
@@ -40,9 +40,9 @@ Settings changes reach the server within a minute, with the machine's next updat
 | `agent-machine start` | Joins the fleet in the background. |
 | `agent-machine stop` | Stops the background run. The machine leaves the fleet. |
 | `agent-machine run [--server url]` | Joins the fleet in the foreground. Ctrl+C leaves. |
-| `agent-machine containers on\|off` | Lets the server run Strata or Ollama here in containers. Off by default. |
+| `agent-machine containers on\|off` | Lets the server run Strata, Ollama or llama.cpp here in containers. Off by default. |
 | `agent-machine containers cli auto\|docker\|podman` | Picks the container CLI. `auto` uses whichever is installed and answering. |
-| `agent-machine servers on\|off` | Lets the server manage the model servers here: start and stop them, their settings and their models. Off by default. |
+| `agent-machine servers on\|off` | Lets the server manage the model servers here: install llama.cpp, start and stop them, their settings and their models. Off by default. |
 | `sudo agent-machine servers service [off]` | Lets this user's agent-machine control Ollama's systemd service (Linux). |
 | `agent-machine launches on\|off` | Lets the server start agents here. Off by default. |
 | `agent-machine commands on\|off` | Lets you open a terminal here from the console, in a launch folder. Off by default. |
@@ -78,11 +78,11 @@ Only one agent-machine runs per folder. `run` refuses while another is running, 
 
 ### containers
 
-`agent-machine containers on` lets the server run Strata or Ollama containers here. `docker run` is root on the machine, so it's off until you turn it on, and the machine checks every request itself. `agent-machine containers cli docker` or `podman` always uses that CLI. `auto` (the default) uses Docker when it answers, else Podman. See [Containers machines run](providers.md#containers-machines-run).
+`agent-machine containers on` lets the server run Strata, Ollama or llama.cpp containers here. `docker run` is root on the machine, so it's off until you turn it on, and the machine checks every request itself. `agent-machine containers cli docker` or `podman` always uses that CLI. `auto` (the default) uses Docker when it answers, else Podman. See [Containers machines run](providers.md#containers-machines-run).
 
 ### servers
 
-`agent-machine servers on` lets the server start and stop the Ollama and the Strata profiles installed here, change Ollama's settings, and pull, delete, load and unload models. With it on, agent-machine also saves a Strata profile for each model installed in Strata that has none, so every one can be started from the console ([Providers](providers.md#strata)). Without it, the machine still reports its model servers, their models, logs and its load, but changes nothing.
+`agent-machine servers on` lets the server start and stop the Ollama, llama.cpp and Strata profiles installed here, install llama.cpp (Termux's packages, or llama.cpp's own build from GitHub, checked by SHA-256, into agent-machine's folder), change Ollama's and llama.cpp's settings, and pull, delete, load and unload models ([llama.cpp](providers.md#llamacpp)). With it on, agent-machine also saves a Strata profile for each model installed in Strata that has none, so every one can be started from the console ([Providers](providers.md#strata)). Without it, the machine still reports its model servers, their models, logs and its load, but changes nothing.
 
 `sudo agent-machine servers service` is for an Ollama installed as the systemd service `ollama.service`, which Ollama's Linux installer sets up and which belongs to root. Run it once, with sudo, as the user agent-machine runs as. It:
 
@@ -146,7 +146,12 @@ agent-machine keeps everything in one folder:
 | `agent-machine.log` | Its log. A run in a terminal also prints it there. |
 | `ollama.json` | The `OLLAMA_*` settings it starts Ollama with, saved from the console. |
 | `ollama.log` | The output of the Ollama it started. |
-| `servers.json` | The Ollama it started (process id, where it listens, the settings it started with). |
+| `servers.json` | The Ollama and llama-server it started (process ids, where Ollama listens, the settings each started with). |
+| `llamacpp.json` | The `LLAMA_ARG_*` settings it starts llama-server with, saved from the console. |
+| `llamacpp.log` | The output of the llama-server it started. |
+| `llamacpp/` | The llama.cpp builds installed from the console, one folder each (`<release>-<build>`): the newest and the one before it. |
+| `llamacpp-install.json` | Which llama.cpp the console installed (from GitHub or Termux, which build) and where its `llama-server` is. |
+| `llamacpp-install.log` | What installing llama.cpp did (Termux's `apt-get` output, and each install's result). |
 | `mcp.json` | The MCP servers it shares: commands, environments, folders, URLs and headers. |
 
 Files are written readable by this user only. The machine's id is made the first time it's needed. A `machine.json` from before agent-machine existed (in the client's `agent-proxy` folder) is carried over once, so the server still knows the machine by its id. That doesn't happen when `AI_PROXY_MACHINE_HOME` is set.
@@ -159,14 +164,16 @@ Files are written readable by this user only. The machine's id is made the first
 | `APPDATA`, `XDG_CONFIG_HOME` | Where the folder is by default |
 | `AI_PROXY_AGENT` | The `agent` program launches and terminals run, instead of `agent` from PATH |
 | `AI_PROXY_LOCAL_PORT` | The port of this computer's agent-proxy (default 8184), to check which server it carries traffic to |
+| `AI_PROXY_LLAMACPP_PORT` | The port of the llama-server it starts and looks for (default 9931) |
 | `STRATA_API_KEY` | The key for Strata here, before the one in Strata's profile |
 | `STRATA_PROFILE_DIR`, `STRATA_RUNTIME_DIR` | Where Strata's profiles and runtime files are, instead of Strata's defaults (`LOCALAPPDATA` and `XDG_STATE_HOME` are used for those) |
 | `SUDO_USER` | The user `sudo agent-machine servers service` sets up |
-| `PATH` | Where it finds `agent`, `docker` or `podman`, `ollama`, `strata` and the agents |
+| `PATH` | Where it finds `agent`, `docker` or `podman`, `ollama`, `llama-server`, `strata` and the agents |
+| `PREFIX`, `TERMUX_VERSION` | Set by Termux: llama.cpp is installed from Termux's packages there |
 
 The container CLI runs with the machine's environment, so `DOCKER_HOST` and Docker contexts work as they do in a terminal there.
 
-Tests replace the programs it runs with JSON lists of arguments: `AI_PROXY_CONTAINER_COMMAND`, `AI_PROXY_OLLAMA_COMMAND`, `AI_PROXY_STRATA_COMMAND`, `AI_PROXY_SYSTEMCTL_COMMAND`, `AI_PROXY_SERVICE_COMMAND` and `AI_PROXY_SERVICE_ENV`. `AI_PROXY_MACHINE_STARTED` is set by `agent-machine start` for the run it starts.
+Tests replace the programs it runs with JSON lists of arguments: `AI_PROXY_CONTAINER_COMMAND`, `AI_PROXY_OLLAMA_COMMAND`, `AI_PROXY_LLAMACPP_COMMAND`, `AI_PROXY_LLAMACPP_APT` (Termux's `apt-get`), `AI_PROXY_STRATA_COMMAND`, `AI_PROXY_SYSTEMCTL_COMMAND`, `AI_PROXY_SERVICE_COMMAND` and `AI_PROXY_SERVICE_ENV`. `AI_PROXY_LLAMACPP_RELEASES` points the llama.cpp installer at another releases list. `AI_PROXY_MACHINE_STARTED` is set by `agent-machine start` for the run it starts.
 
 agent-machine never uses an `HTTPS_PROXY` from its environment. Started from inside an intercepted agent, it would otherwise loop through that agent's proxy.
 
@@ -184,7 +191,7 @@ It sends a **hello** when it connects, and an **update** every 60 seconds, with:
 - `"tunnel": 1`, as it carries agents' traffic to its model servers;
 - whether the `agent` command is installed (`launcher`);
 - containers: whether they're on, the CLI, whether its engine answers, and the engines it can run;
-- servers: whether they're on, and the state of the Ollama and Strata installed here;
+- servers: whether they're on, and the state of the Ollama, llama.cpp and Strata installed here (for llama.cpp: found, running, started by agent-machine, its port and build, where it came from, and an install's progress);
 - the MCP servers it shares.
 
 It also sends an update straight after a launch and after starting or stopping a model server. It pings every 25 seconds. The server keeps what it learns in its database, apart from Strata keys and the MCP bridge's key, which it keeps in memory only and drops when the machine disconnects.
@@ -195,7 +202,7 @@ Over the same connection the server sends requests, each answered on the machine
 |---|---|
 | `launch`, `shell` | Start an agent or a terminal. See [Launches](#launches) and [Terminals](#terminals). |
 | `provider` | A model server's status, models (pull, delete, load, unload), logs, this machine's load, catalogue searches. See [LLM providers](providers.md). |
-| `server` | Start, stop or restart Ollama or a Strata profile; remove old Strata profiles and clean up Strata's leftovers; read or save Ollama's settings. |
+| `server` | Start, stop or restart Ollama, llama.cpp or a Strata profile; install or remove llama.cpp, and the builds it can install; remove old Strata profiles and clean up Strata's leftovers; read or save Ollama's and llama.cpp's settings. |
 | `container` | Status, start, stop, restart, remove and logs of the containers it runs. |
 | `folders` | The folders inside a launch folder, for the folder picker. |
 | `update` | Update agent-machine (and agent) to the server's build. |
@@ -210,6 +217,7 @@ agent-machine asks each default port on `127.0.0.1` whether its model server ans
 | `ollama` | 11434 | `/api/version` (then `/api/tags` for the number of models) |
 | `docker` (Docker Model Runner) | 12434 | `/engines/v1/models` |
 | `strata` | 18500 | `/v1/models` (a 401 counts: Strata asks for a key) |
+| `llamacpp` | 9931 (`AI_PROXY_LLAMACPP_PORT`) | `/models` (llama-server's router lists its models there) |
 
 With `servers on`, Strata profiles serving on other loopback ports are added too, from Strata's own state. For each Strata it finds, it reads the key from the profile serving on that port and sends it in the hello.
 
@@ -329,7 +337,7 @@ A machine's owner may use all its features. Others get them through grants on th
 | `launch` | Start agents there, and browse its launch folders | No |
 | `terminal` | Open terminals there: a shell as the user agent-machine runs as | No |
 | `models` | Pull, delete, load and unload models on its model servers | Yes |
-| `servers` | Start, stop and configure the Ollama and Strata installed there | No |
+| `servers` | Install llama.cpp; start, stop and configure the Ollama, llama.cpp and Strata installed there | No |
 | `update` | Update agent-machine and agent there to this server's build | Yes |
 | `mcp` | Use the MCP servers it shares in the agents they start | No |
 
@@ -371,7 +379,7 @@ The service runs as the user who ran the installer (the sudo user under sudo), b
 | FreeBSD, as root | An rc.d service, `/usr/local/etc/rc.d/agent_machine` |
 | Windows | A scheduled task, `agent-machine`, that runs `agent-machine start` when you sign in |
 
-The service's `PATH` includes the install folder and the system folders, as agent-machine starts `agent`, `docker` or `podman`, `ollama` and `strata` from it. `./install.sh --uninstall` (or `curl -fsSL http://server:9999/uninstall.sh | sh`) removes the programs and the service; sign-ins and settings stay unless you add `--purge`. See [Deployment](deployment.md#uninstalling).
+The service's `PATH` includes the install folder and the system folders, as agent-machine starts `agent`, `docker` or `podman`, `ollama`, `llama-server` and `strata` from it. `./install.sh --uninstall` (or `curl -fsSL http://server:9999/uninstall.sh | sh`) removes the programs and the service; sign-ins and settings stay unless you add `--purge`. See [Deployment](deployment.md#uninstalling).
 
 The `agent-machine` deb, rpm and Arch packages include a systemd user unit, not enabled: turn it on after `agent-machine login` with `systemctl --user enable --now agent-machine`. See [Deployment](deployment.md) for the installers and packages.
 
@@ -424,6 +432,6 @@ docker compose logs -f agent-sandbox
 
 ## The Python agent-machine
 
-The Python package (`python/`, `agent_py`) installs an `agent-machine` with the same name, protocol, files and ports, for computers without a Go build. It does everything the Go one does: every command (`login`/`logout`, `run`/`start`/`stop`, the status display, `launches`, `roots`, `commands`, `name`, `address`, `servers` and `servers service`, `containers`, `mcp`, `update` and `updates`), the same hello, launches and terminals, folders, tunnels, shared MCP servers, containers (Docker or Podman), starting and stopping Ollama (or its systemd `ollama.service`) and Strata's profiles, every model server question (Ollama, Docker Model Runner and Strata, with Strata's key read from its profile), catalogue searches and the machine's load. Ollama runs on Termux on Android too (`pkg install ollama`).
+The Python package (`python/`, `agent_py`) installs an `agent-machine` with the same name, protocol, files and ports, for computers without a Go build. It does everything the Go one does: every command (`login`/`logout`, `run`/`start`/`stop`, the status display, `launches`, `roots`, `commands`, `name`, `address`, `servers` and `servers service`, `containers`, `mcp`, `update` and `updates`), the same hello, launches and terminals, folders, tunnels, shared MCP servers, containers (Docker or Podman), starting and stopping Ollama (or its systemd `ollama.service`), llama.cpp and Strata's profiles, installing llama.cpp, every model server question (Ollama, llama.cpp, Docker Model Runner and Strata, with Strata's key read from its profile), catalogue searches and the machine's load. Ollama runs on Termux on Android too (`pkg install ollama`), and so does llama.cpp, with the phone's GPU through OpenCL.
 
 Its `update` pip-installs the server's wheel, checked against its SHA-256; `--with-agent` runs `AI_PROXY_AGENT update` first when that names the agent command, and otherwise stops the agent-proxy, as the Python agent is the same package. A launch runs `AI_PROXY_AGENT` if it's set, otherwise the Python `agent` with the same Python. Installed with pip, `sudo agent-machine servers service` may not find the program on sudo's `secure_path`: run `sudo "$(which agent-machine)" servers service`.

@@ -18,7 +18,7 @@ The server brings the tables up to date when it starts (`agent-server db migrate
 | Network settings, providers, Ollama tuning, retention | Tables `settings` and `backends` |
 | Agents | Table `agents` |
 | Users, organizations, teams | Tables `users` and `orgs` |
-| Generated secrets: the HTTPS capture CA, the browser sign-in key, Strata containers' keys | Table `secrets` |
+| Generated secrets: the HTTPS capture CA, the browser sign-in key, Strata and llama.cpp containers' keys | Table `secrets` |
 | Machines and their launch history | Tables `machines` and `machines_removed` |
 | Sessions, request records, payloads (gzipped), chat indexes, terminal output | Tables `sessions`, `requests`, `traces`, `chat_index`, `terminals`, `terminal_chunks` |
 | agent-auth's clients, codes, tokens (hashed) and signing key | Schema `mesh_auth`: `records`, `secrets` |
@@ -125,9 +125,9 @@ Each entry is a name (letters, numbers, `_` and `-`, starting with a letter or n
 
 | Key | What it is |
 |---|---|
-| `type` | `ollama` (the default), `strata`, `docker` (Docker Model Runner) or `anthropic` (hosted). See [Providers](providers.md). |
+| `type` | `ollama` (the default), `llamacpp` (llama.cpp's `llama-server`), `strata`, `docker` (Docker Model Runner) or `anthropic` (hosted). See [Providers](providers.md). |
 | `url` | Where the model server answers. For a machine's backend this follows the machine's address: when the machine reports a new one, the server changes it. |
-| `machine` | The id of the fleet machine that runs it. Local types (`ollama`, `strata`, `docker`) come from machines; only hosted APIs have none. |
+| `machine` | The id of the fleet machine that runs it. Local types (`ollama`, `llamacpp`, `strata`, `docker`) come from machines; only hosted APIs have none. |
 | `container` | The container spec, when the machine runs this backend as a container (engine, image, port, gpus, env, volume). Written by the containers API; see [Machines](machines.md). |
 
 Local backends are never added by URL. You add them from their machine: **Add as a provider** on the machine's page (`POST /api/machines/{id}/providers/adopt`, admins), or a container (`POST /api/containers`). Backends from before this have no `machine`; they keep working. An admin links a matching backend with **Add as a provider**, preserving its name and settings.
@@ -149,7 +149,7 @@ The server connects only to public IP addresses for intercepted traffic. It refu
 
 ### models: Ollama tuning
 
-Tuning for Ollama backends only. The server applies it when it translates OpenAI and Anthropic requests to Ollama's native `/api/chat`, and to native `/api/chat` and `/api/generate` calls. Strata and Docker Model Runner get requests unchanged. Edit it as one YAML document on **Server settings** → **Ollama model tuning**.
+Tuning for Ollama backends only. The server applies it when it translates OpenAI and Anthropic requests to Ollama's native `/api/chat`, and to native `/api/chat` and `/api/generate` calls. Strata, Docker Model Runner and llama.cpp get requests unchanged. Edit it as one YAML document on **Server settings** → **Ollama model tuning**.
 
 Settings are layered, in this order:
 
@@ -237,7 +237,7 @@ The standalone console uses `VITE_API_URL` at build time (for example `https://a
 
 ## Secrets
 
-Every secret the server makes is in its database: the capture CA's key, the browser sign-in key and the Strata containers' API keys. Strata keys a machine reports are kept in memory only. agent-auth's signing key and hashed tokens are in its own schema, which the server's role can't read. Protect the database and its backups as you would those keys. `AI_PROXY_DATABASE_URL` and `AI_PROXY_OIDC_INTROSPECTION_SECRET` come from the environment, never from the stored settings.
+Every secret the server makes is in its database: the capture CA's key, the browser sign-in key and the Strata and llama.cpp containers' API keys. Strata keys a machine reports are kept in memory only. agent-auth's signing key and hashed tokens are in its own schema, which the server's role can't read. Protect the database and its backups as you would those keys. `AI_PROXY_DATABASE_URL` and `AI_PROXY_OIDC_INTROSPECTION_SECRET` come from the environment, never from the stored settings.
 
 To rotate the capture CA, delete its row (`intercept-ca` in table `secrets`) and restart; agents fetch the new one at their next launch.
 

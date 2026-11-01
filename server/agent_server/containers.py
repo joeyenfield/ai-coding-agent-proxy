@@ -2,10 +2,10 @@
 
 A backend with `machine` and `container` set is a container on that
 machine. The machine's agent-machine runs it: it knows the engines it can run (Strata,
-Ollama), builds the `docker run` (or `podman run`) from the engine's template, and
+Ollama, llama.cpp), builds the `docker run` (or `podman run`) from the engine's template, and
 starts, stops and switches containers when the server asks over its fleet connection
 (fleet.Fleet.ask). The server keeps what's needed across machines: the specs, the API
-keys it generates for Strata containers (so it can always talk to them), which
+keys it generates for Strata and llama.cpp containers (so it can always talk to them), which
 containers share a machine's GPUs, and whether each one answers yet.
 
 Running a container is as powerful as a shell on that machine, so a machine only takes
@@ -40,6 +40,8 @@ GPUS = re.compile(r"all|none|\d+(,\d+)*")
 ENV_VALUE = re.compile(r"[^\x00-\x1f]{0,200}")
 # Removing waits for the container to stop, which Strata takes up to two minutes over.
 REMOVE_SECONDS = 240.0
+# Engines whose containers get a key the server chooses: their port is open to the network.
+KEYED_ENGINES = {"strata", "llamacpp"}
 
 
 def container_name(backend: str) -> str:
@@ -146,7 +148,7 @@ class KeyStore:
 
     @staticmethod
     def _publish(keys: dict[str, str]) -> None:
-        # Strata requests look their key up here (strata.key_for).
+        # Requests to the containers look their key up here (strata.key_for, strata.with_container_key).
         strata.managed_keys.clear()
         strata.managed_keys.update(keys)
 
@@ -196,9 +198,10 @@ class ContainerManager:
         return self.fleet.provider_url(machine, {"port": port})
 
     def request(self, name: str, backend: Backend, machine: Machine) -> dict[str, Any]:
-        """What the machine needs to build a container's command: its spec, Strata's key and where to listen."""
+        """What the machine needs to build a container's command: its spec, its key (Strata's and llama.cpp's
+        take one the server chose) and where to listen."""
         spec = dict(backend.container or {})
-        key = self.keys.get(name, create=True) if spec.get("engine") == "strata" else ""
+        key = self.keys.get(name, create=True) if spec.get("engine") in KEYED_ENGINES else ""
         return {"spec": spec, "key": key or "", "bind": self.bind(machine)}
 
     def taken_ports(self, machine: Machine, leave_out: str | None = None) -> set[int]:

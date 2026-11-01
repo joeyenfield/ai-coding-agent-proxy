@@ -30,7 +30,7 @@ from ..translate import (
 LOGGER = logging.getLogger("agent-proxy")
 NATIVE_PROFILE_PATHS = {"/api/chat", "/api/generate"}
 # Backends that speak the Anthropic Messages API themselves, so /anthropic/v1/messages passes through.
-MESSAGES_BACKENDS = {"anthropic", "strata", "docker"}
+MESSAGES_BACKENDS = {"anthropic", "strata", "docker", "llamacpp"}
 # The native Ollama calls agents make. The rest (pull, delete, create, copy, push, ...) manage a
 # model server, which only its machine does (agent-machine), so the server doesn't forward them.
 NATIVE_AGENT_PATHS = {"chat", "generate", "embed", "embeddings", "tags", "show", "ps", "version"}
@@ -51,7 +51,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         backend_name = x_ai_proxy_backend or (session.backend if session else None)
         if path == "models" and request.method == "GET":
             return await _list_models(runtime, request, backend_name)
-        # Only Ollama needs translating; Strata and Docker Model Runner take OpenAI requests as they are.
+        # Only Ollama needs translating; Strata, Docker Model Runner and llama.cpp take OpenAI requests as they are.
         if path == "chat/completions" and request.method == "POST" and _backend(runtime, request, backend_name).type == "ollama":
             payload = _json(await request.body())
             profile = runtime.settings.profile(payload.get("model") or _session_model(runtime, session_id))
@@ -330,8 +330,9 @@ async def _forward(
     backend = _backend(runtime, request, backend_override or session.backend)
     if backend.type == "anthropic" and "/anthropic/" not in request.url.path:
         raise HTTPException(status_code=400, detail="Anthropic backends are only reachable through the /anthropic endpoints")
-    if backend.type == "strata" and upstream_path.startswith("/api/"):
-        raise HTTPException(status_code=400, detail="Strata speaks the OpenAI and Anthropic APIs, not Ollama's native /api. Point the agent at /v1 or /anthropic.")
+    if backend.type in {"strata", "llamacpp"} and upstream_path.startswith("/api/"):
+        name = "Strata" if backend.type == "strata" else "llama.cpp"
+        raise HTTPException(status_code=400, detail=f"{name} speaks the OpenAI and Anthropic APIs, not Ollama's native /api. Point the agent at /v1 or /anthropic.")
     request_id = await runtime.sessions.next_request_id(session)
     model = payload.get("model") or session.model or ""
     if model and request.method == "POST" and backend.type == "ollama":
@@ -348,6 +349,8 @@ async def _forward(
     headers = _upstream_headers(request.headers)
     if backend.type == "strata":
         headers = strata.with_key(backend, headers)
+    elif backend.type == "llamacpp":
+        headers = strata.with_container_key(backend, headers)
     target = model_runner.upstream_path(upstream_path) if backend.type == "docker" else upstream_path
     assert runtime.client
     try:
@@ -475,9 +478,9 @@ async def _stream_upstream(
 async def _list_models(runtime: Runtime, request: Request, backend_name: str | None) -> JSONResponse:
     backend = _backend(runtime, request, backend_name)
     assert runtime.client
-    if backend.type in {"strata", "docker"}:
+    if backend.type in {"strata", "docker", "llamacpp"}:
         path = model_runner.upstream_path("/v1/models") if backend.type == "docker" else "/v1/models"
-        headers = strata.with_key(backend, {}) if backend.type == "strata" else {}
+        headers = strata.with_key(backend, {}) if backend.type == "strata" else strata.with_container_key(backend, {})
         try:
             response = await runtime.client.get(await runtime.tunnels.base_url(backend) + path, headers=headers)
             return JSONResponse(response.json(), status_code=response.status_code)

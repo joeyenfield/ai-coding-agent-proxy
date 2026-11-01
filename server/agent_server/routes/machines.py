@@ -37,6 +37,8 @@ from .terminals import CLOSE_UNAUTHORIZED
 
 NAME = re.compile(r"[^a-z0-9_-]+")
 MODEL_ACTIONS = {"pull", "delete", "load", "unload"}
+# How llama.cpp is installed: an id of the machine's install options, which the machine checks again.
+VARIANT = re.compile(r"[a-z0-9][a-z0-9.-]{0,40}")
 CATALOGS = ("ollama", "huggingface", "huggingface-quants", "docker-hub", "docker-hub-tags")
 
 
@@ -273,7 +275,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         """A model server on the machine, "{kind}-{port}", and the backend that uses it, if any."""
         parsed = parse_provider(provider_id)
         if parsed is None:
-            raise HTTPException(status_code=404, detail="Name a model server as ollama-11434, strata-18500 or docker-12434")
+            raise HTTPException(status_code=404, detail="Name a model server as ollama-11434, llamacpp-9931, strata-18500 or docker-12434")
         kind, port = parsed
         backend = next(
             (backend for backend in runtime.settings.backends.values() if backend.machine == target.id and fleet_provider_id(backend) == provider_id),
@@ -377,37 +379,71 @@ def register(app: FastAPI, runtime: Runtime) -> None:
     @app.get("/api/machines/{machine_id}/servers/ollama")
     async def ollama_settings(machine_id: str, request: Request) -> dict[str, Any]:
         """The settings agent-machine starts the machine's Ollama with, and how it's doing."""
-        require_trusted(request)
-        target = visible(machine_id, request)
-        answer = await ask(target, "settings", timeout=20, channel="server", kind="ollama")
-        return {**(answer.get("ollama_settings") or {}), "status": (target.servers.get("ollama") or {})}
+        return await server_settings(machine_id, request, "ollama")
 
     @app.put("/api/machines/{machine_id}/servers/ollama")
     async def configure_ollama(machine_id: str, request: Request) -> dict[str, Any]:
         """Save the settings the machine's Ollama starts with (its owner only); they apply when it next starts."""
+        return await configure_server(machine_id, request, "ollama")
+
+    @app.get("/api/machines/{machine_id}/servers/llamacpp")
+    async def llamacpp_settings(machine_id: str, request: Request) -> dict[str, Any]:
+        """The LLAMA_ARG_* settings agent-machine starts the machine's llama-server with, and how it's doing
+        (installed or not, running, an install in progress), as the machine says now."""
+        return await server_settings(machine_id, request, "llamacpp")
+
+    @app.put("/api/machines/{machine_id}/servers/llamacpp")
+    async def configure_llamacpp(machine_id: str, request: Request) -> dict[str, Any]:
+        """Save the settings the machine's llama-server starts with; they apply when it next starts."""
+        return await configure_server(machine_id, request, "llamacpp")
+
+    @app.get("/api/machines/{machine_id}/servers/llamacpp/install")
+    async def llamacpp_install_options(machine_id: str, request: Request) -> dict[str, Any]:
+        """How llama.cpp can be installed on the machine: Termux's packages, or the builds of llama.cpp's
+        latest GitHub release for its platform (CPU, CUDA, Vulkan, ...), as the machine finds them."""
+        require_trusted(request)
+        target = visible(machine_id, request)
+        if not allowed(auth.request_identity(request), target, "servers"):
+            raise HTTPException(status_code=403, detail="Only the machine's owner, or the teams it lets, can install model servers on it.")
+        answer = await ask(target, "install_options", timeout=45, channel="server", kind="llamacpp")
+        return answer.get("llamacpp_install") or {"variants": []}
+
+    async def server_settings(machine_id: str, request: Request, kind: str) -> dict[str, Any]:
+        require_trusted(request)
+        target = visible(machine_id, request)
+        answer = await ask(target, "settings", timeout=20, channel="server", kind=kind)
+        # Every server answer carries the machine's servers state, which the fleet keeps (Fleet.message).
+        return {**(answer.get(f"{kind}_settings") or {}), "status": (target.servers.get(kind) or {})}
+
+    async def configure_server(machine_id: str, request: Request, kind: str) -> dict[str, Any]:
         require_trusted(request)
         if not remote.same_origin(request):
             raise HTTPException(status_code=403, detail="Change model servers from the console's own page.")
         target = visible(machine_id, request)
+        label = "Ollama" if kind == "ollama" else "llama.cpp"
         if not allowed(auth.request_identity(request), target, "servers"):
-            raise HTTPException(status_code=403, detail="Only the machine's owner, or the teams it lets, can change its Ollama settings.")
+            raise HTTPException(status_code=403, detail=f"Only the machine's owner, or the teams it lets, can change its {label} settings.")
         data = await request.json()
         if not isinstance(data, dict):
             raise HTTPException(status_code=400, detail="Send the settings as a JSON object")
-        answer = await ask(target, "configure", timeout=20, channel="server", kind="ollama", config=data)
-        return {**(answer.get("ollama_settings") or {}), "status": (target.servers.get("ollama") or {})}
+        answer = await ask(target, "configure", timeout=20, channel="server", kind=kind, config=data)
+        return {**(answer.get(f"{kind}_settings") or {}), "status": (target.servers.get(kind) or {})}
 
     @app.post("/api/machines/{machine_id}/servers/{kind}/{action}")
     async def model_server(machine_id: str, kind: str, action: str, request: Request) -> dict[str, Any]:
-        """Start, stop or restart the Ollama installed on the machine; start, stop or remove a Strata profile,
-        remove every profile whose model is gone (prune), or clear Strata's leftovers (cleanup)."""
+        """Start, stop or restart the Ollama installed on the machine; start, stop, restart, install or uninstall
+        its llama.cpp; start, stop or remove a Strata profile, remove every profile whose model is gone (prune),
+        or clear Strata's leftovers (cleanup)."""
         require_trusted(request)
         if not remote.same_origin(request):
             raise HTTPException(status_code=403, detail="Start model servers from the console's own page.")
         target = visible(machine_id, request)
-        actions = {"ollama": {"start", "stop", "restart"}, "strata": {"start", "stop", "remove", "prune", "cleanup"}}
+        actions = {
+            "ollama": {"start", "stop", "restart"}, "llamacpp": {"start", "stop", "restart", "install", "uninstall"},
+            "strata": {"start", "stop", "remove", "prune", "cleanup"},
+        }
         if action not in actions.get(kind, set()):
-            raise HTTPException(status_code=404, detail="Start, stop or restart ollama; start, stop or remove a strata profile, or prune or clean up strata")
+            raise HTTPException(status_code=404, detail="Start, stop or restart ollama; start, stop, restart, install or uninstall llamacpp; start, stop or remove a strata profile, or prune or clean up strata")
         if not allowed(auth.request_identity(request), target, "servers"):
             raise HTTPException(status_code=403, detail="Only the machine's owner, or the teams it lets, can start or stop its model servers.")
         fields: dict[str, Any] = {"kind": kind}
@@ -419,12 +455,26 @@ def register(app: FastAPI, runtime: Runtime) -> None:
                 if not profile:
                     raise HTTPException(status_code=400, detail=f"Name the Strata profile to {action}")
                 fields["profile"] = profile
+        elif kind == "llamacpp":
+            # It always listens on loopback, where the machine's tunnels reach it: no bind to say.
+            if action == "install":
+                data = await request.json() if request.headers.get("content-length") not in (None, "0") else {}
+                variant = str((data or {}).get("variant") or "") if isinstance(data, dict) else ""
+                if not VARIANT.fullmatch(variant):
+                    raise HTTPException(status_code=400, detail="Pick how to install llama.cpp: one of the machine's install options (cpu, vulkan, cuda-12.8, opencl, ...)")
+                fields["variant"] = variant
         else:
             # Ollama listens on loopback when the machine is this computer, else where the server can reach it.
             # Agents' requests reach a machine that tunnels through it, so its Ollama stays on loopback there too.
             fields["bind"] = "127.0.0.1" if fleet.loopback(target) or target.tunnel else "0.0.0.0"
         # Strata loads (or drains and unloads) a model, which takes minutes for a big one.
-        timeout = (90.0 if action == "restart" else 60.0) if kind == "ollama" else {"start": 200.0, "stop": 330.0, "cleanup": 150.0}.get(action, 120.0)
+        if kind == "ollama":
+            timeout = 90.0 if action == "restart" else 60.0
+        elif kind == "llamacpp":
+            # Installing answers at once (the machine runs it as a job); starting waits for /health.
+            timeout = {"start": 90.0, "restart": 120.0}.get(action, 60.0)
+        else:
+            timeout = {"start": 200.0, "stop": 330.0, "cleanup": 150.0}.get(action, 120.0)
         try:
             await fleet.ask(target, action, timeout=timeout, channel="server", **fields)
         except FleetError as exc:

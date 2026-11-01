@@ -9,9 +9,10 @@ A **provider** (a backend, one of the server's stored settings) is where the ser
 | `ollama` | Ollama | Translates OpenAI Chat and Anthropic Messages requests to Ollama's native `/api/chat`, with the server's Ollama model tuning. Native `/api/*` calls pass through. |
 | `strata` | Strata | Passes them through, with Strata's API key put in. |
 | `docker` | Docker Model Runner | Passes them through, with Model Runner's path prefixes. |
+| `llamacpp` | llama.cpp (`llama-server`) | Passes them through (a container's with the key the server gave it). |
 | `anthropic` | Anthropic API (hosted) | Passes them through unchanged, with the agent's own credentials. |
 
-`ollama`, `strata` and `docker` are local model servers (`MACHINE_TYPES` in `config.py`). They always run on one of the fleet's [machines](machines.md).
+`ollama`, `llamacpp`, `strata` and `docker` are local model servers (`MACHINE_TYPES` in `config.py`). They always run on one of the fleet's [machines](machines.md).
 
 ## Where providers come from
 
@@ -31,7 +32,7 @@ The server only forwards agents' traffic to model servers. Everything else is a 
 - pulling, deleting, loading and unloading models;
 - its logs;
 - the machine's CPU, memory and GPU load;
-- Ollama's settings, and starting and stopping Ollama and Strata;
+- Ollama's and llama.cpp's settings, installing llama.cpp, and starting and stopping Ollama, llama.cpp and Strata;
 - searching ollama.com, Hugging Face and Docker Hub.
 
 In the console, all of it is on the machine's page, a tab per model server. A model server is named `<type>-<port>`, such as `ollama-11434`. A model server that isn't a provider yet is managed the same way, with **Add as a provider** at its top for admins.
@@ -42,23 +43,23 @@ Reading is always allowed for those who can see the machine. Changing anything n
 |---|---|---|---|---|
 | See models, status, logs, load | `view` | Yes | Yes | With any grant |
 | Pull, delete, load, unload models | `models` | Yes | Yes | With a grant |
-| Start, stop and configure Ollama and Strata | `servers` | Yes | With a grant | With a grant |
+| Install llama.cpp; start, stop and configure Ollama, llama.cpp and Strata | `servers` | Yes | With a grant | With a grant |
 
 The server only forwards the native Ollama calls agents make (`chat`, `generate`, `embed`, `embeddings`, `tags`, `show`, `ps`, `version`). `/api/pull` and the like can't reach a model server through the server.
 
 ## Which agents can use which provider
 
-Each agent is declared for a backend type (`backend_type`, default `ollama`) and speaks one protocol. An agent declared for Ollama is a local-model agent, and Strata and Docker Model Runner serve it too when they speak its protocol (`serves()` and `NATIVE_PROTOCOLS` in `config.py`):
+Each agent is declared for a backend type (`backend_type`, default `ollama`) and speaks one protocol. An agent declared for Ollama is a local-model agent, and Strata, Docker Model Runner and llama.cpp serve it too when they speak its protocol (`serves()` and `NATIVE_PROTOCOLS` in `config.py`):
 
-| Protocol | Agents | `ollama` | `strata` | `docker` | `anthropic` |
-|---|---|---|---|---|---|
-| `openai-chat` | Qwen Code, OpenCode, Copilot CLI (BYOK) | Yes | Yes | Yes | |
-| `anthropic` | Claude Code (Ollama) | Yes | Yes | Yes | |
-| `openai-responses` | Codex (Ollama) | Yes | Yes | Yes | |
-| `ollama` (native) | Aider, Goose | Yes | No | Yes | |
-| `anthropic` | Claude Code (Anthropic API pass-through) | | | | Yes |
+| Protocol | Agents | `ollama` | `strata` | `docker` | `llamacpp` | `anthropic` |
+|---|---|---|---|---|---|---|
+| `openai-chat` | Qwen Code, OpenCode, Copilot CLI (BYOK) | Yes | Yes | Yes | Yes | |
+| `anthropic` | Claude Code (Ollama) | Yes | Yes | Yes | Yes | |
+| `openai-responses` | Codex (Ollama) | Yes | Yes | Yes | Yes | |
+| `ollama` (native) | Aider, Goose | Yes | No | Yes | No | |
+| `anthropic` | Claude Code (Anthropic API pass-through) | | | | | Yes |
 
-Strata doesn't speak Ollama's native `/api`, so Aider and Goose can't use it. Account agents (`intercept: true`) don't use a backend: their traffic goes to their vendor. See [Agents](agents.md).
+Strata and llama.cpp don't speak Ollama's native `/api`, so Aider and Goose can't use them. Account agents (`intercept: true`) don't use a backend: their traffic goes to their vendor. See [Agents](agents.md).
 
 When a launch doesn't name a backend, the server picks one (`backend_for()`): the default backend if it serves the agent, else a backend of the agent's own type, else any other that serves it. A named backend that can't serve the agent is refused with the reason. The console and the client get the list and the choice from the server (`/api/agents`), not by working it out themselves.
 
@@ -85,7 +86,7 @@ The server's Ollama model tuning holds the settings for Ollama, in three layers,
 
 Each layer can set `options` (Ollama runtime options such as `num_ctx`, `temperature`, `top_p`, `top_k`), `keep_alive`, `think` (force thinking on or off for hybrid models) and `translate_openai`. Values a client sends explicitly in a request always win.
 
-It only applies to Ollama. Strata and Docker Model Runner get requests as the agent sent them.
+It only applies to Ollama. Strata, Docker Model Runner and llama.cpp get requests as the agent sent them.
 
 ### Tuning for Qwen
 
@@ -161,7 +162,7 @@ With `agent-machine servers on`, the machine's **Ollama server** tab starts, sto
 | | CORS origins | `OLLAMA_ORIGINS` | none |
 | | Debug logging | `OLLAMA_DEBUG` | off |
 
-- **Environment** takes extra variables as `KEY=VALUE` lines. Only `OLLAMA_*` variables are allowed, so the server can't change what else a program on the machine runs with. A blank value unsets one.
+- **Environment** takes extra variables as `KEY=VALUE` lines. Only `OLLAMA_*` variables are allowed, so the server can't change what else a program on the machine runs with. A blank value unsets one. Every setting's value is one line.
 - **Warnings** show for a context below 16K (and stronger below 8K), more than one parallel request, and a quantized KV cache without Flash Attention.
 - **Where it listens** isn't a setting: agent-machine sets `OLLAMA_HOST` itself. Ollama listens on `127.0.0.1` when the machine is the server's own computer or carries agents' traffic through [tunnels](machines.md#tunnels), else on `0.0.0.0` so the server can reach it.
 - **Log** shows `ollama.log` in agent-machine's folder, the output of the Ollama it started.
@@ -214,6 +215,65 @@ Each Strata's tab shows its model, whether it's loaded, its context, uptime and 
 
 Strata can't pull or delete models from the console.
 
+## llama.cpp
+
+[llama.cpp](https://github.com/ggml-org/llama.cpp)'s `llama-server` runs GGUF models on almost anything: NVIDIA (CUDA), AMD (ROCm, Vulkan), Intel (SYCL, OpenVINO), Apple (Metal), and phones' GPUs through OpenCL, such as the Adreno in Snapdragon phones, where Ollama only has the CPU. It speaks OpenAI Chat Completions, OpenAI Responses and Anthropic Messages, so the server passes agents' requests through unchanged. It has no native Ollama `/api`, so Aider and Goose can't use it, and the Ollama model tuning doesn't apply.
+
+agent-machine runs it in **router mode**: one `llama-server` started without a model serves every model in its cache and its GGUF folder, loads each on the first request that names it, and unloads the least recently used when more are loaded than its settings allow. Agents name a model as the router lists it, such as `unsloth/Qwen3-8B-GGUF:Q4_K_M`.
+
+It listens on `127.0.0.1:9931` (llama-server's own default port) and nowhere else: agents' requests reach it through the machine's [tunnel](machines.md#tunnels), so it needs no API key. `AI_PROXY_LLAMACPP_PORT` on the machine moves it. agent-machine finds a llama-server on that port (it answers `/models`), whoever started it. Its model server is named `llamacpp-9931`.
+
+### Installing it
+
+With `agent-machine servers on`, the machine's **llama.cpp server** tab installs llama.cpp there. **Install llama.cpp** asks the machine which builds fit it and suggests one:
+
+- **In Termux on Android**, Termux's own packages, through its `apt-get`: `llama-cpp` with its OpenCL backend (`llama-cpp-backend-opencl`, `ocl-icd`, `opencl-vendor-driver`, for the phone's own OpenCL driver: the fastest on Snapdragon phones), its Vulkan backend (`llama-cpp-backend-vulkan`, `vulkan-loader-android`), or the CPU only.
+- **Anywhere else**, the newest build llama.cpp publishes on GitHub (`ggml-org/llama.cpp`) for the machine's system and processor, with the backend you pick: CPU, Vulkan, CUDA (NVIDIA; its runtime is downloaded too), ROCm, SYCL, OpenVINO, Metal on a Mac, or Snapdragon. agent-machine installs a download only when its SHA-256 is the one GitHub lists for it, and unpacks it into `llamacpp/<release>-<build>/` in its own folder. Nothing outside that folder changes and nothing needs root. The build before it is kept until the next install, so a running llama-server keeps its files until it restarts onto the new one.
+
+Installing runs on the machine as a job: the tab shows its step and download progress, and says when it's done or why it failed. **Update or change build** installs the newest release again, or another backend. **Remove** deletes the builds installed from the console (Termux's packages are Termux's to remove). A llama-server already on the machine's PATH (or Homebrew's, or Termux's) is used too, and the tab says it was found there.
+
+### Starting it and its settings
+
+The tab's **Start**, **Restart** and **Stop** run the installed `llama-server --host 127.0.0.1 --port 9931` in router mode. agent-machine only stops a llama-server it started itself; it stops the router's model instances with it.
+
+The settings are the machine's: agent-machine keeps them in `llamacpp.json` in its folder and passes them as llama-server's `LLAMA_ARG_*` variables the next time it starts it.
+
+| Group | Setting | Variable | Default |
+|---|---|---|---|
+| Memory / KV cache | Context length (0 for the model's own) | `LLAMA_ARG_CTX_SIZE` | 16384 |
+| | KV cache type, K and V | `LLAMA_ARG_CACHE_TYPE_K`, `LLAMA_ARG_CACHE_TYPE_V` | `f16` |
+| | Flash Attention (`auto`, `on`, `off`) | `LLAMA_ARG_FLASH_ATTN` | `auto` |
+| | Fit to memory | `LLAMA_ARG_FIT` | on |
+| | Prompt cache (MiB) | `LLAMA_ARG_CACHE_RAM` | 8192 |
+| Concurrency / scheduling | Parallel requests (`-1` automatic) | `LLAMA_ARG_N_PARALLEL` | 1 |
+| | Max loaded models (0 for no limit) | `LLAMA_ARG_MODELS_MAX` | 1 |
+| | Load models on request | `LLAMA_ARG_MODELS_AUTOLOAD` | on |
+| Hardware | GPU layers (`auto`, `all` or a number) | `LLAMA_ARG_N_GPU_LAYERS` | `auto` |
+| | Devices (such as `CUDA0`; `none` for the CPU) | `LLAMA_ARG_DEVICE` | all |
+| | CPU threads | `LLAMA_ARG_THREADS` | automatic |
+| Reasoning | Thinking budget (`-1` no limit, `0` don't think) | `LLAMA_ARG_THINK_BUDGET` | `-1` |
+| | Model's chat template | `LLAMA_ARG_JINJA` | on |
+| Models | Download folder | `LLAMA_CACHE` | llama.cpp's cache |
+| | GGUF folder | `LLAMA_ARG_MODELS_DIR` | none |
+| Server | Web UI | `LLAMA_ARG_UI` | off |
+| | Metrics endpoint | `LLAMA_ARG_ENDPOINT_METRICS` | off |
+
+- **Environment** takes extra variables as `KEY=VALUE` lines, only `LLAMA_ARG_*` and `GGML_*` ones. Where it listens, an API key, a presets file and CORS can't be set there, and neither can anything that turns on llama-server's built-in tools, MCP servers or agent mode (a name with `TOOL`, `MCP`, `AGENT`, `SSL` or `PROPS`): those would let a model run things on the machine. agent-machine drops them from its own environment too.
+- **A thinking budget** makes the most difference on a slow machine: a small thinking model on a phone can think for hundreds of tokens before every answer.
+- **Log** shows `llamacpp.log` in agent-machine's folder, the output of the llama-server it started.
+
+### Models
+
+Its model server tab lists what the router can serve, loaded ones first, with each one's size, state (loaded, loading, not loaded, asleep, downloading with its progress, a download not finished) and file, and:
+
+- **Load** and **Unload**, through the router's `/models/load` and `/models/unload`;
+- **Delete**, which deletes a model from llama.cpp's cache (`DELETE /models`; models in the GGUF folder are removed there);
+- **Find and download**: search Hugging Face for GGUF repos and pick a quant, or name one as `user/repo:quant` (`user/repo` alone takes Q4_K_M). The router downloads it into its cache itself (`POST /models`), and agent-machine relays its progress from `/models/sse`. A vision model's projector comes with it.
+
+A llama-server started with one model (`-m`) has no router: it lists that model, and its models can't change from here.
+
+The agents' model list shows the router's models that are ready, not ones still downloading. llama.cpp doesn't say a model's running context, so agents keep their own guess; the tab shows the context each model was trained for.
+
 ## Docker Model Runner
 
 [Docker Model Runner](https://docs.docker.com/ai/model-runner/) is Docker's model server. It speaks OpenAI Chat Completions, OpenAI Responses, Anthropic Messages and native Ollama, and needs no key, so every local-model agent can use it, Aider and Goose included.
@@ -243,7 +303,7 @@ Docker Model Runner support is built from Docker's API documentation and the doc
 
 ## Containers machines run
 
-A machine can run Strata or Ollama in containers for the server. It starts and stops them when you ask from the console, and hands the GPU from one to another. Each container is a provider agents can use.
+A machine can run Strata, Ollama or llama.cpp in containers for the server. It starts and stops them when you ask from the console, and hands the GPU from one to another. Each container is a provider agents can use.
 
 ### Turning it on
 
@@ -260,15 +320,17 @@ The machine then reports its engines, and its **Containers** tab offers them.
 
 The engine table lives in agent-machine (`machine/internal/containers`), which sends it to the server in its hello.
 
-| | Strata | Ollama |
-|---|---|---|
-| Image | `ghcr.io/niko1221/strata:latest-cuda13` (also `cuda12`, `rocm-gfx120x`, `rocm-gfx110x`, `rocm-gfx1151`, `sycl`) | `ollama/ollama:latest` (also `:rocm`) |
-| Port in the container | 8080 | 11434 |
-| Model storage | `strata-data` volume at `/data` | `ollama-models` volume at `/root/.ollama` |
-| Health check | `/health` | `/api/version` |
-| Stop timeout | 120 s (so it unloads cleanly) | 30 s |
-| Extra flags | `--ulimit memlock=-1:-1 --shm-size 2g` | none |
-| Settings | `MODEL`, `FAMILY`, `CONTEXT`, `KV`, `VISION`, `PARALLEL` | `OLLAMA_CONTEXT_LENGTH`, `OLLAMA_KV_CACHE_TYPE`, `OLLAMA_FLASH_ATTENTION`, `OLLAMA_NUM_PARALLEL`, `OLLAMA_KEEP_ALIVE` |
+| | Strata | Ollama | llama.cpp |
+|---|---|---|---|
+| Image | `ghcr.io/niko1221/strata:latest-cuda13` (also `cuda12`, `rocm-gfx120x`, `rocm-gfx110x`, `rocm-gfx1151`, `sycl`) | `ollama/ollama:latest` (also `:rocm`) | `ghcr.io/ggml-org/llama.cpp:server-cuda` (also `:server`, the CPU build) |
+| Port in the container | 8080 | 11434 | 8080 |
+| Model storage | `strata-data` volume at `/data` | `ollama-models` volume at `/root/.ollama` | `llamacpp-models` volume at `/root/.cache/llama.cpp` |
+| Health check | `/health` | `/api/version` | `/health` |
+| Stop timeout | 120 s (so it unloads cleanly) | 30 s | 30 s |
+| Extra flags | `--ulimit memlock=-1:-1 --shm-size 2g` | none | none |
+| Settings | `MODEL`, `FAMILY`, `CONTEXT`, `KV`, `VISION`, `PARALLEL` | `OLLAMA_CONTEXT_LENGTH`, `OLLAMA_KV_CACHE_TYPE`, `OLLAMA_FLASH_ATTENTION`, `OLLAMA_NUM_PARALLEL`, `OLLAMA_KEEP_ALIVE` | `LLAMA_ARG_CTX_SIZE`, `LLAMA_ARG_CACHE_TYPE_K`, `LLAMA_ARG_CACHE_TYPE_V`, `LLAMA_ARG_N_PARALLEL`, `LLAMA_ARG_MODELS_MAX`, `LLAMA_ARG_THINK_BUDGET` |
+
+A llama.cpp container runs its router, like the one agent-machine starts: download its models on its model server tab, into the shared volume.
 
 Every container of an engine on a machine shares its volume, so a model is downloaded once. A container can name its own volume, or an absolute folder on the machine, instead.
 
@@ -283,7 +345,7 @@ backends:
     url: http://192.168.1.40:8080   # the machine's address, and the container's port
     machine: 3f2a9c1e7b6d4a10       # the machine's id
     container:
-      engine: strata                # or ollama
+      engine: strata                # or ollama, llamacpp
       image: ghcr.io/niko1221/strata:latest-cuda13
       port: 8080
       gpus: all                     # all, none, or card numbers such as 0 or 0,1
@@ -318,9 +380,12 @@ Containers on the same machine whose GPUs overlap can't run together. `all` over
 
 With Docker, GPUs go to `docker run --gpus`. Podman gets them as CDI devices (`--device nvidia.com/gpu=<card>` or `=all`), which needs the NVIDIA Container Toolkit's CDI set up on the machine.
 
-### Strata containers' keys
+### Containers' keys
 
-Each Strata container gets `PRESET=<its name>`, so its settings, tuning and key in the shared `/data` don't clash with the others', and `API_KEY=<key>`. The server generates the key, keeps it in its database, sends it to the machine with each request, and adds it to agents' requests. Agents need none.
+A container's port is open to the network, so Strata and llama.cpp containers only answer with a key the server generates for each (the `secrets` table's `container-key:<name>`). The server sends it to the machine with each request about the container, and puts it in agents' requests in place of their placeholder key. Agents need none.
+
+- Each Strata container gets `PRESET=<its name>`, so its settings, tuning and key in the shared `/data` don't clash with the others', and `API_KEY=<key>`.
+- Each llama.cpp container gets `LLAMA_API_KEY=<key>`, with `LLAMA_ARG_HOST=0.0.0.0` and `LLAMA_ARG_PORT=8080` so its router listens on the published port.
 
 ### Phases
 

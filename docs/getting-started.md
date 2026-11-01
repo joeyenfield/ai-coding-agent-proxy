@@ -189,7 +189,7 @@ agent opencode . --model qwen3:8b --backend <name>    # pick a backend by name
 agent claude . --model qwen3:8b                       # Claude Code, translated to Ollama
 ```
 
-Local-model agents need `--model`. The server translates their requests to Ollama's native API and applies the context size and sampling from the server's Ollama model tuning. Without `--backend`, the server uses `default_backend` when the agent can use it, otherwise the first backend that fits. See [Providers](providers.md) for Strata, Docker Model Runner and containers, and [Machines](machines.md) for the fleet.
+Local-model agents need `--model`. The server translates their requests to Ollama's native API and applies the context size and sampling from the server's Ollama model tuning. Without `--backend`, the server uses `default_backend` when the agent can use it, otherwise the first backend that fits. See [Providers](providers.md) for llama.cpp, Strata, Docker Model Runner and containers, and [Machines](machines.md) for the fleet.
 
 ### The hosted Anthropic API
 
@@ -216,7 +216,7 @@ Everything is in the server's database: each session, a record per request and, 
 
 - [Agents](agents.md): every supported agent, launch options, sharing sessions, and adding an agent of your own.
 - [Machines](machines.md): the fleet, starting agents on a machine from the console, remote terminals and updates.
-- [Providers](providers.md): Ollama tuning, Strata, Docker Model Runner and containers.
+- [Providers](providers.md): Ollama tuning, llama.cpp, Strata, Docker Model Runner and containers.
 - [MCP](mcp.md): sharing a machine's MCP servers with agents.
 - [Console](console.md): every page of the console.
 - [Accounts](accounts.md): users, organizations, teams, sharing and phone sign-in.

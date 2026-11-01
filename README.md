@@ -13,7 +13,7 @@ AIControlMesh is an open-source, self-hosted control plane for AI coding agents,
 - **Understand agent activity.** Follow live streams, request metadata, tokens and timings. Enable full tracing to save payloads and read sessions back as conversations. Account-agent capture permits public destinations; private and reserved addresses are refused.
 - **Three routes to a model, mixed as you like.**
   - **Your accounts**: Claude Code, Copilot CLI and Codex on your own plans, captured in transit.
-  - **Local models**: supported agents on compatible Ollama, Strata or Docker Model Runner backends, with Ollama requests translated and tuned per model.
+  - **Local models**: supported agents on compatible Ollama, llama.cpp, Strata or Docker Model Runner backends, with Ollama requests translated and tuned per model.
   - **Hosted API**: requests passed through to the Anthropic API unchanged.
 - **A fleet of machines.** Every computer running `agent-machine` supplies its model servers, containers and MCP servers to agents anywhere, through its own connection to the server, so it needs no open port. You can also start agents and open terminals on it from the console.
 - **Agents from your phone.** Share an agent's terminal (`--control`), then watch it and type into it from a browser or the Android app, and answer its permission prompts.
@@ -72,7 +72,7 @@ Then open the console, add its model server with **Add as a provider**, and star
 | [Agents](docs/agents.md) | The `agent` command, every supported agent, what the requests are |
 | [MCP servers](docs/mcp.md) | Sharing MCP servers from machines with agents |
 | [Machines](docs/machines.md) | The fleet and `agent-machine` |
-| [Providers](docs/providers.md) | Ollama, Strata, Docker Model Runner, containers, hosted APIs |
+| [Providers](docs/providers.md) | Ollama, llama.cpp, Strata, Docker Model Runner, containers, hosted APIs |
 | [The console](docs/console.md) | Every page of the web console |
 | [Accounts and sharing](docs/accounts.md) | Users, organizations, teams, sharing, phones |
 | [OIDC authentication](docs/oidc.md) | The sign-in service, device sign-in, service accounts |

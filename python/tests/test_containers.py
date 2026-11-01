@@ -113,7 +113,7 @@ def test_jobs_start_switch_and_stop_containers_with_the_cli(tmp_path, monkeypatc
     containers.forget_detection()
     manager = Manager(machine=lambda: settings.Machine(id="m", containers=True))
     described = manager.describe()
-    assert described["online"] is True and described["version"] == "27.3.1" and len(described["engines"]) == 2, described
+    assert described["online"] is True and described["version"] == "27.3.1" and len(described["engines"]) == len(containers.ENGINES), described
     assert described["engines"][0]["id"] == "strata" and "flags" not in described["engines"][0]
     spec = {"engine": "strata", "port": 18080, "env": {"MODEL": "IQ3_XXS"}}
 

@@ -71,7 +71,7 @@ READ_ONLY = {
 }
 # The client a shell's session names (`agent --shell`): it stays private, as it's a remote terminal.
 SHELL_CLIENT = "shell"
-PROVIDER_TYPES = ("ollama", "docker", "strata")
+PROVIDER_TYPES = ("ollama", "docker", "strata", "llamacpp")
 # A shared MCP server's name (agent-machine mcp add), and how it runs there.
 MCP_NAME = re.compile(r"[a-z0-9][a-z0-9_-]{0,39}")
 MCP_TRANSPORTS = ("stdio", "http")
@@ -755,7 +755,7 @@ class Fleet:
 def _provider(item: dict[str, Any]) -> dict[str, Any]:
     port = int(item.get("port") or 0)
     if not 0 < port < 65536:
-        port = {"ollama": 11434, "docker": 12434, "strata": 18500}[item["type"]]
+        port = {"ollama": 11434, "docker": 12434, "strata": 18500, "llamacpp": 9931}[item["type"]]
     models = item.get("models")
     return {"type": item["type"], "port": port, "version": str(item.get("version") or "")[:40], "models": models if isinstance(models, int) else None}
 
@@ -780,7 +780,7 @@ def _mcp(item: Any) -> tuple[dict[str, Any], str | None]:
 
 
 def _servers(item: dict[str, Any]) -> dict[str, Any]:
-    """What a machine says about the Ollama and Strata it can start, kept to known fields."""
+    """What a machine says about the Ollama, llama.cpp and Strata it can start, kept to known fields."""
     if not item.get("enabled"):
         return {"enabled": False}
     ollama = item.get("ollama") if isinstance(item.get("ollama"), dict) else {}
@@ -803,6 +803,31 @@ def _servers(item: dict[str, Any]) -> dict[str, Any]:
             "service": "systemd" if ollama.get("service") == "systemd" else None, "service_allowed": bool(ollama.get("service_allowed")),
         },
         "strata": {"found": bool(strata.get("found")), "profiles": profiles[:20], "error": str(strata.get("error") or "")[:300] or None},
+        "llamacpp": _llamacpp(item.get("llamacpp")),
+    }
+
+
+def _text(value: Any, size: int = 80) -> str | None:
+    """A machine's field as text of at most size, or None when it's empty."""
+    return str(value or "")[:size] or None
+
+
+def _llamacpp(item: Any) -> dict[str, Any]:
+    """The llama.cpp a machine can start (and install), kept to known fields; an older machine says nothing."""
+    if not isinstance(item, dict):
+        return {"found": False, "running": False, "managed": False, "known": False}
+    install = item.get("install") if isinstance(item.get("install"), dict) else None
+    return {
+        "known": True, "found": bool(item.get("found")), "running": bool(item.get("running")), "managed": bool(item.get("managed")),
+        "port": item.get("port") if isinstance(item.get("port"), int) else 9931, "version": _text(item.get("version"), 40),
+        # Where it came from: the console's install (github or termux, which build), or found on the machine.
+        "source": _text(item.get("source"), 20), "variant": _text(item.get("variant"), 40), "release": _text(item.get("release"), 40),
+        "platform": _text(item.get("platform"), 40),
+        "install": {
+            "state": _text(install.get("state"), 20), "variant": _text(install.get("variant"), 40), "release": _text(install.get("release"), 40),
+            "step": _text(install.get("step"), 200), "done": install.get("done") if isinstance(install.get("done"), int) else 0,
+            "total": install.get("total") if isinstance(install.get("total"), int) else 0, "error": _text(install.get("error"), 500), "at": _text(install.get("at"), 40),
+        } if install else None,
     }
 
 
@@ -839,12 +864,14 @@ def parse_provider(value: str) -> tuple[str, int] | None:
 
 
 def provider_request(backend: Any, kind: str, port: int) -> dict[str, Any]:
-    """What a provider request names: the kind and port, and a Strata container's key, which only the server knows."""
+    """What a provider request names: the kind and port, and a Strata or llama.cpp container's key, which only the server knows."""
     fields: dict[str, Any] = {"kind": kind, "port": port}
     if kind == "strata" and backend is not None and backend.container:
         key, _ = strata.key_for(backend)
         if key:
             fields["key"] = key
+    if kind == "llamacpp" and backend is not None and backend.container and strata.managed_keys.get(backend.name):
+        fields["key"] = strata.managed_keys[backend.name]
     return fields
 
 
