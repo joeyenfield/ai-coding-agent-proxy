@@ -349,6 +349,23 @@ def test_the_vault_binds_each_token_to_its_account_and_rotates(tmp_path):
     assert ProviderAccounts(db, fleet, Vault({2: both.keys[2]}))._credential(account) == TOKEN
 
 
+def test_agent_server_vault_makes_keys_reports_and_rotates(tmp_path, monkeypatch, capsys):
+    from agent_server import commands
+
+    monkeypatch.delenv("AI_PROXY_VAULT_KEYS", raising=False)
+    monkeypatch.delenv("AI_PROXY_VAULT_KEYS_FILE", raising=False)
+    assert commands.main("vault", ["key"]) == 0
+    first = capsys.readouterr().out.strip()
+    assert first.startswith("1:") and len(parse_keys(first)[1]) == 32
+    monkeypatch.setenv("AI_PROXY_LOG_DIR", str(tmp_path / "logs"))
+    assert commands.main("vault", ["rotate"]) == 1
+    monkeypatch.setenv("AI_PROXY_VAULT_KEYS", first)
+    assert commands.main("vault", ["key"]) == 0 and capsys.readouterr().out.startswith("2:")
+    assert commands.main("vault", ["status"]) == 0
+    assert "Configured key versions: 1" in capsys.readouterr().out
+    assert commands.main("vault", ["rotate"]) == 0 and "Re-encrypted 0 tokens" in capsys.readouterr().out
+
+
 def test_usage_is_counted_and_the_providers_429s_cool_an_account_down(tmp_path):
     app = create_app(account_settings(tmp_path))
     runtime = app.state.runtime

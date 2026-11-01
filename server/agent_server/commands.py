@@ -102,7 +102,8 @@ def _vault(args: argparse.Namespace) -> int:
             counts = dict(connection.execute(select(table.c.key_version, func.count()).group_by(table.c.key_version)).all())
         print(f"Configured key versions: {', '.join(str(item) for item in sorted(vault.keys)) or 'none (managed tokens are refused)'}")
         for version, count in sorted(counts.items()):
-            print(f"Tokens under key {version}: {count}{'' if version in vault.keys else ' (that key is missing: they can't be decrypted)'}")
+            missing = "" if version in vault.keys else " (that key is missing: they can't be decrypted)"
+            print(f"Tokens under key {version}: {count}{missing}")
         return 0
     if not vault.configured:
         print("Set AI_PROXY_VAULT_KEYS first.", file=sys.stderr)
