@@ -18,6 +18,7 @@ machine/bin/
 scripts/deploy.sh
 scripts/deploy.ps1
 scripts/deploy-remote.sh
+scripts/deploy-setup-remote.sh
 # scripts/screenshots/demo.py's temporary home, left behind if it is killed
 .screenshot-demo-*/
 /.test-site/

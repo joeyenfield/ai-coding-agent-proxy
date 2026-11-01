@@ -250,6 +250,12 @@ func (m *Manager) startLlama() error {
 	port := strconv.Itoa(m.llamaPort())
 	fmt.Fprintf(logFile, "# agent-machine: starting %s (router mode) on 127.0.0.1:%s at %s\n", strings.Join(program, " "), port, time.Now().Format(time.RFC3339))
 	config := LoadLlamaConfig()
+	// The router refuses to start without its GGUF folder.
+	if folder := LlamaManagedEnv(config)["LLAMA_ARG_MODELS_DIR"]; folder != nil {
+		if err := os.MkdirAll(*folder, 0o755); err != nil {
+			return fmt.Errorf("couldn't make the GGUF folder %s: %v", *folder, err)
+		}
+	}
 	env := publicEnv(LlamaManagedEnv(config))
 	for _, name := range sortedKeys(env) {
 		fmt.Fprintf(logFile, "#   %s=%v\n", name, orUnset(env[name]))

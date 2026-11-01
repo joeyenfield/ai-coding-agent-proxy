@@ -932,6 +932,18 @@ class FakeProviders:
                 self.llama_models.append({"name": request["model"], "state": "unloaded", "loaded": False, "failed": False, "size": total,
                                           "path": "", "context_train": None, "progress": None})
             return {"ok": True}
+        if op == "files" and kind == "llamacpp":
+            # What downloading it by hand means, as agent-machine answers from Hugging Face's listing.
+            repo, _, quant = str(request.get("model")).partition(":")
+            quant = (quant or "Q4_K_M").upper()
+            name = f"{repo.split('/')[-1].removesuffix('-GGUF')}-{quant}"
+            folder = "/data/data/com.termux/files/home/.config/agent-machine/llamacpp-models"
+            files = [{"repo_path": f"{name}.gguf", "path": f"{name}/{name}.gguf", "size": int(4.7 * GB), "sha256": "9f2c" * 16,
+                      "url": f"https://huggingface.co/{repo}/resolve/main/{name}.gguf"}]
+            return {"ok": True, "result": {"model": f"{repo}:{quant}", "name": name, "folder": folder, "dir": f"{folder}/{name}",
+                                           "files": files, "serves_folder": True}}
+        if op == "reload" and kind == "llamacpp":
+            return {"ok": True, "result": {"reloaded": "llamacpp-models"}}
         if op in {"delete", "load", "unload"} and kind == "llamacpp":
             for model in self.llama_models:
                 if model["name"] == request.get("model"):

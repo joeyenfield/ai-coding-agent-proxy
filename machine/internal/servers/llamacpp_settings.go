@@ -8,8 +8,12 @@ package servers
 // MCP client and its agent mode are refused, as are an API key and a presets file.
 
 import (
+	"path/filepath"
 	"reflect"
 	"strings"
+
+	"ai-coding-agent-proxy/machine/internal/providers"
+	"ai-coding-agent-proxy/machine/internal/settings"
 )
 
 const (
@@ -63,7 +67,7 @@ var LlamaSettings = []Setting{
 	setting("cache_dir", groupModels, "Download folder", "str", "",
 		"Where models downloaded from Hugging Face go. Empty = llama.cpp's standard cache.", "LLAMA_CACHE"),
 	setting("models_dir", groupModels, "GGUF folder", "str", "",
-		"A folder of .gguf files to serve as well (a subfolder for a model in several files).", "LLAMA_ARG_MODELS_DIR"),
+		"A folder of .gguf files to serve as well (a subfolder for a model in several files). Empty = llamacpp-models in agent-machine's folder. Models agent-machine downloads itself go here.", "LLAMA_ARG_MODELS_DIR"),
 
 	onOff(setting("webui", groupServer, "Web UI", "bool", false, "llama-server's own chat page, on this computer only.", "LLAMA_ARG_UI")),
 	setting("metrics", groupServer, "Metrics endpoint", "bool", false, "Prometheus metrics at /metrics.", "LLAMA_ARG_ENDPOINT_METRICS"),
@@ -102,12 +106,33 @@ func LlamaValidateConfig(data map[string]any) (map[string]any, error) {
 }
 
 // LlamaManagedEnv is the variables the config sets; nil means unset.
-func LlamaManagedEnv(config map[string]any) map[string]*string { return llamaTable.managed(config) }
+func LlamaManagedEnv(config map[string]any) map[string]*string {
+	env := llamaTable.managed(config)
+	if env["LLAMA_ARG_MODELS_DIR"] == nil {
+		// Always a GGUF folder: where agent-machine downloads models when the router can't.
+		folder := defaultModelsDir()
+		env["LLAMA_ARG_MODELS_DIR"] = &folder
+	}
+	return env
+}
+
+// defaultModelsDir is the GGUF folder when none is set: llamacpp-models in agent-machine's folder.
+func defaultModelsDir() string { return filepath.Join(settings.Home(), "llamacpp-models") }
+
+// llamaModelsDir is the GGUF folder agent-machine's llama-server serves.
+func llamaModelsDir() string {
+	if folder := LlamaManagedEnv(LoadLlamaConfig())["LLAMA_ARG_MODELS_DIR"]; folder != nil {
+		return *folder
+	}
+	return defaultModelsDir()
+}
+
+func init() { providers.LlamaFolder = llamaModelsDir }
 
 // LlamaEnvironment is the environment llama-server starts with: base without what the
 // console mustn't set, with the managed variables applied.
 func LlamaEnvironment(base []string, config map[string]any) []string {
-	return llamaTable.environment(base, config, func(name string) bool {
+	env := llamaTable.environment(base, config, func(name string) bool {
 		upper := strings.ToUpper(name)
 		if contains(llamaReserved, upper) {
 			return true
@@ -121,6 +146,10 @@ func LlamaEnvironment(base []string, config map[string]any) []string {
 		}
 		return false
 	})
+	if llamaTable.managed(config)["LLAMA_ARG_MODELS_DIR"] == nil {
+		env = append(env, "LLAMA_ARG_MODELS_DIR="+defaultModelsDir())
+	}
+	return env
 }
 
 // LlamaWarnings is what the console warns about in a config.

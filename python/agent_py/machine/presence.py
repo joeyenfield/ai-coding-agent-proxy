@@ -333,6 +333,11 @@ def run_headless(machine: settings.Machine, project: str, args: List[str], serve
 class Presence:
     """Keeps this machine connected to the server's fleet while `agent-machine run` runs."""
 
+    def _restart_llama(self) -> None:
+        answer = self.servers.handle({"op": "restart", "kind": "llamacpp"})
+        if not answer.get("ok"):
+            raise providers.Refused(str(answer.get("error")))
+
     def __init__(self, upstream: common.Upstream, on_status: Optional[Callable[[str], None]] = None,
                  on_server_version: Optional[Callable[[str], None]] = None) -> None:
         self.upstream = upstream
@@ -340,6 +345,9 @@ class Presence:
         self.on_server_version = on_server_version
         self.providers = providers.Manager()
         self.servers = servers.Manager()
+        # After agent-machine downloads a model into its GGUF folder, a llama-server started before it
+        # served that folder restarts to serve it.
+        self.providers.restart_llama = self._restart_llama
         # Runs the server's containers here, when the machine allows it.
         self.containers = containers.Manager()
         self.detect: Callable[[], List[Dict[str, Any]]] = providers.detect

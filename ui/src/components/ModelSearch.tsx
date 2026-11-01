@@ -1,11 +1,22 @@
 import { useId, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
-import { api, pullModel, PullConnectionLost, type HfSearch, type LibrarySearch, type ProviderRef, type PullProgress } from "../api";
+import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
+import {
+  api,
+  pullModel,
+  PullConnectionLost,
+  type HfSearch,
+  type LibrarySearch,
+  type LlamaFilesPlan,
+  type ProviderRef,
+  type PullMethod,
+  type PullProgress,
+} from "../api";
 import { formatBytes, formatNumber } from "../format";
-import { useToast } from "../hooks";
+import { useClipboard, useToast } from "../hooks";
+import { CodeLine } from "./CodeLine";
 import { TabBar, TabPanel } from "./Tabs";
 
-const SOURCES = ["library", "hf", "name"] as const;
+const SOURCES = ["library", "hf", "name", "manual"] as const;
 type Source = (typeof SOURCES)[number];
 
 export interface Pull {
@@ -20,7 +31,8 @@ export interface Puller {
   /** Where pulls go: one model server on one machine, which does the download. */
   target: ProviderRef;
   label: string;
-  start: (ref: string) => Promise<boolean>;
+  /** method is llama.cpp's: through its router, or agent-machine downloading the files. */
+  start: (ref: string, method?: PullMethod) => Promise<boolean>;
   cancel: () => void;
   dismiss: () => void;
 }
@@ -35,7 +47,7 @@ export function usePull(target: ProviderRef, label: string, onPulled: () => void
   const [pull, setPull] = useState<Pull | null>(null);
   const abort = useRef<AbortController | null>(null);
 
-  const start = async (model: string) => {
+  const start = async (model: string, method: PullMethod = "") => {
     if (abort.current) {
       notify("Wait for the current pull to finish, or cancel it.");
       return false;
@@ -44,7 +56,7 @@ export function usePull(target: ProviderRef, label: string, onPulled: () => void
     abort.current = controller;
     setPull({ ref: model, progress: { status: "starting" } });
     try {
-      await pullModel(target, model, (progress) => setPull({ ref: model, progress }), controller.signal);
+      await pullModel(target, model, (progress) => setPull({ ref: model, progress }), controller.signal, method);
       notify(`Pulled ${model} to ${label}`);
       setPull(null);
       onPulled();
@@ -117,6 +129,7 @@ export function ModelSearch({ puller, disabled, flavor = "ollama" }: { puller: P
   const [source, setSource] = useState<Source>(llama ? "hf" : "library");
   const [input, setInput] = useState("");
   const [submitted, setSubmitted] = useState("");
+  const [method, setMethod] = useState<PullMethod>("");
   const ids = useId();
   const machine = puller.target.machine;
 
@@ -131,12 +144,12 @@ export function ModelSearch({ puller, disabled, flavor = "ollama" }: { puller: P
     enabled: source === "hf" && submitted.length > 0,
   });
 
-  const onPull = (ref: string) => void puller.start(ref);
+  const onPull = (ref: string) => void puller.start(ref, method);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     const text = input.trim();
     if (source !== "name") setSubmitted(text);
-    else if (await puller.start(text)) setInput("");
+    else if (await puller.start(text, method)) setInput("");
   };
   const busy = puller.active || Boolean(disabled);
 
@@ -153,9 +166,13 @@ export function ModelSearch({ puller, disabled, flavor = "ollama" }: { puller: P
           ...(llama ? [] : [{ id: "library" as const, label: "Ollama library" }]),
           { id: "hf", label: "Hugging Face (GGUF)" },
           { id: "name", label: "By name" },
+          ...(llama ? [{ id: "manual" as const, label: "By hand" }] : []),
         ]}
       />
 
+      {source === "manual" ? (
+        <ManualDownload puller={puller} busy={busy} />
+      ) : (
       <form className="filters" onSubmit={(event) => void submit(event)}>
         <input
           type="search"
@@ -172,8 +189,15 @@ export function ModelSearch({ puller, disabled, flavor = "ollama" }: { puller: P
         <button type="submit" className="primary" disabled={!input.trim() || (source === "name" && busy)}>
           {source === "name" ? "Pull" : "Search"}
         </button>
+        {llama && (
+          <select value={method} onChange={(event) => setMethod(event.target.value as PullMethod)} aria-label="How the machine downloads it">
+            <option value="">Through llama.cpp (the machine itself if llama.cpp can't)</option>
+            <option value="direct">The machine downloads the files</option>
+          </select>
+        )}
         <span className="subtle pull-target">Pulls to {puller.label}</span>
       </form>
+      )}
 
       <TabPanel idPrefix={ids} id="library" active={source === "library"}>
         <LibraryResults query={submitted} result={library} onPull={onPull} busy={busy} />
@@ -186,7 +210,9 @@ export function ModelSearch({ puller, disabled, flavor = "ollama" }: { puller: P
           <p className="subtle">
             Download any GGUF repo from <a href="https://huggingface.co/models?library=gguf" target="_blank" rel="noreferrer">Hugging Face</a> as{" "}
             <code>user/repo:quant</code>, such as <code>unsloth/Qwen3-8B-GGUF:Q4_K_M</code>. Without a quant, llama.cpp picks Q4_K_M. A
-            vision model's projector comes with it.
+            vision model's projector comes with it. llama.cpp downloads it itself. If it's too old to, or you choose so beside Pull, the
+            machine downloads the files into llama.cpp's GGUF folder instead, checks them by SHA-256, and carries on where a stopped
+            download left off.
           </p>
         ) : (
           <p className="subtle">
@@ -317,6 +343,113 @@ function HfQuantPicker({ machine, repo, onPull, busy, prefix }: { machine: strin
           </small>
         </button>
       ))}
+    </div>
+  );
+}
+
+/** The commands that download one llama.cpp model's files into the machine's GGUF folder (curl, resumable). */
+export function llamaCurlCommands(plan: LlamaFilesPlan): string[] {
+  const sep = plan.folder.includes("\\") && !plan.folder.includes("/") ? "\\" : "/";
+  return plan.files.map((file) => `curl -L -C - --create-dirs -o "${plan.folder}${sep}${file.path}" "${file.url}"`);
+}
+
+/**
+ * Downloading a llama.cpp model by hand: the machine says which files it is and where they go,
+ * the user runs the commands on the machine, then Reload has its router list it.
+ */
+function ManualDownload({ puller, busy }: { puller: Puller; busy: boolean }) {
+  const [input, setInput] = useState("");
+  const client = useQueryClient();
+  const copy = useClipboard();
+  const notify = useToast();
+  const plan = useMutation({ mutationFn: (name: string) => api.llamaFiles(puller.target, name) });
+  const reload = useMutation({
+    mutationFn: () => api.llamaReload(puller.target),
+    onSuccess: () => {
+      notify(`${puller.label} read its GGUF folder again`);
+      client.invalidateQueries({ queryKey: ["provider", puller.target.machine, puller.target.provider] });
+      client.invalidateQueries({ queryKey: ["models"] });
+    },
+    onError: (error) => notify((error as Error).message),
+  });
+  const data = plan.data;
+  const commands = data ? llamaCurlCommands(data) : [];
+  const total = data ? data.files.reduce((sum, file) => sum + file.size, 0) : 0;
+  return (
+    <div className="tab-stack">
+      <p className="subtle">
+        Download a model's GGUF files yourself, with curl or any other downloader, into the folder the machine's llama.cpp serves. Use it when a
+        download through the machine doesn't work, or to download on a better connection and copy the files over.
+      </p>
+      <form
+        className="filters"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (input.trim()) plan.mutate(input.trim());
+        }}
+      >
+        <input
+          type="search"
+          value={input}
+          onChange={(event) => setInput(event.target.value)}
+          placeholder="A Hugging Face GGUF repo, such as unsloth/Qwen3-8B-GGUF:Q4_K_M"
+          aria-label="Model to download by hand"
+        />
+        <button type="submit" disabled={!input.trim() || plan.isPending}>
+          {plan.isPending ? "Asking Hugging Face…" : "Show the files"}
+        </button>
+      </form>
+      {plan.isError && <p className="bad">{plan.error.message}</p>}
+      {data && (
+        <>
+          {!data.serves_folder && (
+            <p className="callout">
+              This llama-server isn't the one agent-machine starts, so it doesn't serve this folder. Put the files in its own GGUF folder (its{" "}
+              <code>--models-dir</code>) instead, then reload.
+            </p>
+          )}
+          <p>
+            <strong className="mono">{data.model}</strong>: {data.files.length} {data.files.length === 1 ? "file" : "files"}, {formatBytes(total)}, into{" "}
+            <code>{data.dir}</code>. llama.cpp lists it as <code>{data.name}</code>.
+          </p>
+          <p className="subtle">
+            Run these on the machine. <code>-C -</code> carries on a download that stopped. For a gated repo, add{" "}
+            <code>-H "Authorization: Bearer &lt;your Hugging Face token&gt;"</code>. In Windows PowerShell, type <code>curl.exe</code>.
+          </p>
+          {commands.map((command) => (
+            <CodeLine key={command} text={command} onCopy={() => void copy(command, "Command copied")} />
+          ))}
+          <details>
+            <summary>Each file's address and SHA-256</summary>
+            <ul className="plain">
+              {data.files.map((file) => (
+                <li key={file.path}>
+                  <a href={file.url} target="_blank" rel="noreferrer" className="mono">
+                    {file.repo_path}
+                  </a>{" "}
+                  <span className="subtle">
+                    {formatBytes(file.size)}
+                    {file.sha256 && (
+                      <>
+                        {" "}
+                        · SHA-256 <span className="mono">{file.sha256}</span>
+                      </>
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </details>
+          <div className="row wrap">
+            <button type="button" className="primary" disabled={reload.isPending} onClick={() => reload.mutate()}>
+              {reload.isPending ? "Reloading…" : "Reload, once the files are there"}
+            </button>
+            <button type="button" disabled={busy} onClick={() => void puller.start(data.model, "direct")}>
+              Have the machine download them instead
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

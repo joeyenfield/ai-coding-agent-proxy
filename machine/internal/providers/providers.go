@@ -40,6 +40,9 @@ type Request struct {
 	Query   string `json:"query"`
 	Repo    string `json:"repo"`
 	Tail    int    `json:"tail"`
+	// Method is how llama.cpp pulls: "" (the router, else agent-machine itself when the router
+	// can't), "router" or "direct" (agent-machine downloads the files into its GGUF folder).
+	Method string `json:"method"`
 }
 
 // Progress hears a pull's progress, as Ollama reports it.
@@ -55,6 +58,13 @@ type Manager struct {
 	External *http.Client
 	// Catalog URLs; tests replace them.
 	LibraryURL, HuggingFaceURL, DockerHubURL string
+	// HuggingFaceFilesURL is where model files are downloaded from; tests replace it.
+	HuggingFaceFilesURL string
+	// Downloads fetches model files (no time limit); tests replace it.
+	Downloads *http.Client
+	// RestartLlama restarts the llama-server agent-machine runs, so it serves its GGUF folder;
+	// presence wires it to package servers.
+	RestartLlama func() error
 
 	hub hubCache
 }
@@ -114,7 +124,7 @@ func (m *Manager) handle(request Request, progress Progress) (map[string]any, er
 	}
 	base := m.base(request.Port)
 	model := strings.TrimSpace(request.Model)
-	if (request.Op == "pull" || request.Op == "delete" || request.Op == "load" || request.Op == "unload") && request.Kind != "strata" && model == "" {
+	if (request.Op == "pull" || request.Op == "delete" || request.Op == "load" || request.Op == "unload" || request.Op == "files") && request.Kind != "strata" && model == "" {
 		return nil, errors.New("A model name is required")
 	}
 	switch request.Kind + " " + request.Op {
@@ -142,8 +152,27 @@ func (m *Manager) handle(request Request, progress Progress) (map[string]any, er
 	case "llamacpp status":
 		return map[string]any{"state": llamaStatus(base, request.Key)}, nil
 	case "llamacpp pull":
-		return nil, llamaPull(base, request.Key, model, progress)
+		return nil, m.llamaPullBy(request.Method, base, request.Key, model, request.Port, progress)
+	case "llamacpp files":
+		// Read-only: what downloading it by hand means (the files, their URLs, the folder).
+		plan, err := m.llamaPlanFor(model)
+		if err != nil {
+			return nil, err
+		}
+		answer := plan.public()
+		answer["serves_folder"] = llamaOwn(request.Port)
+		return map[string]any{"result": answer}, nil
+	case "llamacpp reload":
+		// After files were put in the GGUF folder by hand: the router reads it again.
+		_, status, err := getJSON(base+"/models?reload=1", llamaHeaders(request.Key), 30*time.Second)
+		if err == nil && status >= 400 {
+			err = fmt.Errorf("llama-server returned %d", status)
+		}
+		return result("reloaded", LlamaFolder()), err
 	case "llamacpp delete":
+		if removed, err := m.llamaRemoveLocal(base, request.Key, model); removed || err != nil {
+			return result("deleted", model), err
+		}
 		return result("deleted", model), llamaDelete(base, request.Key, model)
 	case "llamacpp load":
 		// The router answers once the model is loading; its status says when it's in.

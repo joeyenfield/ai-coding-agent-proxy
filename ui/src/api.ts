@@ -1139,6 +1139,30 @@ export interface PullProgress {
   error?: string;
 }
 
+/** How llama.cpp pulls: "" its router (else agent-machine, when the router is too old), "router" only, or "direct" (agent-machine downloads the files). */
+export type PullMethod = "" | "router" | "direct";
+
+/** One file of a llama.cpp model, as agent-machine would download it into its GGUF folder. */
+export interface LlamaFile {
+  repo_path: string;
+  /** Where it goes, inside the GGUF folder. */
+  path: string;
+  url: string;
+  size: number;
+  sha256: string;
+}
+
+/** What downloading a llama.cpp model by hand means: its files and the GGUF folder agent-machine's llama-server serves. */
+export interface LlamaFilesPlan {
+  model: string;
+  name: string;
+  folder: string;
+  dir: string;
+  files: LlamaFile[];
+  /** Whether this llama-server is agent-machine's own, which serves that folder. */
+  serves_folder: boolean;
+}
+
 export interface LibraryModel {
   name: string;
   description: string;
@@ -1660,6 +1684,11 @@ export const api = {
     request<LlamaSettings>(`${machineUrl(machine)}/servers/llamacpp`, { method: "PUT", body: JSON.stringify(config) }),
   llamaInstallOptions: (machine: string) => request<LlamaInstallOptions>(`${machineUrl(machine)}/servers/llamacpp/install`),
   providerStatus: <T extends ProviderBase>(ref: ProviderRef) => request<T>(providerUrl(ref)),
+  /** A llama.cpp model's files on Hugging Face, to download them by hand into the machine's GGUF folder. */
+  llamaFiles: (ref: ProviderRef, name: string) =>
+    request<LlamaFilesPlan>(`${providerUrl(ref)}/models/files`, { method: "POST", body: JSON.stringify({ name }) }),
+  /** llama.cpp's router reads its GGUF folder again (after files were put there by hand). */
+  llamaReload: (ref: ProviderRef) => request<{ reloaded: string }>(`${providerUrl(ref)}/models/reload`, { method: "POST", body: "{}" }),
   /** Delete, load or unload a model; Strata's load and unload take no name. */
   providerModelAction: (ref: ProviderRef, action: "delete" | "load" | "unload", name?: string) =>
     request<Record<string, unknown>>(`${providerUrl(ref)}/models/${action}`, {
@@ -1870,11 +1899,12 @@ export async function pullModel(
   name: string,
   onProgress: (progress: PullProgress) => void,
   signal?: AbortSignal,
+  method: PullMethod = "",
 ): Promise<void> {
   const response = await apiFetch(`${providerUrl(ref)}/models/pull`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify(method ? { name, method } : { name }),
     signal,
   });
   if (!response.ok || !response.body) {

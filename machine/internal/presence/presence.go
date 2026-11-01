@@ -171,6 +171,17 @@ func (p *Presence) Run(ctx context.Context) {
 	if p.Providers == nil {
 		p.Providers = &providers.Manager{}
 	}
+	if p.Providers.RestartLlama == nil {
+		// After agent-machine downloads a model into its GGUF folder, a llama-server started
+		// before it served that folder restarts to serve it.
+		p.Providers.RestartLlama = func() error {
+			answer := p.Servers.Handle(servers.Request{Op: "restart", Kind: "llamacpp"})
+			if answer["ok"] != true {
+				return fmt.Errorf("%v", answer["error"])
+			}
+			return nil
+		}
+	}
 	if p.MCP == nil {
 		p.MCP = &mcp.Bridge{Logger: p.Logger}
 		defer p.MCP.Close()

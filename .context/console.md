@@ -78,7 +78,7 @@ The design rule: **everything about a model server is on its machine's page**, o
 
 - `src/`: `api.ts` (calls and types), `hooks.tsx` (shared queries, theme, toasts, clipboard), `live.ts`, `traffic.ts` (host and path classification), `format.ts`, `routes.ts` (`ROUTES`, `PROVIDERS`, `providerLabel()`), `navigation.ts`.
 - `pages/`: one file per page. `Docs.tsx` renders `docs/*.md` from `/help-files/` with marked, and loads mermaid lazily.
-- `components/`: reuse before writing new ones: `Tabs` (`useTabParam`, `TabBar`, `TabPanel`, which unmounts inactive panels and so stops their polling), `CodeLine`, `ConfirmDialog`, `ModelSearch` (`flavor="llamacpp"`: Hugging Face only, names `user/repo:quant`)/`usePull(target, label, onPulled)`, `ProviderState`/`StateDot`, `LogPanel`, `RouteBadge`, `AddBackendForm`, `Sharing`, `McpChoice`, `FolderPicker`, `Attention` (`AttentionAlerts`, `waitingAgents`, `NotifyToggle`), `Restart` (`RestartProvider`, `RestartButton`), `Icon` (inline SVG only).
+- `components/`: reuse before writing new ones: `Tabs` (`useTabParam`, `TabBar`, `TabPanel`, which unmounts inactive panels and so stops their polling), `CodeLine`, `ConfirmDialog`, `ModelSearch` (`flavor="llamacpp"`: Hugging Face only, names `user/repo:quant`, a pull method beside Pull and the **By hand** tab, `ManualDownload`/`llamaCurlCommands`, over `api.llamaFiles`/`api.llamaReload`)/`usePull(target, label, onPulled)` (`start(ref, method?)`), `ProviderState`/`StateDot`, `LogPanel`, `RouteBadge`, `AddBackendForm`, `Sharing`, `McpChoice`, `FolderPicker`, `Attention` (`AttentionAlerts`, `waitingAgents`, `NotifyToggle`), `Restart` (`RestartProvider`, `RestartButton`), `Icon` (inline SVG only).
 
 ## Styling
 

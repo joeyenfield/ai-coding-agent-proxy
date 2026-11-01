@@ -204,6 +204,30 @@ func llamaTooOld() string {
 	return text + ", from the machine's llama.cpp server tab or however it was installed"
 }
 
+// noDownloads is a router too old to download, where agent-machine can download the files instead.
+type noDownloads struct{ text string }
+
+func (e noDownloads) Error() string { return e.text }
+
+// llamaPullBy pulls with the router, or has agent-machine download the files (method "direct"),
+// which it also does by itself when its own router is too old to.
+func (m *Manager) llamaPullBy(method, base, key, model string, port int, progress Progress) error {
+	switch method {
+	case "direct":
+		return m.llamaFetch(base, key, model, port, progress)
+	case "", "router":
+	default:
+		return fmt.Errorf("pull with the router or directly, not %q", method)
+	}
+	err := llamaPull(base, key, model, progress)
+	var old noDownloads
+	if method == "" && errors.As(err, &old) && llamaOwn(port) {
+		progress(map[string]any{"status": "this llama-server can't download models: agent-machine downloads the files itself"})
+		return m.llamaFetch(base, key, model, port, progress)
+	}
+	return err
+}
+
 // llamaNoDownloads says why the router's download progress stream was refused.
 func llamaNoDownloads(base, key string, status int) error {
 	switch status {
@@ -212,7 +236,7 @@ func llamaNoDownloads(base, key string, status int) error {
 	case http.StatusNotFound:
 		// A router lists every model with a status; only an old one lacks the download routes.
 		if llamaStatus(base, key)["router"] == true {
-			return errors.New(llamaTooOld())
+			return noDownloads{llamaTooOld()}
 		}
 		return errors.New("this llama-server serves one model: start it in router mode (without -m) to download models")
 	}

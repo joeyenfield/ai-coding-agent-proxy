@@ -39,6 +39,10 @@ from .terminals import CLOSE_UNAUTHORIZED
 
 NAME = re.compile(r"[^a-z0-9_-]+")
 MODEL_ACTIONS = {"pull", "delete", "load", "unload"}
+# llama.cpp's too: the files a model is (to download them by hand), and reading its GGUF folder again.
+LLAMA_ACTIONS = {"files", "reload"}
+# How llama.cpp pulls: "" the router (else agent-machine itself, when the router can't), or only one of them.
+PULL_METHODS = {"", "router", "direct"}
 # How llama.cpp is installed: an id of the machine's install options, which the machine checks again.
 VARIANT = re.compile(r"[a-z0-9][a-z0-9.-]{0,40}")
 CATALOGS = ("ollama", "huggingface", "huggingface-quants", "docker-hub", "docker-hub-tags")
@@ -335,7 +339,8 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         """Pull, delete, load or unload a model on the machine's model server (Strata: load or unload its model).
 
         Pull answers with the machine's progress as NDJSON lines, Ollama's style, ending in
-        success or {"status": "error"}.
+        success or {"status": "error"}. llama.cpp also has files (a model's files, to download
+        by hand) and reload (its router reads its GGUF folder again).
         """
         require_trusted(request)
         if not remote.same_origin(request):
@@ -344,13 +349,18 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         if not allowed(auth.request_identity(request), target, "models"):
             raise HTTPException(status_code=403, detail="Only the machine's owner, an admin, or the teams it lets can change its models.")
         kind, port, backend = provider(target, provider_id)
-        if action not in MODEL_ACTIONS or (kind == "strata" and action not in {"load", "unload"}):
-            raise HTTPException(status_code=404, detail="Pull, delete, load or unload a model (Strata: load or unload)")
+        if (action not in MODEL_ACTIONS and not (kind == "llamacpp" and action in LLAMA_ACTIONS)) or (kind == "strata" and action not in {"load", "unload"}):
+            raise HTTPException(status_code=404, detail="Pull, delete, load or unload a model (Strata: load or unload; llama.cpp also files and reload)")
         data = await request.json() if request.headers.get("content-length") not in (None, "0") else {}
         name = str((data or {}).get("name") or (data or {}).get("model") or "").strip() if isinstance(data, dict) else ""
-        if kind != "strata" and not name:
+        if kind != "strata" and action != "reload" and not name:
             raise HTTPException(status_code=400, detail="A model name is required")
         fields = {**provider_request(backend, kind, port), "model": name[:300]}
+        if kind == "llamacpp" and action == "pull":
+            method = str((data or {}).get("method") or "") if isinstance(data, dict) else ""
+            if method not in PULL_METHODS:
+                raise HTTPException(status_code=400, detail="Pull with the router or directly")
+            fields["method"] = method
         if action != "pull":
             # Loading a big model takes minutes; Strata drains requests in flight before unloading.
             answer = await ask(target, action, timeout=660 if action == "load" else 330, **fields)

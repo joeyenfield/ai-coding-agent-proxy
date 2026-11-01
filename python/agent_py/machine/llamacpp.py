@@ -79,7 +79,7 @@ SETTINGS = [
             "LLAMA_ARG_THINK_BUDGET", minimum=-1, maximum=1048576),
     setting("jinja", REASONING, "Model's chat template", "bool", True, "Use the chat template in the model (needed for tool calls).", "LLAMA_ARG_JINJA"),
     setting("cache_dir", MODELS, "Download folder", "str", "", "Where models downloaded from Hugging Face go. Empty = llama.cpp's standard cache.", "LLAMA_CACHE"),
-    setting("models_dir", MODELS, "GGUF folder", "str", "", "A folder of .gguf files to serve as well (a subfolder for a model in several files).", "LLAMA_ARG_MODELS_DIR"),
+    setting("models_dir", MODELS, "GGUF folder", "str", "", "A folder of .gguf files to serve as well (a subfolder for a model in several files). Empty = llamacpp-models in agent-machine's folder. Models agent-machine downloads itself go here.", "LLAMA_ARG_MODELS_DIR"),
     setting("webui", SERVER, "Web UI", "bool", False, "llama-server's own chat page, on this computer only.", "LLAMA_ARG_UI", false="off", true="on"),
     setting("metrics", SERVER, "Metrics endpoint", "bool", False, "Prometheus metrics at /metrics.", "LLAMA_ARG_ENDPOINT_METRICS"),
 ]
@@ -108,9 +108,31 @@ def _dropped(name: str) -> bool:
     return upper in RESERVED or (upper.startswith("LLAMA_ARG_") and any(part in upper for part in FORBIDDEN))
 
 
+def default_models_dir() -> str:
+    """The GGUF folder when none is set: llamacpp-models in agent-machine's folder."""
+    return str(settings.home() / "llamacpp-models")
+
+
+def managed_env(config: Dict[str, Any]) -> Dict[str, Optional[str]]:
+    """The variables the config sets (None: unset), with always a GGUF folder: where agent-machine
+    downloads models when the router can't."""
+    env = TABLE.managed(config)
+    if env.get("LLAMA_ARG_MODELS_DIR") is None:
+        env["LLAMA_ARG_MODELS_DIR"] = default_models_dir()
+    return env
+
+
+def models_dir() -> str:
+    """The GGUF folder agent-machine's llama-server serves."""
+    return managed_env(TABLE.load())["LLAMA_ARG_MODELS_DIR"] or default_models_dir()
+
+
 def environment(base: Dict[str, str], config: Dict[str, Any]) -> Dict[str, str]:
     """The environment llama-server starts with: base without what the console mustn't set, with the managed variables applied."""
-    return TABLE.environment(base, config, _dropped)
+    env = TABLE.environment(base, config, _dropped)
+    if TABLE.managed(config).get("LLAMA_ARG_MODELS_DIR") is None:
+        env["LLAMA_ARG_MODELS_DIR"] = default_models_dir()
+    return env
 
 
 def warnings(config: Dict[str, Any]) -> List[str]:
@@ -313,7 +335,7 @@ def settings_answer(port: int) -> Dict[str, Any]:
     """The "llamacpp_settings" answer: the table, the saved config, and whether the llama-server
     agent-machine runs was started with it."""
     config = TABLE.load()
-    env = dict(sorted(TABLE.managed(config).items()))
+    env = dict(sorted(managed_env(config).items()))
     matches = None
     saved = servers.load_state()
     if pid() and running(port) and isinstance(saved.get("llamacpp_env"), dict):
@@ -331,7 +353,12 @@ def start(port: int) -> None:
     if installing():
         raise Refused("llama.cpp is being installed: start it when that's done")
     config = TABLE.load()
-    env = dict(sorted(TABLE.managed(config).items()))
+    env = dict(sorted(managed_env(config).items()))
+    # The router refuses to start without its GGUF folder.
+    try:
+        os.makedirs(env["LLAMA_ARG_MODELS_DIR"] or default_models_dir(), exist_ok=True)
+    except OSError as error:
+        raise Refused(f"couldn't make the GGUF folder {env['LLAMA_ARG_MODELS_DIR']}: {error}")
     path = log_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "a", encoding="utf-8") as log:

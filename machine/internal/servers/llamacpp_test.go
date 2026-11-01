@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"ai-coding-agent-proxy/machine/internal/providers"
 	"ai-coding-agent-proxy/machine/internal/settings"
 )
 
@@ -102,6 +103,12 @@ func TestLlamaStartsWithItsSettingsServesAndStops(t *testing.T) {
 	response.Body.Close()
 	if props.Env["LLAMA_ARG_CTX_SIZE"] != "32768" || props.Env["LLAMA_CACHE"] != filepath.Join(home, "models") || !strings.Contains(strings.Join(props.Argv, " "), "--host 127.0.0.1") {
 		t.Fatalf("started with %v", props)
+	}
+	// Without a GGUF folder set, it serves agent-machine's own, where agent-machine downloads models.
+	if folder := filepath.Join(home, "llamacpp-models"); props.Env["LLAMA_ARG_MODELS_DIR"] != folder || providers.LlamaFolder() != folder {
+		t.Fatalf("GGUF folder %q, downloads into %q", props.Env["LLAMA_ARG_MODELS_DIR"], providers.LlamaFolder())
+	} else if info, err := os.Stat(folder); err != nil || !info.IsDir() {
+		t.Fatalf("the router needs its folder: %v", err)
 	}
 	if settingsAnswer := manager.Handle(Request{ID: "g", Op: "settings", Kind: "llamacpp"}); settingsAnswer["llamacpp_settings"].(map[string]any)["applied_matches_saved"] != true {
 		t.Fatalf("settings: %v", settingsAnswer)

@@ -254,7 +254,7 @@ The settings are the machine's: agent-machine keeps them in `llamacpp.json` in i
 | Reasoning | Thinking budget (`-1` no limit, `0` don't think) | `LLAMA_ARG_THINK_BUDGET` | `-1` |
 | | Model's chat template | `LLAMA_ARG_JINJA` | on |
 | Models | Download folder | `LLAMA_CACHE` | llama.cpp's cache |
-| | GGUF folder | `LLAMA_ARG_MODELS_DIR` | none |
+| | GGUF folder (where agent-machine's own downloads go) | `LLAMA_ARG_MODELS_DIR` | `llamacpp-models` in agent-machine's folder |
 | Server | Web UI | `LLAMA_ARG_UI` | off |
 | | Metrics endpoint | `LLAMA_ARG_ENDPOINT_METRICS` | off |
 
@@ -267,8 +267,23 @@ The settings are the machine's: agent-machine keeps them in `llamacpp.json` in i
 Its model server tab lists what the router can serve, loaded ones first, with each one's size, state (loaded, loading, not loaded, asleep, downloading with its progress, a download not finished) and file, and:
 
 - **Load** and **Unload**, through the router's `/models/load` and `/models/unload`;
-- **Delete**, which deletes a model from llama.cpp's cache (`DELETE /models`; models in the GGUF folder are removed there);
-- **Find and download**: search Hugging Face for GGUF repos and pick a quant, or name one as `user/repo:quant` (`user/repo` alone takes Q4_K_M). The router downloads it into its cache itself (`POST /models`), and agent-machine relays its progress from `/models/sse`. A vision model's projector comes with it. llama.cpp builds from before mid-2026 (b9590 and older) can't download: the tab says the llama-server is too old. In Termux, run `pkg upgrade llama-cpp`. If it stays old, the phone's Termux mirror has stopped updating: pick another with `termux-change-repo`, then upgrade again. The llama.cpp server tab shows the version it found. For Termux's packages that's the package's version, because their `--version` names no build.
+- **Delete**, which deletes a model from llama.cpp's cache (`DELETE /models`), or one agent-machine downloaded into its GGUF folder (it unloads it, deletes its subfolder and has the router read the folder again). Other models in a GGUF folder are removed there;
+- **Find and download**: search Hugging Face for GGUF repos and pick a quant, or name one as `user/repo:quant` (`user/repo` alone takes Q4_K_M). A vision model's projector comes with it. Beside **Pull**, choose how it's downloaded:
+  - **Through llama.cpp** (the default): the router downloads it into its cache itself (`POST /models`), and agent-machine relays its progress from `/models/sse`. If the router is too old to download and it's the llama-server agent-machine starts, agent-machine downloads the files itself instead.
+  - **The machine downloads the files**: agent-machine downloads them from Hugging Face into the GGUF folder, as described below.
+- **By hand**: name a model and **Show the files**. The tab lists its files, their sizes and SHA-256, the folder they go in, and a `curl` command for each (`curl -L -C - --create-dirs -o <folder>/<model>/<file> <url>`). Run them on the machine, or download anywhere and copy the files there, then **Reload** so the router lists it. **Have the machine download them instead** does the same as choosing the machine above.
+
+#### Downloads by agent-machine
+
+When agent-machine downloads a model itself, it reads the repo's file list from Hugging Face and takes the quant's GGUF file (every part of a split one) and the repo's vision projector (`mmproj`, F16 first). It saves them to `<GGUF folder>/<repo>-<quant>/`, such as `llamacpp-models/Qwen3-8B-Q4_K_M/`. The router lists the model by that folder's name.
+
+- Each file is checked against the SHA-256 Hugging Face lists for it. A file that doesn't match is deleted and the pull fails.
+- Files are written as `.part` until all of them are complete, so the router never lists half a model. Pulling the same model again carries on where an interrupted download stopped.
+- When the files are in, the router reads the folder again (`/models?reload=1`). A llama-server started before it served that folder is restarted, once.
+- Only the llama-server agent-machine starts serves its GGUF folder. A llama.cpp container or one on another port downloads through its router only.
+- A gated repo needs its licence accepted on huggingface.co, and a token in `HF_TOKEN` in agent-machine's environment.
+
+llama.cpp builds from before mid-2026 (b9590 and older) have no downloads of their own. Through llama.cpp, agent-machine downloads the files itself, as above. Asked for the router only, or for a llama-server agent-machine didn't start, the pull says the llama-server is too old. In Termux, `pkg upgrade llama-cpp` updates it. If it stays old, the phone's Termux mirror has stopped updating: pick another with `termux-change-repo`, then upgrade again. The llama.cpp server tab shows the version it found. For Termux's packages, that's the package's version, because their `--version` names no build.
 
 A llama-server started with one model (`-m`) has no router: it lists that model, and its models can't change from here.
 

@@ -67,6 +67,10 @@ class FakeSocket:
                 answer["metrics"] = {"cpu": {"percent": 12.5, "count": 8}, "memory": {"used": 1, "total": 2, "percent": 50}, "gpus": []}
             elif op == "search":
                 answer["result"] = {"query": request["query"], "models": [{"name": "qwen3"}], "note": None}
+            elif op == "files":
+                answer["result"] = {"model": request["model"], "name": "Qwen3-8B-Q4_K_M", "folder": "/m/llamacpp-models", "files": [{"url": "https://huggingface.co/x"}]}
+            elif op == "reload":
+                answer["result"] = {"reloaded": "/m/llamacpp-models"}
         elif request["type"] == "server":
             if op == "settings" or op == "configure":
                 answer["ollama_settings"] = {"config": request.get("config") or {"num_parallel": 1}, "warnings": []}
@@ -181,6 +185,24 @@ def test_a_pull_streams_the_machines_progress_and_its_failure(tmp_path):
         assert [line.get("completed") for line in lines] == [10, 100, None] and lines[-1] == {"status": "success"}
         failed = [json.loads(line) for line in client.post("/api/machines/desk/providers/ollama-11434/models/pull", json={"name": "missing"}).text.splitlines()]
         assert failed[-1] == {"status": "error", "error": "pull model manifest: file does not exist"}
+
+
+def test_llamacpp_pulls_by_a_method_and_plans_files_to_download_by_hand(tmp_path):
+    app = local_app(tmp_path)
+    with TestClient(app, **LOCAL) as client:
+        with_refusing_client(app)
+        socket = start(app, providers=[{"type": "llamacpp", "port": 9931}, {"type": "ollama", "port": 11434}])
+        url = "/api/machines/desk/providers/llamacpp-9931/models"
+        lines = [json.loads(line) for line in client.post(f"{url}/pull", json={"name": "someone/Qwen3-8B-GGUF", "method": "direct"}).text.splitlines()]
+        assert lines[-1] == {"status": "success"} and socket.requests[-1]["method"] == "direct"
+        assert client.post(f"{url}/pull", json={"name": "someone/Qwen3-8B-GGUF", "method": "curl"}).status_code == 400
+        plan = client.post(f"{url}/files", json={"name": "someone/Qwen3-8B-GGUF"}).json()
+        assert plan["name"] == "Qwen3-8B-Q4_K_M" and socket.requests[-1]["op"] == "files"
+        assert client.post(f"{url}/reload").json() == {"reloaded": "/m/llamacpp-models"}
+        assert client.post(f"{url}/files", json={}).status_code == 400
+        # They're llama.cpp's: other model servers don't have them.
+        assert client.post("/api/machines/desk/providers/ollama-11434/models/files", json={"name": "x"}).status_code == 404
+        assert "method" not in [request for request in socket.requests if request["op"] == "files"][0]
 
 
 def test_a_machine_going_away_ends_its_waiting_requests(tmp_path, monkeypatch):

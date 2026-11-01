@@ -17,10 +17,12 @@ from __future__ import annotations
 
 import concurrent.futures
 import glob
+import hashlib
 import json
 import math
 import os
 import platform
+import re
 import shutil
 import socket
 import subprocess
@@ -66,6 +68,10 @@ MINUTE = 60.0
 
 class Refused(Exception):
     pass
+
+
+class NoDownloads(Refused):
+    """A router too old to download, where agent-machine can download the files instead."""
 
 
 def local(timeout: Optional[float] = None) -> httpx.Client:
@@ -218,6 +224,11 @@ class Manager:
         self.machine = machine
         self.host = host
         self.catalogs = catalog.Catalogs()
+        # Where llama.cpp model files are downloaded from, and the client that does it (no time limit); tests replace them.
+        self.hugging_face_files_url = HUGGING_FACE_FILES_URL
+        self.downloads: Callable[[], httpx.Client] = lambda: httpx.Client(trust_env=False, timeout=httpx.Timeout(60, read=300), follow_redirects=True)
+        # Restarts the llama-server agent-machine runs, so it serves its GGUF folder; presence wires it to servers.
+        self.restart_llama: Optional[Callable[[], None]] = None
 
     def handle(self, request: Dict[str, Any], progress: Optional[Progress] = None) -> Dict[str, Any]:
         """One request, always answered with a provider_result for its id. progress hears a pull's progress before the answer."""
@@ -250,7 +261,7 @@ class Manager:
             raise Refused("Managing model servers is off on this machine (agent-machine servers on)")
         base = f"http://{self.host}:{port}"
         model = str(request.get("model") or "").strip()
-        if op in CHANGES and kind != "strata" and not model:
+        if (op in CHANGES or op == "files") and kind != "strata" and not model:
             raise Refused("A model name is required")
         key = str(request.get("key") or "")
         tail_size = whole(request.get("tail")) or 0
@@ -280,9 +291,24 @@ class Manager:
         if which == "llamacpp status":
             return {"state": llama_status(base, key)}
         if which == "llamacpp pull":
-            llama_pull(base, key, model, progress)
+            self.llama_pull_by(str(request.get("method") or ""), base, key, model, port, progress)
             return {}
+        if which == "llamacpp files":
+            # Read-only: what downloading it by hand means (the files, their URLs, the folder).
+            plan = llama_plan(self.catalogs, self.hugging_face_files_url, model)
+            plan["serves_folder"] = llama_own(port)
+            return {"result": plan}
+        if which == "llamacpp reload":
+            # After files were put in the GGUF folder by hand: the router reads it again.
+            value, status, error = attempt(base + "/models?reload=1", llama_headers(key), 30)
+            if error is not None:
+                raise unavailable("llama-server", error)
+            if status >= 400:
+                raise Refused(f"llama-server returned {status}")
+            return result("reloaded", llama_folder())
         if which == "llamacpp delete":
+            if llama_remove_local(base, key, model):
+                return result("deleted", model)
             llama_call("DELETE", base + "/models?model=" + quote(model, safe=""), key, None, MINUTE)
             return result("deleted", model)
         if which == "llamacpp load":
@@ -308,6 +334,48 @@ class Manager:
         if which == "docker unload":
             return {"result": {"unloaded": model, "runners": docker_unload(base, model)}}
         raise Refused(f"{KINDS[kind]} can't {op}")
+
+    def llama_pull_by(self, method: str, base: str, key: str, model: str, port: int, progress: Progress) -> None:
+        """Pulls with the router, or has agent-machine download the files (method "direct"), which it
+        also does by itself when its own router is too old to."""
+        if method == "direct":
+            self.llama_fetch(base, key, model, port, progress)
+            return
+        if method not in ("", "router"):
+            raise Refused(f"pull with the router or directly, not {json.dumps(method)}")
+        try:
+            llama_pull(base, key, model, progress)
+        except NoDownloads:
+            if method or not llama_own(port):
+                raise
+            progress({"status": "this llama-server can't download models: agent-machine downloads the files itself"})
+            self.llama_fetch(base, key, model, port, progress)
+
+    def llama_fetch(self, base: str, key: str, model: str, port: int, progress: Progress) -> None:
+        """Downloads a model's files into its subfolder of the GGUF folder, each checked by its SHA-256,
+        then has the router read the folder again."""
+        if not llama_own(port):
+            raise Refused(f"only the llama-server agent-machine starts (port {llama_server_port()}) serves its GGUF folder: "
+                          "download with the router itself, or into this one's own folder by hand")
+        plan = llama_plan(self.catalogs, self.hugging_face_files_url, model)
+        os.makedirs(plan["dir"], exist_ok=True)
+        total = sum(file["size"] for file in plan["files"])
+        done = 0
+        progress({"status": f"downloading {plan['model']} into {plan['dir']}", "completed": 0, "total": total})
+        for file in plan["files"]:
+            target = os.path.join(plan["folder"], file["path"])
+            if os.path.isfile(target) and (not file["size"] or os.path.getsize(target) == file["size"]):
+                done += os.path.getsize(target)
+                continue
+            start = done
+            done += llama_download(self.downloads, file, target + ".part",
+                                   lambda n: progress({"status": "downloading", "completed": start + n, "total": total}))
+        # Only now take .part off, so the router never lists a model whose files aren't all there.
+        for file in plan["files"]:
+            target = os.path.join(plan["folder"], file["path"])
+            if os.path.exists(target + ".part"):
+                os.replace(target + ".part", target)
+        llama_serve(base, key, plan["name"], self.restart_llama, progress)
 
 
 def result(key: str, model: str) -> Dict[str, Any]:
@@ -525,7 +593,7 @@ def llama_no_downloads(base: str, key: str, status: int) -> Refused:
     if status == 404:
         # A router lists every model with a status; only an old one lacks the download routes.
         if llama_status(base, key).get("router") is True:
-            return Refused(llama_too_old())
+            return NoDownloads(llama_too_old())
         return Refused("this llama-server serves one model: start it in router mode (without -m) to download models")
     return Refused(f"llama-server answered {status} to /models/sse, so it can't report a download's progress")
 
@@ -577,6 +645,221 @@ def llama_pull(base: str, key: str, model: str, progress: Progress) -> None:
             raise Refused("llama-server stopped before the download finished")
         finally:
             events.close()
+
+
+# llama.cpp: downloading a model's GGUF files here, instead of through the router (llamacpp_files.go):
+# for routers too old to download (llama.cpp before mid-2026, which stale Termux mirrors still hand
+# out), or by choice. The files go into the GGUF folder agent-machine's llama-server serves
+# (LLAMA_ARG_MODELS_DIR), one subfolder per model, which every router reads again on
+# /models?reload=1. "files" gives the same plan for downloading them by hand (curl).
+
+# Where Hugging Face serves a repo's files (<repo>/resolve/main/<path>).
+HUGGING_FACE_FILES_URL = "https://huggingface.co"
+# What "user/repo" alone downloads, as llama-server's -hf does.
+DEFAULT_QUANT = "Q4_K_M"
+_UNSAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def llama_folder() -> str:
+    """The GGUF folder agent-machine's llama-server serves (llamacpp.py owns its setting)."""
+    from . import llamacpp
+    return llamacpp.models_dir()
+
+
+def hf_token() -> str:
+    """A Hugging Face token for gated repos, as llama.cpp itself reads it."""
+    return os.environ.get("HF_TOKEN", "").strip()
+
+
+def hf_headers() -> Dict[str, str]:
+    headers = {"User-Agent": catalog.SEARCH_AGENT}
+    if hf_token():
+        headers["Authorization"] = "Bearer " + hf_token()
+    return headers
+
+
+def llama_own(port: int) -> bool:
+    """Whether a port is the llama-server agent-machine starts, the one serving its GGUF folder."""
+    return port == llama_server_port()
+
+
+def pick_projector(projectors: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """The projector llama.cpp would take: F16 first, then BF16, then any."""
+    for want in ("f16", "bf16", ""):
+        for item in projectors:
+            name = text(item.get("path")).lower()
+            if not want or (want in name and not (want == "f16" and "bf16" in name)):
+                return item
+    return None
+
+
+def llama_plan(catalogs: "catalog.Catalogs", files_url: str, model: str) -> Dict[str, Any]:
+    """A model's files on Hugging Face: the quant's GGUF (every shard of a split one) and, as
+    llama-server's -hf does, the repo's vision projector; and where they go."""
+    llama_model_name(model)
+    repo, _, quant = model.partition(":")
+    try:
+        with catalogs.client() as http:
+            response = http.get(f"{catalogs.hugging_face_url}/{repo}/tree/main", params={"recursive": "1"}, headers=hf_headers())
+    except httpx.HTTPError as error:
+        raise Refused(f"couldn't reach Hugging Face: {error}")
+    if response.status_code in (401, 403):
+        raise Refused("this repo is gated or private: accept its licence on huggingface.co, and give agent-machine a token (HF_TOKEN)")
+    if response.status_code == 404:
+        raise Refused(f"{repo} isn't on Hugging Face")
+    if response.status_code >= 400:
+        raise Refused(f"Hugging Face returned {response.status_code}")
+    try:
+        listed = response.json()
+    except ValueError:
+        raise Refused("unexpected answer from Hugging Face")
+    by_quant: Dict[str, List[Dict[str, Any]]] = {}
+    projectors: List[Dict[str, Any]] = []
+    for raw in items(listed) or []:
+        item = obj(raw)
+        path = text(item.get("path"))
+        name = path.rsplit("/", 1)[-1]
+        if text(item.get("type")) != "file" or not name.lower().endswith(".gguf"):
+            continue
+        if "mmproj" in name.lower():
+            projectors.append(item)
+            continue
+        found = catalog.quant_from_filename(name[:-5])
+        if found:
+            by_quant.setdefault(found, []).append(item)
+    available = sorted(by_quant)
+    quant = quant.strip().upper()
+    if not quant:
+        quant = DEFAULT_QUANT
+        if quant not in by_quant and len(available) == 1:
+            quant = available[0]
+    chosen = sorted(by_quant.get(quant, []), key=lambda item: text(item.get("path")))
+    if not chosen:
+        if not available:
+            raise Refused(f"{repo} has no GGUF files: look for a repo ending in -GGUF")
+        raise Refused(f"{repo} has no {quant}: it has {', '.join(available)}")
+    projector = pick_projector(projectors)
+    if projector is not None:
+        chosen.append(projector)
+    short = repo.split("/", 1)[1]
+    if short.lower().endswith("-gguf"):
+        short = short[:-5]
+    name = _UNSAFE_NAME.sub("-", f"{short}-{quant}").strip("-.")
+    folder = llama_folder()
+    files = []
+    for item in chosen:
+        path = text(item.get("path"))
+        lfs = obj(item.get("lfs"))
+        size = int(number(lfs.get("size")) or number(item.get("size")))
+        files.append({"repo_path": path, "path": os.path.join(name, path.rsplit("/", 1)[-1]), "size": size, "sha256": text(lfs.get("oid")).lower(),
+                      "url": f"{files_url}/{repo}/resolve/main/" + "/".join(quote(segment, safe="") for segment in path.split("/"))})
+    return {"model": f"{repo}:{quant}", "name": name, "folder": folder, "dir": os.path.join(folder, name), "files": files}
+
+
+def llama_download(client: Callable[[], httpx.Client], file: Dict[str, Any], part: str, report: Callable[[int], None]) -> int:
+    """Writes one file to part, resuming what an earlier try left, and checks its SHA-256. Returns its size."""
+    digest = hashlib.sha256()
+    have = 0
+    try:
+        with open(part, "rb") as existing:
+            for chunk in iter(lambda: existing.read(1 << 20), b""):
+                digest.update(chunk)
+                have += len(chunk)
+    except FileNotFoundError:
+        pass
+    if file["size"] and have > file["size"]:
+        have, digest = 0, hashlib.sha256()
+    headers = hf_headers()
+    if have:
+        headers["Range"] = f"bytes={have}-"
+    try:
+        with client() as http, http.stream("GET", file["url"], headers=headers) as response:
+            status = response.status_code
+            if status == 206 and have:
+                mode = "ab"
+            elif status == 200:
+                # Started again from the beginning (no range, or the server ignored it).
+                have, digest, mode = 0, hashlib.sha256(), "wb"
+            elif status == 416 and file["size"] and have == file["size"]:
+                check_digest(file, digest)
+                return have
+            elif status in (401, 403):
+                raise Refused("Hugging Face refused the download: the repo is gated or private (accept its licence, and give agent-machine a token: HF_TOKEN)")
+            else:
+                raise Refused(f"Hugging Face answered {status} for {file['repo_path']}")
+            written, last = have, 0.0
+            with open(part, mode) as out:
+                for chunk in response.iter_bytes(1 << 20):
+                    out.write(chunk)
+                    digest.update(chunk)
+                    written += len(chunk)
+                    if time.monotonic() - last >= 1:
+                        report(written)
+                        last = time.monotonic()
+            report(written)
+    except httpx.HTTPError as error:
+        raise Refused(f"the download of {file['repo_path']} stopped: {error} (pull it again to carry on)")
+    if file["size"] and written != file["size"]:
+        raise Refused(f"the download of {file['repo_path']} stopped at {written} of {file['size']} bytes (pull it again to carry on)")
+    try:
+        check_digest(file, digest)
+    except Refused:
+        os.remove(part)
+        raise
+    return written
+
+
+def check_digest(file: Dict[str, Any], digest: Any) -> None:
+    if file["sha256"] and digest.hexdigest() != file["sha256"]:
+        raise Refused(f"{file['repo_path']} isn't what Hugging Face lists (SHA-256 {digest.hexdigest()}, not {file['sha256']}): deleted it, pull it again")
+
+
+def llama_listed(base: str, key: str, name: str) -> bool:
+    value, status, error = attempt(base + "/models?reload=1", llama_headers(key), 30)
+    if error or status >= 400:
+        return False
+    return any(text(obj(raw).get("id")).lower() == name.lower() for raw in items(obj(value).get("data")) or [])
+
+
+def llama_serve(base: str, key: str, name: str, restart: Optional[Callable[[], None]], progress: Progress) -> None:
+    """Has the router read its GGUF folder again and checks it lists name; a router started before
+    it served that folder has to restart for it."""
+    if llama_listed(base, key, name):
+        progress({"status": "success"})
+        return
+    if restart is None:
+        raise Refused(f"downloaded into {llama_folder()}, but llama-server doesn't list it: restart llama.cpp from the machine's llama.cpp server tab")
+    progress({"status": "restarting llama.cpp to serve " + llama_folder()})
+    try:
+        restart()
+    except Refused as error:
+        raise Refused(f"downloaded into {llama_folder()}, but couldn't restart llama.cpp to serve it: {error}")
+    if not llama_listed(base, key, name):
+        raise Refused(f"downloaded into {llama_folder()}, but llama-server doesn't list {name}: check its GGUF folder setting")
+    progress({"status": "success"})
+
+
+def llama_remove_local(base: str, key: str, name: str) -> bool:
+    """Deletes a model agent-machine downloaded into its GGUF folder (the router deletes only what's
+    in its cache); whether name was one."""
+    if not name or name != os.path.basename(name) or name.startswith("."):
+        return False
+    folder = llama_folder()
+    for path in (os.path.join(folder, name), os.path.join(folder, name + ".gguf")):
+        if not os.path.exists(path):
+            continue
+        # A loaded model keeps its files open; unloading first lets Windows delete them too.
+        try:
+            llama_call("POST", base + "/models/unload", key, {"model": name}, MINUTE)
+        except Refused:
+            pass
+        if os.path.isdir(path):
+            shutil.rmtree(path)
+        else:
+            os.remove(path)
+        attempt(base + "/models?reload=1", llama_headers(key), 30)
+        return True
+    return False
 
 
 def llama_log(port: int, size: int) -> str:

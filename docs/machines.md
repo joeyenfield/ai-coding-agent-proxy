@@ -152,6 +152,7 @@ agent-machine keeps everything in one folder:
 | `llamacpp/` | The llama.cpp builds installed from the console, one folder each (`<release>-<build>`): the newest and the one before it. |
 | `llamacpp-install.json` | Which llama.cpp the console installed (from GitHub or Termux, which build) and where its `llama-server` is. |
 | `llamacpp-install.log` | What installing llama.cpp did (Termux's `apt-get` output, and each install's result). |
+| `llamacpp-models/` | The GGUF folder agent-machine's llama-server serves unless its settings name another: models agent-machine downloads itself, one subfolder each. |
 | `mcp.json` | The MCP servers it shares: commands, environments, folders, URLs and headers. |
 
 Files are written readable by this user only. The machine's id is made the first time it's needed. A `machine.json` from before agent-machine existed (in the client's `agent-proxy` folder) is carried over once, so the server still knows the machine by its id. That doesn't happen when `AI_PROXY_MACHINE_HOME` is set.
@@ -170,6 +171,7 @@ Files are written readable by this user only. The machine's id is made the first
 | `SUDO_USER` | The user `sudo agent-machine servers service` sets up |
 | `PATH` | Where it finds `agent`, `docker` or `podman`, `ollama`, `llama-server`, `strata` and the agents |
 | `PREFIX`, `TERMUX_VERSION` | Set by Termux: llama.cpp is installed from Termux's packages there |
+| `HF_TOKEN` | A Hugging Face token, for downloading models from gated repos into llama.cpp's GGUF folder |
 
 The container CLI runs with the machine's environment, so `DOCKER_HOST` and Docker contexts work as they do in a terminal there.
 
