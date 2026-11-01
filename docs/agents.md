@@ -123,6 +123,7 @@ applies to Python launches without terminal sharing on Linux and other POSIX sys
 | `--backend NAME` | One of the server's backends. Default: the one the server picks for the agent. |
 | `--trace` | Save full request and response bodies for the session. |
 | `--mcp NAMES` | MCP servers that machines share, for the agent: `machine/name`, a machine for all of its servers, or `all`. Comma-separated or repeated. See [MCP servers](mcp.md). |
+| `--account ID` | For account agents: which of your [subscriptions](subscriptions.md) it runs with (`agent accounts list`). Without it, whatever the agent's CLI is signed in to here. A managed Copilot token is only handed to launches from the console. |
 | `--list` | List the server's agents, whether each is installed here, and the `agent-proxy`'s server and sign-in. |
 | `--control` | Share the agent's terminal with the server, to watch it and type into it from the console or a phone. `AI_PROXY_CONTROL=1` makes it the default. |
 | `--switch` | If the backend is a container a machine runs, stop other containers using its GPU to start it. |
@@ -232,6 +233,10 @@ Any program on the computer can reach the `agent-proxy`, and what it forwards to
   | `PATCH` | `/api/sessions/<id>` |
   | `GET` | `/api/containers/<name>` |
   | `POST` | `/api/containers/<name>/start` |
+  | `GET`, `POST` | `/api/provider-accounts` (`agent accounts`) |
+  | `POST` | `/api/provider-accounts/<id>/enrollments` |
+  | `PUT` | `/api/provider-accounts/<id>/credential` |
+  | `POST` | `/api/sessions/<id>/provider-credential` (a launch's one-time token handover, which the server only allows for a launch it sent to an assigned machine) |
 
 - **Agent traffic is signed too, but the session decides.** Model traffic under `/session/...`, `/v1/...` and `/anthropic/...` goes to the server with this computer's token in `X-AI-Proxy-Token`, leaving the agent's own `Authorization` as it is. The server also needs an open session that the signed-in user may control: a session id alone grants nothing. MCP URLs also carry a separate per-session capability that is only delivered in the launch settings. Cookies, `Origin`, `Proxy-Authorization` and `Proxy-Connection` are never forwarded.
 - **It never uses a proxy itself.** Every HTTP client and WebSocket dialer in the client ignores `HTTPS_PROXY`, which inside an account agent points back at the `agent-proxy` and would loop.
@@ -242,6 +247,7 @@ Any program on the computer can reach the `agent-proxy`, and what it forwards to
 | Command | What it does |
 |---|---|
 | `agent update [--force] [--server url]` | Replaces `agent` and `agent-proxy` with the build the server offers for this platform, checked against the server's SHA-256, then stops the running `agent-proxy` so the new one takes over: agents still running start it again within seconds, else the next agent does. It does nothing when the server's version is this one, unless you pass `--force`. `--server` names the server to update from (default: the one the `agent-proxy` uses). If the server has no build of its exact version, it takes the closest one and says so. |
+| `agent accounts list\|detect\|status\|enroll` | Your AI subscriptions (provider accounts), the provider CLIs here and whether each is signed in, and registering this computer as a machine one runs on. See [Subscriptions](subscriptions.md#agent-accounts). |
 | `agent version` (or `agent --version`) | Prints the version and the protocol level. |
 
 See [Deployment](deployment.md) for how the server hands out builds.
@@ -264,7 +270,7 @@ Every session is also tagged with the computer's hostname, so the server can lis
 
 ## The Python client
 
-`python/agent_py/client` is a drop-in for the Go client: the commands `agent` and `agent-proxy`, the same options and subcommands (`login`, `logout`, `proxy`, `proxy stop`, `update [--force]`, `version`, `--list`, `--shell`, `--headless`), the same files, ports and environment variables, and the same `agent-proxy` checks. `--control` runs the agent in a POSIX pty, or a ConPTY through pywinpty on Windows. Its `agent update` installs the server's Python wheel with pip. Install one client or the other on a computer, not both. See `python/README.md`.
+`python/agent_py/client` is a drop-in for the Go client: the commands `agent` and `agent-proxy`, the same options and subcommands (`login`, `logout`, `proxy`, `proxy stop`, `update [--force]`, `accounts`, `version`, `--list`, `--shell`, `--headless`, `--account`), the same files, ports and environment variables, and the same `agent-proxy` checks. `--control` runs the agent in a POSIX pty, or a ConPTY through pywinpty on Windows. Its `agent update` installs the server's Python wheel with pip. Install one client or the other on a computer, not both. See `python/README.md`.
 
 ## Supported agents
 
@@ -336,6 +342,7 @@ Claude Code signed in to your Claude account. All of its HTTPS traffic is record
 - **Install:** as for `claude`.
 - **Sets:** the HTTPS capture variables (see [Your accounts](#your-accounts-https-capture)). No model: pass one with `-- --model sonnet`.
 - **Notes:** sign in with `claude` first. Unset `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_BASE_URL`, and remove any `apiKeyHelper`, so the account login is used.
+- **Subscription:** `claude` (`subscription:` in its definition). Started from the console on a machine, it can run with one of your [subscriptions](subscriptions.md); anyone but the machine's owner must choose one.
 - **MCP:** as for `claude`.
 
 ### copilot-account: GitHub Copilot CLI (GitHub account)

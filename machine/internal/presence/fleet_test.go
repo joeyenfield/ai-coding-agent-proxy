@@ -71,6 +71,11 @@ func TestLaunchArgumentsRunTheAgentHeadless(t *testing.T) {
 	if args := Arguments(Launch{Agent: "qwen", Visibility: "everyone"}, "/w"); args[6] != "private" {
 		t.Fatalf("unknown visibility: %v", args)
 	}
+	// A provider account goes to the agent by its id: the agent fetches anything secret itself, from the server.
+	args = Arguments(Launch{ID: "l2", Agent: "copilot-account", Account: "alice-copilot"}, "/w")
+	if !reflect.DeepEqual(args[len(args)-2:], []string{"--account", "alice-copilot"}) {
+		t.Fatalf("account: %v", args)
+	}
 }
 
 func TestPresenceSaysHelloAndAnswersLaunches(t *testing.T) {
@@ -136,6 +141,10 @@ func TestPresenceSaysHelloAndAnswersLaunches(t *testing.T) {
 	}
 	if hello["commands"] != false {
 		t.Fatalf("commands are off until the owner turns them on: %v", hello["commands"])
+	}
+	// It says it reports provider sign-ins, even before its first look is done.
+	if accounts, _ := hello["accounts"].(map[string]any); accounts == nil || accounts["clis"] == nil {
+		t.Fatalf("accounts %v", hello["accounts"])
 	}
 	// The launch, the shell and the folders are answered as each finishes, with updates between.
 	seen := map[string]map[string]any{}

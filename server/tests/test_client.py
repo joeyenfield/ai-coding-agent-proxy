@@ -203,6 +203,11 @@ def fake_agents() -> dict:
             "mcp": {"env": {"FAKE_MCP": "{mcp_servers}"}},
         },
         "claude-account": {"name": "Claude (account)", "executable": "claude", "protocol": "anthropic", "intercept": True},
+        # An account agent with a Copilot subscription, recording what reaches it (the token, if it's given one).
+        "fake-copilot": {
+            "name": "Fake Copilot", "executable": sys.executable, "protocol": "openai-chat", "intercept": True, "subscription": "copilot",
+            "args": ["-c", FAKE_AGENT.replace("('OPENAI_', 'AI_PROXY_', 'FAKE_')", "('OPENAI_', 'AI_PROXY_', 'FAKE_', 'COPILOT_')")],
+        },
     }
 
 
@@ -478,6 +483,49 @@ def test_a_fleet_machine_runs_an_agent_the_console_starts(tmp_path, agent_binary
         assert saved["argv"] == ["qwen3.6:35b"] and saved["env"]["AI_PROXY_SESSION"] == session_id
         [launch] = httpx.get(f"{m.server}/api/machines/{box['id']}", headers=m.headers).json()["history"]
         assert launch["session_id"] == session_id and launch["error"] is None
+
+
+def test_a_fleet_machine_runs_an_account_agent_with_a_managed_token_it_gets_once(tmp_path, agent_binary, machine_binary, monkeypatch):
+    from agent_server.provider_accounts import new_key
+
+    monkeypatch.setenv("AI_PROXY_VAULT_KEYS", new_key(1))
+    token = "github_pat_" + "Zy9" * 20
+    project = tmp_path / "work" / "api"
+    project.mkdir(parents=True)
+    settings = (["launches", "on"], ["roots", "add", str(tmp_path / "work")])
+    with machine(tmp_path, agent_binary) as m, fleet_machine(m, machine_binary, tmp_path, *settings) as fleet:
+        box = fleet.box
+        # It reports provider sign-ins (what `agent accounts detect --json` finds there), never a token, as soon as it's looked.
+        assert box["provider_clis"] is not None
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline and not box["provider_clis"]["clis"]:
+            time.sleep(0.2)
+            box = httpx.get(f"{m.server}/api/machines/{box['id']}", headers=m.headers).json()
+        assert [item["provider"] for item in box["provider_clis"]["clis"]] == ["claude", "codex", "copilot"], box["provider_clis"]
+        detected = run_agent(m, "accounts", "detect", "--json")
+        assert detected.returncode == 0, detected.stderr
+        assert [item["provider"] for item in json.loads(detected.stdout.strip().splitlines()[-1])["clis"]] == ["claude", "codex", "copilot"]
+        api = f"{m.server}/api/provider-accounts"
+        account = httpx.post(api, headers=m.headers, json={"provider": "copilot", "authentication_mode": "token", "display_name": "Copilot Pro"}).json()
+        assert httpx.put(f"{api}/{account['id']}/credential", headers=m.headers, json={"token": token}).status_code == 200
+        assert httpx.put(f"{api}/{account['id']}/assignments/{box['id']}", headers=m.headers, json={}).status_code == 200
+        response = httpx.post(f"{m.server}/api/machines/{box['id']}/launch", headers=m.headers, timeout=90,
+                              json={"agent": "fake-copilot", "project": str(project), "account_id": account["id"]})
+        assert response.status_code == 201, response.text
+        session_id = response.json()["session_id"]
+        assert m.runtime.sessions.get(session_id).tags["provider_account"] == account["id"]
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline and m.runtime.sessions.get(session_id).ended_at is None:
+            time.sleep(0.2)
+        saved = json.loads((project / "agent-ran.json").read_text())
+        # The agent got it in its environment, not its arguments; the session's record doesn't have it.
+        assert saved["env"]["COPILOT_GITHUB_TOKEN"] == token and token not in json.dumps(saved["argv"])
+        assert token not in json.dumps(m.runtime.sessions.get(session_id).public())
+        # Handed over once: the session's launch can't have it again.
+        again = httpx.post(f"{m.server}/api/sessions/{session_id}/provider-credential", headers=m.headers)
+        assert again.status_code in (403, 404)
+        kinds = [event["kind"] for event in httpx.get(f"{api}/{account['id']}/events", headers=m.headers).json()["events"]]
+        assert "provisioned" in kinds
 
 
 def test_a_fleet_machine_runs_the_containers_the_server_asks_for(tmp_path, agent_binary, machine_binary):

@@ -36,7 +36,8 @@ SHARING_TAGS = ("owner", "visibility", "team", "org", "access", "tenant")
 # Set by the server (fleet.py) on a launch or terminal someone a machine lets in started there:
 # the session is the machine's, its owner's, so this is how they get what they started. Clients can't set it,
 # nor mcp: the shared MCP servers the launch was given (mcp.py), which is all the session may reach.
-SERVER_TAGS = (*SHARING_TAGS, "launched_by", "mcp")
+# provider_account is the subscription the session runs with (provider_accounts.py), checked when it was made.
+SERVER_TAGS = (*SHARING_TAGS, "launched_by", "mcp", "provider_account")
 
 
 def sharing(session: Session) -> dict[str, Any]:

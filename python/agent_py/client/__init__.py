@@ -24,6 +24,10 @@ def main(argv: Optional[List[str]] = None) -> int:
             # The fleet is its own command, so a machine can supply models without running agents.
             print("Machines join the fleet with their own command now: agent-machine (agent-machine --help).", file=sys.stderr)
             return 2
+        if args[0] == "accounts":
+            from . import accounts
+
+            return accounts.main(args[1:])
         if args[0] == "proxy":
             return localproxy.main("agent proxy", args[1:])
         if args[0] == "update":

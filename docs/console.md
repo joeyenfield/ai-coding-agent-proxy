@@ -125,6 +125,12 @@ On a phone, open the console and sign in through OIDC. Legacy pairing codes no l
 
 In the Android app, a server that can't be reached, or that answers with a server error (5xx), shows **Can't reach** with **Try again** and **Servers**. **Try again** reloads the page you were on. When the phone's network comes back while that panel is up, the app tries again by itself.
 
+## Subscriptions
+
+![Subscriptions](screenshots/subscriptions.png)
+
+Your own AI plans (Claude, ChatGPT through Codex, GitHub Copilot): each with its state, the machines it runs on and whether each is ready, and when it last answered. **Add a subscription** names its provider, plan and how it signs in. **Usage and settings** shows what went through the server in the last 5 hours, 24 hours, 7 days and this month, the remaining balance against a limit you declare (an estimate, said as one; unknown without a limit), and limits the provider was seen enforcing; then the machines (assign one of yours, remove, and for a token whether each gets it), the token (store, replace, revoke; never shown again), priority, who else may start agents with it, the declared limit, **Turn off**, **Remove** and its **History**. Admins of its organization see its metadata and can turn it off. See [Subscriptions](subscriptions.md).
+
 ## Ask a model
 
 ![Ask a model](screenshots/ask.png)
@@ -315,7 +321,11 @@ Cards for its state, last contact, agent-machine version and running agents. **W
 
 **Running agents** on the machine (launched from here or started there by hand), **Installed there** (the server's agents found on its `PATH`), **Start an agent** and **Started from here** (each launch: who, which agent, which folder, its session or why it failed).
 
-**Start an agent** picks the agent, the provider and model, the folder (browse the folders inside its launch folders, or name a new one), MCP servers, sharing and payload capture, then starts it in a shared terminal and opens it. It needs `agent-machine launches on` and a launch folder there.
+**Start an agent** picks the agent, the provider and model, the folder (browse the folders inside its launch folders, or name a new one), MCP servers, sharing and payload capture, then starts it in a shared terminal and opens it. It needs `agent-machine launches on` and a launch folder there. For an account agent, **Subscription** picks which of your [subscriptions](subscriptions.md) it runs with: the machine's own sign-in (its owner only), **Choose automatically**, or one by name.
+
+### Agent accounts
+
+The provider CLIs the machine found (Claude Code, Codex, Copilot CLI), their versions and whether each is signed in, as its agent-machine reports them (never a sign-in itself), and the subscriptions you can see that run there, with their state.
 
 ### Terminal
 

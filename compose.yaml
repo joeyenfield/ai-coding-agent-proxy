@@ -101,6 +101,8 @@ services:
       AI_PROXY_OIDC_REDIRECT_URIS: ${AI_PROXY_OIDC_REDIRECT_URIS:-https://api.aicontrolmesh.com/api/auth/callback}
       AI_PROXY_OIDC_BROWSER_ORIGINS: ${AI_PROXY_OIDC_BROWSER_ORIGINS:-https://console.aicontrolmesh.com}
       AI_PROXY_OIDC_INTROSPECTION_SECRET: ${AI_PROXY_OIDC_INTROSPECTION_SECRET:?Set a strong shared OIDC introspection secret}
+      # The vault key for subscriptions' managed tokens (agent-server vault key makes one); empty refuses storing them.
+      AI_PROXY_VAULT_KEYS: ${AI_PROXY_VAULT_KEYS:-}
       # Behind a reverse proxy on this computer (nginx for HTTPS): set AI_PROXY_PUBLISH_HOST=127.0.0.1
       # and AI_PROXY_FORWARDED_ALLOW_IPS=*, so the proxy's X-Forwarded-For and -Proto count (the
       # container sees Docker's bridge, never 127.0.0.1) and nothing else can reach the port to fake them.

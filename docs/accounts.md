@@ -2,7 +2,7 @@
 
 Everyone signs in through the separate OIDC issuer at **auth.aicontrolmesh.com**, including on loopback. Every user, machine, provider and session belongs to one organization, and nothing is shared between organizations. Inside one, people share sessions and machines with the whole organization or its teams. See [OIDC authentication](oidc.md) for deployment, access tokens, device sign-in and automation.
 
-This page covers accounts, who can see and control what, and using the console from a phone.
+This page covers accounts, who can see and control what, and using the console from a phone. Your own AI plans (Claude, ChatGPT, Copilot) are something else, kept as [Subscriptions](subscriptions.md).
 
 ## Authentication is always required
 

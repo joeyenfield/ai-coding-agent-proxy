@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import secrets
 import time
 from typing import Any
 
@@ -31,6 +32,7 @@ from ..fleet import (
     FEATURES, PROVIDER_TYPES, FleetError, allowed, can_manage, can_see, checked_access, normal_url, parse_provider, provider_request, within_roots,
 )
 from ..fleet import provider_id as fleet_provider_id
+from ..provider_accounts import AccountError
 from ..runtime import Runtime
 from .terminals import CLOSE_UNAUTHORIZED
 
@@ -158,10 +160,25 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         if chosen and not agent.mcp:
             raise HTTPException(status_code=400, detail=f"{agent.name} can't take MCP servers")
         data = {**data, "mcp": [item["id"] for item in chosen]}
+        identity = auth.request_identity(request)
         try:
-            return await fleet.launch(target, auth.request_identity(request), data)
+            # An account agent runs with a provider account whoever asked may use (account_id, or "auto" to
+            # let the scheduler pick); only the machine's owner may leave it out, for the machine's own sign-in.
+            account = runtime.provider_accounts.for_launch(identity, agent, target, data.get("account_id"))
+        except AccountError as exc:
+            raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+        launch_id = secrets.token_hex(8)
+        if account is not None:
+            data["account"] = account.id
+            runtime.provider_accounts.grant(launch_id, account, target, identity)
+        try:
+            record = await fleet.launch(target, identity, data, launch_id=launch_id)
         except FleetError as exc:
             raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+        finally:
+            # The grant only lives as long as the launch's start: a token is handed over within it or not at all.
+            runtime.provider_accounts.end_grant(launch_id)
+        return {**record, "account": {"id": account.id, "display_name": account.display_name, "provider": account.provider} if account else None}
 
     @app.post("/api/machines/{machine_id}/shell", status_code=201)
     async def shell(machine_id: str, request: Request) -> dict[str, Any]:

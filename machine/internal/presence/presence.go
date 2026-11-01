@@ -98,6 +98,8 @@ type Presence struct {
 	Providers *providers.Manager
 	// MCP shares the MCP servers listed in mcp.json (agent-machine mcp add) through the tunnel.
 	MCP *mcp.Bridge
+	// Accounts finds the provider CLIs here and whether each is signed in, for the hello; tests set its detect.
+	Accounts providerCLIs
 
 	mu     sync.Mutex
 	status string
@@ -283,6 +285,9 @@ func (p *Presence) session(ctx context.Context) error {
 				_ = conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(10*time.Second))
 				_ = send(map[string]any{"type": "ping"})
 			case <-update.C:
+				_ = send(p.describe(server, "update"))
+			case <-p.Accounts.Changed():
+				// A new look at the provider CLIs here goes to the server at once (the first one, especially).
 				_ = send(p.describe(server, "update"))
 			}
 		}
@@ -476,6 +481,8 @@ func (p *Presence) describe(server, kind string) map[string]any {
 		// Launches run the agent command: say whether it's here, so the console can say what's missing.
 		"launcher":   launcherFound(),
 		"containers": p.Containers.Describe(), "servers": serving, "mcp": shared,
+		// The provider CLIs here (claude, codex, copilot) and whether each is signed in: never a token.
+		"accounts": p.Accounts.Report(),
 	}
 }
 
@@ -526,6 +533,8 @@ type Launch struct {
 	Access     string `json:"access"`
 	// MCP names the shared MCP servers the agent gets ("<machine>/<name>"), which the server checked.
 	MCP []string `json:"mcp"`
+	// Account is the provider account the agent runs with (its id), which the server checked for whoever asked.
+	Account string `json:"account"`
 }
 
 // Check is the machine's own say over a launch, whatever the server allowed: launches on,
@@ -618,6 +627,9 @@ func Arguments(request Launch, project string) []string {
 	}
 	if len(request.MCP) > 0 {
 		args = append(args, "--mcp", strings.Join(request.MCP, ","))
+	}
+	if request.Account != "" {
+		args = append(args, "--account", request.Account)
 	}
 	return args
 }

@@ -49,6 +49,13 @@ var LauncherAPI = []route{
 	{"PATCH", regexp.MustCompile(`^/api/sessions/[^/]+$`)},
 	{"GET", regexp.MustCompile(`^/api/containers/[^/]+$`)},
 	{"POST", regexp.MustCompile(`^/api/containers/[^/]+/start$`)},
+	// agent accounts: your provider accounts, registering this computer as a runner, storing a token.
+	{"GET", regexp.MustCompile(`^/api/provider-accounts$`)},
+	{"POST", regexp.MustCompile(`^/api/provider-accounts$`)},
+	{"POST", regexp.MustCompile(`^/api/provider-accounts/[^/]+/enrollments$`)},
+	{"PUT", regexp.MustCompile(`^/api/provider-accounts/[^/]+/credential$`)},
+	// A launch's one-time token handover (the server checks it's a launch it sent, to an assigned machine).
+	{"POST", regexp.MustCompile(`^/api/sessions/[^/]+/provider-credential$`)},
 }
 
 var terminalHost = regexp.MustCompile(`^/api/terminals/([^/]+)/host$`)

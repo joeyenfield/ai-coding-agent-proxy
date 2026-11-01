@@ -207,6 +207,9 @@ VITE_API_URL=https://api.aicontrolmesh.com
 AI_PROXY_SERVE_UI=0
 AI_PROXY_CONSOLE_ORIGINS=https://console.aicontrolmesh.com
 AI_PROXY_OIDC_INTROSPECTION_SECRET=<a long random secret>
+# Optional: lets people store Copilot tokens for their subscriptions (agent-server vault key makes one).
+# Keep it out of database backups; losing it makes stored tokens unreadable.
+AI_PROXY_VAULT_KEYS=
 # nginx on the same computer terminates HTTPS:
 AI_PROXY_PUBLISH_HOST=127.0.0.1
 AI_PROXY_FORWARDED_ALLOW_IPS=*

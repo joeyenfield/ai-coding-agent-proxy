@@ -73,6 +73,10 @@ Every organization is a **tenant**, under the one **root** organization (`auth.R
 - The API owns account/directory mutations; the issuer is read-only (by `UserStore(readonly=True)`, and on PostgreSQL by its role's grants). Adding or removing all users never disables authentication.
 - Bootstrap (`app.ensure_first_user`) runs on API process start, including loopback, unless accounts were ever written (meta `accounts_initialized`, set by every directory change and by the import of an old `users.json`; `UserStore.initialized()`) or the environment account is set: it adds `admin` (a site admin, in the root) and saves its password in `first-user-password`, the one account file left. Removing every user afterwards doesn't bring `admin` back. `create_app` never manufactures a test identity.
 
+## Provider accounts
+
+Subscriptions (`provider_accounts.py`) are not identities: never store one in `mesh_auth` or treat one as a sign-in. Their checks are separate from machine grants: a `launch` grant never lets someone use the machine owner's subscription (`for_launch`), assignments go only to the account owner's own machines, and `may_use` excludes admins (a subscription is personal). Site admins see metadata only. A managed token leaves the vault only through `deliver`, bound to a server-made grant for one launch on one assigned machine, once. `tests/test_provider_accounts.py` covers it.
+
 ## Extending and testing
 
 Add admin policy, session checks or machine-feature checks for each new route, document it in `docs/api.md`, and cover signed-out, wrong-user and role/grant failures. Public paths must be deliberately added, never inferred from an open session.

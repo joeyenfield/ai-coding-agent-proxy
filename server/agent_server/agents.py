@@ -66,6 +66,9 @@ class AgentDefinition:
     backend_type: str = "ollama"
     # How it takes shared MCP servers: entry, and env, files, args and args_each for when it has some.
     mcp: dict[str, Any] = field(default_factory=dict)
+    # For an account agent, the kind of provider account it signs in with (provider_accounts.PROVIDERS:
+    # claude, codex, copilot), so a launch can pick one of its user's subscriptions. None for others.
+    subscription: str | None = None
 
     @property
     def route(self) -> str:
@@ -93,6 +96,8 @@ class AgentDefinition:
             "backend_type": None if self.intercept else self.backend_type, "route": self.route,
             # Whether a launch can give it shared MCP servers.
             "mcp": bool(self.mcp),
+            # The kind of provider account (subscription) it uses, for account agents.
+            "subscription": self.subscription,
         }
 
     def render(
@@ -242,8 +247,26 @@ def parse_agents(definitions: dict[str, Any]) -> dict[str, AgentDefinition]:
             intercept=bool(value.get("intercept", False)),
             backend_type=str(value.get("backend_type", "ollama")),
             mcp=_mcp(agent_id, value.get("mcp")),
+            subscription=_subscription(agent_id, value),
         )
     return agents
+
+
+# The provider account kinds an account agent can name (provider_accounts.PROVIDERS), and the one its
+# executable implies when it names none (definitions from before subscriptions).
+SUBSCRIPTIONS = ("claude", "codex", "copilot")
+
+
+def _subscription(agent_id: Any, value: dict[str, Any]) -> str | None:
+    named = value.get("subscription")
+    if named is not None:
+        if named not in SUBSCRIPTIONS:
+            raise ValueError(f"Agent '{agent_id}' has subscription '{named}': use one of {', '.join(SUBSCRIPTIONS)}")
+        if not value.get("intercept"):
+            raise ValueError(f"Agent '{agent_id}' names a subscription but isn't an account agent (intercept: true)")
+        return str(named)
+    executable = str(value.get("executable", agent_id))
+    return executable if value.get("intercept") and executable in SUBSCRIPTIONS else None
 
 
 def _files(agent_id: Any, value: Any) -> dict[str, Any]:

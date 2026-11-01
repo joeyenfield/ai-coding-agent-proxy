@@ -49,6 +49,13 @@ LAUNCHER_API: List[Tuple[str, "re.Pattern[str]"]] = [
     ("PATCH", re.compile(r"^/api/sessions/[^/]+$")),
     ("GET", re.compile(r"^/api/containers/[^/]+$")),
     ("POST", re.compile(r"^/api/containers/[^/]+/start$")),
+    # agent accounts: your provider accounts, registering this computer as a runner, storing a token.
+    ("GET", re.compile(r"^/api/provider-accounts$")),
+    ("POST", re.compile(r"^/api/provider-accounts$")),
+    ("POST", re.compile(r"^/api/provider-accounts/[^/]+/enrollments$")),
+    ("PUT", re.compile(r"^/api/provider-accounts/[^/]+/credential$")),
+    # A launch's one-time token handover (the server checks it's a launch it sent, to an assigned machine).
+    ("POST", re.compile(r"^/api/sessions/[^/]+/provider-credential$")),
 ]
 
 TERMINAL_HOST = re.compile(r"^/api/terminals/([^/]+)/host$")

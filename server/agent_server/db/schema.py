@@ -120,6 +120,62 @@ terminal_chunks = Table(
     Column("data", LargeBinary, nullable=False),
 )
 
+# Provider accounts (provider_accounts.py): people's own AI subscriptions (Claude, ChatGPT/Codex,
+# GitHub Copilot), apart from the platform accounts above. Each belongs to one user and tenant.
+provider_accounts = Table(
+    "provider_accounts", api,
+    Column("id", String(64), primary_key=True),
+    Column("tenant", String(40), nullable=False),
+    Column("owner", String(40), nullable=False),
+    Column("provider", String(40), nullable=False),
+    # Metadata only (names, plan, mode, priority, declared limits, cooldowns): never a credential.
+    Column("data", JSON, nullable=False),
+    Index("provider_accounts_owner", "tenant", "owner"),
+)
+
+# Which of its owner's machines an account may run on (and, for a managed token, be provisioned to).
+provider_account_assignments = Table(
+    "provider_account_assignments", api,
+    Column("account_id", String(64), primary_key=True),
+    Column("machine_id", String(200), primary_key=True),
+    Column("data", JSON, nullable=False),
+)
+
+# What went through the server for each account, by hour (bucket: the hour's start, seconds since the epoch).
+provider_account_usage = Table(
+    "provider_account_usage", api,
+    Column("account_id", String(64), primary_key=True),
+    Column("bucket", BigInteger, primary_key=True, autoincrement=False),
+    Column("requests", BigInteger, nullable=False, default=0),
+    Column("input_tokens", BigInteger, nullable=False, default=0),
+    Column("output_tokens", BigInteger, nullable=False, default=0),
+    Column("rate_limited", BigInteger, nullable=False, default=0),
+    Column("errors", BigInteger, nullable=False, default=0),
+)
+
+# The audit trail: enrollments, assignments, provisioning, revocations, observed limits. Never a secret.
+provider_account_events = Table(
+    "provider_account_events", api,
+    Column("id", String(32), primary_key=True),
+    Column("account_id", String(64), nullable=False),
+    Column("at", Float, nullable=False),
+    Column("data", JSON, nullable=False),
+    Index("provider_account_events_account", "account_id", "at"),
+)
+
+# The vault: managed provider credentials, encrypted (AES-256-GCM) with a master key the database
+# never holds (AI_PROXY_VAULT_KEYS). Not the secrets table: those are the server's own generated keys.
+provider_credentials = Table(
+    "provider_credentials", api,
+    Column("account_id", String(64), primary_key=True),
+    Column("key_version", Integer, nullable=False),
+    Column("nonce", LargeBinary, nullable=False),
+    Column("ciphertext", LargeBinary, nullable=False),
+    Column("created_at", Float, nullable=False),
+)
+
+PROVIDER_ACCOUNT_TABLES = (provider_accounts, provider_account_assignments, provider_account_usage, provider_account_events, provider_credentials)
+
 auth_versions = _versions(auth)
 
 # The issuer's OAuth state: clients, codes, tokens (hashed), device grants, transactions.

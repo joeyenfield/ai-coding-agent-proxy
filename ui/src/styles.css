@@ -1336,3 +1336,8 @@ code { background: var(--ground); border: 1px solid var(--line); padding: 0 5px;
 .stored-editor { display: grid; gap: 12px; margin-top: 12px; }
 .stored-editor textarea { min-height: 160px; }
 @media (max-width: 900px) { .stored-agent-head .spacer { flex-basis: 100%; height: 0; } }
+
+/* Subscriptions (pages/Subscriptions.tsx) */
+.stack { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.account-head { justify-content: space-between; align-items: flex-start; }
+.account-head h2 { margin-bottom: 2px; }

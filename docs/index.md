@@ -84,6 +84,7 @@ Everyone signs in through OIDC, including on loopback. Sessions are private unti
 | [OIDC authentication](oidc.md) | Auth service deployment, browser PKCE, CLI device flow, service accounts, access tokens and migration. |
 | [Security](security.md) | How each device pairs with the server, device approval step by step and what protects it, tokens and where they're kept, which connections are encrypted, where plain HTTP appears and why, and a checklist for a public server. |
 | [Accounts and sharing](accounts.md) | Users, organizations and teams, session sharing, phones and the Android app. |
+| [Subscriptions](subscriptions.md) | Your own Claude, ChatGPT (Codex) and Copilot plans: enrolling machines (`agent accounts`), starting agents with them, usage and estimated remaining balance, choosing one automatically, the vault for Copilot tokens, who may do what. |
 | [Configuration](configuration.md) | The database, the stored settings (providers, agents, model tuning, retention), `agent-server config export` and `import`, every environment variable, secrets, the `agent-server` and `agent-benchmark` commands. |
 | [API](api.md) | Every HTTP endpoint and WebSocket, who may call it, and what it takes and returns. |
 | [Deployment](deployment.md) | Docker, PostgreSQL and backups, HTTPS, what the server hands out, one-line installers, packages and services, versions and updates, ports. |
@@ -99,6 +100,8 @@ Everyone signs in through OIDC, including on loopback. Sessions are private unti
 | Sign a computer in | `agent login`, `agent logout` | Organizations › Start agents from your own computer | [Agents](agents.md#signing-in-agent-login-and-agent-logout) |
 | List the server's agents | `agent --list` | Start an agent | [Agents](agents.md#agent---list) |
 | Capture full payloads | `--trace` | Capture full request and response payloads | [Agents](agents.md#options) |
+| Your AI subscriptions | `agent accounts list\|detect\|status\|enroll`, `--account` | Subscriptions; a machine's Agent accounts | [Subscriptions](subscriptions.md) |
+| The vault for managed tokens | `agent-server vault key\|status\|rotate`, `AI_PROXY_VAULT_KEYS` | | [Subscriptions](subscriptions.md#the-vault) |
 | Record account agents' HTTPS | `agent claude-account` and the other `-account` agents | Traffic | [Agents](agents.md#your-accounts-https-capture) |
 | Local models on Ollama, llama.cpp, Strata, Docker | `--model`, `--backend` | Start an agent, a machine's model server tabs | [Providers](providers.md) |
 | Tune Ollama per model | `agent-server config import` | Server settings › Ollama model tuning, a model server's Aliases tab | [Providers](providers.md#model-tuning) |

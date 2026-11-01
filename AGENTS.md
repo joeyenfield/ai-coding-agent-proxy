@@ -106,6 +106,8 @@ server/agent_server/        Python package (FastAPI)
   live.py                   Streams in-flight request text to the UI (/api/live, server-sent events)
   chat.py                   A session's traced model calls read back as chats (/api/sessions/{id}/chat): threads by message prefix or Claude Code's call chain, each a main chat, conversation, sub-agent or background call; who wrote each user-side text; the chat_index table
   mcp.py                    MCP servers machines share: who may use them (fleet feature "mcp"), choosing them for a launch, their names and URLs for the agent
+  provider_accounts.py      People's own subscriptions (Claude, Codex, Copilot): accounts, assignments to their owners' machines, health from the hello's accounts,
+                            observed usage and 429 cooldowns, estimates against declared limits, the scheduler (plan), launch grants, the Vault (AES-GCM, AI_PROXY_VAULT_KEYS)
   tunnels.py                Agents' requests to machines' model servers through the machines: a loopback listener per (machine, port), one WS /api/machines/tunnel/<id> per connection
   intercept.py certs.py     HTTPS interception (serve_tunnel for agent-proxy tunnels, optional direct listener) and its CA; websocket_tap.py reads WS frames
   translate/                OpenAI Chat and Anthropic <-> native Ollama, including streaming
@@ -123,6 +125,8 @@ server/agent_server/        Python package (FastAPI)
   routes/machines.py        WS /api/machines/connect, /api/machines (list, launch, adopt a model server, forget), and every LLM provider
                             operation, relayed to the machine: providers/{kind}-{port} (status, models, log), metrics, catalog, servers
   routes/terminals.py       /api/remote (status; pairing removed), /api/terminals, WebSockets .../{id}/host (launcher) and .../{id}/view (console)
+  routes/provider_accounts.py  /api/provider-accounts/* (list, create, plan, health, usage, events, assignments, enrollments, credential, revoke) and
+                            POST /api/sessions/{id}/provider-credential (a launch's one-time token handover)
   routes/mcp.py             GET /api/mcp (the servers you may use) and /session/<id>/mcp/<machine>/<name>: agents' MCP traffic, relayed to the machine's bridge and recorded
   routes/proxy.py           WS /api/proxy/tunnel: one account-agent connection from an agent-proxy, into InterceptProxy.serve_tunnel
   routes/containers.py      /api/containers: create on a machine, edit, delete, start/stop/restart (switch), logs; trusted devices, the machine's owner for changes
@@ -151,6 +155,7 @@ client/                     THE CLIENT (Go module ai-coding-agent-proxy/client);
   internal/localproxy/      agent-proxy: LauncherAPI allowlist, Host/Origin checks, agent traffic (ReverseProxy), terminal relay, HTTPS tunnel
   internal/launcher/        `agent`: argument parsing, Launch (agents, CA copy, session, run), EnsureProxy/agent-server start, EnsureContainer; shell.go (LaunchShell, `agent --shell`)
   internal/login/           `agent login`/`logout`
+  internal/accounts/        `agent accounts list|detect|status|enroll`: provider CLIs here and whether signed in (no credential is read), enrolling a runner, a Copilot token from stdin
   internal/update/          `agent update`: the server's build from /downloads/index.json, SHA-256 checked, swapped in beside the old one
   internal/terminal/        --control: History, Share (WebSocket), Run, RunHeadless (fleet launches), pty_windows.go (ConPTY), pty_unix.go
   internal/process/         starting programs detached from the terminal
@@ -337,6 +342,7 @@ There are no configuration files. Every setting is in the database (`settings`, 
   - Streams (`/api/live`) check per event, so sharing changes apply straight away.
   - Terminal viewers are dropped through `TerminalHub.drop_viewers` when sharing narrows.
   - Clients can't set `owner`/`visibility`/`team`/`access` tags: `access.client_tags` strips them and `access.sharing_tags` validates them.
+- **Provider accounts (subscriptions) are personal.** They aren't sign-ins (`auth.py`); keep their checks apart from machine grants. An account agent launched by anyone but the machine's owner needs an `account_id` they may use (`ProviderAccounts.for_launch`); assignments go only to the owner's own machines; admins see metadata, never use or read. Claude and Codex sign-ins never leave their machines (runner mode); a Copilot token leaves the vault only through `deliver`, once per server-sent launch, into the agent's environment. Usage figures carry `source`/`confidence`; a remaining balance exists only against a declared limit; never read provider credentials from traffic or call private provider APIs. See `docs/subscriptions.md`.
 - **Shared MCP servers.** A session reaches only the servers it was started with, and only while its user may still use them: keep both checks in `routes/mcp.py`. Never forward the agent's own `Authorization` to a bridge (`REQUEST_HEADERS`): a URL server gets the headers its machine's owner set. The bridge refuses requests without its key and serves only names in `mcp.json`. An agent takes them through its `mcp` block in its definition (`entry`, `{mcp_servers}`, `env`/`files`/`args`/`args_each`); its args go before the agent's own unless its args have `{mcp_args}` (Claude Code's `--mcp-config` swallows plain arguments after it; Goose's flags belong after `session`). `test_mcp.py` plays the bridge with a mock transport; `test_client.py` runs the real one (Go, and Python in `python/tests`) through a real tunnel with `fake_mcp.py`.
 - **Containers machines run.**
   - A backend with `machine` and `container` (columns of the `backends` table) is a container on that machine. The machine runs it: the server never runs `docker`. The machine turns it on with `agent-machine containers on`, reports its engines (the table lives in Go, `machine/internal/containers`) in its hello, and the server asks it with `Fleet.ask` over the fleet socket (`{"type": "container", "op": status|start|stop|restart|remove|logs}`, answered by `container_result`).

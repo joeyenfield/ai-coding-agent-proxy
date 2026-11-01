@@ -223,6 +223,15 @@ await shot("ask", "/ask", {
     await page.waitForTimeout(600);
   },
 });
+// Subscriptions: the demo's Claude plan open, with its usage and estimated remaining balance.
+await shot("subscriptions", "/subscriptions", {
+  height: 1300,
+  prepare: async (page) => {
+    await page.getByRole("button", { name: "Usage and settings" }).first().click();
+    await page.locator(".meter-bar").first().waitFor({ timeout: 15000 });
+    await page.waitForTimeout(500);
+  },
+});
 await shot("requests", "/requests", {
   scrollTop: true,
   height: 1000,

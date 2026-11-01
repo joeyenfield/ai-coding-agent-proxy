@@ -19,6 +19,7 @@ from ..agents import stored_agents
 from ..db import redacted
 from ..config import DIRECT_BACKEND, LOCAL_PROXY_URL, ModelProfile, serves
 from ..fleet import PROVIDER_TYPES, SHELL_CLIENT, FleetError, parse_provider, provider_id, provider_request
+from ..provider_accounts import AccountError
 from ..runtime import Runtime
 from ..sessions import Session
 from ..stats import ServerStats
@@ -495,6 +496,14 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             raise HTTPException(status_code=400, detail=f"{agent.name} can't take MCP servers")
         mcp_token, mcp_token_hash = mcp.issue_token() if chosen else (None, None)
         try:
+            # The provider account (subscription) it runs with, checked here: for a launch the server sent,
+            # against its grant; otherwise for whoever asks. The tag is the server's, never the client's.
+            account = runtime.provider_accounts.for_session(
+                auth.request_identity(request), agent, data.get("account"), data.get("tags") if isinstance(data.get("tags"), dict) else {},
+            ) if data.get("account") else None
+        except AccountError as exc:
+            raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+        try:
             backend = DIRECT_BACKEND if agent.intercept else settings.backend_for(agent.backend_type, data.get("backend") or None, agent.protocol, usable(request)).name
             tags = {**access.client_tags(data.get("tags")), "prepared_by": "agent" if data.get("launcher") else "ui"}
             if project_path:
@@ -504,7 +513,10 @@ def register(app: FastAPI, runtime: Runtime) -> None:
                 "backend": backend,
                 "trace": bool(data.get("trace")),
                 # The shared MCP servers it may reach: only these, whatever the agent asks for later.
-                "tags": {**_new_tags(data, tags, request), **({"mcp": [item["id"] for item in chosen]} if chosen else {})},
+                "tags": {
+                    **_new_tags(data, tags, request), **({"mcp": [item["id"] for item in chosen]} if chosen else {}),
+                    **({"provider_account": account.id} if account else {}),
+                },
             }, mcp_token_hash=mcp_token_hash)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -526,6 +538,12 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             # The launcher starts a managed container backend before running the agent.
             "container": bool(container and container.container),
             "mcp": [{"id": item["id"], "name": item["name"], "url": item["url"]} for item in servers],
+            # The subscription it runs with; credential means a managed token waits for the launcher at
+            # POST /api/sessions/{id}/provider-credential (never in this answer, its env or its command).
+            "account": {
+                "id": account.id, "provider": account.provider, "display_name": account.display_name,
+                "credential": account.authentication_mode == "token",
+            } if account else None,
             "shell": {"bash": _bash(launch), "powershell": _powershell(launch)},
         }
 

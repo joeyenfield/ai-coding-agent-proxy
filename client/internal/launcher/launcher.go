@@ -63,6 +63,12 @@ type Prepared struct {
 	MCP []struct {
 		ID string `json:"id"`
 	} `json:"mcp"`
+	// The provider account it runs with; Credential means a managed token waits for this launch.
+	Account *struct {
+		ID          string `json:"id"`
+		DisplayName string `json:"display_name"`
+		Credential  bool   `json:"credential"`
+	} `json:"account"`
 }
 
 // Main runs `agent` with its arguments and returns the exit status.
@@ -152,6 +158,9 @@ func Launch(options Options) (int, error) {
 	if len(options.MCP) > 0 {
 		request["mcp"] = options.MCP
 	}
+	if options.Account != "" {
+		request["account"] = options.Account
+	}
 	for key, value := range options.Sharing() {
 		request[key] = value
 	}
@@ -203,6 +212,20 @@ func Launch(options Options) (int, error) {
 			return 1, err
 		}
 	}
+	// A managed token goes into the agent's environment only: never a file, an argument or the output.
+	if prepared.Account != nil && prepared.Account.Credential {
+		credential, err := providerCredential(client, sessionID)
+		if err != nil {
+			end(1)
+			return 1, err
+		}
+		for key, value := range credential {
+			if prepared.Env == nil {
+				prepared.Env = map[string]string{}
+			}
+			prepared.Env[key] = value
+		}
+	}
 	if prepared.Container {
 		if err := EnsureContainer(local, prepared.Session.Backend, options.Switch, 4*time.Hour); err != nil {
 			end(1)
@@ -231,6 +254,9 @@ func Launch(options Options) (int, error) {
 	}
 	fmt.Printf("Session : %s\nAgent   : %s\nModel   : %s\nBackend : %s\nServer  : %s/live\nControl : %s\n",
 		sessionID, agent.Name, model, route, server, controlLine)
+	if prepared.Account != nil {
+		fmt.Println("Account :", prepared.Account.DisplayName)
+	}
 	if len(prepared.MCP) > 0 {
 		names := make([]string, 0, len(prepared.MCP))
 		for _, item := range prepared.MCP {
@@ -301,6 +327,33 @@ func run(command []string, dir string, env []string, share *terminal.Share) int 
 		fmt.Fprintf(os.Stderr, "agent: %v\n", err)
 		return 127
 	}
+}
+
+// providerCredential is the managed token of the session's provider account, which the server
+// hands over once, to the launch it started on a machine the account is assigned to.
+func providerCredential(client *api.Client, sessionID string) (map[string]string, error) {
+	var answer struct {
+		Env map[string]string `json:"env"`
+	}
+	if err := client.Post("/api/sessions/"+url.PathEscape(sessionID)+"/provider-credential", map[string]any{}, &answer); err != nil {
+		return nil, fmt.Errorf("couldn't get the provider account's token for this launch: %v", err)
+	}
+	return answer.Env, nil
+}
+
+// Connect makes sure the agent-proxy runs and this computer is signed in, and returns a client of
+// the server through it and the server's address (for `agent accounts`).
+func Connect() (*api.Client, string, error) {
+	status, err := EnsureProxy()
+	if err != nil {
+		return nil, "", err
+	}
+	server, _ := status["server"].(string)
+	client := api.New(settings.ProxyURL(), 30*time.Second)
+	if err := checkSignedIn(client, server); err != nil {
+		return nil, server, err
+	}
+	return client, server, nil
 }
 
 func checkSignedIn(client *api.Client, server string) error {

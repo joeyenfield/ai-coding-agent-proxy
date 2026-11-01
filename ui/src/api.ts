@@ -456,6 +456,187 @@ export interface Agent {
   default_backend?: string | null;
   /** Whether a launch can give it MCP servers machines share. */
   mcp?: boolean;
+  /** For account agents: the kind of provider account (subscription) it runs with. */
+  subscription?: SubscriptionProvider | null;
+}
+
+/** The kinds of subscription (provider_accounts.PROVIDERS on the server). */
+export type SubscriptionProvider = "claude" | "codex" | "copilot";
+export type AccountState = "available" | "near_limit" | "unknown" | "rate_limited" | "quota_exhausted" | "auth_expired" | "offline";
+export type UsageWindow = "5h" | "24h" | "7d" | "30d" | "month";
+
+/** One provider CLI on a machine, as `agent accounts detect` found it there: never a token. */
+export interface ProviderCli {
+  provider: SubscriptionProvider;
+  installed: boolean;
+  version: string | null;
+  auth: "signed_in" | "signed_out" | "unknown";
+  method: string | null;
+  /** false when it's signed in with an API key rather than a subscription. */
+  subscription: boolean | null;
+  modes: ("runner" | "token")[];
+  reauthenticate: boolean;
+}
+
+/** Whether a provider account can run on one machine, from what the machine reported. */
+export interface AccountHealth {
+  machine_id: string;
+  machine_name: string | null;
+  connected: boolean;
+  assigned: boolean;
+  enabled: boolean;
+  installed: boolean | null;
+  cli_version: string | null;
+  authenticated: boolean | null;
+  available: boolean;
+  last_checked_at: number | null;
+  last_success_at: number | null;
+  error_code: string | null;
+  error_message: string | null;
+}
+
+export interface AccountAssignment {
+  account_id: string;
+  machine_id: string;
+  assigned_by: string;
+  assigned_at: number;
+  enabled: boolean;
+  provisioning_allowed: boolean;
+  source: "console" | "enrollment";
+  health: AccountHealth;
+}
+
+/** A limit the account's owner declared: the only base for a remaining balance. */
+export interface DeclaredLimit {
+  window: UsageWindow;
+  unit: "requests" | "tokens";
+  value: number;
+  source?: "user_declared";
+}
+
+/** What went through the server for an account in one window (source observed: this server's traffic only). */
+export interface ObservedUsage {
+  window: UsageWindow;
+  since: number;
+  requests: number;
+  input_tokens: number;
+  output_tokens: number;
+  rate_limited: number;
+  errors: number;
+  source: "observed";
+  confidence: string;
+}
+
+export interface UsageEstimate {
+  limit: DeclaredLimit;
+  used: number;
+  remaining: number;
+  percent_used: number | null;
+  warning: boolean;
+  stop: boolean;
+  source: "estimate";
+  confidence: string;
+  basis: string;
+}
+
+export interface AccountUsage {
+  account_id: string;
+  observed: ObservedUsage[];
+  /** The provider's own numbers, when a supported source reports them; none does yet. */
+  reported: null | Record<string, unknown>;
+  /** What's left of the declared limit, estimated from this server's traffic. */
+  estimate: UsageEstimate | null;
+  /** "unknown" without a declared limit. */
+  remaining: "unknown" | null;
+  rate_limits: {
+    last_limited_at: number | null;
+    retry_after: number | null;
+    cooldown_until: number | null;
+    exhausted_until: number | null;
+    source: "observed";
+    confidence: string;
+  };
+  /** The windows this provider's limits usually reset over. */
+  windows: UsageWindow[];
+}
+
+/** A provider account: someone's own subscription. Metadata only: no answer ever carries a token. */
+export interface ProviderAccount {
+  id: string;
+  provider: SubscriptionProvider;
+  provider_label: string;
+  owner: string;
+  tenant: string;
+  display_name: string;
+  plan_name: string;
+  authentication_mode: "runner" | "token";
+  mode_label: string;
+  status: "active" | "disabled";
+  disabled_by: string | null;
+  priority: number;
+  /** Others who may launch with it (only shown to its owner). */
+  users: string[];
+  limit: DeclaredLimit | null;
+  warning_percent: number;
+  stop_percent: number;
+  created_at: number;
+  updated_at: number;
+  last_validated_at: number | null;
+  last_success_at: number | null;
+  expires_at: number | null;
+  credential: { stored: boolean; set_at?: number; key_version?: number; kind?: string };
+  state: AccountState;
+  state_reason: string;
+  assignments: AccountAssignment[];
+  you: { owner: boolean; use: boolean; manage: boolean; suspend: boolean };
+  usage?: AccountUsage;
+  existing?: boolean;
+}
+
+export interface SubscriptionProviderInfo {
+  label: string;
+  cli: string;
+  modes: ("runner" | "token")[];
+  plans: string[];
+  windows: UsageWindow[];
+  sign_in: string;
+  note: string;
+  credential_env?: string;
+}
+
+export interface ProviderAccountList {
+  accounts: ProviderAccount[];
+  providers: Record<SubscriptionProvider, SubscriptionProviderInfo>;
+  modes: Record<"runner" | "token", string>;
+  states: AccountState[];
+  windows: UsageWindow[];
+  vault: { configured: boolean };
+}
+
+export interface AccountEvent {
+  at: number;
+  kind: string;
+  by: string | null;
+  [detail: string]: unknown;
+}
+
+export interface PlanCandidate {
+  kind: "subscription" | "fallback";
+  agent: string;
+  machine_id: string;
+  machine_name: string;
+  account_id: string | null;
+  account_name?: string;
+  provider?: SubscriptionProvider;
+  state: AccountState;
+  reason: string;
+  remaining?: number | null;
+}
+
+export interface SchedulePlan {
+  choice: PlanCandidate | null;
+  candidates: PlanCandidate[];
+  skipped: { agent?: string; machine_id?: string; account_id?: string; reason: string }[];
 }
 
 /** An MCP server a machine shares (agent-machine mcp add) that you may give the agents you start. */
@@ -577,6 +758,8 @@ export interface FleetMachine {
   commands?: boolean;
   /** The MCP servers it shares (agent-machine mcp add), by name; their commands stay on the machine. */
   mcp?: { port?: number; servers?: Omit<SharedMcp, "id" | "machine" | "machine_name" | "connected">[] };
+  /** The provider CLIs there and whether each is signed in (null: its agent-machine is too old to say). */
+  provider_clis?: { clis: ProviderCli[]; at: number | null; error: string | null } | null;
   connected: boolean;
   first_seen: number;
   last_seen: number;
@@ -684,6 +867,8 @@ export interface LaunchRequest {
   access?: "view" | "control";
   /** Shared MCP servers for the agent (SharedMcp ids). */
   mcp?: string[];
+  /** For account agents: the provider account to run with, or "auto" for the best one now. */
+  account_id?: string;
 }
 
 export const PROTOCOL_LABELS: Record<Agent["protocol"], string> = {
@@ -1401,6 +1586,7 @@ async function helpPage(name: string): Promise<string> {
 }
 
 const sessionUrl = (id: string) => `/api/sessions/${encodeURIComponent(id)}`;
+const accountUrl = (id: string) => `/api/provider-accounts/${encodeURIComponent(id)}`;
 
 export const api = {
   status: () => request<Status>("/api/status"),
@@ -1492,8 +1678,32 @@ export const api = {
   setMachineAccess: (machineId: string, access: MachineAccess) =>
     request<FleetMachine>(`/api/machines/${encodeURIComponent(machineId)}/access`, { method: "PUT", body: JSON.stringify({ access }) }),
   restoreMachine: (machineId: string) => request<{ restored: string }>(`/api/machines/${encodeURIComponent(machineId)}/restore`, { method: "POST", body: "{}" }),
+  providerAccounts: (machine?: string) =>
+    request<ProviderAccountList>(`/api/provider-accounts${machine ? `?machine=${encodeURIComponent(machine)}` : ""}`),
+  providerAccount: (id: string) => request<ProviderAccount>(accountUrl(id)),
+  createProviderAccount: (body: { provider: SubscriptionProvider; display_name?: string; plan_name?: string; authentication_mode?: "runner" | "token" }) =>
+    request<ProviderAccount>("/api/provider-accounts", { method: "POST", body: JSON.stringify(body) }),
+  updateProviderAccount: (
+    id: string,
+    body: Partial<Pick<ProviderAccount, "display_name" | "plan_name" | "priority" | "users" | "status" | "warning_percent" | "stop_percent">> & {
+      limit?: DeclaredLimit | null;
+      clear_observations?: boolean;
+    },
+  ) => request<ProviderAccount>(accountUrl(id), { method: "PATCH", body: JSON.stringify(body) }),
+  deleteProviderAccount: (id: string) => request<{ deleted: string }>(accountUrl(id), { method: "DELETE" }),
+  providerAccountEvents: (id: string) => request<{ events: AccountEvent[] }>(`${accountUrl(id)}/events`),
+  assignProviderAccount: (id: string, machine: string, body: { enabled?: boolean; provisioning_allowed?: boolean } = {}) =>
+    request<AccountAssignment>(`${accountUrl(id)}/assignments/${encodeURIComponent(machine)}`, { method: "PUT", body: JSON.stringify(body) }),
+  unassignProviderAccount: (id: string, machine: string) =>
+    request<{ unassigned: string }>(`${accountUrl(id)}/assignments/${encodeURIComponent(machine)}`, { method: "DELETE" }),
+  /** Store a managed token (encrypted on the server; it can never be read back). */
+  storeProviderToken: (id: string, token: string) =>
+    request<ProviderAccount>(`${accountUrl(id)}/credential`, { method: "PUT", body: JSON.stringify({ token }) }),
+  revokeProviderToken: (id: string) => request<ProviderAccount>(`${accountUrl(id)}/revoke`, { method: "POST", body: "{}" }),
+  planTask: (body: { agents?: string[]; machine?: string; project?: string; fallback?: string[]; allow_unknown?: boolean }) =>
+    request<SchedulePlan>("/api/provider-accounts/plan", { method: "POST", body: JSON.stringify(body) }),
   launchOnMachine: (machineId: string, body: LaunchRequest) =>
-    request<FleetLaunch>(`/api/machines/${encodeURIComponent(machineId)}/launch`, { method: "POST", body: JSON.stringify(body) }),
+    request<FleetLaunch & { account?: { id: string; display_name: string; provider: SubscriptionProvider } | null }>(`/api/machines/${encodeURIComponent(machineId)}/launch`, { method: "POST", body: JSON.stringify(body) }),
   machineFolders: (machineId: string, path?: string) =>
     request<MachineFolders>(`/api/machines/${encodeURIComponent(machineId)}/folders${path ? `?path=${encodeURIComponent(path)}` : ""}`),
   updateMachine: (machineId: string, agent: boolean) =>

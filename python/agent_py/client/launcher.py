@@ -37,6 +37,7 @@ USAGE = """Usage: agent <agent> [project] [options] [-- agent arguments]
        agent proxy [--server url]         run this machine's agent-proxy in the foreground
        agent proxy stop                   stop the agent-proxy running here (agent starts it again)
        agent update [--force]             install the build the server offers (its Python wheel, with pip)
+       agent accounts list|detect|status|enroll   your AI subscriptions (agent accounts --help)
        agent version
 
 Launch a coding agent through this machine's agent-proxy. To put this machine in the
@@ -48,6 +49,8 @@ Options:
       --trace             Capture full request and response payloads
       --mcp NAMES         MCP servers machines share, for the agent: machine/name, a machine for
                           all of its servers, or all; comma-separated or repeated
+      --account ID        For account agents: which of your provider accounts (agent accounts list)
+                          it runs with; the agent's own sign-in here otherwise
       --list              List the server's agents and whether they're installed here
       --control           Share the agent's terminal with the server, to watch and type into it from
                           the console or a phone (or set AI_PROXY_CONTROL=1)
@@ -64,7 +67,7 @@ Sharing:
 Unknown options, and everything after --, are passed to the agent.
 """
 
-VALUED = {"--model", "-m", "--backend", "--share", "--team", "--proxy", "--launch-id", "--mcp"}
+VALUED = {"--model", "-m", "--backend", "--share", "--team", "--proxy", "--launch-id", "--mcp", "--account"}
 
 
 class UsageError(Exception):
@@ -82,6 +85,8 @@ class Options:
     model: str = ""
     # Shared MCP servers for the agent: "<machine>/<name>", a machine for all of its servers, or "all".
     mcp: List[str] = field(default_factory=list)
+    # The provider account (subscription) an account agent runs with: its id on the server.
+    account: str = ""
     backend: str = ""
     trace: bool = False
     list: bool = False
@@ -149,6 +154,8 @@ def parse_args(args: List[str]) -> Options:
                 options.launch_id = value
             elif name == "--mcp":
                 options.mcp += [item.strip() for item in value.split(",") if item.strip()]
+            elif name == "--account":
+                options.account = value.strip()
             continue
         flags = {"--trace": "trace", "--list": "list", "--control": "control", "--switch": "switch",
                  "--let-others-type": "let_others_type", "--headless": "headless", "--shell": "shell", "-h": "help", "--help": "help"}
@@ -455,6 +462,24 @@ def share_for(local: str, server: str, session_id: str, name: str, wanted: bool)
     return share, f"{view} ({problem})" if problem else f"{view} (watch and type into this terminal from the console)"
 
 
+def provider_credential(api: "API", session_id: str) -> Dict[str, str]:
+    """The managed token of the session's provider account, handed over once to the launch the server started."""
+    try:
+        answer = api.call("POST", f"/api/sessions/{quote(session_id, safe='')}/provider-credential", {})
+    except APIError as error:
+        raise LaunchError(f"couldn't get the provider account's token for this launch: {error}") from error
+    return {str(key): str(value) for key, value in (answer.get("env") or {}).items()}
+
+
+def connect() -> "tuple[API, str]":
+    """The agent-proxy running and this computer signed in: a client of the server through it, and its address."""
+    status = ensure_proxy()
+    server = str(status.get("server") or "")
+    api = API(settings.proxy_url())
+    check_signed_in(api, server)
+    return api, server
+
+
 def launch(options: Options) -> int:
     project = Path(os.path.abspath(options.project))
     if not project.is_dir():
@@ -478,6 +503,8 @@ def launch(options: Options) -> int:
     }
     if options.mcp:
         request["mcp"] = options.mcp
+    if options.account:
+        request["account"] = options.account
     # Where it runs, and for a launch from the console the fleet machine and the launch that started it.
     hostname = socket.gethostname()
     tags: Dict[str, Any] = {"machine_name": hostname, "hostname": hostname}
@@ -507,6 +534,10 @@ def launch(options: Options) -> int:
     try:
         if prepared.get("files"):
             write_files(files_dir, prepared["files"])
+        # A managed token goes into the agent's environment only: never a file, an argument or the output.
+        account = prepared.get("account") or {}
+        if account.get("credential"):
+            prepared["env"] = {**(prepared.get("env") or {}), **provider_credential(api, session_id)}
         if prepared.get("container"):
             ensure_container(local, str(session.get("backend") or ""), options.switch)
         command = list(prepared.get("command") or [])
@@ -526,6 +557,8 @@ def launch(options: Options) -> int:
         share, control = share_for(local, server, session_id, str(agent.get("executable") or ""), options.control)
         print(f"Session : {session_id}\nAgent   : {agent.get('name')}\nModel   : {options.model or 'agent default'}\n"
               f"Backend : {route}\nServer  : {server}/live\nControl : {control}", flush=True)
+        if prepared.get("account"):
+            print("Account :", prepared["account"].get("display_name"), flush=True)
         if prepared.get("mcp"):
             print("MCP     :", ", ".join(str(item.get("id")) for item in prepared["mcp"]), flush=True)
         if share:

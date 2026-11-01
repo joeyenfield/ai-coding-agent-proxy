@@ -23,6 +23,7 @@ from .config import LOCAL_INTERCEPT_PORT, Settings
 from . import strata
 from .containers import ContainerManager, KeyStore
 from .live import LiveHub
+from .provider_accounts import ProviderAccounts, Vault
 from .remote import RemoteAccess
 from .sessions import Session, SessionStore
 from .telemetry import RequestTelemetry, stream_deltas
@@ -64,6 +65,8 @@ class Runtime:
         self.auth = Auth(UserStore(self.db), settings)
         # Containers the machines run for the server, asked for over the fleet's connections.
         self.containers = ContainerManager(settings, KeyStore(self.db), self.fleet)
+        # People's own subscriptions (Claude, Codex, Copilot), where they run, and what they used.
+        self.provider_accounts = ProviderAccounts(self.db, self.fleet, Vault.from_environment())
         self.client: httpx.AsyncClient | None = None
         self.intercept_client: httpx.AsyncClient | None = None
         self.recent: deque[dict[str, Any]] = deque(maxlen=100)
@@ -121,6 +124,7 @@ class Runtime:
 
     def prune(self) -> int:
         """Delete recordings older than the retention setting (traces, chat indexes, terminal output)."""
+        self.provider_accounts.prune()
         days = self.settings.retention_days
         if not days:
             return 0
@@ -332,6 +336,8 @@ class Runtime:
         counted = self.tokens.setdefault(record["session_id"], [0, 0])
         counted[0] += record["input_tokens"]
         counted[1] += record["output_tokens"]
+        # A provider account's session: its usage, and the provider's 429s.
+        self.provider_accounts.observe(session, record, http)
         if session.trace:
             trace = {
                 "metadata": {"proxy_instance_id": self.proxy_instance_id, **record},

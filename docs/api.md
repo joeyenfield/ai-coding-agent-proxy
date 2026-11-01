@@ -133,7 +133,7 @@ Every machine route needs **Trusted**. A machine you may not see answers `404`. 
 | DELETE | `/api/machines/{machine_id}` | Owner or admin, Same origin | Removes it from the fleet, connected or not. It's refused when it connects again until restored. |
 | POST | `/api/machines/{machine_id}/restore` | Owner or admin, Same origin | Lets a removed machine join again. |
 | PUT | `/api/machines/{machine_id}/access` | Owner or admin, Same origin | Sets who in the machine's organization may use each feature: `{"access": {feature: {"orgs": [<its organization>], "teams": ["<org>/<team>", ...]}}}`. Another organization or its teams are refused (`400`). Members grant only teams they're in. |
-| POST | `/api/machines/{machine_id}/launch` | `launch`, Same origin | Starts an agent there in a shared terminal: `agent`, `project` (inside one of its roots), `model`, `backend`, `trace`, `visibility`, `team`, `access`, `mcp`. Needs `agent-machine launches on`. Answers `201` once the session is open; someone other than the owner is tagged `launched_by`. |
+| POST | `/api/machines/{machine_id}/launch` | `launch`, Same origin | Starts an agent there in a shared terminal: `agent`, `project` (inside one of its roots), `model`, `backend`, `trace`, `visibility`, `team`, `access`, `mcp`, and for account agents `account_id` (one of your [subscriptions](subscriptions.md) assigned to the machine, or `auto`). Needs `agent-machine launches on`. Answers `201` once the session is open, with the `account` it runs with; someone other than the owner is tagged `launched_by`. An account agent started by anyone but the machine's owner needs an `account_id` they may use (`403` without one); one that can't take new work answers `409`. |
 | POST | `/api/machines/{machine_id}/shell` | `terminal`, Same origin | Opens a shell there in a private terminal: `project` (a folder in its roots; default the first root). Needs `agent-machine commands on`. |
 | POST | `/api/machines/{machine_id}/update` | `update`, Same origin | Has the machine update `agent-machine` (and with `"agent": true`, `agent`) to the server's build, then restart. Needs `agent-machine updates on`. |
 | GET | `/api/machines/{machine_id}/folders` | `launch` or `terminal` | Folder names inside one of its launch folders, `?path=`. Without a path, its roots. |
@@ -149,6 +149,31 @@ Every machine route needs **Trusted**. A machine you may not see answers `404`. 
 | PUT | `/api/machines/{machine_id}/servers/llamacpp` | `servers`, Same origin | Saves them; they apply when llama.cpp next starts. Needs `agent-machine servers on`. |
 | GET | `/api/machines/{machine_id}/servers/llamacpp/install` | `servers` | How llama.cpp can be installed there, as the machine finds out: `source` (`termux` or `github`), `release`, and `variants` (`id`, `label`, `help`, `size`, `recommended`). |
 | POST | `/api/machines/{machine_id}/servers/{kind}/{action}` | `servers`, Same origin | Starts, stops or restarts the machine's Ollama (`kind` `ollama`, `action` `start`, `stop` or `restart`). For `kind` `strata`: `start`, `stop` or `remove` a profile (`{"profile": ...}`; `remove` only deletes a profile whose model is gone and that isn't serving), `prune` (remove every such profile) or `cleanup` (`strata runtime cleanup`: leftovers of runtimes whose owner is gone). For `kind` `llamacpp`: `start`, `stop`, `restart`, `install` (`{"variant": ...}`, one of the install options; it answers at once and the machine's state carries the progress) or `uninstall` (the builds installed from the console). Needs `agent-machine servers on`. |
+
+## Provider accounts (subscriptions)
+
+People's own AI plans and where they run; see [Subscriptions](subscriptions.md). All need **Signed in**; changes also **Same origin**. Answers are metadata only: none carries a token, except the one-time handover. Another person's subscription answers `404` unless you may see it.
+
+| Method | Path | Who | What it does |
+|---|---|---|---|
+| GET | `/api/provider-accounts` | Signed in | The subscriptions you may see (yours, those you may launch with, and for admins their organization's), with their state and machines; `?machine=` only those assigned to that machine. Also `providers`, `modes`, `states`, `windows` and whether the vault is set (`vault.configured`). |
+| POST | `/api/provider-accounts` | Signed in | A new one of yours: `provider` (`claude`, `codex`, `copilot`), `display_name`, `plan_name`, `authentication_mode` (`runner`, or `token` for Copilot), and any `PATCH` field. `201`; the one you already have with that provider and name answers `200` with `existing: true`. |
+| POST | `/api/provider-accounts/plan` | Signed in | Which subscription, agent and machine should take a new task, best first, and why others can't: `agents` (account agents in order), `machine`, `project`, `fallback` (local-model agents only), `allow_unknown`. Answers `choice`, `candidates`, `skipped`. |
+| GET | `/api/provider-accounts/{id}` | May see it | One, with its `usage`. |
+| PATCH | `/api/provider-accounts/{id}` | Owner; `status`: owner or admin | `display_name`, `plan_name`, `priority`, `users` (others who may launch with it), `limit` (`{window, unit, value}`, or null), `warning_percent`, `stop_percent`, `clear_observations`; `status` `active` or `disabled`. |
+| DELETE | `/api/provider-accounts/{id}` | Owner | Removes it, its assignments, usage and stored token. |
+| GET | `/api/provider-accounts/{id}/health` | May see it | Its state and each assigned machine's health. |
+| GET | `/api/provider-accounts/{id}/usage` | May see it | `observed` usage by window, the `estimate` against a declared limit (or `remaining: "unknown"`), `rate_limits` seen, `reported` (none yet). |
+| GET | `/api/provider-accounts/{id}/events` | Owner or admin | Its history: created, enrolled, assigned, credential stored, provisioned, revoked, rate limited, ... |
+| GET | `/api/provider-accounts/{id}/assignments` | May see it | The machines it may run on, each with its health. |
+| PUT | `/api/provider-accounts/{id}/assignments/{machine_id}` | Owner | Lets it run on one of your own machines: `enabled`, `provisioning_allowed` (a token account's token may go to launches there). Another person's machine is `403`. |
+| DELETE | `/api/provider-accounts/{id}/assignments/{machine_id}` | Owner | Stops it running there; new launches are refused. |
+| POST | `/api/provider-accounts/{id}/enrollments` | Owner | Registers a machine as one that runs it (`agent accounts enroll`): `machine`, else `hostname` finds your machine of that name; `detected` (`auth`, `version`). `201`. |
+| PUT | `/api/provider-accounts/{id}/credential` | Owner | Stores its managed token, encrypted: `{"token": "github_pat_..."}`. `409` without `AI_PROXY_VAULT_KEYS`; `400` for a token Copilot CLI doesn't take. Never readable back. |
+| POST | `/api/provider-accounts/{id}/revoke` | Owner | Forgets its token and stops handing it out. |
+| POST | `/api/sessions/{session_id}/provider-credential` | The session's owner | The managed token for a session the server launched on an assigned machine, once, within two minutes: `{"env": {"COPILOT_GITHUB_TOKEN": "..."}}`, `Cache-Control: no-store`. `403` when it was handed over already, expired or isn't allowed there. |
+
+`POST /api/agents/{agent_id}/sessions` takes `account` too: the session is tagged `provider_account` (a server tag clients can't set) after the same checks, and the answer's `account` says whether a token waits (`credential: true`).
 
 ## Containers
 

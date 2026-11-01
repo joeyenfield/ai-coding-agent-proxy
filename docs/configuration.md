@@ -31,7 +31,7 @@ Three things stay files:
 | `certs/first-user-password` | The first admin's password, for you to read once and delete. |
 | `logs/ca/ca.pem`, `logs/ca/bundle.pem` | The capture CA's certificate, and it with the system roots, for agents that read them as files. Its key stays in the database. `AI_PROXY_CA_DIR` moves them. |
 
-`agent-server db info` says which database the server uses, its size and how many sessions it holds.
+`agent-server db info` says which database the server uses, its size and how many sessions it holds. `agent-server vault key|status|rotate` looks after the key subscriptions' managed tokens are encrypted with (see [Subscriptions](subscriptions.md#the-vault)).
 
 ### How long recordings are kept
 
@@ -226,6 +226,8 @@ See [Agents](agents.md) for the format and how to add one, and [MCP](mcp.md) for
 | `AI_PROXY_USERNAME`, `AI_PROXY_PASSWORD` | An admin account from the environment, outside the database, which the issuer accepts. With both set, the first start makes no `admin` user. |
 | `AI_PROXY_NEW_PASSWORD` | The password for `agent-server user add` and `user passwd`, instead of asking. For scripts. |
 | `STRATA_API_KEY` | The key sent with agents' traffic to Strata backends, ahead of the one their machine reports. A container's own key still wins. |
+| `AI_PROXY_VAULT_KEYS` | The vault's master keys for subscriptions' managed tokens: `<version>:<32 bytes, base64>`, comma-separated; the newest encrypts, all decrypt. Without it, storing a token is refused. `agent-server vault key` makes one. See [Subscriptions](subscriptions.md#the-vault). |
+| `AI_PROXY_VAULT_KEYS_FILE` | A file holding the same, for container secrets, when `AI_PROXY_VAULT_KEYS` isn't set. |
 
 ## How the server finds its install folder
 

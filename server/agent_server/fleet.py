@@ -51,6 +51,7 @@ from sqlalchemy import select
 from . import access, strata, version
 from .auth import ROOT_TENANT, Identity, same_tenant
 from .config import MACHINE_TYPES
+from .provider_accounts import reported_clis
 from .db import Database, kv, schema
 from .sessions import SessionStore
 
@@ -115,6 +116,9 @@ class Machine:
     roots: list[str] = field(default_factory=list)
     # The MCP servers it shares (mcp.py): its bridge's loopback port and the servers by name.
     mcp: dict[str, Any] = field(default_factory=dict)
+    # The provider CLIs agent-machine found there and whether each is signed in (`agent accounts detect`):
+    # metadata only, never a token. None from an agent-machine too old to report them.
+    provider_clis: dict[str, Any] | None = None
     first_seen: float = 0.0
     last_seen: float = 0.0
     history: list[dict[str, Any]] = field(default_factory=list)
@@ -415,6 +419,8 @@ class Fleet:
             machine.launcher = bool(data.get("launcher"))
         if "mcp" in data:
             machine.mcp, machine.mcp_key = _mcp(data.get("mcp"))
+        if "accounts" in data:
+            machine.provider_clis = reported_clis(data.get("accounts"))
         if isinstance(data.get("roots"), list):
             machine.roots = [str(item)[:400] for item in data["roots"]][:20]
         machine.last_seen = time.time()
@@ -668,7 +674,9 @@ class Fleet:
 
     # Launches
 
-    async def launch(self, machine: Machine, identity: Identity | None, request: dict[str, Any]) -> dict[str, Any]:
+    async def launch(self, machine: Machine, identity: Identity | None, request: dict[str, Any], launch_id: str | None = None) -> dict[str, Any]:
+        """Starts an agent there. request["account"] is a provider account the route already checked for
+        whoever asked (provider_accounts.for_launch), with launch_id the grant it made for it."""
         if not can_launch(identity, machine):
             raise FleetError(403, "Only the machine's owner, or the teams it lets, can start agents on it.")
         socket = await self.wait_socket(machine)
@@ -682,7 +690,10 @@ class Fleet:
         agent = str(request.get("agent") or "")
         if agent not in machine.agents:
             raise FleetError(400, f"{agent or 'That agent'} isn't installed on {machine.name}.")
-        launch_id = secrets.token_hex(6)
+        account = str(request.get("account") or "")
+        if account and machine.provider_clis is None:
+            raise FleetError(409, f"{machine.name}'s agent-machine is too old to start agents with a provider account: run agent-machine update there.")
+        launch_id = launch_id or secrets.token_hex(6)
         message = {
             "type": "launch", "launch": launch_id, "agent": agent, "project": project,
             "model": str(request.get("model") or ""), "backend": str(request.get("backend") or ""), "trace": bool(request.get("trace")),
@@ -691,6 +702,9 @@ class Fleet:
             # Shared MCP servers for the agent, as checked by the route (mcp.choose).
             "mcp": [str(item) for item in request.get("mcp") or []],
         }
+        if account:
+            # The provider account the agent runs with (agent --account): its id, never a credential.
+            message["account"] = account
         return await self._start(machine, socket, identity, message, agent, project)
 
     async def shell(self, machine: Machine, identity: Identity | None, request: dict[str, Any]) -> dict[str, Any]:
@@ -738,6 +752,7 @@ class Fleet:
                 or session.tags.get("tenant") != machine.tenant
                 or session.tags.get("machine") != machine.id
                 or session.tags.get("launch") != launch_id
+                or str(session.tags.get("provider_account") or "") != str(message.get("account") or "")
             ):
                 record["error"] = "The machine returned a session that doesn't belong to this launch"
             else:

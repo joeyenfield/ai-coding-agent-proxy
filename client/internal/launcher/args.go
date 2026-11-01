@@ -13,7 +13,10 @@ type Options struct {
 	Backend string
 	// MCP names shared MCP servers for the agent: "<machine>/<name>", a machine's name for all of
 	// its servers, or "all" for every one this user may use.
-	MCP           []string
+	MCP []string
+	// Account is the provider account (subscription) an account agent runs with: its id on the
+	// server, as agent-machine passes it for a launch from the console.
+	Account       string
 	Trace         bool
 	List          bool
 	Control       bool
@@ -44,6 +47,7 @@ const Usage = `Usage: agent <agent> [project] [options] [-- agent arguments]
        agent proxy [--server url]         run this machine's agent-proxy in the foreground
        agent proxy stop                   stop the agent-proxy running here (agent starts it again)
        agent update [--force]             replace agent and agent-proxy with the build the server offers
+       agent accounts list|detect|status|enroll   your AI subscriptions (agent accounts --help)
        agent version
 
 Launch a coding agent through this machine's agent-proxy. To put this machine in the
@@ -55,6 +59,8 @@ Options:
       --trace             Capture full request and response payloads
       --mcp NAMES         MCP servers machines share, for the agent: machine/name, a machine for
                           all of its servers, or all; comma-separated or repeated
+      --account ID        For account agents: which of your provider accounts (agent accounts list)
+                          it runs with; the agent's own sign-in here otherwise
       --list              List the server's agents and whether they're installed here
       --control           Share the agent's terminal with the server, to watch and type into it from
                           the console or a phone (or set AI_PROXY_CONTROL=1)
@@ -72,7 +78,7 @@ Unknown options, and everything after --, are passed to the agent.
 `
 
 // valued are the options that take a value, as --name value or --name=value.
-var valued = map[string]bool{"--model": true, "-m": true, "--backend": true, "--share": true, "--team": true, "--proxy": true, "--launch-id": true, "--mcp": true}
+var valued = map[string]bool{"--model": true, "-m": true, "--backend": true, "--share": true, "--team": true, "--proxy": true, "--launch-id": true, "--mcp": true, "--account": true}
 
 // ParseArgs reads arguments the way argparse's parse_known_args did: options anywhere,
 // the first two plain arguments as the agent and project, everything else for the agent.
@@ -122,6 +128,8 @@ func ParseArgs(args []string) (Options, error) {
 				options.Proxy = value
 			case "--launch-id":
 				options.LaunchID = value
+			case "--account":
+				options.Account = strings.TrimSpace(value)
 			case "--mcp":
 				for _, name := range strings.Split(value, ",") {
 					if name = strings.TrimSpace(name); name != "" {

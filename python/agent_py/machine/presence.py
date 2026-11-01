@@ -92,7 +92,61 @@ def arguments(request: Dict[str, Any], project: str) -> List[str]:
         args.append("--let-others-type")
     if request.get("mcp"):
         args += ["--mcp", ",".join(str(item) for item in request["mcp"])]
+    if request.get("account"):
+        # The provider account the agent runs with, by its id: the agent fetches anything secret itself.
+        args += ["--account", str(request["account"])]
     return args
+
+
+# How often the provider CLIs here are looked at again, and how long one look may take (presence/accounts.go).
+ACCOUNTS_EVERY = 300.0
+ACCOUNTS_TIMEOUT = 60.0
+
+
+def detect_accounts() -> Dict[str, Any]:
+    """What `agent accounts detect --json` finds here: the provider CLIs and whether each is signed in. Never a token."""
+    try:
+        done = subprocess.run([*agent_command(), "accounts", "detect", "--json"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                              stderr=subprocess.DEVNULL, timeout=ACCOUNTS_TIMEOUT)
+        lines = done.stdout.decode(errors="replace").strip().splitlines()
+        report = json.loads(lines[-1]) if done.returncode == 0 and lines else None
+    except (OSError, subprocess.SubprocessError, ValueError):
+        report = None
+    if not isinstance(report, dict):
+        return {"clis": [], "error": "this computer's agent couldn't check provider sign-ins (an older agent? run agent update)"}
+    return report
+
+
+class ProviderCLIs:
+    """The last look at the provider CLIs here, for the hello's "accounts"; looking runs in a thread, so a hello never waits."""
+
+    def __init__(self, detect: Optional[Callable[[], Dict[str, Any]]] = None) -> None:
+        self.detect = detect or detect_accounts
+        self.report: Optional[Dict[str, Any]] = None
+        self.checked = float("-inf")
+        self.running = False
+        self.lock = threading.Lock()
+        # Set when a look found something new, so an update goes out then rather than a minute later.
+        self.changed = threading.Event()
+
+    def current(self) -> Dict[str, Any]:
+        import time
+
+        with self.lock:
+            if not self.running and time.monotonic() - self.checked > ACCOUNTS_EVERY:
+                self.running = True
+                threading.Thread(target=self._look, daemon=True).start()
+            return self.report if self.report is not None else {"clis": []}
+
+    def _look(self) -> None:
+        import time
+
+        report = self.detect()
+        with self.lock:
+            new = report != self.report
+            self.report, self.checked, self.running = report, time.monotonic(), False
+        if new:
+            self.changed.set()
 
 
 def check(request: Dict[str, Any], machine: settings.Machine) -> str:
@@ -295,6 +349,8 @@ class Presence:
         self.tunnel_ports: set = set()
         # Shares the MCP servers in mcp.json (agent-machine mcp add) through the tunnel.
         self.mcp = mcp.Bridge()
+        # The provider CLIs here and whether each is signed in, for the hello.
+        self.accounts = ProviderCLIs()
         # Tunnels in flight. They outlive the fleet connection that asked for them (as Go's goroutines
         # do), so a reconnect doesn't cut off the agents' replies they carry; they end with run().
         self.tunnels: set = set()
@@ -440,7 +496,19 @@ class Presence:
                     except Exception as error:  # noqa: BLE001 - try again; the server closes it with 4410 if it never comes
                         log.info("fleet: couldn't renew the access token: %s", error)
 
-            tasks = {asyncio.ensure_future(keep_up()), asyncio.ensure_future(renew())}
+            async def report_accounts() -> None:
+                # A new look at the provider CLIs goes to the server at once (the first one, especially).
+                while True:
+                    if await asyncio.to_thread(self.accounts.changed.wait, 5):
+                        self.accounts.changed.clear()
+                        try:
+                            await send(await asyncio.to_thread(self.describe, server, "update"))
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception as error:  # noqa: BLE001
+                            log.info("fleet: couldn't send an update: %s", error)
+
+            tasks = {asyncio.ensure_future(keep_up()), asyncio.ensure_future(renew()), asyncio.ensure_future(report_accounts())}
             try:
                 async for raw in conn:
                     try:
@@ -651,6 +719,8 @@ class Presence:
             "tunnel": 1, "launcher": True,
             "containers": self.containers.describe(),
             "servers": serving, "mcp": shared,
+            # The provider CLIs here (claude, codex, copilot) and whether each is signed in: never a token.
+            "accounts": self.accounts.current(),
         }
 
     def installed_agents(self, server: str) -> List[str]:

@@ -39,7 +39,7 @@ from agent_server.sessions import SessionStore
 from agent_server.auth import UserStore
 from agent_server import config_io, defaults
 from agent_server.config import Settings
-from agent_server.db import Database
+from agent_server.db import Database, schema
 from agent_server.issuer import Issuer
 from agent_server.version import PROTOCOL, build_version
 from agent_server.telemetry import RequestTelemetry
@@ -761,13 +761,24 @@ FLEET = [
                  "strata": {"found": True, "profiles": [{"id": "qwen-iq3", "state": "stopped"}, {"id": "coder", "state": "stopped"}]}}},
     {"id": "ai-laptop", "name": "ai-laptop", "os": "windows", "arch": "amd64", "version": SERVER_VERSION, "address": "127.0.0.1",
      "agents": ["claude-account", "copilot-account"], "providers": [{"type": "ollama", "port": LAPTOP, "models": 2, "version": "0.12.3"}],
-     "containers": RUNS_CONTAINERS, "launches": False, "roots": []},
+     "containers": RUNS_CONTAINERS, "launches": False, "roots": [],
+     # The provider CLIs there, as `agent accounts detect` reports them (never a token).
+     "accounts": {"at": time.time(), "clis": [
+         {"provider": "claude", "installed": True, "version": "2.1.4 (Claude Code)", "auth": "signed_in", "method": "claude.ai", "subscription": True, "modes": ["runner"]},
+         {"provider": "codex", "installed": False, "auth": "unknown", "modes": ["runner"]},
+         {"provider": "copilot", "installed": True, "version": "1.0.2", "auth": "unknown", "modes": ["runner", "token"]},
+     ]}},
     {"id": "build-box", "name": "build-box", "os": "linux", "arch": "amd64", "version": "0.3.2", "address": "192.168.1.40",
      "agents": ["claude-account", "codex-account", "qwen", "opencode"], "providers": [{"type": "ollama", "port": 11434, "models": 6, "version": "0.12.3"}],
      "containers": {"enabled": False, "cli": "docker", "found": True, "online": False, "version": "", "error": "", "engines": []},
      "servers": {"enabled": True, "ollama": {"found": True, "running": True, "managed": True, "version": "0.12.3", "bind": "0.0.0.0"},
                  "strata": {"found": False, "profiles": []}},
      "launches": True, "roots": ["/home/joey/code", "/srv/repos"], "commands": True, "updates": True,
+     "accounts": {"at": time.time(), "clis": [
+         {"provider": "claude", "installed": True, "version": "2.1.4 (Claude Code)", "auth": "signed_in", "method": "claude.ai", "subscription": True, "modes": ["runner"]},
+         {"provider": "codex", "installed": True, "version": "codex-cli 0.52.0", "auth": "signed_in", "method": "chatgpt", "subscription": True, "modes": ["runner"]},
+         {"provider": "copilot", "installed": False, "auth": "unknown", "modes": ["runner", "token"]},
+     ]},
      # MCP servers it shares (agent-machine mcp add); nothing listens on the bridge's port in the demo.
      "mcp": {"port": 18198, "key": "demo", "servers": [
          {"name": "github", "transport": "stdio", "description": "GitHub issues and pull requests", "found": True},
@@ -1063,6 +1074,43 @@ def llama_server(request: dict, servers: dict, providers: FakeProviders) -> dict
     return {}
 
 
+def seed_subscriptions(db: Database) -> None:
+    """The demo user's own AI plans (provider_accounts.py): Claude on two machines with a declared limit and
+    some use, Codex on build-box, and Copilot with a stored token waiting for a machine. Written straight into
+    the database before the server starts, as the server would have written them."""
+    from agent_server.db import kv
+    from agent_server.provider_accounts import Assignment, ProviderAccount
+
+    now = time.time()
+    hour = int(now // 3600 * 3600)
+    accounts = [
+        (ProviderAccount(id="demo-claude-max", tenant=DEMO_ORG, owner=DEMO_USER, provider="claude", display_name="Claude Max", plan_name="Max 5x",
+                         priority=1, created_at=now - 86400 * 20, updated_at=now, last_success_at=now - 240,
+                         limit={"window": "5h", "unit": "requests", "value": 225, "source": "user_declared"}), ["ai-laptop", "build-box"]),
+        (ProviderAccount(id="demo-chatgpt-plus", tenant=DEMO_ORG, owner=DEMO_USER, provider="codex", display_name="ChatGPT Plus", plan_name="Plus",
+                         priority=2, created_at=now - 86400 * 9, updated_at=now, last_success_at=now - 7200,
+                         observed={"last_limited_at": now - 600, "retry_after": 1800, "cooldown_until": None, "exhausted_until": now + 1200}), ["build-box"]),
+        (ProviderAccount(id="demo-copilot-pro", tenant=DEMO_ORG, owner=DEMO_USER, provider="copilot", display_name="Copilot Pro", plan_name="Pro",
+                         authentication_mode="token", priority=3, created_at=now - 86400 * 3, updated_at=now,
+                         limit={"window": "month", "unit": "requests", "value": 300, "source": "user_declared"}), []),
+    ]
+    # Requests through the server in the last hours (Claude), and earlier this month (Copilot, none yet).
+    usage = {"demo-claude-max": [(0, 61, 1_840_000, 212_000), (1, 48, 1_402_000, 166_000), (3, 71, 2_210_000, 251_000), (30, 90, 2_900_000, 330_000)],
+             "demo-chatgpt-plus": [(1, 38, 980_000, 120_000), (26, 55, 1_310_000, 160_000)]}
+    with db.write() as connection:
+        for account, machines in accounts:
+            kv.upsert(connection, schema.provider_accounts, {"id": account.id, "tenant": account.tenant, "owner": account.owner, "provider": account.provider, "data": account.stored()})
+            for machine in machines:
+                assignment = Assignment(account.id, machine, DEMO_USER, now - 86400, source="enrollment")
+                kv.upsert(connection, schema.provider_account_assignments, {"account_id": account.id, "machine_id": machine, "data": assignment.stored()})
+        for account_id, rows in usage.items():
+            for hours_ago, requests, tokens_in, tokens_out in rows:
+                kv.upsert(connection, schema.provider_account_usage, {
+                    "account_id": account_id, "bucket": hour - hours_ago * 3600, "requests": requests,
+                    "input_tokens": tokens_in, "output_tokens": tokens_out, "rate_limited": 1 if account_id == "demo-chatgpt-plus" and hours_ago == 1 else 0, "errors": 0,
+                })
+
+
 def join_fleet() -> None:
     """The made-up machines, joined the way the client's agent-proxy joins: build-box takes launches, two run containers."""
     def member(hello: dict) -> None:
@@ -1217,6 +1265,7 @@ def main() -> None:
         issuer.auth.client.close()
         issuer.state.db.close()
     seed_accounts(db)
+    seed_subscriptions(db)
     backends = {
         # A made-up public name, so Running agents shows how a phone pairs from anywhere.
         "proxy": {"listen_host": "127.0.0.1", "listen_port": PROXY_PORT, "url": PROXY, "public_url": "https://agents.example.net"},

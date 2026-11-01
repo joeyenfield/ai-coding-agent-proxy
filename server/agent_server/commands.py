@@ -15,7 +15,13 @@ from .db import legacy
 def main(kind: str, argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog=f"agent-server {kind}")
     commands = parser.add_subparsers(dest="action", required=True)
-    if kind == "config":
+    if kind == "vault":
+        parser.description = "The key provider accounts' managed tokens are encrypted with (AI_PROXY_VAULT_KEYS: <version>:<base64>, comma-separated)."
+        key = commands.add_parser("key", help="Print a new random key to add to AI_PROXY_VAULT_KEYS")
+        key.add_argument("--version", type=int, default=0, help="Its version (default: one above the newest configured)")
+        commands.add_parser("status", help="Which key versions are configured, and how many tokens each encrypts")
+        commands.add_parser("rotate", help="Re-encrypt every stored token with the newest configured key")
+    elif kind == "config":
         parser.description = "The server's settings (network, backends, model tuning, agents) as one YAML document."
         export = commands.add_parser("export", help="Write every setting as YAML (to a file, or to standard output)")
         export.add_argument("file", nargs="?")
@@ -30,6 +36,8 @@ def main(kind: str, argv: list[str]) -> int:
         load.add_argument("--from", dest="root", help="The old install's folder (holding config/, certs/ and logs/); without it, this install's")
     args = parser.parse_args(argv)
     try:
+        if kind == "vault":
+            return _vault(args)
         if kind == "config" and args.action == "export":
             text = config_io.dump(config_io.export(Settings.load()))
             if args.file:
@@ -68,6 +76,48 @@ def main(kind: str, argv: list[str]) -> int:
     except (OSError, ValueError, KeyError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
+    return 0
+
+
+def _vault(args: argparse.Namespace) -> int:
+    """agent-server vault key|status|rotate. Prints key material only for `key`, which makes a new one."""
+    from sqlalchemy import func, select
+
+    from .db import schema
+    from .provider_accounts import ProviderAccounts, Vault, VaultError, new_key
+
+    try:
+        vault = Vault.from_environment()
+    except (VaultError, OSError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    if args.action == "key":
+        print(new_key(args.version or vault.current + 1))
+        print("Add it to AI_PROXY_VAULT_KEYS (keep older keys listed until `agent-server vault rotate` has run).", file=sys.stderr)
+        return 0
+    db = Settings.load().open_database()
+    if args.action == "status":
+        table = schema.provider_credentials
+        with db.read() as connection:
+            counts = dict(connection.execute(select(table.c.key_version, func.count()).group_by(table.c.key_version)).all())
+        print(f"Configured key versions: {', '.join(str(item) for item in sorted(vault.keys)) or 'none (managed tokens are refused)'}")
+        for version, count in sorted(counts.items()):
+            print(f"Tokens under key {version}: {count}{'' if version in vault.keys else ' (that key is missing: they can't be decrypted)'}")
+        return 0
+    if not vault.configured:
+        print("Set AI_PROXY_VAULT_KEYS first.", file=sys.stderr)
+        return 1
+
+    class Offline:
+        machines: dict = {}
+
+    try:
+        done = ProviderAccounts(db, Offline(), vault).rotate()
+    except VaultError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    db.close()
+    print(f"Re-encrypted {done} tokens with key {vault.current}.")
     return 0
 
 

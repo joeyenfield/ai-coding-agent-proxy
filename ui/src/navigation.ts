@@ -53,6 +53,8 @@ export const PARTS: Part[] = [
       { to: "/agents", label: "Start an agent", icon: "play" },
       { to: "/terminals", label: "Running agents", icon: "terminal" },
       { to: "/ask", label: "Ask a model", icon: "chat" },
+      // People's own AI plans (Claude, Codex, Copilot), apart from their sign-in to the server.
+      { to: "/subscriptions", label: "Subscriptions", icon: "key" },
     ],
   },
   {

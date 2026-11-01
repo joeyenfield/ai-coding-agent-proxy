@@ -192,9 +192,10 @@ It sends a **hello** when it connects, and an **update** every 60 seconds, with:
 - whether the `agent` command is installed (`launcher`);
 - containers: whether they're on, the CLI, whether its engine answers, and the engines it can run;
 - servers: whether they're on, and the state of the Ollama, llama.cpp and Strata installed here (for llama.cpp: found, running, started by agent-machine, its port and build, where it came from, and an install's progress);
-- the MCP servers it shares.
+- the MCP servers it shares;
+- `accounts`: the provider CLIs here (Claude Code, Codex, Copilot CLI), their versions and whether each is signed in, from `agent accounts detect --json`, looked at every five minutes in the background (never a token; see [Subscriptions](subscriptions.md)).
 
-It also sends an update straight after a launch and after starting or stopping a model server. It pings every 25 seconds. The server keeps what it learns in its database, apart from Strata keys and the MCP bridge's key, which it keeps in memory only and drops when the machine disconnects.
+It also sends an update straight after a launch, after a new look at the provider CLIs and after starting or stopping a model server. It pings every 25 seconds. The server keeps what it learns in its database, apart from Strata keys and the MCP bridge's key, which it keeps in memory only and drops when the machine disconnects.
 
 Over the same connection the server sends requests, each answered on the machine:
 

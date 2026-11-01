@@ -27,6 +27,9 @@ TAGS = [
     ("MCP", "agent_server.routes.mcp",
      "MCP servers machines share (`agent-machine mcp add`), and agents' MCP traffic to them under "
      "`/session/{session_id}/mcp/{machine}/{name}` (Streamable HTTP; launch-only URL capability)."),
+    ("Provider accounts", "agent_server.routes.provider_accounts",
+     "People's own AI subscriptions (Claude, ChatGPT through Codex, GitHub Copilot): the machines they run on, their "
+     "observed usage and estimated remaining balance, choosing one for a task, and the one-time token handover to a launch."),
     ("Containers", "agent_server.routes.containers", "Strata and Ollama containers that machines run for the server."),
     ("Terminals", "agent_server.routes.terminals", "Shared agent terminals. OAuth authentication and session permissions required."),
     ("Downloads", "agent_server.app", "The builds of agent, agent-machine and the Android app this server hands out, and the documentation the console shows (`/help-files/...`); public, like /health."),

@@ -42,6 +42,7 @@ flowchart LR
 | `internal/localproxy` | The agent-proxy | `LauncherAPI`, `Proxy.ServeHTTP`, `local`, `rewriteAgent`, `ServeTunnels`, `readHead`, `Dial`, `relay` |
 | `internal/login` | `agent login`/`logout`: device sign-in, then save under the lock; logout revokes and forgets | `Login`, `Logout` |
 | `internal/terminal` | `--control` and headless runs | `Run`, `RunHeadless`, `Share`, `History` (4 MiB), `InputGap`, ConPTY (`pty_windows.go`), creack/pty (`pty_unix.go`) |
+| `internal/accounts` | `agent accounts list\|detect\|status\|enroll`: detecting provider CLIs without reading credentials (`Detect(System)`: `--version`, `codex login status`, whether Claude's `.credentials.json` exists, Copilot's token variables), enrolling this computer as a runner, storing a Copilot token from stdin | `Main`, `Detect`, `Local`, `CLI`, `Report`, `parseEnroll` |
 | `internal/process` | Detached starts, PATH lookup that skips Windows drives on WSL | `Detach`, `LookPath`, `AgentDirs` |
 | `internal/update` | Self-update from the server's `/downloads/index.json` (`agent update`) | `Main`, `Programs`, `Fetch`, `Plan`, `Apply` (SHA-256), `Swap`, `Cleanup` |
 
@@ -55,6 +56,7 @@ flowchart LR
 4. `POST /api/agents/{id}/sessions` with model, backend, trace, project, `proxy_url`, `launcher: true`, mcp, sharing, tags and `files_dir`. The reply carries the env, the command, files and the container.
 5. Write the files (plain names only) into `~/.cache/agent-proxy/sessions/<rand>/`, removed when the agent exits. Start the container if there is one (`EnsureContainer`; a 409 means use `--switch`).
 6. Run: `[resolved exe] + command[1:] + extra`, with the env merged (names match case-insensitively on Windows). **Headless** prints exactly one JSON line, `{"session_id": ...}` (agent-machine reads it), then `RunHeadless`. With `--control`, `terminal.Run` with a `Share`; otherwise `exec.Cmd`.
+With `--account`, the session request names the provider account; when the answer's `account.credential` is true, the launcher calls `POST /api/sessions/{id}/provider-credential` before the agent starts (and before headless prints its line) and merges the token into the agent's environment only.
 7. `PATCH /api/sessions/{id}` with `ended` and the exit status.
 
 **agent-proxy** (`Proxy.ServeHTTP`), checked in this order:

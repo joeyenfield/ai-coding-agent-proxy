@@ -133,6 +133,8 @@ AGENTS_YAML = r"""
 # it to the server (HTTPS_PROXY plus the server's CA, trusted only by the
 # launched process tree). Every request it makes, to any host, is recorded in
 # the session.
+# subscription: claude | codex | copilot - for intercept agents, the kind of provider
+# account (the Subscriptions page) a launch can run it with; implied by the executable when absent.
 
 agents:
   qwen:
@@ -264,6 +266,7 @@ agents:
     executable: claude
     protocol: anthropic
     intercept: true
+    subscription: claude
     description: Claude Code signed in to your Claude account. All of its HTTPS traffic - messages, token counts, OAuth refresh, telemetry, MCP and web fetches - is recorded.
     install:
       linux: curl -fsSL https://claude.ai/install.sh | bash
@@ -282,6 +285,7 @@ agents:
     executable: copilot
     protocol: openai-chat
     intercept: true
+    subscription: copilot
     description: Copilot CLI signed in to your GitHub Copilot subscription. All of its HTTPS traffic to GitHub and Copilot is recorded.
     install: npm install -g @github/copilot
     homepage: https://docs.github.com/copilot/how-tos/copilot-cli
@@ -297,6 +301,7 @@ agents:
     executable: codex
     protocol: openai-responses
     intercept: true
+    subscription: codex
     description: Codex signed in with your ChatGPT plan. All of its HTTPS and WebSocket traffic to OpenAI and ChatGPT is recorded.
     install: npm install -g @openai/codex
     homepage: https://developers.openai.com/codex/cli

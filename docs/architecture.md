@@ -268,6 +268,8 @@ Everything is kept in the server's database: SQLite by default (`logs/agent-serv
 | Providers | `backends` |
 | Agent definitions | `agents` |
 | Users, organizations and teams | `users`, `orgs` |
+| Subscriptions (provider accounts), the machines they run on, their hourly usage and history | `provider_accounts`, `provider_account_assignments`, `provider_account_usage`, `provider_account_events` |
+| Subscriptions' managed tokens, encrypted with `AI_PROXY_VAULT_KEYS` | `provider_credentials` |
 | The fleet's machines, and removed ones | `machines`, `machines_removed` |
 | The HTTPS capture's CA, containers' keys, the browser sign-in key | `secrets` |
 | Each session: agent, project, model, backend, tags, sharing, status | `sessions` |
@@ -314,5 +316,6 @@ The proxy sees every prompt and can type into agents' terminals, so each entry p
 - **Sessions are private by default.** Every endpoint that touches a session checks who may view or control it (`access.py`); a session you can't see answers 404.
 - **Machines guard themselves.** Launches, terminals, containers, model-server control and remote updates are each off until the machine turns them on, and the machine checks folders and container specs again itself, whatever the server sends. See [Machines](machines.md).
 - **Secrets stay out of the settings.** The CA's key and containers' keys are in the database's `secrets`, never in an export of the settings or the console. Strata keys come from the machine and are kept in memory.
+- **Subscriptions stay their owners'.** A provider account belongs to one user, runs only on that user's own machines, and nobody else launches with it unless its owner names them, whatever machine grants say. Claude Code and Codex sign-ins never leave their machines; a stored Copilot token is encrypted with a key outside the database (`provider_credentials`) and handed once to a launch the server sent to an assigned machine. See [Subscriptions](subscriptions.md).
 
 See [Accounts](accounts.md) for users, organizations, teams and sharing.

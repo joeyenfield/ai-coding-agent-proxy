@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 
+	"ai-coding-agent-proxy/client/internal/accounts"
 	"ai-coding-agent-proxy/client/internal/launcher"
 	"ai-coding-agent-proxy/client/internal/localproxy"
 	"ai-coding-agent-proxy/client/internal/login"
@@ -34,6 +35,8 @@ func main() {
 			// The fleet moved to its own command, so a machine can supply models without running agents.
 			fmt.Fprintln(os.Stderr, "Machines join the fleet with their own command now: agent-machine (agent-machine --help).")
 			os.Exit(2)
+		case "accounts":
+			os.Exit(accounts.Main(args[1:]))
 		case "proxy":
 			os.Exit(localproxy.Main("agent proxy", args[1:]))
 		case "update":

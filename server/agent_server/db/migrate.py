@@ -84,7 +84,13 @@ def _tenants(connection: Connection) -> None:
     kv.put_meta(connection, "accounts_version", int(kv.get_meta(connection, "accounts_version", 0) or 0) + 1)
 
 
-API_STEPS: list[Step] = [_create(schema.api), _tenants]
+def _provider_accounts(connection: Connection) -> None:
+    """Provider accounts and their vault (step 1 already made them in a database created since)."""
+    for table in schema.PROVIDER_ACCOUNT_TABLES:
+        table.create(connection, checkfirst=True)
+
+
+API_STEPS: list[Step] = [_create(schema.api), _tenants, _provider_accounts]
 AUTH_STEPS: list[Step] = [_create(schema.auth)]
 
 # One lock id per component, so two processes starting at once don't both migrate.

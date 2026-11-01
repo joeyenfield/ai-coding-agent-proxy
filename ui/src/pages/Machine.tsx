@@ -20,6 +20,8 @@ import { MachineLoad } from "./Hosts";
 import { terminalState } from "./Terminals";
 import { MachineAccess } from "./MachineAccess";
 import { MachineMcp } from "./MachineMcp";
+import { MachineAccounts } from "./MachineAccounts";
+import { STATE_LABELS } from "./Subscriptions";
 import { McpChoice } from "../components/McpChoice";
 
 // Containers are rarely open; load them when visited.
@@ -88,6 +90,7 @@ export function MachinePage() {
         {runsContainers && <NavLink to={machinePath(machine.id, "containers")}>Containers</NavLink>}
         <NavLink to={machinePath(machine.id, "load")}>Load</NavLink>
         {(machine.you.owner || (machine.mcp?.servers?.length ?? 0) > 0) && <NavLink to={machinePath(machine.id, "mcp")}>MCP servers</NavLink>}
+        <NavLink to={machinePath(machine.id, "accounts")}>Agent accounts</NavLink>
         {machine.you.manage && <NavLink to={machinePath(machine.id, "access")}>Access</NavLink>}
       </nav>
 
@@ -97,6 +100,7 @@ export function MachinePage() {
       {section === "model-servers" && <MachineModelServers machine={machine} providers={providers} />}
       {section === "access" && <MachineAccess machine={machine} />}
       {section === "mcp" && <MachineMcp machine={machine} />}
+      {section === "accounts" && <MachineAccounts machine={machine} />}
       {section === "load" && (
         <MachineLoad
           machine={machine.id}
@@ -123,7 +127,7 @@ export function MachinePage() {
 const refOf = (machine: FleetMachine, provider: MachineProvider): ProviderRef => ({ machine: machine.id, provider: provider.id });
 
 // The tabs that aren't one of the machine's model servers.
-const SECTIONS = ["agents", "terminal", "model-servers", "load", "ollama", "llamacpp", "containers", "mcp", "access"];
+const SECTIONS = ["agents", "terminal", "model-servers", "load", "ollama", "llamacpp", "containers", "mcp", "accounts", "access"];
 
 /** Why the machine won't change its model servers now, or null when it will. */
 function unmanageable(machine: FleetMachine): string | null {
@@ -1138,6 +1142,16 @@ function LaunchForm({ machine, agents, onDone }: { machine: FleetMachine; agents
   const [share, setShare] = useState({ value: "private", control: false });
   const [mcp, setMcp] = useState<string[]>([]);
   const agent = agents.find((item) => item.id === agentId);
+  // For account agents: which subscription it runs with. Only the machine's owner may use the machine's own
+  // sign-in (""); anyone else picks one of the subscriptions they may use, or lets the server choose.
+  const [account, setAccount] = useState<string | null>(null);
+  const subscriptions = useQuery({
+    queryKey: ["provider-accounts", machine.id],
+    queryFn: () => api.providerAccounts(machine.id),
+    enabled: Boolean(agent?.subscription),
+  });
+  const usable = (subscriptions.data?.accounts ?? []).filter((item) => item.you.use && item.provider === agent?.subscription);
+  const chosenAccount = account ?? (machine.you.owner ? "" : "auto");
   const status = useStatus();
   const models = useModels();
   // The provider the launch uses: the one picked, else the one the server picks for the agent.
@@ -1165,10 +1179,11 @@ function LaunchForm({ machine, agents, onDone }: { machine: FleetMachine; agents
       return api.launchOnMachine(machine.id, {
         agent: agentId, project, model: model.trim() || undefined, backend: backend || undefined, trace,
         visibility, team, access: share.control ? "control" : "view", mcp: agent?.mcp ? mcp : undefined,
+        account_id: agent?.subscription && chosenAccount ? chosenAccount : undefined,
       });
     },
     onSuccess: (result) => {
-      notify(`Started ${agent?.name ?? agentId} on ${machine.name}.`);
+      notify(`Started ${agent?.name ?? agentId} on ${machine.name}${result.account ? ` with ${result.account.display_name}` : ""}.`);
       client.invalidateQueries({ queryKey: ["machines"] });
       onDone?.();
       if (result.session_id) navigate(`/terminals/${result.session_id}`);
@@ -1209,6 +1224,27 @@ function LaunchForm({ machine, agents, onDone }: { machine: FleetMachine; agents
                 </option>
               ))}
             </select>
+          </label>
+        )}
+        {agent?.subscription && (
+          <label className="field span-2">
+            Subscription
+            <select value={chosenAccount} onChange={(event) => setAccount(event.target.value)}>
+              {machine.you.owner && <option value="">{machine.name}'s own sign-in</option>}
+              <option value="auto">Choose automatically: the best one available now</option>
+              {usable.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.display_name} ({item.status === "disabled" ? "turned off" : STATE_LABELS[item.state].text.toLowerCase()})
+                </option>
+              ))}
+            </select>
+            <small>
+              {chosenAccount === ""
+                ? `Whatever ${agent.executable} is signed in to on ${machine.name}.`
+                : usable.length === 0
+                  ? <>None of your subscriptions runs on {machine.name}. Assign one on <Link to="/subscriptions">Subscriptions</Link>.</>
+                  : "The provider's own limits apply; one that's throttled or used up isn't chosen."}
+            </small>
           </label>
         )}
         <div className="field span-2">
