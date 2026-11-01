@@ -9,7 +9,7 @@
   <g font-family="Segoe UI, Arial, sans-serif">
     <text x="144" y="84" fill="#f2f4fa" font-size="28" font-weight="600">AI Control Mesh</text>
     <text x="72" y="233" fill="#f2f4fa" font-size="72" font-weight="600" letter-spacing="-2">Your AI agents.</text>
-    <text x="72" y="316" fill="#f2f4fa" font-size="72" font-weight="600" letter-spacing="-2">Your machines.</text>
+    <text x="72" y="316" fill="#f2f4fa" font-size="72" font-weight="600" letter-spacing="-2">Your infrastructure.</text>
     <text x="72" y="399" fill="#8ce9c5" font-size="72" font-weight="600" letter-spacing="-2">One control plane.</text>
     <text x="76" y="480" fill="#b0bbce" font-size="25">Models · Machine fleets · MCP tools · Session observability</text>
     <text x="76" y="588" fill="#b0bbce" font-size="20">Open source / Self-hosted / MIT licensed</text>

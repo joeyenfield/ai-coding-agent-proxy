@@ -1,6 +1,6 @@
 # Retention: what's recorded, and for how long
 
-The server records every agent's model calls (who called which model, tokens, timings), and with tracing their full requests and replies, and shared terminals' output. How much of that is kept, and for how long, is a **retention policy**: the server's, set by site admins, and each organization's own, set by its admins within the server's bounds. A **legal hold** keeps what it covers whatever the policy says.
+The server records every agent's model calls (who called which model, tokens, timings), and with tracing their full requests and replies, and shared terminals' output. How much of that is kept, and for how long, is a **retention policy**: the server's, set by site admins, and each organization's own, set by its admins within the server's bounds. A **legal hold** pauses scheduled retention deletion for what it covers. Manual session deletion and clearing do not currently check holds; this is an incomplete legal-preservation control.
 
 ## What a policy says
 
@@ -43,8 +43,8 @@ Deleting is the worker's job, hourly. It looks only at sessions whose next delet
 
 ## Legal holds
 
-A hold on an **organization**, a **person** (sessions they started or own) or a **session** stops every deletion of what it covers, recordings and audit events alike, until it's lifted. Holds are an organization's admins' (and site admins'): **Organizations › Data › Legal holds**, or `POST /api/holds` with `scope` (`org`, `user` or `session`), `target` and `reason`; `DELETE /api/holds/<id>` lifts one. Placing and lifting holds is in the audit log.
+A hold on an **organization**, a **person** (sessions they started or own) or a **session** stops scheduled retention deletion of the covered session data until it is lifted. Manual session deletion and clearing bypass this check in the current implementation. Only an **organization** hold also prevents deletion of that organization’s audit events; person and session holds do not filter audit events by actor or session. Holds are an organization's admins' (and site admins'): **Organizations › Data › Legal holds**, or `POST /api/holds` with `scope` (`org`, `user` or `session`), `target` and `reason`; `DELETE /api/holds/<id>` lifts one. Placing and lifting holds is in the audit log.
 
 ## Where recordings are
 
-In the database, or in blob storage (S3 or compatible) with `AI_PROXY_BLOB_URL`; see [Running several server processes](scaling.md#blob-storage). In blob storage they're kept under each organization's prefix, so retention deletes a session's prefix and removing an organization's data is one prefix. A lifecycle rule on the bucket at the server's longest `max` is a good backstop.
+In the database, or in blob storage (S3 or compatible) with `AI_PROXY_BLOB_URL`; see [Running several server processes](scaling.md#blob-storage). In blob storage they're kept under each organization's prefix, so retention deletes a session's prefix and removing an organization's data is one prefix. Coordinate bucket lifecycle rules, backups and exports separately: they do not consult application legal holds and can delete held data or retain copies beyond application retention.

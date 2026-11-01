@@ -63,7 +63,7 @@ How the capture works:
 Privacy and security:
 
 - **Redaction.** Before anything is shown or saved, the server removes `Authorization`, cookies and any header whose name contains `auth`, `cookie`, `token`, `secret`, `api-key`, `apikey` or `session`; token-like query parameters; and token fields (`access_token`, `refresh_token`, `id_token`, `code`, `client_secret`, `password`, ...) in bodies of OAuth, token and sign-in endpoints.
-- **Bodies are not redacted.** Saved and live bodies still contain your code and prompts. Bodies are saved only for sessions with capture on (`--trace`, or the switch on **Sessions**). Live text is held in memory only.
+- **Bodies are not redacted.** Saved and live bodies still contain your code and prompts. Bodies are saved for sessions with capture on: opt-in by default (`--trace`, or the switch on **Sessions**), but an organization policy can disable or require tracing. Intercepted bodies also require the policy’s `intercept_bodies` switch. The policy is fixed when a session starts. Live text is held in memory only. See [Retention](retention.md).
 - **The CA key.** The CA's private key is kept in the server's database (`intercept-ca` in table `secrets`), never in a file; only its public certificate is written out for agents. To rotate the CA, delete that row and restart the server (see [Configuration](configuration.md#secrets)).
 - **No credential handling.** The proxy never reads the agents' credentials from disk or asks you to copy tokens. The agents keep managing their own sign-in and refresh.
 - **VS Code extensions** (Copilot, ChatGPT/Codex) run their own processes and aren't captured. Only agents started with `agent` go through the proxy.

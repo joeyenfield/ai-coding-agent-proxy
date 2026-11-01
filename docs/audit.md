@@ -1,6 +1,6 @@
 # The audit log
 
-The audit log records who did what, to what, and whether it worked: every change to the server or an organization, every console sign-in and sign-out, every refusal, and every look at someone else's recordings. It never holds what was said to a model, and never a secret. It's made for the logging controls auditors check (SOC 2 CC6 and CC7, ISO 27001:2022 Annex A 8.15 and 8.16): it can't be changed without that being found, it's kept apart from the recordings' retention, and it goes to your SIEM.
+The audit log records who did what, to what, and whether it worked: every change to the server or an organization, every console sign-in and sign-out, every refusal, and every look at someone else's recordings. It never holds what was said to a model, and never a secret. Hash chains and signed checkpoints support integrity checks; audit retention is separate from recording retention, and exports can send events to your collector. These mechanisms can support an organization’s controls but do not establish certification, compliance or an independent security review. The signing key and primary records live in the same database: retain independently protected checkpoints and exports for stronger evidence.
 
 ## What's recorded
 

@@ -1,6 +1,6 @@
 # Running several server processes (Kubernetes)
 
-One `agent-server` process is enough for a team: it keeps its sessions, machines' connections and shared terminals in memory and runs everything. For an organization of hundreds or thousands of engineers, run several processes behind a load balancer, each with some or all of the server's **roles**, sharing one PostgreSQL database and one Redis (or Valkey). This page covers how that works, how to set it up, and the Helm chart that does it in Kubernetes.
+One `agent-server` process is enough for a team: it keeps its sessions, machines' connections and shared terminals in memory and runs everything. To evaluate separating workloads, run several processes behind a load balancer, each with some or all of the server's **roles**, sharing one PostgreSQL database and one Redis (or Valkey). This page covers how that works, how to set it up, and the Helm chart that does it in Kubernetes.
 
 Nothing changes on agent computers or machines: `agent`, `agent-proxy` and `agent-machine` talk to one address as before, whichever process answers.
 
@@ -13,7 +13,7 @@ Nothing changes on agent computers or machines: `agent`, `agent-proxy` and `agen
 | Database | SQLite or PostgreSQL | PostgreSQL |
 | Recordings | In the database, or blob storage | Blob storage recommended (S3 or compatible) |
 | Restarts | Server settings › Restart, in the same process | A Kubernetes rollout; settings apply in every process as they change |
-| For | Development, the quickstart, small teams | Large teams, high availability |
+| For | Development, the quickstart, small teams | Separate workloads; capacity and availability need validation |
 
 Single-node mode refuses to be run twice: without `AI_PROXY_REDIS_URL`, a server on PostgreSQL holds a database lock while it runs, and a second one exits with a message saying so. Splitting roles (`AI_PROXY_ROLES`) or running several workers (`AI_PROXY_WORKERS`) without `AI_PROXY_REDIS_URL` is refused too.
 
@@ -131,7 +131,7 @@ Traces and terminal output are most of what the server stores: agents resend the
 - `file:///<folder>`: a folder, on one computer or a volume every process mounts.
 - `AI_PROXY_BLOB_THREADS`: uploads at once per process (default 8).
 
-Keys are laid out as `tenant/<organization>/<year>/<month>/<session>/`: `traces/<request>.json.gz`, `blocks/<sha256>` and `terminal/<offset>-<length>`. Each message of a conversation is stored once per session, under its hash, and each trace keeps a reference to it, so a long session's traces take a fraction of the space. Retention deletes a session's prefix. A bucket lifecycle rule on the whole store, at the longest retention the server allows, is a good backstop. Audit checkpoints go to `audit/checkpoints/`; with S3 Object Lock as the bucket's default, they can't be changed or deleted.
+Keys are laid out as `tenant/<organization>/<year>/<month>/<session>/`: `traces/<request>.json.gz`, `blocks/<sha256>` and `terminal/<offset>-<length>`. Each message of a conversation is stored once per session, under its hash, and each trace keeps a reference to it, so a long session's traces take a fraction of the space. Retention deletes a session's prefix. Bucket lifecycle rules do not consult application legal holds; coordinate them with holds, backups and exports before enabling automatic expiry. Audit checkpoints go to `audit/checkpoints/`; with S3 Object Lock as the bucket's default, they can't be changed or deleted.
 
 Recordings made before blob storage was turned on stay in the database and are read from there.
 
@@ -160,11 +160,11 @@ helm install mesh deploy/helm/agent-mesh -n mesh --create-namespace -f deploy/he
 - Secrets (database URLs, `AI_PROXY_VAULT_KEYS`, the introspection secret, the internal token) come from Kubernetes Secrets, or External Secrets.
 - In scaled mode the worker makes the first user and prints its password in its log once (or set `AI_PROXY_USERNAME`/`AI_PROXY_PASSWORD` from a Secret).
 
-**Upgrades and shutdowns.** A rolling upgrade replaces pods one by one. A pod that stops closes its machines' connections and terminals with codes they reconnect after; machines reconnect to another pod within seconds, and requests waiting for them wait (up to 10 s) rather than fail. Streamed replies on a stopping pod get `AI_PROXY_GRACEFUL_SECONDS` to finish. During the rollout, old and new processes run together: the database is migrated first, and a database newer than a process is fine for it.
+**Upgrades and shutdowns.** The following describes intended reconnect and drain behavior, not measured failover or zero downtime. Test outages and long-lived streams in your deployment. A rolling upgrade replaces pods one by one. A pod that stops closes its machines' connections and terminals with codes they reconnect after; machines reconnect to another pod within seconds, and requests waiting for them wait (up to 10 s) rather than fail. Streamed replies on a stopping pod get `AI_PROXY_GRACEFUL_SECONDS` to finish. During the rollout, old and new processes run together: the database is migrated first, and a database newer than a process is fine for it.
 
 ## Sizing
 
-A starting point for about 1,000 engineers, to adjust from the metrics:
+The following is an illustrative configuration, not a measured capacity result or support target. Validate stream counts, resource use and recovery under representative workloads before adopting these values:
 
 | Role | Replicas | Each |
 | --- | --- | --- |

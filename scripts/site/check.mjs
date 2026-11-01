@@ -34,19 +34,45 @@ try {
   }
   console.log('PASS public assets');
   assert.equal((await fetch(`${url}/.env`)).status, 404);
-  const html = await readFile(path.join(root, 'site/index.html'), 'utf8');
+  const pagePaths = ['/', '/teams.html', '/security.html'];
+  const pageSources = await Promise.all(pagePaths.map(page => readFile(path.join(root, 'site', page === '/' ? 'index.html' : page.slice(1)), 'utf8')));
+  const html = pageSources.join('\n');
   // All repository documentation links must point at real files in this checkout.
   for (const [, file] of html.matchAll(/https:\/\/github\.com\/joeyenfield\/ai-coding-agent-proxy\/blob\/master\/([^"#]+)/g)) {
     await readFile(path.join(root, file));
   }
+  // Every first-party link (including cross-page fragments) resolves through the public allowlist.
+  for (const [index, source] of pageSources.entries()) {
+    for (const [, href] of source.matchAll(/href="([^"]+)"/g)) {
+      const target = new URL(href, url + pagePaths[index]);
+      if (target.origin !== url) continue;
+      const response = await fetch(target);
+      assert.equal(response.status, 200, `Link ${pagePaths[index]} -> ${href}`);
+      const body = await response.text();
+      if (target.hash) assert.ok(body.includes(`id="${target.hash.slice(1)}"`), `Fragment ${href}`);
+    }
+    const sitemap = await readFile(path.join(root, 'site/sitemap.xml'), 'utf8');
+    assert.ok(sitemap.includes(`https://aicontrolmesh.com${pagePaths[index]}`));
+  }
+  // Preserve the working quickstart and require its explanation to track the Compose inputs.
+  const compose = await readFile(path.join(root, 'quickstart/compose.yaml'), 'utf8');
+  const guide = await readFile(path.join(root, 'docs/quickstart.md'), 'utf8');
+  for (const service of ['server', 'auth', 'postgres', 'machine-1', 'machine-2', 'ollama']) assert.ok(compose.includes(`  ${service}:`));
+  for (const port of ['127.0.0.1:19999:9999', '127.0.0.1:20000:10000']) assert.ok(compose.includes(port));
+  assert.ok(compose.includes('QUICKSTART_ADMIN_PASSWORD:-secret'));
+  assert.ok(guide.includes('podman compose -f quickstart/compose.yaml up -d'));
+  assert.ok(pageSources[0].includes('docker compose -f quickstart/compose.yaml up -d'));
+  assert.ok(pageSources[0].includes('podman compose -f quickstart/compose.yaml up -d'));
   const errors = [];
+  for (const pagePath of pagePaths) {
+  const pageName = pagePath === '/' ? 'homepage' : path.basename(pagePath, '.html');
   for (const width of [375, 768, 1440]) {
-    console.log(`Checking ${width}px`);
+    console.log(`Checking ${pageName} ${width}px`);
     const context = await browser.newContext({ viewport: { width, height: 1000 }, reducedMotion: 'reduce' });
     const page = await context.newPage();
     page.on('pageerror', error => errors.push(error.message));
     page.on('response', response => { if (response.status() >= 400) errors.push(`${response.status()} ${response.url()}`); });
-    await page.goto(url);
+    await page.goto(url + pagePath);
     await page.locator('.site-footer').scrollIntoViewIfNeeded();
     await page.locator('img[loading="lazy"]').evaluateAll(images => images.forEach(image => { image.loading = 'eager'; }));
     await page.evaluate(async () => Promise.all([...document.images].map(image => image.decode())));
@@ -58,7 +84,8 @@ try {
       assert.equal(await page.locator(anchor).count(), 1, `Anchor target ${anchor}`);
     }
     assert.equal(await page.locator('img:not([alt])').count(), 0);
-    assert.equal(await page.locator('link[rel="canonical"]').getAttribute('href'), 'https://aicontrolmesh.com/');
+    assert.equal(await page.locator('link[rel="canonical"]').getAttribute('href'), `https://aicontrolmesh.com${pagePath}`);
+    assert.equal(await page.locator('meta[property="og:url"]').getAttribute('content'), `https://aicontrolmesh.com${pagePath}`);
     JSON.parse(await page.locator('script[type="application/ld+json"]').textContent());
     const contrastFailures = await page.evaluate(() => {
       const rgb = color => (color.match(/[\d.]+/g) || []).map(Number);
@@ -99,15 +126,18 @@ try {
       await page.keyboard.press('Enter');
       assert.equal(await menu.getAttribute('aria-expanded'), 'true');
       await page.keyboard.press('Tab');
-      assert.equal(await page.evaluate(() => document.activeElement.textContent), 'Platform');
+      assert.equal(await page.evaluate(() => document.activeElement.textContent), 'Product');
       await page.keyboard.press('Escape');
       assert.equal(await menu.getAttribute('aria-expanded'), 'false');
       assert.equal(await menu.evaluate(element => element === document.activeElement), true);
-      await menu.click();
-      await page.locator('#main-nav a[href="#quickstart"]').click();
-      assert.equal(await menu.getAttribute('aria-expanded'), 'false');
-      assert.equal(await page.evaluate(() => document.activeElement.id), 'quickstart');
+      if (pagePath === '/') {
+        await menu.click();
+        await page.locator('#main-nav a[href="#quickstart"]').click();
+        assert.equal(await menu.getAttribute('aria-expanded'), 'false');
+        assert.equal(await page.evaluate(() => document.activeElement.id), 'quickstart');
+      }
     }
+    if (pagePath === '/') {
     // Verify both clipboard outcomes without depending on the OS clipboard.
     await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { window.copiedCommand = text; } } }));
     await page.getByRole('button', { name: 'Copy commands' }).click();
@@ -119,16 +149,30 @@ try {
     await page.getByRole('button', { name: 'Copy commands' }).click();
     assert.equal(await page.evaluate(() => getSelection().toString().trim()), copied);
     assert.match(await page.locator('#copy-status').textContent(), /Clipboard unavailable/);
+    await page.locator('.podman-note summary').click();
+    await page.getByRole('button', { name: 'Copy Podman command' }).click();
+    assert.equal(await page.evaluate(() => getSelection().toString().trim()), 'podman compose -f quickstart/compose.yaml up -d');
+    await page.locator('.podman-note summary').click();
+    await page.locator('#compatibility summary').focus();
+    await page.keyboard.press('Enter');
+    assert.equal(await page.locator('#compatibility table').isVisible(), true);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'Expanded compatibility has no page overflow');
+    await page.locator('#compatibility').screenshot({ path: path.join(output, `compatibility-${width}.png`) });
+    await page.locator('#compatibility summary').click();
     await page.evaluate(() => { getSelection().removeAllRanges(); document.activeElement.blur(); document.querySelector('#copy-status').textContent = ''; window.scrollTo(0, 0); });
-    await page.screenshot({ path: path.join(output, `homepage-${width}.png`), fullPage: true });
-    await page.screenshot({ path: path.join(output, `hero-${width}.png`) });
-    if (width !== 768) {
+    }
+    await page.evaluate(() => { document.activeElement.blur(); window.scrollTo(0, 0); });
+    await page.screenshot({ path: path.join(output, `${pageName}-${width}.png`), fullPage: true });
+    await page.screenshot({ path: path.join(output, `${pageName}-first-screen-${width}.png`) });
+    if (pagePath === '/' && width !== 768) {
       for (const id of ['quickstart', 'product', 'how-it-works']) {
-        await page.locator(`#${id}`).screenshot({ path: path.join(output, `${id}-${width}.png`) });
+        // A sticky header should not cover a section in the review artifact.
+        await page.locator(`#${id}`).screenshot({ path: path.join(output, `${id}-${width}.png`), style: '.site-header { visibility: hidden; }' });
       }
     }
-    console.log(`PASS ${width}px: assets, overflow, contrast, touch targets, anchors, keyboard menu, copy success/fallback, reduced motion`);
+    console.log(`PASS ${pageName} ${width}px: assets, overflow, contrast, touch targets, anchors, keyboard, reduced motion`);
     await context.close();
+  }
   }
   // Progressive enhancement: meaningful navigation and setup survive disabled JS.
   const noJS = await browser.newContext({ javaScriptEnabled: false, viewport: { width: 375, height: 900 } });
@@ -137,9 +181,17 @@ try {
   assert.equal(await page.locator('#main-nav').isVisible(), true);
   assert.equal(await page.locator('#quickstart-command').isVisible(), true);
   assert.equal(await page.getByRole('button', { name: 'Copy commands' }).isVisible(), false);
+  await page.locator('#compatibility summary').click();
+  assert.equal(await page.locator('#compatibility table').isVisible(), true);
+  await page.locator('#main-nav a[href="/teams.html"]').click();
+  assert.equal(await page.locator('#evaluation').count(), 1);
+  await page.locator('#main-nav a[href="/security.html"]').click();
+  assert.equal(await page.locator('#recording').count(), 1);
+  await page.locator('#main-nav a[href="/#quickstart"]').click();
+  assert.equal(await page.locator('#quickstart-command').isVisible(), true);
   await noJS.close();
   assert.deepEqual(errors, []);
-  console.log('PASS no JavaScript, local documentation links, SEO metadata, no browser errors');
+  console.log('PASS no-JavaScript developer/team journeys, cross-page links, documentation files, quickstart inputs, SEO, no browser errors');
   console.log(`Screenshots: ${output}`);
 } finally {
   await browser?.close();
