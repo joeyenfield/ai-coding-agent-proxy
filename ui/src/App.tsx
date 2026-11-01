@@ -38,16 +38,21 @@ const MOVED = ["/models", "/hosts", "/server", "/providers", "/strata", "/docker
 export function App() {
   const auth = useAuth();
   useAccountChanges();
-  if (!auth.data?.identity || auth.error) {
+  // The last identity the server confirmed. A later check that fails (a phone's network blip, the
+  // sign-in service slow while the token is refreshed) keeps it: tearing the console down would cut
+  // off what's open, such as a model's streamed reply or a terminal. A check that answers signed out
+  // still shows sign-in, and the next check (every 30 s) recovers from a failed one.
+  const identity = auth.data?.identity ?? null;
+  if (!identity) {
     if (window.location.pathname === "/get") return <PublicDownloads />;
     if (window.location.pathname === "/help" || window.location.pathname.startsWith("/help/")) return <PublicDocs />;
   }
   if (auth.isPending) return null;
-  if (auth.error) return <main className="login"><section className="login-card panel"><h1>Sign-in unavailable</h1><p role="alert" className="bad">{auth.error.message}</p></section></main>;
-  if (!auth.data?.identity) {
+  if (auth.error && !identity) return <main className="login"><section className="login-card panel"><h1>Sign-in unavailable</h1><p role="alert" className="bad">{auth.error.message}</p></section></main>;
+  if (!identity) {
     return <LoginPage />;
   }
-  return <Shell identity={auth.data?.identity ?? null} />;
+  return <Shell identity={identity} />;
 }
 
 function Shell({ identity }: { identity: Identity | null }) {
