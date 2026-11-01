@@ -100,7 +100,7 @@ Account interception's outbound HTTP goes through its own client (`runtime.inter
 
 | Direction | Messages |
 | --- | --- |
-| machine → server | `update`, `ping`, `launched`/`launch_failed`, `provider_progress`, `<channel>_result` (accepted only from the machine that was asked) |
+| machine → server | `update`, `ping`, `token` (a renewed access token: `auth.renew_socket`), `launched`/`launch_failed`, `provider_progress`, `<channel>_result` (accepted only from the machine that was asked) |
 | server → machine | `launch`, `shell`, `tunnel`, and `Fleet.ask` channels: `container` (status, start, stop, restart, remove, logs), `provider` (status, pull, delete, load, unload, log, metrics, search), `server` (settings, configure, start, stop, restart), `folders`, `update` |
 
 `Fleet.ask` errors: not connected or the machine's toggle for that channel is off → 409, reply `ok:false` → 409, timeout → 504, disconnect → 502. `Machine.keys` (Strata keys) and `Machine.mcp_key` stay in memory only, never in `stored()` or `public()`.
@@ -138,7 +138,7 @@ Retention: `Runtime.prune()` runs hourly (`prune_daily`, started in the lifespan
 The summary; `auth.md` has the whole of it (credentials, the middleware's order, roles, what must never change).
 
 - **Mandatory OIDC**: `AuthMiddleware` covers `/api/`, `/v1/`, `/anthropic/`, `/session/` and API documentation, except explicit public authentication endpoints. Active access tokens are introspected at the separate issuer (`Auth.identify`; down or unconfigured is 503); identity and permissions come from current accounts. Loopback, session ids and legacy keys never authenticate. Retired auth routes (password sign-in, launcher tokens, pairing) answer 410 or 403.
-- **Browser and role checks**: unsafe methods require the API's exact origin or an explicitly allowed console origin, and `ADMIN_ONLY` routes need an admin. WebSockets periodically revalidate credentials and close with retryable 4410 when renewal is required.
+- **Browser and role checks**: unsafe methods require the API's exact origin or an explicitly allowed console origin, and `ADMIN_ONLY` routes need an admin. WebSockets periodically revalidate credentials and close with retryable 4410 when renewal is required. The fleet socket renews in place: a `token` message goes through `auth.renew_socket` (valid, same user and tenant), which stores it in the scope (`RENEWED_TOKEN`) for `AuthMiddleware`'s later checks. `Fleet.ask`, `launch` and `shell` wait up to `RECONNECT_WAIT` for a machine that dropped within `RECONNECT_WINDOW`.
 - **Sessions** (`access.py`): owner or `launched_by`; private/team/org visibility; view or control. A session you can't see is a 404. Clients can't set `SERVER_TAGS`. Shell sessions are forced private. Narrowing sharing drops terminal viewers.
 - **Tenants** (`.context/auth.md`): every user, machine, backend and session belongs to one organization, and every check starts there.
 - **Machines** (`fleet.allowed`): nobody outside `Machine.tenant`; the owner always; the tenant's admins only `ADMIN_FEATURES` (view, models, update); others through grants to the organization or its teams in `Machine.access`. Launches and folders are checked against roots on both sides. Creating, editing or removing a container needs the owner, who must also be an admin (ADMIN_ONLY).

@@ -70,7 +70,7 @@ The machine belongs to whoever signed it in: that user is its **owner**. A machi
 
 ### start, stop and run
 
-- `run` stays in the foreground and reconnects whenever the connection drops. It waits 2, 5, 10, then 30 seconds between tries, and starts over after a connection that lasted more than a minute. `--server` joins another server than the signed-in one.
+- `run` stays in the foreground and reconnects whenever the connection drops. It waits 2, 5, 10, then 30 seconds between tries, and starts over after a connection that lasted more than a minute. It renews its access token over the open connection, so the token's expiry doesn't drop it. `--server` joins another server than the signed-in one.
 - `start` runs `agent-machine run` detached from the terminal, and waits up to 15 seconds for it to connect or fail. It prints the log's path.
 - `stop` stops the running one and waits up to 10 seconds for it to go.
 

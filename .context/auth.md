@@ -35,7 +35,7 @@ Issuer transactions (`State.transaction`) cover grant validation, consumption an
 6. HTTP requests matching `SITE_ADMIN_ONLY` need a site admin, and those matching `ADMIN_ONLY` an admin of some organization (403); the route checks which. A `/session/<id>/...` path, or `/v1/` and `/anthropic/` with `X-AI-Proxy-Session`, additionally needs an open session the identity `access.can_control`s, else 404. The identity is put in `scope["state"]` (`auth.request_identity`).
 7. Handlers check session visibility/control or machine feature grants. Hidden sessions and machines answer 404.
 
-WebSockets revalidate credentials every 15 seconds (`CREDENTIAL_CHECK_INTERVAL`) and close 4410 for renewal/revocation, a different user or issuer failure. Terminal routes also check credentials and memberships before input/output and when idle. Live SSE checks each event and heartbeat. Reconnecting clients must renew before dialing.
+WebSockets revalidate credentials every 15 seconds (`CREDENTIAL_CHECK_INTERVAL`) and close 4410 for renewal/revocation, a different user or issuer failure. Terminal routes also check credentials and memberships before input/output and when idle. Live SSE checks each event and heartbeat. Reconnecting clients must renew before dialing. The one exception is the fleet socket: agent-machine sends each refreshed access token over it (`{"type": "token"}`), and `auth.renew_socket` accepts it only if the issuer says it's valid and it's the same user in the same tenant; later checks use it (`RENEWED_TOKEN` in the scope).
 
 ## Browser and native clients
 

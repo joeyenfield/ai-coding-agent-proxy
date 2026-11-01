@@ -59,6 +59,10 @@ from .sessions import SessionStore
 LAUNCH_HISTORY = 30
 # How long a launch may take to open its session on the machine.
 LAUNCH_TIMEOUT = 60.0
+# A machine that dropped its connection this recently is likely reconnecting (a phone changing
+# networks, a token it couldn't renew in time): a request waits up to RECONNECT_WAIT for it.
+RECONNECT_WINDOW = 60.0
+RECONNECT_WAIT = 10.0
 # The client a shell's session names (`agent --shell`): it stays private, as it's a remote terminal.
 SHELL_CLIENT = "shell"
 PROVIDER_TYPES = ("ollama", "docker", "strata")
@@ -398,6 +402,17 @@ class Fleet:
     def connected(self, machine_id: str) -> bool:
         return machine_id in self.sockets
 
+    async def _socket(self, machine: Machine) -> Any:
+        """The machine's connection; one that just dropped gets a few seconds to come back first."""
+        socket = self.sockets.get(machine.id)
+        if socket is not None or time.time() - machine.last_seen > RECONNECT_WINDOW:
+            return socket
+        deadline = time.monotonic() + RECONNECT_WAIT
+        while socket is None and time.monotonic() < deadline and machine.id in self.machines:
+            await asyncio.sleep(0.25)
+            socket = self.sockets.get(machine.id)
+        return socket
+
     def runs_containers(self, machine: Machine) -> bool:
         return self.connected(machine.id) and bool(machine.containers.get("enabled"))
 
@@ -419,7 +434,7 @@ class Fleet:
         messages until the answer comes. timeout None waits for as long as the machine
         stays connected.
         """
-        socket = self.sockets.get(machine.id)
+        socket = await self._socket(machine)
         if socket is None:
             raise FleetError(409, f"{machine.name} isn't connected: agent-machine isn't running there, or isn't signed in here (agent-machine login, then agent-machine start).")
         if channel == "container" and not machine.containers.get("enabled"):
@@ -613,7 +628,7 @@ class Fleet:
     async def launch(self, machine: Machine, identity: Identity | None, request: dict[str, Any]) -> dict[str, Any]:
         if not can_launch(identity, machine):
             raise FleetError(403, "Only the machine's owner, or the teams it lets, can start agents on it.")
-        socket = self.sockets.get(machine.id)
+        socket = await self._socket(machine)
         if socket is None:
             raise FleetError(409, f"{machine.name} isn't connected: agent-machine isn't running there, or isn't signed in here (agent-machine login, then agent-machine start).")
         if not machine.launches:
@@ -640,7 +655,7 @@ class Fleet:
         the machine allows it (agent-machine commands on), and the machine checks that again."""
         if not allowed(identity, machine, "terminal"):
             raise FleetError(403, "Only the machine's owner, or the teams it lets, can open a terminal on it.")
-        socket = self.sockets.get(machine.id)
+        socket = await self._socket(machine)
         if socket is None:
             raise FleetError(409, f"{machine.name} isn't connected: agent-machine isn't running there, or isn't signed in here (agent-machine login, then agent-machine start).")
         if not machine.commands:

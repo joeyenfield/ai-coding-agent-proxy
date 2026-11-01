@@ -46,6 +46,10 @@ const (
 	launchTimeout = 50 * time.Second
 )
 
+// How often the machine checks its access token. The token is refreshed in its last 30
+// seconds and the server checks every 15, so a new one reaches the server in time.
+var renewEvery = 10 * time.Second
+
 var retryDelays = []time.Duration{2 * time.Second, 5 * time.Second, 10 * time.Second, 30 * time.Second}
 
 // Dialer opens the WebSocket to path on server, signed as this machine.
@@ -156,9 +160,11 @@ func (p *Presence) Run(ctx context.Context) {
 	for attempt := 0; ctx.Err() == nil; attempt++ {
 		started := time.Now()
 		err := p.session(ctx)
-		if websocket.IsCloseError(err, 4410) {
+		renew := websocket.IsCloseError(err, 4410)
+		if renew {
 			if refreshErr := p.Upstream.RejectAccessToken(p.Upstream.Server()); refreshErr != nil {
 				err = refreshErr
+				renew = false
 			}
 		}
 		if ctx.Err() != nil {
@@ -169,6 +175,10 @@ func (p *Presence) Run(ctx context.Context) {
 		}
 		p.setStatus(fmt.Sprintf("disconnected: %v", err))
 		p.logf("fleet: %v", err)
+		if renew && attempt == 0 {
+			// The server only wanted a fresh token: reconnect with one straight away.
+			continue
+		}
 		select {
 		case <-ctx.Done():
 			return
@@ -230,9 +240,13 @@ func (p *Presence) session(ctx context.Context) error {
 	sessionCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	go func() {
-		ping, update := time.NewTicker(pingEvery), time.NewTicker(updateEvery)
+		ping, update, renew := time.NewTicker(pingEvery), time.NewTicker(updateEvery), time.NewTicker(renewEvery)
 		defer ping.Stop()
 		defer update.Stop()
+		defer renew.Stop()
+		// The token this connection opened with (Dial's, still cached). The server closes the
+		// connection once it expires, so each newer one is sent over it before then.
+		token, _ := p.Upstream.AccessToken(server)
 		for {
 			select {
 			case <-sessionCtx.Done():
@@ -242,6 +256,15 @@ func (p *Presence) session(ctx context.Context) error {
 				_ = send(map[string]any{"type": "ping"})
 			case <-update.C:
 				_ = send(p.describe(server, "update"))
+			case <-renew.C:
+				if token == "" {
+					continue
+				}
+				if next, err := p.Upstream.AccessToken(server); err == nil && next != token {
+					if send(map[string]any{"type": "token", "token": next}) == nil {
+						token = next
+					}
+				}
 			}
 		}
 	}()

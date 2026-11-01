@@ -579,12 +579,16 @@ class Auth:
 
     def username_of(self, token: str) -> str | None:
         """Whose a valid access token is (the console's sign-ins name their accounts by it)."""
+        identity = self.identify_token(token)
+        return identity.user if identity else None
+
+    def identify_token(self, token: str) -> Identity | None:
+        """The identity of an access token given on its own, as identify reads one from a request."""
         class Carrier:
             headers = {HEADER: token}
             cookies: dict[str, str] = {}
 
-        identity = self.identify(Carrier())  # type: ignore[arg-type]
-        return identity.user if identity else None
+        return self.identify(Carrier())  # type: ignore[arg-type]
 
     def identify(self, connection: HTTPConnection) -> Identity | None:
         token, via = self.request_token(connection)
@@ -635,6 +639,8 @@ PUBLIC_PATHS = {
     "/api/auth/accounts", "/api/auth/switch",
 }
 CREDENTIAL_CHECK_INTERVAL = 15
+# Where a WebSocket's scope keeps the access token it renewed over itself (renew_socket).
+RENEWED_TOKEN = "renewed_token"
 PROTECTED_PREFIXES = ("/api/", "/v1/", "/anthropic/", "/session/", "/docs", "/redoc", "/openapi.json")
 # Unscoped agent endpoints that may name their session in X-AI-Proxy-Session instead of the path.
 AGENT_PREFIXES = ("/v1/", "/anthropic/")
@@ -726,8 +732,13 @@ class AuthMiddleware:
             nonlocal renewal_required
             while True:
                 await asyncio.sleep(CREDENTIAL_CHECK_INTERVAL)
+                # A socket that renewed its token over itself (renew_socket) is checked with the newest one.
+                renewed = scope["state"].get(RENEWED_TOKEN)
                 try:
-                    current = await asyncio.to_thread(self.runtime.auth.identify, connection)
+                    if renewed:
+                        current = await asyncio.to_thread(self.runtime.auth.identify_token, renewed)
+                    else:
+                        current = await asyncio.to_thread(self.runtime.auth.identify, connection)
                 except AuthUnavailable:
                     renewal_required = True
                     group.cancel_scope.cancel()
@@ -759,6 +770,29 @@ async def _deny(scope: dict[str, Any], receive: Any, send: Any, status: int, mes
         headers.append((b"www-authenticate", b'Bearer realm="ai-control-mesh"'))
     await send({"type": "http.response.start", "status": status, "headers": headers})
     await send({"type": "http.response.body", "body": body})
+
+
+async def renew_socket(runtime: Any, websocket: Any, token: Any) -> bool:
+    """Takes a fresh access token sent over an open WebSocket, so the socket outlives the one it opened with.
+
+    Access tokens last minutes and AuthMiddleware closes a socket (4410) once its token stops
+    being valid. A long-lived socket (a machine's fleet connection) sends its next token before
+    that instead, and keeps going. The new token must be valid and the same user's, in the same
+    tenant; anything else is ignored, and the old token's expiry closes the socket as before.
+    """
+    current = request_identity(websocket)
+    if not isinstance(token, str) or not token or len(token) > 8192 or current is None:
+        return False
+    try:
+        identity = await asyncio.to_thread(runtime.auth.identify_token, token)
+    except AuthUnavailable:
+        return False
+    if identity is None or identity.user != current.user or identity.tenant != current.tenant:
+        return False
+    state = websocket.scope.setdefault("state", {})
+    state[RENEWED_TOKEN] = token
+    state["identity"] = identity
+    return True
 
 
 def request_identity(request: Any) -> Identity | None:

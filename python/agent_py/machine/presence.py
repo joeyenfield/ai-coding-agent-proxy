@@ -30,6 +30,9 @@ from . import containers, mcp, providers, servers, settings
 
 UPDATE_EVERY = 60
 PING_EVERY = 25
+# How often the machine checks its access token. The token is refreshed in its last 30 seconds
+# and the server checks every 15, so a new one reaches the server in time.
+RENEW_EVERY = 10
 # How long a launched agent may take to open its session.
 LAUNCH_TIMEOUT = 50
 RETRY_DELAYS = (2, 5, 10, 30)
@@ -40,6 +43,10 @@ log = logging.getLogger("agent-machine")
 
 class Refused(Exception):
     pass
+
+
+class Renew(Exception):
+    """The server closed the connection for a fresh access token (4410): reconnect at once."""
 
 
 def agent_command() -> List[str]:
@@ -315,6 +322,10 @@ class Presence:
                 attempt = 0
             self.set_status(f"disconnected: {error}")
             log.info("fleet: %s", error)
+            if isinstance(error, Renew) and attempt == 0:
+                # The server only wanted a fresh token: reconnect with one straight away.
+                attempt += 1
+                continue
             try:
                 await asyncio.wait_for(stop.wait(), RETRY_DELAYS[min(attempt, len(RETRY_DELAYS) - 1)])
             except asyncio.TimeoutError:
@@ -343,6 +354,7 @@ class Presence:
             except websockets.ConnectionClosed as closed:
                 if closed.rcvd and closed.rcvd.code == 4410:
                     await asyncio.to_thread(self.upstream.reject_access_token, server)
+                    raise Renew("the server asked for a fresh access token") from closed
                 reason = closed.rcvd.reason if closed.rcvd else ""
                 if closed.rcvd and closed.rcvd.code == CLOSE_UPGRADE_REQUIRED:
                     raise Refused(f"the agent-server at {server} can't take this agent-machine: {reason}")
@@ -367,7 +379,25 @@ class Presence:
                         since_update = 0
                         await send(await asyncio.to_thread(self.describe, server, "update"))
 
-            tasks = {asyncio.ensure_future(keep_up())}
+            async def renew() -> None:
+                # The token this connection opened with (dial's, still cached). The server closes the
+                # connection once it expires, so each newer one is sent over it before then.
+                try:
+                    token = await asyncio.to_thread(self.upstream.token, server)
+                except Exception:  # noqa: BLE001 - no credentials to renew (a fixed token, tests)
+                    return
+                while token:
+                    await asyncio.sleep(RENEW_EVERY)
+                    try:
+                        latest = await asyncio.to_thread(self.upstream.token, server)
+                    except Exception as error:  # noqa: BLE001 - try again; the server closes it with 4410 if it never comes
+                        log.info("fleet: couldn't renew the access token: %s", error)
+                        continue
+                    if latest and latest != token:
+                        await send({"type": "token", "token": latest})
+                        token = latest
+
+            tasks = {asyncio.ensure_future(keep_up()), asyncio.ensure_future(renew())}
             try:
                 async for raw in conn:
                     try:
@@ -381,6 +411,7 @@ class Presence:
             except websockets.ConnectionClosed as closed:
                 if closed.rcvd and closed.rcvd.code == 4410:
                     await asyncio.to_thread(self.upstream.reject_access_token, server)
+                    raise Renew("the server asked for a fresh access token") from closed
                 raise
             finally:
                 for task in tasks:

@@ -93,7 +93,10 @@ def register(app: FastAPI, runtime: Runtime) -> None:
                     data = json.loads(await websocket.receive_text())
                 except ValueError:
                     continue
-                if isinstance(data, dict):
+                if isinstance(data, dict) and data.get("type") == "token":
+                    # The machine's next access token, before this one expires: the connection stays up.
+                    await auth.renew_socket(runtime, websocket, data.get("token"))
+                elif isinstance(data, dict):
                     fleet.message(machine, data, client_host)
                     if data.get("type") == "update":
                         await claim(machine)

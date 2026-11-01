@@ -428,3 +428,52 @@ def test_a_cmd_agent_runs_in_comspec_in_the_conpty(monkeypatch, tmp_path):
         output += chunk
     assert b"shim says hello" in output, output
     assert child.wait() == 3
+
+
+def test_presence_renews_its_token_over_the_open_connection(tmp_path, monkeypatch):
+    """machine/internal/presence: TestPresenceRenewsItsTokenOverTheOpenConnection."""
+    from websockets.asyncio.server import serve
+
+    monkeypatch.setattr(presence, "RENEW_EVERY", 0.05)
+    issued = iter(f"access-{number}" for number in range(1, 1000))
+
+    async def scenario() -> None:
+        dialed: List[str] = []
+        renewed: asyncio.Queue = asyncio.Queue()
+
+        async def handler(connection) -> None:
+            dialed.append(connection.request.headers.get(common.TOKEN_HEADER, ""))
+            async for raw in connection:
+                message = json.loads(raw)
+                if message["type"] == "hello":
+                    await connection.send(json.dumps({"type": "welcome"}))
+                elif message["type"] == "token":
+                    await renewed.put(message["token"])
+
+        async with serve(handler, "127.0.0.1", 0) as server:
+            port = server.sockets[0].getsockname()[1]
+            machine = presence.Presence(common.Upstream(credentials_path=lambda: tmp_path / "credentials.json", fixed=f"http://127.0.0.1:{port}", use_env=False))
+            current = {"token": next(issued)}
+            # Every check after the first finds a newer token, as one in its last 30 seconds would be refreshed.
+            monkeypatch.setattr(machine.upstream, "token", lambda server: current["token"])
+            monkeypatch.setattr(machine, "describe", lambda server, kind: {"type": kind, "id": "m1"})
+            monkeypatch.setattr(machine, "check_version", lambda server: None)
+            stop = asyncio.Event()
+            running = asyncio.ensure_future(machine.run(stop))
+            try:
+                for _ in range(100):
+                    if dialed:
+                        break
+                    await asyncio.sleep(0.05)
+                assert dialed == ["access-1"]
+                await asyncio.sleep(0.1)
+                current["token"] = next(issued)
+                assert await asyncio.wait_for(renewed.get(), 10) == "access-2"
+                await asyncio.sleep(0.2)
+                # Renewing doesn't reconnect.
+                assert dialed == ["access-1"]
+            finally:
+                stop.set()
+                await asyncio.wait_for(running, 10)
+
+    asyncio.run(scenario())

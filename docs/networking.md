@@ -213,6 +213,9 @@ sequenceDiagram
   loop every 60 s
     M->>S: {"type": "update", …the same fields as the hello}
   end
+  loop when its access token is refreshed (every few minutes)
+    M->>S: {"type": "token", "token": …the new access token}
+  end
   S->>M: {"type": "provider", "request": r1, "op": "status", …}
   M-->>S: {"type": "provider_result", "request": r1, "ok": true, …}
 ```
@@ -232,9 +235,11 @@ sequenceDiagram
 
 Each request carries a `request` id (`launch` for launches) that its answer repeats. The server waits for the answer, with a timeout that suits the operation.
 
-**From the machine:** `hello` (once, first), `update` (every minute, and the same fields), `ping` (every 25 seconds), and the answers above.
+**From the machine:** `hello` (once, first), `update` (every minute, and the same fields), `ping` (every 25 seconds), `token` (its new access token, each time it refreshes one), and the answers above.
 
-**Reconnecting.** When the socket drops, agent-machine tries again after 2, 5, 10, then every 30 seconds, and starts over at 2 once a connection has lasted more than a minute. A server restart closes all fleet sockets; machines come back by themselves. A removed machine is closed with `4403` and refused until it's restored.
+**Keeping its sign-in.** Access tokens last a few minutes, and the server closes a socket with `4410` once the token it opened with stops working. agent-machine checks its token every 10 seconds; when it refreshes it (in the token's last 30 seconds), it sends the new one as `token`, and the server checks it with the issuer. If it's valid and the same user's, the server checks the socket with that token from then on, and the connection stays up. Anything else is ignored. If a `4410` comes anyway, the machine reconnects straight away with a fresh token.
+
+**Reconnecting.** When the socket drops, agent-machine tries again after 2, 5, 10, then every 30 seconds, and starts over at 2 once a connection has lasted more than a minute. A request from the console to a machine that dropped in the last minute waits up to 10 seconds for it to come back before answering that it isn't connected. A server restart closes all fleet sockets; machines come back by themselves. A removed machine is closed with `4403` and refused until it's restored.
 
 ## Terminal sockets
 
@@ -293,7 +298,7 @@ A shared terminal has one host (the launcher) and any number of viewers (console
 | `4404` | terminals, tunnels | No such session, terminal or tunnel | viewers, for a minute after opening |
 | `4408` | terminal viewer | It fell behind the output; reconnect to catch up | the viewer |
 | `4409` | terminal host, fleet | Replaced by the same launcher or machine reconnecting | nobody (the new one carries on) |
-| `4410` | every signed-in socket | The access token expired or was revoked while connected | the client, after renewing its token |
+| `4410` | every signed-in socket | The access token expired or was revoked while connected (machines renew theirs over the fleet socket first) | the client, after renewing its token |
 | `4426` | every socket | Protocol out of range: update the program | nobody |
 
 ## Behind a reverse proxy

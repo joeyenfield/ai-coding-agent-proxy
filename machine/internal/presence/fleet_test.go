@@ -3,6 +3,7 @@ package presence
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -303,5 +305,80 @@ func TestPresenceAnswersProviderRequestsAndSendsStrataKeys(t *testing.T) {
 	}
 	if len(progress) != 2 || progress[1] != "success" {
 		t.Fatalf("progress %v", progress)
+	}
+}
+
+func TestPresenceRenewsItsTokenOverTheOpenConnection(t *testing.T) {
+	t.Setenv("AI_PROXY_MACHINE_HOME", t.TempDir())
+	t.Setenv(settings.TokenEnvironment, "")
+	old := renewEvery
+	renewEvery = 50 * time.Millisecond
+	defer func() { renewEvery = old }()
+	var issued atomic.Int32
+	dialed := make(chan string, 4)
+	renewed := make(chan string, 4)
+	upgrader := websocket.Upgrader{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/token":
+			// Tokens that are always in their last 30 seconds, so every check refreshes one.
+			_, _ = fmt.Fprintf(w, `{"access_token":"access-%d","refresh_token":"refresh","expires_in":31,"token_type":"Bearer"}`, issued.Add(1))
+			return
+		case "/api/machines/connect":
+		default:
+			http.NotFound(w, r)
+			return
+		}
+		dialed <- r.Header.Get(settings.TokenHeader)
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		for {
+			_, data, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			var message map[string]any
+			_ = json.Unmarshal(data, &message)
+			switch message["type"] {
+			case "hello":
+				_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"welcome"}`))
+			case "token":
+				renewed <- message["token"].(string)
+			}
+		}
+	}))
+	defer server.Close()
+	credentials := &settings.Credentials{Servers: map[string]*settings.ServerEntry{
+		settings.Normalize(server.URL): {URL: server.URL, AccessToken: "access-0", RefreshToken: "refresh", ExpiresAt: 1, Issuer: server.URL, ClientID: "mesh-cli", TokenEndpoint: server.URL + "/token"},
+	}}
+	if err := credentials.Save(); err != nil {
+		t.Fatal(err)
+	}
+	presence := &Presence{Upstream: settings.Upstream{Fixed: server.URL}, Detect: func() []Provider { return nil }}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go presence.Run(ctx)
+	var first string
+	select {
+	case first = <-dialed:
+	case <-time.After(10 * time.Second):
+		t.Fatal("never connected")
+	}
+	select {
+	case token := <-renewed:
+		if token == first || !strings.HasPrefix(token, "access-") {
+			t.Fatalf("renewed with %q after connecting with %q", token, first)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("no token sent over the connection")
+	}
+	// Renewing doesn't reconnect.
+	select {
+	case again := <-dialed:
+		t.Fatalf("reconnected with %q", again)
+	case <-time.After(200 * time.Millisecond):
 	}
 }

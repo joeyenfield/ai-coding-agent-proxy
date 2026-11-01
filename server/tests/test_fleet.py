@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from contextlib import contextmanager
 
 import pytest
@@ -17,7 +18,7 @@ from fastapi.testclient import TestClient
 from agent_server.app import create_app
 from agent_server.config import Backend
 from agent_server.fleet import FleetError, within_roots
-from oidc_helpers import stored_backends
+from oidc_helpers import access_token, issuer, stored_backends
 from test_auth import BASE, HOST, ids, org_settings, signed_in, ws_headers
 
 
@@ -615,3 +616,60 @@ def test_a_removed_machine_is_disconnected_and_refused_until_allowed_back(tmp_pa
         assert alice.post("/api/machines/m1/restore").status_code == 200
         with machine(alice):
             assert alice.get("/api/machines").json()["machines"][0]["id"] == "m1"
+
+
+def test_a_machine_renews_its_token_over_its_connection_and_stays_connected(tmp_path, monkeypatch):
+    monkeypatch.setattr("agent_server.auth.CREDENTIAL_CHECK_INTERVAL", 0.05)
+    app = create_app(org_settings(tmp_path))
+    fleet = app.state.runtime.fleet
+    alice = signed_in(app, "alice")
+    first = alice.cookies.get("ai_proxy_session")
+    with alice, machine(alice) as socket:
+        # Another user's token doesn't renew alice's machine; nor does nonsense.
+        socket.send_text(json.dumps({"type": "token", "token": access_token(app, "bob")}))
+        socket.send_text(json.dumps({"type": "token", "token": "not-a-token"}))
+        renewed = access_token(app, "alice")
+        socket.send_text(json.dumps({"type": "token", "token": renewed}))
+        socket.send_text(json.dumps({"type": "ping"}))
+        # The token it connected with expires: the connection carries on with the renewed one.
+        issuer(app).revoke(first)
+        time.sleep(0.4)
+        assert fleet.connected("m1")
+        # Once that one stops working too, the server closes it for a fresh token.
+        issuer(app).revoke(renewed)
+        with pytest.raises(Exception) as closed:
+            for _ in range(100):
+                socket.receive_text()
+        assert getattr(closed.value, "code", None) == 4410
+
+
+def test_a_request_waits_a_moment_for_a_machine_that_just_dropped(tmp_path, monkeypatch):
+    monkeypatch.setattr("agent_server.fleet.RECONNECT_WAIT", 5.0)
+    app = create_app(org_settings(tmp_path))
+    fleet = app.state.runtime.fleet
+    alice = signed_in(app, "alice")
+    with alice:
+        with machine(alice):
+            pass
+        assert not fleet.connected("m1")
+
+        def reconnect():
+            time.sleep(0.5)
+            with machine(alice, hello(servers={"enabled": True})) as socket:
+                request = json.loads(socket.receive_text())
+                assert request["type"] == "server"
+                socket.send_text(json.dumps({"type": "server_result", "request": request["request"], "ok": True, "servers": {"enabled": True}}))
+                time.sleep(0.3)
+
+        thread = threading.Thread(target=reconnect)
+        thread.start()
+        try:
+            result = alice.post("/api/machines/m1/servers/ollama/start")
+        finally:
+            thread.join()
+        assert result.status_code == 200, result.text
+        # One gone for longer is refused straight away.
+        fleet.machines["m1"].last_seen -= 3600
+        started = time.monotonic()
+        assert alice.post("/api/machines/m1/servers/ollama/start").status_code == 409
+        assert time.monotonic() - started < 2
