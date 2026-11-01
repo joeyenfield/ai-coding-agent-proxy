@@ -93,6 +93,8 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             return
         except (WebSocketDisconnect, ValueError):
             return
+        # For the access log (outermost, same scope): which machine this connection is, by its hello.
+        websocket.scope.setdefault("state", {})["machine"] = {"id": machine.id, "name": machine.name}
         await claim(machine)
         await websocket.send_text(json.dumps({"type": "welcome", "machine": machine.id}))
         try:

@@ -1616,6 +1616,27 @@ export const api = {
   status: () => request<Status>("/api/status"),
   /** The server computer's CPU, memory and disks (site admins only). */
   serverStats: () => request<ServerStats>("/api/server/stats"),
+  /** Every HTTP request and WebSocket the server received, newest first (site admins only). */
+  accessLog: (options: { failed?: boolean; q?: string; limit?: number; before?: number } = {}) => {
+    const params = new URLSearchParams();
+    if (options.failed) params.set("failed", "true");
+    if (options.q) params.set("q", options.q);
+    if (options.limit) params.set("limit", String(options.limit));
+    if (options.before) params.set("before", String(options.before));
+    return request<AccessLog>(`/api/server/access-log?${params}`);
+  },
+  /** The access log's numbers: since the server started, and from what's saved. */
+  accessLogStats: () => request<AccessLogStats>("/api/server/access-log/stats"),
+  /** What's saved across restarts (failures, dropped WebSockets, fleet connections), newest first; before is a time. */
+  accessLogHistory: (options: { failed?: boolean; fleet?: boolean; q?: string; limit?: number; before?: number } = {}) => {
+    const params = new URLSearchParams();
+    if (options.failed) params.set("failed", "true");
+    if (options.fleet) params.set("fleet", "true");
+    if (options.q) params.set("q", options.q);
+    if (options.limit) params.set("limit", String(options.limit));
+    if (options.before) params.set("before", String(options.before));
+    return request<{ entries: AccessEntry[]; kept_days: number }>(`/api/server/access-log/history?${params}`);
+  },
   health: () => request<Health>("/health", { cache: "no-store" }),
   helpPage,
   // Served outside /api (public, for machines that aren't signed in yet); the console's page is /get.
@@ -1993,6 +2014,101 @@ export interface DeviceRequest {
   expires_at: number;
   /** Who would be signed in: the person asking. */
   user: string;
+}
+
+/** One HTTP request or WebSocket the server received (access_log.py). */
+export interface AccessEntry {
+  /** A number within this run; a saved entry's own id (a string) in the history. */
+  id: number | string;
+  /** Read from the database's saved part. */
+  saved?: boolean;
+  /** Unix time it arrived. */
+  time: number;
+  kind: "http" | "websocket";
+  /** The HTTP method, or WS. */
+  method: string;
+  path: string;
+  /** The query's parameter names only, never their values. */
+  query: string;
+  client: string;
+  forwarded_for: string;
+  host: string;
+  user_agent: string;
+  /** X-AI-Proxy-Version and -Protocol, which agent and agent-machine send. */
+  program_version: string;
+  protocol: string;
+  user: string | null;
+  tenant: string | null;
+  /** A fleet connection's machine, once its hello named it. */
+  machine_id: string | null;
+  machine_name: string | null;
+  /** The HTTP status; for a WebSocket 101 once accepted, or the status it was refused with. */
+  status: number | null;
+  close_code: number | null;
+  close_reason: string;
+  closed_by: "server" | "client" | null;
+  /** The start of an error answer's body. */
+  detail: string;
+  duration_ms: number | null;
+  /** dropped: a WebSocket whose connection was lost without a close (a phone asleep or changing network). */
+  outcome: "ok" | "failed" | "dropped" | "open";
+}
+
+/** GET /api/server/access-log. */
+export interface AccessLog {
+  entries: AccessEntry[];
+  started_at: number;
+  totals: { ok: number; failed: number; dropped: number; open_websockets: number };
+  /** How many of all requests, and of the failed ones, the server keeps. */
+  kept: { all: number; failed: number };
+}
+
+interface AccessLast {
+  time: number | null;
+  user: string | null;
+  user_agent: string;
+  program_version: string;
+  reason: string;
+}
+
+/** GET /api/server/access-log/stats. */
+export interface AccessLogStats {
+  started_at: number;
+  totals: AccessLog["totals"];
+  /** The last hour, a minute each (minute: its start, Unix time). */
+  per_minute: { minute: number; ok: number; failed: number; dropped: number }[];
+  /** How requests were answered: a status, or how a WebSocket ended ("4401 by server"). */
+  answers: { answer: string; count: number }[];
+  /** Of the newest HTTP answers, in milliseconds. */
+  durations: { count: number; p50: number | null; p95: number | null; max: number | null };
+  failing_routes: ({ method: string; route: string; answer: string; count: number } & AccessLast)[];
+  failing_clients: ({ address: string; count: number } & AccessLast)[];
+  open_websockets: { path: string; user: string | null; machine_id: string | null; machine_name: string | null; address: string; since: number; user_agent: string; program_version: string }[];
+  saved: {
+    days: { day: string; ok: number; failed: number; dropped: number }[];
+    /** Each machine's fleet connections, by its sign-in and address, newest first. */
+    fleet: {
+      /** Null for connections refused before their hello: grouped by sign-in and address instead. */
+      machine_id: string | null;
+      machine_name: string | null;
+      user: string | null;
+      address: string;
+      connections: number;
+      ok: number;
+      failed: number;
+      dropped: number;
+      connected_ms: number;
+      last_time: number | null;
+      last_answer: string;
+      last_reason: string;
+      user_agent: string;
+      program_version: string;
+    }[];
+    fleet_days: number;
+    oldest: number | null;
+    count: number;
+    kept_days: number;
+  };
 }
 
 /** GET /api/server/stats: the computer agent-server runs on, sampled when asked (stats.py). */

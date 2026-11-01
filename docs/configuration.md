@@ -57,7 +57,7 @@ agent-auth imports its `issuer.sqlite3` and `signing-key.pem` the same way, so e
 | `intercept` | HTTPS capture | `agent-server config import`, `POST /api/config/import` |
 | `models` | Tuning applied to requests sent to Ollama | **Server settings** → **Ollama model tuning**, `PUT /api/config/models` |
 | `agents` | Every coding agent the server can launch | **Server settings** → **Agents**, `PUT /api/config/agents/<id>` |
-| `retention_days` | How long payloads and terminals are kept | **Server settings** → **Storage**, `PUT /api/config/storage` |
+| `retention_days` | How long payloads and terminals are kept, and the access log's saved failures and fleet connections (30 days when unset) | **Server settings** → **Storage**, `PUT /api/config/storage` |
 
 Changes apply at once, except a new listen address, which waits for a restart. Only admins change them.
 

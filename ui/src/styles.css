@@ -1351,3 +1351,32 @@ code { background: var(--ground); border: 1px solid var(--line); padding: 0 5px;
 .stack { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
 .account-head { justify-content: space-between; align-items: flex-start; }
 .account-head h2 { margin-bottom: 2px; }
+
+/* Access log overview: stacked bars a minute or a day, and two tables side by side. */
+.access-panel { display: flex; flex-direction: column; gap: 28px; }
+.access-panel[hidden] { display: none; }
+.access-bars { margin: 8px 0 0; }
+.access-bars-plot { display: flex; align-items: flex-end; gap: 2px; height: 120px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.access-bar { flex: 1 1 0; min-width: 2px; height: 100%; display: flex; flex-direction: column-reverse; border-radius: 2px 2px 0 0; overflow: hidden; }
+.access-bar span { display: block; width: 100%; }
+.access-bar-ok { background: color-mix(in srgb, var(--good) 55%, transparent); }
+.access-bar-failed { background: var(--bad); }
+.access-bar-dropped { background: var(--live-ink); }
+.access-bars-caption { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 12px; margin-top: 6px; }
+.access-legend { display: inline-flex; align-items: center; gap: 6px; }
+.access-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+.access-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 28px 24px; }
+.access-fleet td { vertical-align: top; }
+/* Access log: a request's details, opened under its row. */
+.access-log tr.access-detail td { background: var(--ground); cursor: default; }
+.access-log td:first-child { white-space: nowrap; }
+.access-facts { display: grid; gap: 6px; margin: 4px 0; }
+.access-facts > div { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 12px; }
+.access-facts dt { font-size: 12px; color: var(--steel); }
+.access-facts dd { margin: 0; font-size: 13px; }
+/* On a phone the address and duration are in the opened row. */
+@media (max-width: 600px) {
+  .access-facts > div { grid-template-columns: 1fr; gap: 2px; }
+  .access-log th:nth-child(n+4), .access-log tr:not(.access-detail) td:nth-child(n+4) { display: none; }
+  .access-log td.mono { overflow-wrap: anywhere; }
+}

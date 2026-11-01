@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Red
 from fastapi.staticfiles import StaticFiles
 
 from . import installer, openapi, remote, version
+from .access_log import AccessLogMiddleware
 from .auth import ROOT_TENANT, AuthMiddleware, UserStore
 from .config import Settings
 from .downloads import Downloads
@@ -112,6 +113,8 @@ def create_app(settings: Settings | None = None, restart: Any = None, address_pi
     _register_help(app, settings.docs_dir)
     if settings.serve_ui:
         _register_ui(app, settings.ui_dir)
+    # Added last, so outermost (outside the SessionMiddleware auth.register adds): it records what every layer answered.
+    app.add_middleware(AccessLogMiddleware, log=runtime.access_log)
     return app
 
 

@@ -83,6 +83,25 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         """The server computer's CPU, memory and disk use (admins only, auth.ADMIN_ONLY)."""
         return await asyncio.to_thread(stats.sample)
 
+    @app.get("/api/server/access-log")
+    async def access_log(failed: bool = False, q: str = "", limit: int = 200, before: int | None = None) -> dict[str, Any]:
+        """Every HTTP request and WebSocket the server received since it started, newest first, and how each ended
+        (site admins only, auth.SITE_ADMIN_ONLY). failed keeps only refusals, errors and dropped WebSockets; q matches
+        words in the path, address, user, user agent, status and reason; before pages back by id."""
+        return runtime.access_log.query(failed=failed, search=q, limit=max(1, min(limit, 1000)), before=before)
+
+    @app.get("/api/server/access-log/stats")
+    async def access_log_stats() -> dict[str, Any]:
+        """The access log's numbers: since the server started (memory) and from what's saved (failures and fleet connections, by day and machine)."""
+        saved = await asyncio.to_thread(runtime.access_log.saved_stats)
+        return {**runtime.access_log.stats(), "saved": saved}
+
+    @app.get("/api/server/access-log/history")
+    async def access_log_history(q: str = "", failed: bool = False, fleet: bool = False, limit: int = 200, before: float | None = None) -> dict[str, Any]:
+        """What's saved, newest first, across restarts: failures, dropped WebSockets and every fleet connection. before (a time) pages back."""
+        entries = await asyncio.to_thread(runtime.access_log.history, q, failed, fleet, max(1, min(limit, 1000)), before)
+        return {"entries": entries, "kept_days": runtime.access_log.kept_days()}
+
     @app.post("/api/server/restart", status_code=202)
     async def restart(request: Request) -> dict[str, Any]:
         """Restart with the stored settings, after in-flight requests finish (up to 30 s)."""

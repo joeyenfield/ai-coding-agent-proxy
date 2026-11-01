@@ -131,6 +131,7 @@ Everyone signs in through OIDC, including on loopback. Sessions are private unti
 | The database: which one, migrations, upgrading from files | `agent-server db info`, `migrate`, `import` | Server settings › Storage | [Configuration](configuration.md#the-database) |
 | How long recordings are kept | | Server settings › Storage | [Configuration](configuration.md#how-long-recordings-are-kept) |
 | The server computer's CPU, memory and disks | | Server stats | [Console](console.md#server-stats) |
+| Every request the server received, failed ones too, its stats and each machine's fleet connections (why a machine shows offline) | | Access log | [Console](console.md#access-log) |
 | Downloads and installers | `/install.sh`, `/install.ps1` | Downloads | [Deployment](deployment.md) |
 | Uninstalling from a computer | `/uninstall.sh`, `/uninstall.ps1`, `install.sh --uninstall` | Downloads › Uninstall | [Deployment](deployment.md#uninstalling) |
 | The server in Docker, HTTPS | `docker compose up -d` | | [Deployment](deployment.md#the-server-in-docker) |

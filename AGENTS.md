@@ -122,6 +122,8 @@ server/agent_server/        Python package (FastAPI)
   routes/compat.py          Agent-facing APIs: /v1, /anthropic, /api, plus /session/<id>/... versions
   routes/management.py      Console API: status, server stats, config (and /api/config/export|import|agents|models|storage), sessions, requests, traces, live, agents, models, intercept
   stats.py                  The server computer's CPU, memory, disks and folder sizes (psutil) for /api/server/stats
+  access_log.py             Every HTTP request and WebSocket and how it ended (status, close code, user, machine, address), in memory with stats; failures and fleet connections
+                            also saved (the access_log table), for /api/server/access-log, /stats and /history; its middleware is the outermost
   routes/machines.py        WS /api/machines/connect, /api/machines (list, launch, adopt a model server, forget), and every LLM provider
                             operation, relayed to the machine: providers/{kind}-{port} (status, models, log), metrics, catalog, servers
   routes/terminals.py       /api/remote (status; pairing removed), /api/terminals, WebSockets .../{id}/host (launcher) and .../{id}/view (console)
@@ -133,7 +135,7 @@ server/agent_server/        Python package (FastAPI)
   routes/auth.py            /api/auth/* (status, OIDC login/callback, refresh, logout, device approval from the console; the old token and password routes answer 410), /api/orgs/* (organizations, their teams) and /api/users/*
 server/tests/               pytest; one file per area (test_proxy, test_units, test_intercept, test_providers, test_strata, test_model_runner, test_llamacpp, test_terminals, test_containers, test_auth,
                             test_fleet, test_mcp, test_chat, test_help, test_installer, test_restart, test_upstream_cookies, test_versions,
-                            test_oidc_issuer, test_oidc_api, test_oidc_browser, test_quickstart, test_db)
+                            test_oidc_issuer, test_oidc_api, test_oidc_browser, test_quickstart, test_db, test_access_log)
   test_db.py                The database: migrations, seeding, shipped-agent upgrades, export/import, paging, retention, terminal chunks, the legacy import
   oidc_helpers.py           Signs tests in: an issuer double (real token validation stays in the loop), access_token(), authenticated_client();
                             and reads what's stored: stored_backends(settings), database(tmp_path), stored_rows(db, table)
@@ -186,7 +188,7 @@ ui/src/                     THE CONSOLE: React 19 + TypeScript + Vite + TanStack
   pages/                    One file per page; Docs.tsx (/help: docs/*.md rendered with marked, public), Machine.tsx (a machine and its model servers), LlamaCpp.tsx (a llama.cpp model server, and the machine's llama.cpp server tab), Downloads.tsx (/get, public),
                             Terminals.tsx (list, sign-in), Terminal.tsx (xterm.js viewer, lazy-loaded), Pair.tsx (legacy-link redirect),
                             Login.tsx (shown instead of the console until signed in), Organization.tsx (organizations, user directory, your account),
-                            ServerStats.tsx (/server-stats, admins: the server computer's load and disks), Settings.tsx with SettingsStored.tsx (agents, model tuning, storage),
+                            ServerStats.tsx (/server-stats, admins: the server computer's load and disks), AccessLog.tsx (/access-log, site admins: every request, failed ones too), Settings.tsx with SettingsStored.tsx (agents, model tuning, storage),
                             ApproveDevice.tsx (/approve-device: sign in another computer's agent login with a code, no password)
   components/               Shared pieces (Tabs, CodeLine, ConfirmDialog, ModelSearch/usePull, AddBackendForm, ProviderState, PartTag, LogPanel, ...)
   styles.css                The only stylesheet: CSS variables, light and dark themes, no CSS framework

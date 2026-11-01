@@ -68,6 +68,8 @@ export const PARTS: Part[] = [
       { to: "/requests", label: "Requests", icon: "list" },
       { to: "/sessions", label: "Sessions", icon: "layers" },
       { to: "/server-stats", label: "Server stats", icon: "cpu", siteAdmin: true },
+      // Every HTTP request and WebSocket, the refused ones too: why a machine shows offline.
+      { to: "/access-log", label: "Access log", icon: "list", siteAdmin: true },
       { to: "/settings", label: "Server settings", icon: "settings", siteAdmin: true },
       { to: "/organization", label: "Organizations", icon: "users" },
       // Not /downloads: the server serves the files themselves there.

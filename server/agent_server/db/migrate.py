@@ -90,7 +90,12 @@ def _provider_accounts(connection: Connection) -> None:
         table.create(connection, checkfirst=True)
 
 
-API_STEPS: list[Step] = [_create(schema.api), _tenants, _provider_accounts]
+def _access_log(connection: Connection) -> None:
+    """The access log's saved failures and fleet connections (step 1 already made it in a database created since)."""
+    schema.access_log.create(connection, checkfirst=True)
+
+
+API_STEPS: list[Step] = [_create(schema.api), _tenants, _provider_accounts, _access_log]
 AUTH_STEPS: list[Step] = [_create(schema.auth)]
 
 # One lock id per component, so two processes starting at once don't both migrate.

@@ -17,6 +17,7 @@ import { AgentsPage } from "./pages/Agents";
 import { AskPage } from "./pages/Ask";
 import { SubscriptionsPage } from "./pages/Subscriptions";
 import { ServerStatsPage } from "./pages/ServerStats";
+import { AccessLogPage } from "./pages/AccessLog";
 import { SettingsPage } from "./pages/Settings";
 import { TerminalsPage } from "./pages/Terminals";
 import { PairPage } from "./pages/Pair";
@@ -234,6 +235,7 @@ function Shell({ identity }: { identity: Identity | null }) {
             <Route key={path} path={path} element={<Navigate to="/machines" replace />} />
           ))}
           <Route path="/server-stats" element={<ServerStatsPage />} />
+          <Route path="/access-log" element={<AccessLogPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/organization" element={<OrganizationPage />} />
           <Route path="/get" element={<DownloadsPage />} />

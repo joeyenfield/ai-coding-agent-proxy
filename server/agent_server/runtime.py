@@ -15,6 +15,7 @@ import httpx
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
+from .access_log import AccessLog
 from .agents import AgentDefinition, load_agents
 from .auth import Auth, UserStore
 from .certs import CertificateAuthority
@@ -69,6 +70,8 @@ class Runtime:
         self.provider_accounts = ProviderAccounts(self.db, self.fleet, Vault.from_environment())
         self.client: httpx.AsyncClient | None = None
         self.intercept_client: httpx.AsyncClient | None = None
+        # Every HTTP request and WebSocket received, and how it ended (memory only, site admins).
+        self.access_log = AccessLog(self.db, lambda: self.settings.retention_days)
         self.recent: deque[dict[str, Any]] = deque(maxlen=100)
         self.active: dict[str, dict[str, Any]] = {}
         self.config_lock = asyncio.Lock()
@@ -125,6 +128,8 @@ class Runtime:
     def prune(self) -> int:
         """Delete recordings older than the retention setting (traces, chat indexes, terminal output)."""
         self.provider_accounts.prune()
+        # Saved access log entries go even when recordings are kept forever (after access_log.SAVED_DAYS).
+        self.access_log.prune()
         days = self.settings.retention_days
         if not days:
             return 0

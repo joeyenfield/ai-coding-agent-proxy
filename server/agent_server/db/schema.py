@@ -174,6 +174,23 @@ provider_credentials = Table(
     Column("created_at", Float, nullable=False),
 )
 
+# The access log's saved part (access_log.py): failed requests, dropped WebSockets and every fleet
+# connection, kept for the retention setting (30 days without one). The rest stays in memory.
+access_log = Table(
+    "access_log", api,
+    Column("id", String(32), primary_key=True),
+    # When it arrived (seconds since the epoch) and its UTC day (YYYY-MM-DD), for counting by day in either dialect.
+    Column("time", Float, nullable=False),
+    Column("day", String(10), nullable=False),
+    Column("outcome", String(10), nullable=False),
+    Column("path", Text, nullable=False),
+    # Its words, lowercased, for searching with LIKE in either dialect.
+    Column("search", Text, nullable=False),
+    Column("entry", JSON, nullable=False),
+    Index("access_log_time", "time"),
+    Index("access_log_day", "day"),
+)
+
 PROVIDER_ACCOUNT_TABLES = (provider_accounts, provider_account_assignments, provider_account_usage, provider_account_events, provider_credentials)
 
 auth_versions = _versions(auth)

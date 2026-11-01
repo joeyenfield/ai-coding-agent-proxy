@@ -682,6 +682,8 @@ SITE_ADMIN_ONLY = [
     (re.compile(r"GET|POST|PUT|DELETE"), re.compile(r"/api/config/.+")),
     (re.compile(r"POST"), re.compile(r"/api/server/restart")),
     (re.compile(r"GET"), re.compile(r"/api/server/stats")),
+    # Every request the server received, anyone's: addresses, users, what was refused.
+    (re.compile(r"GET"), re.compile(r"/api/server/access-log(/.*)?")),
     (re.compile(r"POST"), re.compile(r"/api/orgs")),
     (re.compile(r"DELETE"), re.compile(r"/api/orgs/[^/]+")),
 ]

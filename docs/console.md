@@ -15,6 +15,7 @@ The screenshots come from the demo (`python scripts/screenshots/demo.py`), which
 - [Server: Requests](#requests)
 - [Server: Sessions](#sessions)
 - [Server: Server stats](#server-stats)
+- [Server: Access log](#access-log)
 - [Server: Server settings](#server-settings)
 - [Server: Organizations](#organizations)
 - [Server: Downloads](#downloads)
@@ -31,7 +32,7 @@ The rail on the left has three parts, in the order a request flows:
 | Part | Pages | What it's for |
 | --- | --- | --- |
 | **1 Agents** | Start an agent, Running agents, Ask a model | Start a coding agent through the server, then watch it and type into it from any device, or ask a model a question yourself. |
-| **2 Server** | Live, Traffic, Requests, Sessions, Server stats, Server settings, Organizations, Downloads | The hub: allowed agent requests pass through it and are recorded. |
+| **2 Server** | Live, Traffic, Requests, Sessions, Server stats, Access log, Server settings, Organizations, Downloads | The hub: allowed agent requests pass through it and are recorded. |
 | **3 Machines** | All machines, Approve a device, Add a machine | Open **All machines** to search and select a computer. Individual machines aren't listed in the rail. |
 
 - The small label above each page's title is its breadcrumb ("Machines › build-box").
@@ -234,7 +235,29 @@ Claude Code signed in to its account sends most calls with only what's new, nami
 - **The computer**: its name, system, how long it's been up and how long the server has been running.
 - **CPU and memory**: charts of the computer's CPU (with the load average outside Windows) and memory, and of the server's own share of the CPU. Bars show the server's own memory and, when there is one, swap.
 - **Disks**: each disk the server keeps its files on, with how much is used and free and which of its folders are there.
+
 - **What the server keeps**: the size of its database (SQLite or PostgreSQL: settings, accounts, machines and every session's requests, payloads and terminals), its log folder (`logs/`, where the SQLite file is too) and the builds it hands out (`dist/`), measured every five minutes. Deleting sessions on the [Sessions](#sessions) page, or fewer days under **Storage** on [Server settings](#server-settings), removes recorded traffic; old builds (folders named like `1.2.0+abc1234`) can be deleted by hand, since the server only hands out its own version's.
+
+## Access log
+
+`/access-log` (site admins only) shows every HTTP request and WebSocket the server received, and how each ended, whoever sent it. The Requests page shows agents' model calls; this shows everything: the console's API calls, sign-ins, downloads, agent-machine's fleet connection and tunnels, agent-proxy's tunnels, and requests refused before they reached anything (no sign-in, another site's origin, a program too old for the server).
+
+Use it when something says it's connected and the console disagrees, such as a machine shown offline while `agent-machine status` says it's running. Start with **Machines' fleet connections** on the Overview:
+
+- A machine that's working is **Connected**, with how long it has been.
+- One the server closed shows its close code and reason under **Last ended**: 4401 not signed in, 4403 removed or refused, 4410 its sign-in needs renewing, 4426 too old for the server. A connection refused before the machine said who it is reads *Before its hello* and is listed by its sign-in and address.
+- **Dropped** counts connections lost without a close, as when a phone sleeps or changes network: often many short connections in a row.
+- No row at all means it isn't reaching this server: check the address it signed in to and anything in between (a proxy, Cloudflare, the phone's battery settings).
+
+It has three tabs:
+
+- **Overview**: totals since the server started (OK, failed, WebSockets dropped and open now, the median and 95th percentile answer time); a bar a minute for the last hour; each machine's fleet connections over the last 7 days (how many, how many failed or dropped, how long it was connected, how the last one ended and its version); what fails most (by request, with ids in paths folded together, and its answer and reason); where failures come from (by address, with the last user and program); every answer and how often; and what's saved, a bar a day.
+- **Since this start**: every request, newest first, from memory. **Failed and dropped** shows only those, and **Follow** refreshes it every 3 seconds. The newest 5,000 requests are kept, and the newest 2,000 failures apart from them, so busy console traffic doesn't push a refusal out.
+- **Saved history**: what's saved in the database, across restarts: every failure, every dropped WebSocket and every fleet connection, however it ended. **Fleet connections only** narrows it to those. The console's own successful calls aren't saved, which is most of the traffic.
+
+In both lists, **Answer** is the HTTP status, or for a WebSocket **Open**, its close code and which side closed it, or *Refused* with the status and the server's close code. **Failed** marks answers of 400 and above, refused WebSockets and ones the server closed with an error code. **From** is the machine (for a fleet connection), the user it signed in as (or *not signed in*) and its address (the forwarded one, behind nginx or Cloudflare). Select a row for the reason (the error's message or the close reason), the address it asked for, how long it took, and the program and its version (`agent` and `agent-machine` send theirs). The search matches words in the path, address, user, machine, user agent, status and reason.
+
+Saved entries are deleted after the days set under **Storage** on [Server settings](#server-settings), or after 30 days when recordings are kept forever. Query strings show their parameter names only, never their values. The log's own requests aren't listed, nor the console's `/assets/`.
 
 ## Server settings
 
