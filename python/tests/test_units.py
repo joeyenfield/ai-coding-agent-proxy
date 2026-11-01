@@ -570,3 +570,15 @@ def test_presence_resends_an_unchanged_token_and_survives_a_failing_sign_in(tmp_
 def test_reconnect_delays_are_jittered():
     delays = {presence.jitter(10) for _ in range(50)}
     assert all(5 <= delay <= 15 for delay in delays) and len(delays) > 1
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX signals")
+def test_a_process_we_may_not_signal_is_not_ours(monkeypatch):
+    """As process.Alive in Go: on Android a stale status file's id is often another app's process."""
+    assert machine_settings.alive(os.getpid())
+
+    def refused(pid, sig):
+        raise PermissionError(1, "Operation not permitted")
+
+    monkeypatch.setattr(machine_settings.os, "kill", refused)
+    assert not machine_settings.alive(12345)

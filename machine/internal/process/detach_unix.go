@@ -20,13 +20,19 @@ func Group(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 }
 
-// Alive tells whether a process with this id is running.
+// Alive tells whether a process with this id is running and is one of ours (our user's).
+//
+// A process we may not signal (EPERM) is another user's, so it isn't the agent-machine, Ollama
+// or llama.cpp we started, all of which run as us: it's a stale id from a status file whose
+// process has gone and whose number was reused. On Android that's common: every app is its own
+// user, and Android kills Termux's background processes, so agent-machine's id soon belongs to
+// another app. Counting it as running made `agent-machine status` say running while the
+// machine was offline, `start` refuse, and `stop` fail with "operation not permitted".
 func Alive(pid int) bool {
 	if pid <= 0 {
 		return false
 	}
-	err := syscall.Kill(pid, 0)
-	return err == nil || err == syscall.EPERM
+	return syscall.Kill(pid, 0) == nil
 }
 
 // Stop asks the process to end (SIGTERM), so it can say goodbye to the server.

@@ -74,7 +74,15 @@ The machine belongs to whoever signed it in: that user is its **owner**. A machi
 - `start` runs `agent-machine run` detached from the terminal, and waits up to 15 seconds for it to connect or fail. It prints the log's path.
 - `stop` stops the running one and waits up to 10 seconds for it to go.
 
-Only one agent-machine runs per folder. `run` refuses while another is running, and `start` says it's already running.
+Only one agent-machine runs per folder. `run` refuses while another is running, and `start` says it's already running. It knows by the process id in `status.json` and only counts a process of its own user: if the one it ran has gone and its id now belongs to another user's process, it isn't running, and `start` starts a new one.
+
+**On Android (Termux)**, Android stops apps' background processes when it wants the memory or battery, Termux's included, so agent-machine can go away while the phone is idle, and the machine shows offline on the console. Keep it running with:
+
+- `termux-wake-lock` (or **Acquire wakelock** in Termux's notification) before `agent-machine start`;
+- Android's battery settings for Termux set to **Unrestricted**;
+- on Android 12 and later, Android's limit on background processes ("phantom process killer") turned off: in Developer options, **Disable child process restrictions**, or `adb shell settings put global settings_enable_monitor_phantom_procs false`.
+
+If it went anyway, `agent-machine start` starts it again. The server's [Access log](console.md#access-log) shows each of the machine's connections and how it ended.
 
 ### containers
 

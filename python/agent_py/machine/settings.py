@@ -181,12 +181,12 @@ def alive(pid: int) -> bool:
             return bool(kernel32.GetExitCodeProcess(handle, ctypes.byref(code))) and code.value == 259  # STILL_ACTIVE
         finally:
             kernel32.CloseHandle(handle)
+    # A process we may not signal is another user's, never one we started: a stale id whose number
+    # was reused (common on Android, where every app is its own user). As process.Alive in Go.
     try:
         os.kill(pid, 0)
-    except ProcessLookupError:
+    except (ProcessLookupError, PermissionError):
         return False
-    except PermissionError:
-        return True
     return True
 
 
