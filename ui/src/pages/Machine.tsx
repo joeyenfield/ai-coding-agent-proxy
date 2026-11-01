@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
-import { Link, NavLink, useNavigate, useParams } from "react-router-dom";
+import { Link, Navigate, NavLink, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, machineProviders, preferredModel, providerModels, type Agent, type FleetMachine, type MachineProvider, type ProviderRef, type StrataProfile } from "../api";
 import { CodeLine } from "../components/CodeLine";
@@ -37,7 +37,12 @@ export function providerName(provider: MachineProvider): string {
   return `${providerLabel(provider.kind)} :${provider.port}`;
 }
 
-export const machinePath = (id: string, section?: string) => `/machines/${encodeURIComponent(id)}${section ? `/${encodeURIComponent(section)}` : ""}`;
+/** A machine's page, or one of its tabs ("agents", or "providers/ollama/ollama-11434": each part encoded). */
+export const machinePath = (id: string, section?: string) =>
+  `/machines/${encodeURIComponent(id)}${section ? `/${section.split("/").map(encodeURIComponent).join("/")}` : ""}`;
+
+/** The machine's Providers tab: its overview, a kind's tab ("ollama", "containers"), or one instance or the kind's server tab ("server"). */
+export const providersPath = (id: string, kind?: string, sub?: string) => machinePath(id, ["providers", kind, sub].filter(Boolean).join("/"));
 
 /**
  * One machine of the fleet, and everything it runs for the server: its model servers (each
@@ -45,7 +50,7 @@ export const machinePath = (id: string, section?: string) => `/machines/${encode
  * its load, and starting agents on it. All of it is asked of the machine itself.
  */
 export function MachinePage() {
-  const { id = "", section = "" } = useParams();
+  const { id = "", section = "", kind = "", sub = "" } = useParams();
   const machines = useMachines();
   const status = useStatus();
   const machine = machines.data?.machines.find((item) => item.id === id);
@@ -62,11 +67,9 @@ export function MachinePage() {
       </div>
     );
   }
-  const provider = providers.find((item) => item.id === section);
-  const ollamaInstalled = Boolean(machine.servers.ollama?.found);
-  // llama.cpp can be installed from here, so its tab is there whenever the machine knows about it.
-  const llamaKnown = Boolean(machine.servers.enabled && machine.servers.llamacpp?.known);
-  const runsContainers = Boolean(machine.containers.enabled) || providers.some((item) => item.container);
+  // The tabs that used to be on their own are in Providers now: old links still land on them.
+  const moved = movedSection(machine, section);
+  if (moved) return <Navigate to={moved} replace />;
 
   return (
     <div className="page wide">
@@ -77,17 +80,10 @@ export function MachinePage() {
         </NavLink>
         <NavLink to={machinePath(machine.id, "agents")}>Agents</NavLink>
         <NavLink to={machinePath(machine.id, "terminal")}>Terminal</NavLink>
-        <NavLink to={machinePath(machine.id, "model-servers")}>Model servers</NavLink>
-        {providers.map((item) => (
-          <NavLink key={item.id} to={machinePath(machine.id, item.id)}>
-            <StateDot tone={machine.connected && item.detected ? "good" : "idle"} />
-            {item.backend ?? providerName(item)}
-            {item.container && <span className="nav-note">container</span>}
-          </NavLink>
-        ))}
-        {ollamaInstalled && <NavLink to={machinePath(machine.id, "ollama")}>Ollama server</NavLink>}
-        {llamaKnown && <NavLink to={machinePath(machine.id, "llamacpp")}>llama.cpp server</NavLink>}
-        {runsContainers && <NavLink to={machinePath(machine.id, "containers")}>Containers</NavLink>}
+        <NavLink to={providersPath(machine.id)}>
+          Providers
+          {providers.length > 0 && <span className="nav-note">{providers.length}</span>}
+        </NavLink>
         <NavLink to={machinePath(machine.id, "load")}>Load</NavLink>
         {(machine.you.owner || (machine.mcp?.servers?.length ?? 0) > 0) && <NavLink to={machinePath(machine.id, "mcp")}>MCP servers</NavLink>}
         <NavLink to={machinePath(machine.id, "accounts")}>Agent accounts</NavLink>
@@ -97,7 +93,7 @@ export function MachinePage() {
       {section === "" && <MachineSummary machine={machine} providers={providers} />}
       {section === "agents" && <MachineAgents machine={machine} />}
       {section === "terminal" && <MachineTerminal machine={machine} />}
-      {section === "model-servers" && <MachineModelServers machine={machine} providers={providers} />}
+      {section === "providers" && <MachineProviders machine={machine} providers={providers} kind={kind} sub={sub} />}
       {section === "access" && <MachineAccess machine={machine} />}
       {section === "mcp" && <MachineMcp machine={machine} />}
       {section === "accounts" && <MachineAccounts machine={machine} />}
@@ -107,17 +103,9 @@ export function MachinePage() {
           ollama={providers.filter((item) => item.kind === "ollama").map((item) => ({ target: refOf(machine, item), label: item.backend ?? providerName(item) }))}
         />
       )}
-      {section === "ollama" && <MachineOllama machine={machine} />}
-      {section === "llamacpp" && <MachineLlamaCpp machine={machine} />}
-      {section === "containers" && (
-        <Suspense fallback={<p className="subtle">Loading…</p>}>
-          <MachineContainers machine={machine.id} />
-        </Suspense>
-      )}
-      {provider && <ProviderView key={provider.id} machine={machine} provider={provider} />}
-      {section && !provider && !SECTIONS.includes(section) && (
+      {section && !SECTIONS.includes(section) && (
         <p className="empty">
-          {machine.name} doesn't report a model server {section}. It may have stopped; see its <Link to={machinePath(machine.id, "model-servers")}>model servers</Link>.
+          {machine.name} has no tab {section}. See its <Link to={machinePath(machine.id)}>summary</Link>.
         </p>
       )}
     </div>
@@ -126,8 +114,8 @@ export function MachinePage() {
 
 const refOf = (machine: FleetMachine, provider: MachineProvider): ProviderRef => ({ machine: machine.id, provider: provider.id });
 
-// The tabs that aren't one of the machine's model servers.
-const SECTIONS = ["agents", "terminal", "model-servers", "load", "ollama", "llamacpp", "containers", "mcp", "accounts", "access"];
+// The machine's tabs (its summary is the page itself).
+const SECTIONS = ["agents", "terminal", "providers", "load", "mcp", "accounts", "access"];
 
 /** Why the machine won't change its model servers now, or null when it will. */
 function unmanageable(machine: FleetMachine): string | null {
@@ -394,7 +382,7 @@ function MachineSummary({ machine, providers }: { machine: FleetMachine; provide
           <Feature
             machine={machine}
             name="Model servers"
-            tab="model-servers"
+            tab="providers"
             on={providers.length > 0}
             you={machine.you.models}
             detail={
@@ -407,7 +395,7 @@ function MachineSummary({ machine, providers }: { machine: FleetMachine; provide
           <Feature
             machine={machine}
             name="Running Ollama, llama.cpp and Strata"
-            tab={machine.servers.ollama?.found ? "ollama" : undefined}
+            tab={machine.servers.ollama?.found ? "providers/ollama/server" : undefined}
             on={Boolean(machine.servers.enabled)}
             you={machine.you.servers}
             detail={machine.servers.enabled ? "Start, stop and configure the ones installed there, and install llama.cpp" : off("agent-machine servers on")}
@@ -415,7 +403,7 @@ function MachineSummary({ machine, providers }: { machine: FleetMachine; provide
           <Feature
             machine={machine}
             name="Containers"
-            tab={machine.containers.enabled ? "containers" : undefined}
+            tab={machine.containers.enabled ? "providers/containers" : undefined}
             on={Boolean(machine.containers.enabled)}
             you={machine.you.containers ?? machine.you.owner}
             detail={machine.containers.enabled ? `${machine.containers.cli ?? "docker"}${machine.containers.online ? "" : ", not answering"} · its owner runs them, if an admin of its organization` : off("agent-machine containers on")}
@@ -633,13 +621,121 @@ function MachineTerminal({ machine }: { machine: FleetMachine }) {
   );
 }
 
+/** Where each kind of provider comes in the machine's Providers tab. */
+const KIND_ORDER = ["ollama", "llamacpp", "strata", "docker"];
+
+/** The kinds of provider the machine has: those it runs, and those installed there (managed from the kind's server tab). */
+function providerKinds(machine: FleetMachine, providers: MachineProvider[]): string[] {
+  const kinds = new Set(providers.map((item) => item.kind));
+  if (machine.servers.ollama?.found) kinds.add("ollama");
+  // llama.cpp can be installed from here, so its tab is there whenever the machine knows about it.
+  if (machine.servers.enabled && machine.servers.llamacpp?.known) kinds.add("llamacpp");
+  if (machine.servers.strata?.found) kinds.add("strata");
+  const rank = (kind: string) => (KIND_ORDER.includes(kind) ? KIND_ORDER.indexOf(kind) : KIND_ORDER.length);
+  return [...kinds].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+}
+
+/** The machine-wide tab of a kind (installing, starting and configuring it there), or null when it has none. */
+function serverTabLabel(machine: FleetMachine, kind: string): string | null {
+  if (kind === "ollama" && machine.servers.ollama?.found) return "Ollama server";
+  if (kind === "llamacpp" && machine.servers.enabled && machine.servers.llamacpp?.known) return "llama.cpp server";
+  return null;
+}
+
+const runsContainers = (machine: FleetMachine, providers: MachineProvider[]) => Boolean(machine.containers.enabled) || providers.some((item) => item.container);
+
+/**
+ * The machine's providers in one tab: an overview, then a tab per kind (Ollama, llama.cpp, Strata,
+ * Docker Model Runner), each with a tab per instance (a model server or a container) and the
+ * kind's server tab, and the containers the machine runs.
+ */
+function MachineProviders({ machine, providers, kind, sub }: { machine: FleetMachine; providers: MachineProvider[]; kind: string; sub: string }) {
+  const kinds = providerKinds(machine, providers);
+  return (
+    <>
+      <nav className="machine-subnav" aria-label={`${machine.name}'s providers`}>
+        <NavLink to={providersPath(machine.id)} end>
+          Overview
+        </NavLink>
+        {kinds.map((item) => {
+          const count = providers.filter((provider) => provider.kind === item).length;
+          return (
+            <NavLink key={item} to={providersPath(machine.id, item)}>
+              {providerLabel(item)}
+              {count > 0 && <span className="nav-note">{count}</span>}
+            </NavLink>
+          );
+        })}
+        {runsContainers(machine, providers) && <NavLink to={providersPath(machine.id, "containers")}>Containers</NavLink>}
+      </nav>
+      {!kind && <MachineModelServers machine={machine} providers={providers} />}
+      {kind === "containers" && (
+        <Suspense fallback={<p className="subtle">Loading…</p>}>
+          <MachineContainers machine={machine.id} />
+        </Suspense>
+      )}
+      {kind && kind !== "containers" && <ProviderKind key={kind} machine={machine} providers={providers} kind={kind} sub={sub} />}
+    </>
+  );
+}
+
+/** One kind of provider on the machine: a tab for each instance, and the kind's server tab. */
+function ProviderKind({ machine, providers, kind, sub }: { machine: FleetMachine; providers: MachineProvider[]; kind: string; sub: string }) {
+  const instances = providers.filter((item) => item.kind === kind);
+  const server = serverTabLabel(machine, kind);
+  // Without a choice in the address, the first instance (else the server tab) is open.
+  const chosen = sub || instances[0]?.id || (server ? "server" : "");
+  const instance = instances.find((item) => item.id === chosen);
+  const active = (id: string) => ({ isActive }: { isActive: boolean }) => (isActive || id === chosen ? "active" : "");
+  return (
+    <>
+      {(instances.length > 0 || server) && (
+        <nav className="instance-nav" aria-label={`${providerLabel(kind)} on ${machine.name}`}>
+          {instances.map((item) => (
+            <NavLink key={item.id} to={providersPath(machine.id, kind, item.id)} className={active(item.id)} title={providerName(item)}>
+              <StateDot tone={machine.connected && item.detected ? "good" : "idle"} />
+              {item.backend ?? `Port ${item.port}`}
+              {item.container && <span className="nav-note">container</span>}
+            </NavLink>
+          ))}
+          {server && (
+            <NavLink to={providersPath(machine.id, kind, "server")} className={active("server")}>
+              {server}
+            </NavLink>
+          )}
+        </nav>
+      )}
+      {instance && <ProviderView key={instance.id} machine={machine} provider={instance} />}
+      {chosen === "server" && kind === "ollama" && <MachineOllama machine={machine} />}
+      {chosen === "server" && kind === "llamacpp" && <MachineLlamaCpp machine={machine} />}
+      {!instance && !(chosen === "server" && server) && (
+        <p className="empty">
+          {chosen
+            ? `${machine.name} doesn't report ${chosen}. It may have stopped; the overview lists what it runs now.`
+            : `${machine.name} runs no ${providerLabel(kind)} now.`}{" "}
+          <Link to={providersPath(machine.id)}>Providers overview</Link>
+        </p>
+      )}
+    </>
+  );
+}
+
+/** Where the old machine tabs (one per model server, Ollama's and llama.cpp's server tabs, containers) are now. */
+function movedSection(machine: FleetMachine, section: string): string | null {
+  if (section === "model-servers") return providersPath(machine.id);
+  if (section === "ollama" || section === "llamacpp") return providersPath(machine.id, section, "server");
+  if (section === "containers") return providersPath(machine.id, "containers");
+  const provider = /^([a-z]+)-(\d+)$/.exec(section);
+  return provider ? providersPath(machine.id, provider[1], section) : null;
+}
+
 /** The model servers the machine runs, and the Ollama and Strata installed there. */
 function MachineModelServers({ machine, providers }: { machine: FleetMachine; providers: MachineProvider[] }) {
   return (
     <div className="machine-overview">
       <section className="section" aria-labelledby="machine-servers">
         <div className="section-head">
-          <h2 id="machine-servers">Model servers</h2>
+          <h2 id="machine-servers">Providers on this machine</h2>
           <p className="subtle">
             What agents' requests reach on this machine. Open one for its models, status and logs.
             {machine.tunnel && " Their requests go through this machine's own connection to the server, so its model servers need no port forward or open port."}
@@ -660,7 +756,7 @@ function MachineModelServers({ machine, providers }: { machine: FleetMachine; pr
                   {!provider.detected && " · not answering now"}
                 </span>
                 <span className="state-text">
-                  <Link className="button small" to={machinePath(machine.id, provider.id)}>
+                  <Link className="button small" to={providersPath(machine.id, provider.kind, provider.id)}>
                     Open
                   </Link>
                 </span>
@@ -904,7 +1000,7 @@ function OfflineServer({ machine, provider }: { machine: FleetMachine; provider:
       </div>
     ) : (
       <p>
-        llama.cpp isn't installed on {machine.name}. Install it from its <Link to={machinePath(machine.id, "llamacpp")}>llama.cpp server</Link> tab.
+        llama.cpp isn't installed on {machine.name}. Install it from its <Link to={providersPath(machine.id, "llamacpp", "server")}>llama.cpp server</Link> tab.
       </p>
     );
   } else if (provider.kind === "ollama") {
@@ -997,7 +1093,7 @@ function InstalledServers({ machine }: { machine: FleetMachine }) {
             {ollama?.found && !ollama.running && button({ kind: "ollama", action: "start" }, "Start", true)}
             {ollama?.managed && button({ kind: "ollama", action: "stop" }, "Stop")}
             {ollama?.found && (
-              <Link className="button small" to={machinePath(machine.id, "ollama")}>
+              <Link className="button small" to={providersPath(machine.id, "ollama", "server")}>
                 Settings
               </Link>
             )}
@@ -1024,7 +1120,7 @@ function InstalledServers({ machine }: { machine: FleetMachine }) {
             <span className="state-text">
               {llama.found && !llama.running && button({ kind: "llamacpp", action: "start" }, "Start", true)}
               {llama.managed && llama.running && button({ kind: "llamacpp", action: "stop" }, "Stop")}
-              <Link className="button small" to={machinePath(machine.id, "llamacpp")}>
+              <Link className="button small" to={providersPath(machine.id, "llamacpp", "server")}>
                 {llama.found ? "Settings" : "Install"}
               </Link>
             </span>

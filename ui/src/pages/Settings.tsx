@@ -6,7 +6,7 @@ import { Icon } from "../components/Icon";
 import { PartTag } from "../components/PartTag";
 import { RestartButton } from "../components/Restart";
 import { useAuth, useStatus } from "../hooks";
-import { machinePath } from "./Machine";
+import { machinePath, providersPath } from "./Machine";
 import { AgentDefinitions, ModelTuningEditor, StorageSettings } from "./SettingsStored";
 
 const URL_PLACEHOLDERS: Record<string, string> = {
@@ -118,7 +118,7 @@ function ServerSettings() {
   // The machine's page for a backend's model server, where it's managed.
   const pageOf = (row: Row) => {
     const backend = status.data?.backends[row.name];
-    return backend?.machine ? machinePath(backend.machine, backend.provider) : "/machines";
+    return backend?.machine && backend.provider ? providersPath(backend.machine, backend.provider.slice(0, backend.provider.lastIndexOf("-")), backend.provider) : backend?.machine ? machinePath(backend.machine) : "/machines";
   };
   const update = (id: number, patch: Partial<Row>) => setRows((current) => current.map((row) => (row.id === id ? { ...row, ...patch } : row)));
 
@@ -210,7 +210,7 @@ function ServerSettings() {
                     {row.managed ? (
                       <>
                         A container on {machineOf(row) ?? "a machine"}; change or delete it on{" "}
-                        <Link to={machinePath(status.data?.backends[row.name]?.machine ?? "", "containers")}>its machine's Containers</Link>.
+                        <Link to={providersPath(status.data?.backends[row.name]?.machine ?? "", "containers")}>its machine's Containers</Link>.
                       </>
                     ) : row.local ? (
                       machineOf(row) ? (

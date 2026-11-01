@@ -219,6 +219,8 @@ function Shell({ identity }: { identity: Identity | null }) {
           <Route path="/approve-device" element={<ApproveDevicePage />} />
           <Route path="/machines/:id" element={<MachinePage />} />
           <Route path="/machines/:id/:section" element={<MachinePage />} />
+          <Route path="/machines/:id/:section/:kind" element={<MachinePage />} />
+          <Route path="/machines/:id/:section/:kind/:sub" element={<MachinePage />} />
           <Route
             path="/terminals/:sessionId"
             element={

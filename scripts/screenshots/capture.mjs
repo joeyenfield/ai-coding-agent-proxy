@@ -246,7 +246,7 @@ await shot("requests", "/requests", {
 });
 // A machine's page: its model servers, then one Ollama's models, then the machine's load.
 await shot("machine", "/machines/ai-desktop", { fullPage: true });
-await shot("models", "/machines/ai-desktop/ollama-18435");
+await shot("models", "/machines/ai-desktop/providers/ollama/ollama-18435");
 await shot("hosts", "/machines/ai-laptop/load", {
   fullPage: true,
   // Let the charts fill.
@@ -301,9 +301,9 @@ await shot("machines", "/machines", { fullPage: true });
 await shot("add-machine", "/machines#add", { height: 1100 });
 await shot("machine-agents", "/machines/build-box/agents", { fullPage: true });
 await shot("machine-terminal", "/machines/build-box/terminal", { fullPage: true });
-await shot("machine-model-servers", "/machines/ai-desktop/model-servers", { fullPage: true });
-await shot("ollama-server", "/machines/ai-desktop/ollama", { fullPage: true });
-await shot("containers", "/machines/ai-desktop/containers", { fullPage: true });
+await shot("machine-model-servers", "/machines/ai-desktop/providers", { fullPage: true });
+await shot("ollama-server", "/machines/ai-desktop/providers/ollama/server", { fullPage: true });
+await shot("containers", "/machines/ai-desktop/providers/containers", { fullPage: true });
 await shot("machine-mcp", "/machines/build-box/mcp", { fullPage: true });
 await shot("machine-access", "/machines/build-box/access", { fullPage: true });
 await browser.close();

@@ -118,9 +118,9 @@ Everyone signs in through OIDC, including on loopback. Sessions are private unti
 | Join a machine to the fleet | `agent-machine login`, `start`, `stop`, `run` | Machines › Add a machine | [Machines](machines.md#quick-start) |
 | Add a machine's model server as a provider | | Add as a provider | [Providers](providers.md#where-providers-come-from) |
 | Manage models (pull, load, delete, search) | `agent-machine servers on` | A machine's model server tabs | [Providers](providers.md#managing-models) |
-| Start, stop and configure Ollama and Strata | `agent-machine servers on` | Ollama server tab, Strata tab | [Providers](providers.md#ollamas-server-settings) |
-| Install, start and configure llama.cpp | `agent-machine servers on` | llama.cpp server tab | [Providers](providers.md#llamacpp) |
-| Containers on a machine | `agent-machine containers on`, `agent --switch` | Containers tab | [Providers](providers.md#containers-machines-run) |
+| Start, stop and configure Ollama and Strata | `agent-machine servers on` | Providers → Ollama → Ollama server; Providers → Strata | [Providers](providers.md#ollamas-server-settings) |
+| Install, start and configure llama.cpp | `agent-machine servers on` | Providers → llama.cpp → llama.cpp server | [Providers](providers.md#llamacpp) |
+| Containers on a machine | `agent-machine containers on`, `agent --switch` | Providers → Containers | [Providers](providers.md#containers-machines-run) |
 | Start agents on a machine from the console | `agent-machine launches on`, `roots add` | A machine's Agents tab | [Machines](machines.md#launches) |
 | Share MCP servers | `agent-machine mcp add`, `agent --mcp` | MCP servers tab, Start an agent | [MCP servers](mcp.md) |
 | Update machines from the server | `agent update`, `agent-machine update`, `updates on` | Update now | [Machines](machines.md#remote-updates) |
