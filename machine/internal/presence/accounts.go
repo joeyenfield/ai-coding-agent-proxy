@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"ai-coding-agent-proxy/machine/internal/process"
 )
 
 // How often the provider CLIs here are looked at again, and how long one look may take.
@@ -85,6 +87,8 @@ func detectAccounts() map[string]any {
 	defer cancel()
 	command := exec.CommandContext(ctx, program, "accounts", "detect", "--json")
 	command.Stdin = nil
+	// Without this Windows opens a console window for agent every few minutes.
+	process.Quiet(command)
 	output, err := command.Output()
 	report := map[string]any{}
 	if err != nil || json.Unmarshal([]byte(lastLine(string(output))), &report) != nil {

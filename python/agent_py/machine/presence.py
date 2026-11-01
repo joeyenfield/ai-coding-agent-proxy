@@ -107,7 +107,9 @@ def detect_accounts() -> Dict[str, Any]:
     """What `agent accounts detect --json` finds here: the provider CLIs and whether each is signed in. Never a token."""
     try:
         done = subprocess.run([*agent_command(), "accounts", "detect", "--json"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                              stderr=subprocess.DEVNULL, timeout=ACCOUNTS_TIMEOUT)
+                              stderr=subprocess.DEVNULL, timeout=ACCOUNTS_TIMEOUT,
+                              # Without this Windows opens a console window for agent every few minutes.
+                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         lines = done.stdout.decode(errors="replace").strip().splitlines()
         report = json.loads(lines[-1]) if done.returncode == 0 and lines else None
     except (OSError, subprocess.SubprocessError, ValueError):
