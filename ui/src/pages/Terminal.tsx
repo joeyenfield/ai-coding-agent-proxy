@@ -5,7 +5,7 @@ import { Terminal, type ITheme } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { api, renewSignIn, terminalSocketUrl, type TerminalInfo } from "../api";
 import { SharingControl } from "../components/Sharing";
-import { useToast } from "../hooks";
+import { useClipboard, useToast } from "../hooks";
 import { PairPanel, terminalState } from "./Terminals";
 
 type Connection = "connecting" | "open" | "retrying" | "waiting" | "unauthorized" | "missing";
@@ -72,6 +72,27 @@ const KEYS: { label: string; title: string; keys: (term: Terminal | null) => str
   { label: "n", title: "n: no", keys: () => "n" },
 ];
 
+/**
+ * The terminal's text: what's selected, else the screen as it is, or (all) the whole buffer with
+ * its scrollback. A full-screen agent (the alternate screen) has no scrollback: all is its screen.
+ */
+function terminalText(term: Terminal, all: boolean): string {
+  if (!all && term.hasSelection()) return term.getSelection();
+  const buffer = term.buffer.active;
+  const first = all ? 0 : buffer.viewportY;
+  const last = all ? buffer.length : Math.min(buffer.length, buffer.viewportY + term.rows);
+  const lines: string[] = [];
+  for (let row = first; row < last; row++) {
+    const line = buffer.getLine(row);
+    if (!line) continue;
+    const text = line.translateToString(true);
+    // A wrapped line carries on the one before it.
+    if (line.isWrapped && lines.length) lines[lines.length - 1] += text;
+    else lines.push(text);
+  }
+  return lines.join("\n").replace(/\s+$/, "");
+}
+
 function useStored<T extends string | number>(key: string, initial: T): [T, (value: T) => void] {
   const [value, setValue] = useState<T>(() => {
     const stored = localStorage.getItem(key);
@@ -105,6 +126,10 @@ function cellWidth(fontSize: number) {
 export function TerminalPage() {
   const { sessionId = "" } = useParams();
   const notify = useToast();
+  const copy = useClipboard();
+  // The terminal's key handler is made once; it copies through the latest hook.
+  const copyRef = useRef(copy);
+  copyRef.current = copy;
   const list = useQuery({ queryKey: ["terminals"], queryFn: api.terminals, refetchInterval: 3000, retry: false });
   const summary = list.data?.terminals.find((item) => item.session_id === sessionId);
   const [info, setInfo] = useState<TerminalInfo | null>(null);
@@ -137,9 +162,24 @@ export function TerminalPage() {
     const terminal = new Terminal({
       cols: 80, rows: 24, scrollback: 20000, fontFamily: FONT, fontSize, theme: THEMES[background],
       cursorBlink: false, disableStdin: touch, allowProposedApi: false,
+      // When the agent takes the mouse, Shift+drag selects anyway; on a Mac, Option+drag does too.
+      macOptionClickForcesSelection: true,
     });
     terminal.open(screen.current!);
     term.current = terminal;
+    // Copying a selection: Ctrl+Shift+C or Cmd+C, and Ctrl+C while something is selected (with
+    // nothing selected, Ctrl+C still goes to the agent).
+    terminal.attachCustomKeyEventHandler((event) => {
+      if (event.type !== "keydown" || event.key.toLowerCase() !== "c" || event.altKey) return true;
+      const shortcut = (event.ctrlKey && event.shiftKey) || (event.metaKey && !event.ctrlKey);
+      if (!shortcut && !(event.ctrlKey && terminal.hasSelection())) return true;
+      event.preventDefault();
+      if (terminal.hasSelection()) {
+        void copyRef.current(terminal.getSelection(), "Copied the selection");
+        terminal.clearSelection();
+      }
+      return false;
+    });
     let stopped = false;
     let retry: number | undefined;
     // The byte offset of the end of the output shown, when the server has said (null: unknown).
@@ -331,6 +371,21 @@ export function TerminalPage() {
             <button type="button" onClick={() => term.current?.scrollToBottom()}>
               Latest
             </button>
+            <button
+              type="button"
+              title="Copy what's selected, or else what's on the screen"
+              onClick={() => {
+                const current = term.current;
+                if (!current) return;
+                const selected = current.hasSelection();
+                void copy(terminalText(current, false), selected ? "Copied the selection" : "Copied the screen");
+              }}
+            >
+              Copy
+            </button>
+            <button type="button" title="Copy everything in the terminal, its history included" onClick={() => term.current && void copy(terminalText(term.current, true), "Copied the whole terminal")}>
+              Copy all
+            </button>
           </div>
         </div>
         {connection === "retrying" && <p className="banner warn">Lost the connection to the proxy. Reconnecting…</p>}
@@ -343,7 +398,12 @@ export function TerminalPage() {
           </p>
         )}
         <div className="term-screen" ref={screen} style={{ background: THEMES[background].background }} />
-        {!touch && live && <p className="subtle term-hint">Click the terminal to type into it directly, or use the box below.</p>}
+        {!touch && (
+          <p className="subtle term-hint">
+            {live && "Click the terminal to type into it directly, or use the box below. "}
+            Select text by dragging, or with Shift+drag when the agent uses the mouse (Option+drag on a Mac); Ctrl+C copies a selection.
+          </p>
+        )}
 
         <div className="term-controls">
           <form className="term-input" onSubmit={submit}>
