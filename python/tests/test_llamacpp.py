@@ -108,6 +108,12 @@ def test_the_build_is_read_from_either_version_line(output, want):
     assert llamacpp.parse_version(output) == want
 
 
+@pytest.mark.parametrize("text, want", [("0.0.0-b9590\n", "b9590"), ("0.0.0-b10516-1", "b10516"), ("0.8.0", "0.8.0"), ("1:0.8.0-2", "0.8.0"), ("", "")])
+def test_termuxs_package_names_the_version(text, want):
+    # Termux's packages: the old ones named the build, the new ones the release.
+    assert llamacpp.package_version(text) == want
+
+
 def test_sycl_builds_are_named_for_intel():
     assert llamacpp.variant_label("sycl", "windows")[0] == "SYCL (Intel)"
     assert llamacpp.variant_label("sycl-fp16", "linux")[0] == "SYCL FP16 (Intel)"
@@ -344,6 +350,21 @@ def test_llama_pull_says_why_a_download_failed(made):
     assert not answer["ok"] and answer["error"] == "repo not found", answer
     for bad in ("not-a-repo", "a/b/c", "a/b:Q4?x=1", "../x"):
         assert not providers.Manager(on).handle({"op": "pull", "kind": "llamacpp", "port": fake_router.port, "model": bad})["ok"], bad
+
+
+def test_llama_pull_says_an_old_router_is_too_old(made, monkeypatch):
+    monkeypatch.setenv("PREFIX", "/data/data/com.termux/files/usr")
+    # llama.cpp's routers before mid-2026 list and load models but have no downloads.
+    old = Upstream({"GET /models": reply({"data": []})})
+    made.append(old)
+    answer = providers.Manager(on).handle({"op": "pull", "kind": "llamacpp", "port": old.port, "model": "ggml-org/new-GGUF:Q4_K_M"})
+    assert not answer["ok"] and "too old" in answer["error"] and "pkg upgrade llama-cpp" in answer["error"], answer
+    assert "POST /models" not in old.bodies
+    # A llama-server run with -m lists its one model without a status: that one needs router mode.
+    single = Upstream({"GET /models": reply({"data": [{"id": "qwen.gguf"}]})})
+    made.append(single)
+    answer = providers.Manager(on).handle({"op": "pull", "kind": "llamacpp", "port": single.port, "model": "ggml-org/new-GGUF:Q4_K_M"})
+    assert "router mode" in answer["error"], answer
 
 
 def test_llama_delete_load_unload(made):

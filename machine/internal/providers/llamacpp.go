@@ -193,6 +193,32 @@ func sameModel(event, model string) bool {
 	return !strings.Contains(model, ":") && strings.HasPrefix(event, repo+":")
 }
 
+// llamaTooOld is why a router has no downloads: llama.cpp's router could only load and unload
+// models before its June 2026 builds (b9590 and older), which Termux mirrors that stopped
+// syncing still hand out.
+func llamaTooOld() string {
+	text := "this llama-server is too old to download models (llama.cpp added downloads to its router in mid-2026): update llama.cpp"
+	if strings.Contains(os.Getenv("PREFIX"), "com.termux") || os.Getenv("TERMUX_VERSION") != "" {
+		return text + ". In Termux: pkg upgrade llama-cpp; if it stays old, pick another mirror with termux-change-repo and upgrade again"
+	}
+	return text + ", from the machine's llama.cpp server tab or however it was installed"
+}
+
+// llamaNoDownloads says why the router's download progress stream was refused.
+func llamaNoDownloads(base, key string, status int) error {
+	switch status {
+	case http.StatusUnauthorized:
+		return errors.New("llama-server wants an API key this machine doesn't have")
+	case http.StatusNotFound:
+		// A router lists every model with a status; only an old one lacks the download routes.
+		if llamaStatus(base, key)["router"] == true {
+			return errors.New(llamaTooOld())
+		}
+		return errors.New("this llama-server serves one model: start it in router mode (without -m) to download models")
+	}
+	return fmt.Errorf("llama-server answered %d to /models/sse, so it can't report a download's progress", status)
+}
+
 // llamaPull starts the router's download and relays its progress, Ollama's style, until it finishes.
 func llamaPull(base, key, model string, progress Progress) error {
 	if err := llamaModelName(model); err != nil {
@@ -209,7 +235,7 @@ func llamaPull(base, key, model string, progress Progress) error {
 	}
 	defer events.Body.Close()
 	if events.StatusCode >= 400 {
-		return errors.New("this llama-server can't download models: start it in router mode (without -m)")
+		return llamaNoDownloads(base, key, events.StatusCode)
 	}
 	if err := llamaCall(http.MethodPost, base+"/models", key, map[string]any{"model": model}, time.Minute); err != nil {
 		return err

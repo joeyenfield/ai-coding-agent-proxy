@@ -133,6 +133,10 @@ func llamaVersion(program []string) string {
 	process.Quiet(cmd)
 	output, _ := cmd.CombinedOutput()
 	version := parseVersion(output)
+	if prefix := termuxPrefix(); version == "" && prefix != "" && strings.HasPrefix(program[0], prefix) {
+		// Termux builds from a source tarball, whose --version names no build: its package does.
+		version = termuxVersion(prefix)
+	}
 	versions[key] = version
 	return version
 }
@@ -147,6 +151,33 @@ func parseVersion(output []byte) string {
 		return "b" + string(found[1])
 	}
 	return "b" + string(found[2])
+}
+
+// termuxVersion is Termux's llama-cpp package version, as llama.cpp names it: "b9590" for the
+// old "0.0.0-b9590" packages, else the release ("0.8.0").
+func termuxVersion(prefix string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, filepath.Join(prefix, "bin", "dpkg-query"), "-W", "-f=${Version}", "llama-cpp")
+	process.Quiet(cmd)
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return packageVersion(string(output))
+}
+
+func packageVersion(text string) string {
+	text = strings.TrimSpace(text)
+	if _, after, found := strings.Cut(text, ":"); found {
+		text = after // an epoch
+	}
+	if _, build, found := strings.Cut(text, "-b"); found && build != "" {
+		build, _, _ = strings.Cut(build, "-")
+		return "b" + build
+	}
+	text, _, _ = strings.Cut(text, "-")
+	return text
 }
 
 // llamaPID is the llama-server this agent-machine started, while it still runs.

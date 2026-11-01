@@ -197,8 +197,33 @@ def version(program: Optional[List[str]]) -> str:
             output = done.stdout or b""
         except (OSError, subprocess.TimeoutExpired):
             output = b""
-        _versions[key] = parse_version(output)
+        found = parse_version(output)
+        prefix = termux_prefix()
+        if not found and prefix and program[0].startswith(prefix):
+            # Termux builds from a source tarball, whose --version names no build: its package does.
+            found = termux_version(prefix)
+        _versions[key] = found
         return _versions[key]
+
+
+def termux_version(prefix: str) -> str:
+    """Termux's llama-cpp package version, as llama.cpp names it: "b9590" for the old "0.0.0-b9590" packages, else the release ("0.8.0")."""
+    try:
+        done = subprocess.run([os.path.join(prefix, "bin", "dpkg-query"), "-W", "-f=${Version}", "llama-cpp"], stdin=subprocess.DEVNULL,
+                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=15, check=False, **servers.QUIET)
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return package_version(done.stdout.decode(errors="replace")) if done.returncode == 0 else ""
+
+
+def package_version(text: str) -> str:
+    text = text.strip()
+    if ":" in text:
+        text = text.split(":", 1)[1]  # an epoch
+    _, found, build = text.partition("-b")
+    if found and build:
+        return "b" + build.split("-", 1)[0]
+    return text.split("-", 1)[0]
 
 
 def parse_version(output: bytes) -> str:

@@ -143,6 +143,12 @@ func TestTheBuildIsReadFromEitherVersionLine(t *testing.T) {
 			t.Errorf("%q: %q, want %q", output, got, want)
 		}
 	}
+	// Termux's packages: the old ones named the build, the new ones the release.
+	for text, want := range map[string]string{"0.0.0-b9590\n": "b9590", "0.0.0-b10516-1": "b10516", "0.8.0": "0.8.0", "1:0.8.0-2": "0.8.0", "": ""} {
+		if got := packageVersion(text); got != want {
+			t.Errorf("%q: %q, want %q", text, got, want)
+		}
+	}
 	if label, _ := variantLabel("sycl", "windows"); label != "SYCL (Intel)" {
 		t.Errorf("%q", label)
 	}

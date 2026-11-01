@@ -118,6 +118,27 @@ func TestLlamaPullSaysWhyADownloadFailed(t *testing.T) {
 	}
 }
 
+func TestLlamaPullSaysAnOldRouterIsTooOld(t *testing.T) {
+	t.Setenv("PREFIX", "/data/data/com.termux/files/usr")
+	// llama.cpp's routers before mid-2026 list and load models but have no downloads.
+	old := serve(t, map[string]http.HandlerFunc{"GET /models": reply(map[string]any{"data": []any{}})})
+	answer := (&Manager{Machine: on}).Handle(Request{Op: "pull", Kind: "llamacpp", Port: old.port(), Model: "ggml-org/new-GGUF:Q4_K_M"}, nil)
+	if text, _ := answer["error"].(string); answer["ok"] != false || !strings.Contains(text, "too old") || !strings.Contains(text, "pkg upgrade llama-cpp") {
+		t.Fatalf("%v", answer)
+	}
+	for _, call := range old.calls {
+		if call == "POST /models" {
+			t.Fatal("started a download it can't follow")
+		}
+	}
+	// A llama-server run with -m lists its one model without a status: that one needs router mode.
+	single := serve(t, map[string]http.HandlerFunc{"GET /models": reply(map[string]any{"data": []any{map[string]any{"id": "qwen.gguf"}}})})
+	answer = (&Manager{Machine: on}).Handle(Request{Op: "pull", Kind: "llamacpp", Port: single.port(), Model: "ggml-org/new-GGUF:Q4_K_M"}, nil)
+	if text, _ := answer["error"].(string); !strings.Contains(text, "router mode") {
+		t.Fatalf("%v", answer)
+	}
+}
+
 func TestLlamaDeleteLoadUnload(t *testing.T) {
 	fake := router(t, "", "")
 	manager := &Manager{Machine: on}

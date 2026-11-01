@@ -509,6 +509,27 @@ def same_model(event: str, model: str) -> bool:
     return ":" not in model and event.startswith(repo + ":")
 
 
+def llama_too_old() -> str:
+    """Why a router has no downloads: llama.cpp's router could only load and unload models before its June 2026
+    builds (b9590 and older), which Termux mirrors that stopped syncing still hand out."""
+    message = "this llama-server is too old to download models (llama.cpp added downloads to its router in mid-2026): update llama.cpp"
+    if "com.termux" in os.environ.get("PREFIX", "") or os.environ.get("TERMUX_VERSION"):
+        return message + ". In Termux: pkg upgrade llama-cpp; if it stays old, pick another mirror with termux-change-repo and upgrade again"
+    return message + ", from the machine's llama.cpp server tab or however it was installed"
+
+
+def llama_no_downloads(base: str, key: str, status: int) -> Refused:
+    """Why the router's download progress stream was refused."""
+    if status == 401:
+        return Refused("llama-server wants an API key this machine doesn't have")
+    if status == 404:
+        # A router lists every model with a status; only an old one lacks the download routes.
+        if llama_status(base, key).get("router") is True:
+            return Refused(llama_too_old())
+        return Refused("this llama-server serves one model: start it in router mode (without -m) to download models")
+    return Refused(f"llama-server answered {status} to /models/sse, so it can't report a download's progress")
+
+
 def llama_pull(base: str, key: str, model: str, progress: Progress) -> None:
     """Starts the router's download and relays its progress, Ollama's style, until it finishes."""
     llama_model_name(model)
@@ -521,7 +542,7 @@ def llama_pull(base: str, key: str, model: str, progress: Progress) -> None:
             raise unavailable("llama-server", error)
         try:
             if events.status_code >= 400:
-                raise Refused("this llama-server can't download models: start it in router mode (without -m)")
+                raise llama_no_downloads(base, key, events.status_code)
             llama_call("POST", base + "/models", key, {"model": model}, MINUTE)
             progress({"status": "pulling " + model})
             try:

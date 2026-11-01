@@ -268,7 +268,7 @@ Its model server tab lists what the router can serve, loaded ones first, with ea
 
 - **Load** and **Unload**, through the router's `/models/load` and `/models/unload`;
 - **Delete**, which deletes a model from llama.cpp's cache (`DELETE /models`; models in the GGUF folder are removed there);
-- **Find and download**: search Hugging Face for GGUF repos and pick a quant, or name one as `user/repo:quant` (`user/repo` alone takes Q4_K_M). The router downloads it into its cache itself (`POST /models`), and agent-machine relays its progress from `/models/sse`. A vision model's projector comes with it.
+- **Find and download**: search Hugging Face for GGUF repos and pick a quant, or name one as `user/repo:quant` (`user/repo` alone takes Q4_K_M). The router downloads it into its cache itself (`POST /models`), and agent-machine relays its progress from `/models/sse`. A vision model's projector comes with it. llama.cpp builds from before mid-2026 (b9590 and older) can't download: the tab says the llama-server is too old. In Termux, run `pkg upgrade llama-cpp`. If it stays old, the phone's Termux mirror has stopped updating: pick another with `termux-change-repo`, then upgrade again. The llama.cpp server tab shows the version it found. For Termux's packages that's the package's version, because their `--version` names no build.
 
 A llama-server started with one model (`-m`) has no router: it lists that model, and its models can't change from here.
 
