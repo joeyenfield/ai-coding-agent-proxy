@@ -4,35 +4,14 @@ The console is the server's web app. Open the server's address in a browser (`ht
 
 The screenshots come from the demo (`python scripts/screenshots/demo.py`), which runs a server with made-up machines, agents and traffic.
 
-- [Layout](#layout)
-- [Signing in](#signing-in)
-- [Overview](#overview)
-- [Agents: Start an agent](#start-an-agent)
-- [Agents: Running agents](#running-agents)
-- [Agents: Ask a model](#ask-a-model)
-- [Server: Live](#live)
-- [Server: Traffic](#traffic)
-- [Server: Requests](#requests)
-- [Server: Sessions](#sessions)
-- [Server: Server stats](#server-stats)
-- [Server: Access log](#access-log)
-- [Server: Server settings](#server-settings)
-- [Server: Organizations](#organizations)
-- [Server: Downloads](#downloads)
-- [Machines](#machines)
-- [Machines: Approve a device](#approve-a-device)
-- [A machine's page](#a-machines-page)
-- [Pairing a phone](#pairing-a-phone)
-- [Documentation](#documentation)
-
 ## Layout
 
 The rail on the left has three parts, in the order a request flows:
 
 | Part | Pages | What it's for |
 | --- | --- | --- |
-| **1 Agents** | Start an agent, Running agents, Ask a model | Start a coding agent through the server, then watch it and type into it from any device, or ask a model a question yourself. |
-| **2 Server** | Live, Traffic, Requests, Sessions, Server stats, Access log, Server settings, Organizations, Downloads | The hub: allowed agent requests pass through it and are recorded. |
+| **1 Agents** | Start an agent, Running agents, Ask a model, Providers, Subscriptions | Start a coding agent through the server, then watch it and type into it from any device, or ask a model a question yourself. |
+| **2 Server** | Live, Traffic, Requests, Sessions, Server stats, Access log, Audit log, Server settings, Organizations, Downloads | The hub: allowed agent requests pass through it and are recorded. |
 | **3 Machines** | All machines, Approve a device, Add a machine | Open **All machines** to search and select a computer. Individual machines aren't listed in the rail. |
 
 - The small label above each page's title is its breadcrumb ("Machines › build-box").
@@ -44,17 +23,9 @@ The rail on the left has three parts, in the order a request flows:
 
 ![The Overview in a phone-sized window](screenshots/overview-phone.png)
 
-## Signing in
+**Documentation** (`/help`) shows this documentation in the console: the pages of `docs/` on the server, with their pictures, and **API reference (OpenAPI)** for the server's `/docs`. Links between pages stay in the console, and each heading has its own address (`/help/mcp#how-it-works`). Diagrams are drawn from the pages' Mermaid blocks, in the console's light or dark theme. Like Downloads it's public, so it can be read before signing in; the sign-in page links to it. The server reads the pages from the `docs` folder of its checkout (the Docker image has them in `/app/docs`), or `AI_PROXY_DOCS_DIR`. A server installed without them says so on the page.
 
-The console always requires sign-in. **Sign in** redirects to the separate OIDC issuer using authorization code + PKCE; passwords are entered only there. Access renews automatically through host-only HttpOnly cookies. **Downloads** and documentation remain public.
-
-An unavailable authentication service shows an error, never an unsigned console. If a sign-in can't be completed (it took more than 10 minutes, or the sign-in service isn't answering), you come back to this page with a message saying so; press **Continue to sign in** again. See [OIDC authentication](oidc.md).
-
-![OIDC sign-in](screenshots/login.png)
-
-![Sign-in on a phone](screenshots/login-phone.png)
-
-## Overview
+### The overview
 
 ![Overview](screenshots/overview.png)
 
@@ -68,7 +39,23 @@ The landing page (`/`) shows the whole system at a glance:
 
 If the console can't reach the server, the page says so (**Can't reach the proxy**).
 
-## Start an agent
+## Signing in
+
+The console always requires sign-in. **Sign in** redirects to the separate OIDC issuer using authorization code + PKCE; passwords are entered only there. Access renews automatically through host-only HttpOnly cookies. **Downloads** and documentation remain public.
+
+An unavailable authentication service shows an error, never an unsigned console. If a sign-in can't be completed (it took more than 10 minutes, or the sign-in service isn't answering), you come back to this page with a message saying so; press **Continue to sign in** again. See [OIDC authentication](oidc.md).
+
+![OIDC sign-in](screenshots/login.png)
+
+![Sign-in on a phone](screenshots/login-phone.png)
+
+**On a phone**, open the console and sign in through OIDC, as on a computer. Pairing keys and legacy pairing codes no longer grant access; terminal access follows session sharing. Old `/pair` links redirect to Running agents after sign-in. See [Security](security.md#pairing-how-each-device-joins) for how phones, the Android app and computers join now.
+
+In the Android app, a server that can't be reached, or that answers with a server error (5xx), shows **Can't reach** with **Try again** and **Servers**. **Try again** reloads the page you were on. When the phone's network comes back while that panel is up, the app tries again by itself.
+
+## Agents
+
+### Start an agent
 
 ![Start an agent, for an account agent](screenshots/agents.png)
 
@@ -85,9 +72,9 @@ If the console can't reach the server, the page says so (**Can't reach the proxy
 
 ![Start an agent, for a local-model agent with an MCP server chosen](screenshots/agents-ollama.png)
 
-To start an agent on one of your machines from the console instead, use **Start an agent** on that machine's page (see [Agents tab](#agents)).
+To start an agent on one of your machines from the console instead, use **Start an agent** on that machine's page (see [its Agents tab](#summary-agents-and-terminal)).
 
-## Running agents
+### Running agents
 
 ![Running agents](screenshots/terminals.png)
 
@@ -105,11 +92,9 @@ Ended terminals stay listed with their exit status until their session is delete
 
 A terminal that isn't connected (its launcher closed, or the agent exited) has **Remove**, for those who can control its session. It deletes the session with everything recorded for it: its terminal output, requests, traces and chats. **Remove N not connected** at the top does it for every one at once. A terminal still connected, or with a request in flight, can't be removed.
 
-### A terminal
-
 ![A shared terminal](screenshots/terminal.png)
 
-Opening one (`/terminals/<session>`) shows the agent's live terminal (xterm.js) with its history:
+**A terminal.** Opening one (`/terminals/<session>`) shows the agent's live terminal (xterm.js) with its history:
 
 - **Type into it** in the message box and **Send**. Text and Enter go as separate keystrokes, and multi-line text is sent as a paste, so agents read it the way they would from a keyboard.
 - **Keys** for phones: Esc, Enter, arrows, Scroll ↑/↓, PgUp/PgDn, Tab, ⇧Tab, Ctrl+C, and 1, 2, 3, y, n for answering prompts. Scroll ↑/↓ scroll the agent's own history in full-screen agents (Claude Code, OpenCode, Qwen Code) and the terminal's elsewhere.
@@ -121,23 +106,7 @@ Opening one (`/terminals/<session>`) shows the agent's live terminal (xterm.js) 
 
 ![A shared terminal on a phone](screenshots/terminal-phone.png)
 
-### Use it from your phone
-
-On a phone, open the console and sign in through OIDC. Legacy pairing codes no longer grant access.
-
-In the Android app, a server that can't be reached, or that answers with a server error (5xx), shows **Can't reach** with **Try again** and **Servers**. **Try again** reloads the page you were on. When the phone's network comes back while that panel is up, the app tries again by itself.
-
-## Subscriptions
-
-![Subscriptions](screenshots/subscriptions.png)
-
-Your own AI plans (Claude, ChatGPT through Codex, GitHub Copilot): each with its state, the machines it runs on and whether each is ready, and when it last answered. **Add a subscription** names its provider, plan and how it signs in. **Usage and settings** shows what went through the server in the last 5 hours, 24 hours, 7 days and this month, the remaining balance against a limit you declare (an estimate, said as one; unknown without a limit), and limits the provider was seen enforcing; then the machines (assign one of yours, remove, and for a token whether each gets it), the token (store, replace, revoke; never shown again), priority, who else may start agents with it, the declared limit, **Turn off**, **Remove** and its **History**. Admins of its organization see its metadata and can turn it off. See [Subscriptions](subscriptions.md).
-
-## Providers
-
-**Agents › Providers** lists everywhere your agents' calls can go: model servers on machines (with the machine and whether it's connected), hosted APIs, and the kinds of subscription (with how many of yours the server has). Each card shows your calls and tokens in the window you choose, every limit your organization put on you there with how much of it you've used, and **Blocked** until when, once you've reached one. A banner above them names the providers you're blocked on. See [Providers and usage limits](usage-limits.md).
-
-## Ask a model
+### Ask a model
 
 ![Ask a model](screenshots/ask.png)
 
@@ -149,7 +118,17 @@ Your own AI plans (Claude, ChatGPT through Codex, GitHub Copilot): each with its
 - **System prompt** (optional) is sent before the conversation with every question.
 - Each chat is a session of its own (client `console-chat`, payloads captured), so every question goes through the server like an agent's call: on Ollama it's translated and gets the model tuning, and it's recorded on **Traffic**, **Requests** and **Sessions**. **Open as a session** shows it there, in its chat view. The session ends when you start a **New chat** or leave the page; the conversation isn't kept on the page after that, only in the session.
 
-## Live
+### Providers and subscriptions
+
+**Providers** (`/providers`) lists everywhere your agents' calls can go: model servers on machines (with the machine and whether it's connected), hosted APIs, and the kinds of subscription (with how many of yours the server has). Each card shows your calls and tokens in the window you choose, every limit your organization put on you there with how much of it you've used, and **Blocked** until when, once you've reached one. A banner above them names the providers you're blocked on. See [Providers and usage limits](usage-limits.md).
+
+![Subscriptions](screenshots/subscriptions.png)
+
+**Subscriptions** (`/subscriptions`) lists your own AI plans (Claude, ChatGPT through Codex, GitHub Copilot): each with its state, the machines it runs on and whether each is ready, and when it last answered. **Add a subscription** names its provider, plan and how it signs in. **Usage and settings** shows what went through the server in the last 5 hours, 24 hours, 7 days and this month, the remaining balance against a limit you declare (an estimate, said as one; unknown without a limit), and limits the provider was seen enforcing; then the machines (assign one of yours, remove, and for a token whether each gets it), the token (store, replace, revoke; never shown again), priority, who else may start agents with it, the declared limit, **Turn off**, **Remove** and its **History**. Admins of its organization see its metadata and can turn it off. See [Subscriptions](subscriptions.md).
+
+## Server: traffic and sessions
+
+### Live
 
 ![Live](screenshots/live.png)
 
@@ -159,7 +138,7 @@ If the stream is cut off, the page reconnects by itself: at once when the browse
 
 Account agents' other calls (sign-in, telemetry, MCP) aren't shown here; they're on Traffic. Set `AI_PROXY_LIVE=0` on the server to stop streaming request text (counts still stream).
 
-## Traffic
+### Traffic
 
 ![Traffic](screenshots/traffic.png)
 
@@ -170,13 +149,13 @@ Account agents' other calls (sign-in, telemetry, MCP) aren't shown here; they're
 - **Group repeats** folds back-to-back identical requests (agents poll some endpoints) into one row.
 - Each row shows the type, service, method and path, the session, its status, timing and size; requests in flight are marked **pending**.
 - Selecting a row opens the inspector on the right: timings, tokens and sizes, and tabs for the **Conversation** (a readable view of the messages), the **Request**, the **Response**, what was **Sent to Ollama** (for translated calls), the request and response **Headers** (credentials redacted) for captured HTTPS, and **Metadata**. **Full screen** opens it alone; **Download full trace** saves the JSON.
+- **Still in memory** lists requests from before the page loaded that the server still holds in memory.
+
 ![Traffic: the headers of a captured request, credentials redacted](screenshots/traffic-headers.png)
 
 ![Traffic filtered to model calls](screenshots/traffic-models.png)
 
-- **Still in memory** lists requests from before the page loaded that the server still holds in memory.
-
-## Requests
+### Requests
 
 ![Requests](screenshots/requests.png)
 
@@ -189,7 +168,7 @@ Account agents' other calls (sign-in, telemetry, MCP) aren't shown here; they're
 
 ![One request](screenshots/request.png)
 
-## Sessions
+### Sessions
 
 ![Sessions](screenshots/sessions.png)
 
@@ -204,14 +183,9 @@ Account agents' other calls (sign-in, telemetry, MCP) aren't shown here; they're
 - **Delete all sessions** deletes ended sessions, empties open sessions idle for more than 15 minutes, and leaves recently active ones running. Only your own.
 - **Open a session manually**: for other tools. Name the agent, model and backend, choose whether to capture payloads, and **Open session**; it shows the OpenAI, Anthropic and Ollama URLs to point the tool at.
 
-### A session
-
 ![A session](screenshots/session.png)
 
-`/sessions/<id>` shows the session's details (agent, model, provider, machine, project, started, last traffic, tokens read and written, payloads, its OpenAI and Anthropic URLs), its sharing for its owner, and tabs:
-
-- **Chat**: the session's captured model calls read back as a chat (it needs payload capture, `--trace`). See [The chat view](#the-chat-view).
-- **Requests**: its requests, as on Traffic.
+**A session's page** (`/sessions/<id>`) shows its details (agent, model, provider, machine, project, started, last traffic, tokens read and written, payloads, its OpenAI and Anthropic URLs), its sharing for its owner, and two tabs: **Chat**, the session's captured model calls read back as a chat (it needs payload capture, `--trace`; see [The chat view](#the-chat-view)), and **Requests**, its requests as on Traffic.
 
 ### The chat view
 
@@ -225,24 +199,24 @@ Agents send their model far more as "the user" than you type: system reminders, 
 - **What the agent added itself** shows as small grey notes in the middle, never as a message: an interruption, a command's output, the summary a compacted conversation goes on from, and a marker where it was compacted. Reminders and other context it injects are hidden. **Show what … added** shows them.
 - **In a sub-agent**, what it was asked is on the right as **Main agent**, not you. **In a background call**, the agent's instruction is on the right, marked as the agent's, with the model's **Answer** below. The conversation a sub-agent or background call was handed is hidden behind **Show the … messages it was handed** (or **sent with**).
 - **My previous** and **Next** jump between your own messages. **Newest** (or **New messages**) goes back to the end. The chat opens at the newest messages, loads older ones as you scroll up, and follows new ones while you're at the bottom. Long texts load in full when you open them.
+- **Open in Traffic** shows its requests there, and **Streaming now** shows what's in flight.
 
 Claude Code signed in to its account sends most calls with only what's new, naming the call before. The server follows that chain, and Claude Code's request headers say which calls are the main chat, a sub-agent or a background call. For other agents the server matches each call's messages to the conversation they continue, and calls without tools that aren't the main conversation count as background calls.
 
-**Open in Traffic** shows its requests there, and **Streaming now** shows what's in flight.
+## Server: running it
 
-## Server stats
+### Server stats
 
 ![Server stats](screenshots/server-stats.png)
 
-`/server-stats` (site admins only) shows how hard the computer running the server is working and how full its disks are. It asks the server every 2 seconds while it's open and keeps the last five minutes on the page; nothing is saved. A machine's own load is on its [Load tab](#load).
+`/server-stats` (site admins only) shows how hard the computer running the server is working and how full its disks are. It asks the server every 2 seconds while it's open and keeps the last five minutes on the page; nothing is saved. A machine's own load is on its [Load tab](#load-mcp-servers-and-access).
 
 - **The computer**: its name, system, how long it's been up and how long the server has been running.
 - **CPU and memory**: charts of the computer's CPU (with the load average outside Windows) and memory, and of the server's own share of the CPU. Bars show the server's own memory and, when there is one, swap.
 - **Disks**: each disk the server keeps its files on, with how much is used and free and which of its folders are there.
-
 - **What the server keeps**: the size of its database (SQLite or PostgreSQL: settings, accounts, machines and every session's requests, payloads and terminals), its log folder (`logs/`, where the SQLite file is too) and the builds it hands out (`dist/`), measured every five minutes. Deleting sessions on the [Sessions](#sessions) page, or fewer days under **Storage** on [Server settings](#server-settings), removes recorded traffic; old builds (folders named like `1.2.0+abc1234`) can be deleted by hand, since the server only hands out its own version's.
 
-## Access log
+### Access log
 
 `/access-log` (site admins only) shows every HTTP request and WebSocket the server received, and how each ended, whoever sent it. The Requests page shows agents' model calls; this shows everything: the console's API calls, sign-ins, downloads, agent-machine's fleet connection and tunnels, agent-proxy's tunnels, and requests refused before they reached anything (no sign-in, another site's origin, a program too old for the server).
 
@@ -263,7 +237,11 @@ In both lists, **Answer** is the HTTP status, or for a WebSocket **Open**, its c
 
 Saved entries are deleted after the days set under **Storage** on [Server settings](#server-settings), or after 30 days when recordings are kept forever. Query strings show their parameter names only, never their values. The log's own requests aren't listed, nor the console's `/assets/`.
 
-## Server settings
+### Audit log
+
+`/audit` (admins: their organization's events; site admins: everyone's) is the [audit log](audit.md): who did what, to what, and whether it worked, newest first. Filter by type (a category like `machines` or `machines.launch`), person, outcome, organization (site admins) and a day to start from; **Load 100 older** pages back. Open an event for its reason, the fields it changed, its place in its organization's chain and its whole record as JSON. **Download CSV** and **Download NDJSON** save the events shown by the filters (up to 5000). **Verify chain** checks every chain against the signed checkpoints and lists any problem; site admins can **Sign checkpoint now**. On a phone the person is shown with each event. Members don't see the page.
+
+### Server settings
 
 ![Server settings](screenshots/settings.png)
 
@@ -279,7 +257,7 @@ Saved entries are deleted after the days set under **Storage** on [Server settin
 
 To copy the settings to another server or keep them in version control, use `agent-server config export` and `import` (see [Configuration](configuration.md)). **API reference** links to the server's OpenAPI pages (`/docs`).
 
-## Organizations
+### Organizations
 
 ![An organization and its teams](screenshots/organization.png)
 
@@ -289,15 +267,9 @@ To copy the settings to another server or keep them in version control, use `age
 - **People**: search the people you can see (your organization's; site admins: everyone). Admins can create accounts in their organization (site admins: in any; the root takes only site admins), **Edit user** to change their role, teams or password, and **Delete account**. People belong to one organization and can't be moved: to give someone access to another, add them there as a new user.
 - **Your account**: your identity, role and organization, and OIDC sign-in instructions. To use another account, choose your name at the bottom of the menu: it switches between the accounts this browser is signed in to, adds one, or signs out of one or all ([Accounts](accounts.md#signing-in)). CLI sign-in uses device approval; scripts use explicitly provisioned service clients ([OIDC](oidc.md)). Admins reset account passwords in People or with `agent-server user passwd`.
 
-Members see their organization and its people, read-only. Its admins manage them; site admins manage organizations and server settings, but don't see what's inside another organization. Removing someone from a team keeps their account. Deleting a team keeps its people. Destructive changes ask for confirmation.
+Members see their organization and its people, read-only. Its admins manage them; site admins manage organizations and server settings, but don't see what's inside another organization. Removing someone from a team keeps their account. Deleting a team keeps its people. Destructive changes ask for confirmation. See [Accounts and sharing](accounts.md).
 
-See [Accounts and sharing](accounts.md).
-
-## Audit log
-
-`/audit` (admins: their organization's events; site admins: everyone's) is the [audit log](audit.md): who did what, to what, and whether it worked, newest first. Filter by type (a category like `machines` or `machines.launch`), person, outcome, organization (site admins) and a day to start from; **Load 100 older** pages back. Open an event for its reason, the fields it changed, its place in its organization's chain and its whole record as JSON. **Download CSV** and **Download NDJSON** save the events shown by the filters (up to 5000). **Verify chain** checks every chain against the signed checkpoints and lists any problem; site admins can **Sign checkpoint now**. On a phone the person is shown with each event. Members don't see the page.
-
-## Downloads
+### Downloads
 
 ![Downloads](screenshots/downloads.png)
 
@@ -326,7 +298,7 @@ Each row marks **Agents**, **Terminals**, **Model servers**, **Server management
 - **Or run a sandbox machine in a container**: the Docker or Podman command for the sandbox image, which runs agents in a container (see [Machines](machines.md#a-sandbox-machine-in-docker)).
 - **Removed**: machines taken off the server, which you (their owner or an admin of their organization) can allow back.
 
-## Approve a device
+### Approve a device
 
 ![Approve a device, after Continue](screenshots/approve-device.png)
 
@@ -344,27 +316,19 @@ Only approve a code from a sign-in you started yourself: approving lets that com
 
 `/machines/<id>` has a header with the machine's name, state and system, **Start an agent** and **Open a terminal** (when you may use them), and, when the machine runs another build than the server, **Update now** (with **Update agent there too**) for its owner or an admin. Below it, a tab per function: **Summary**, **Agents**, **Terminal**, **Providers** (everything about its model servers and containers), **Load**, **MCP servers** (for its owner or when it shares some), **Agent accounts** and **Access** (for those who manage it).
 
-### Summary
+### Summary, agents and terminal
 
-Cards for its state, last contact, agent-machine version and running agents. **What it supports**: each feature (agents, terminals, model servers, running Ollama, llama.cpp and Strata, containers, updates from here, the tunnel) and whether it's on there and open to you, with the command that turns it on. **Details**: owner, system, computer name, address, first seen, last contact, protocol and machine id. **Remove from this server** (owner or admin) disconnects it and refuses it until it's allowed back.
-
-### Agents
+**Summary**: cards for its state, last contact, agent-machine version and running agents. **What it supports**: each feature (agents, terminals, model servers, running Ollama, llama.cpp and Strata, containers, updates from here, the tunnel) and whether it's on there and open to you, with the command that turns it on. **Details**: owner, system, computer name, address, first seen, last contact, protocol and machine id. **Remove from this server** (owner or admin) disconnects it and refuses it until it's allowed back.
 
 ![A machine's Agents tab](screenshots/machine-agents.png)
 
-**Running agents** on the machine (launched from here or started there by hand), **Installed there** (the server's agents found on its `PATH`), **Start an agent** and **Started from here** (each launch: who, which agent, which folder, its session or why it failed).
+**Agents**: **Running agents** on the machine (launched from here or started there by hand), **Installed there** (the server's agents found on its `PATH`), **Start an agent** and **Started from here** (each launch: who, which agent, which folder, its session or why it failed). **Start an agent** picks the agent, the provider and model, the folder (browse the folders inside its launch folders, or name a new one), MCP servers, sharing and payload capture, then starts it in a shared terminal and opens it. It needs `agent-machine launches on` and a launch folder there. For an account agent, **Subscription** picks which of your [subscriptions](subscriptions.md) it runs with: the machine's own sign-in (its owner only), **Choose automatically**, or one by name.
 
-**Start an agent** picks the agent, the provider and model, the folder (browse the folders inside its launch folders, or name a new one), MCP servers, sharing and payload capture, then starts it in a shared terminal and opens it. It needs `agent-machine launches on` and a launch folder there. For an account agent, **Subscription** picks which of your [subscriptions](subscriptions.md) it runs with: the machine's own sign-in (its owner only), **Choose automatically**, or one by name.
-
-### Agent accounts
-
-The provider CLIs the machine found (Claude Code, Codex, Copilot CLI), their versions and whether each is signed in, as its agent-machine reports them (never a sign-in itself), and the subscriptions you can see that run there, with their state.
-
-### Terminal
+**Agent accounts**: the provider CLIs the machine found (Claude Code, Codex, Copilot CLI), their versions and whether each is signed in, as its agent-machine reports them (never a sign-in itself), and the subscriptions you can see that run there, with their state.
 
 ![A machine's Terminal tab](screenshots/machine-terminal.png)
 
-**Open a terminal** starts a shell on the machine in one of its launch folders, in a terminal only you see. It needs `agent-machine commands on` there.
+**Terminal**: **Open a terminal** starts a shell on the machine in one of its launch folders, in a terminal only you see. It needs `agent-machine commands on` there.
 
 ### Providers
 
@@ -378,11 +342,9 @@ Everything about the machine's model servers is in this one tab, at `/machines/<
 
 Older addresses (`/machines/<id>/ollama-11434`, `/machines/<id>/ollama`, `/machines/<id>/containers`, `/machines/<id>/model-servers`) still work and open the same tab here.
 
-#### An instance
-
 ![An Ollama model server](screenshots/models.png)
 
-Everything here is done by the machine:
+**An instance.** Everything here is done by the machine:
 
 - **Ollama**: **Models** (each model's size, whether it's loaded and where, the agent requests it served, and load, unload and delete), **Aliases** (the model tuning's aliases that point at it, with their settings; change them on [Server settings](#server-settings)) and **Find and pull** (search the Ollama library and Hugging Face, or pull by name, with progress).
 - **Strata**: **Overview** (state, profile, engine, uptime, model, context, prompt and generation speed, speculative decoding, with **Load** and **Unload**, then its **Hardware** and **Models**), **Connect agents** (the agent commands for it) and **Log** (server and engine logs, key blanked).
@@ -391,50 +353,28 @@ Everything here is done by the machine:
 
 A pull runs on the machine. If the page loses its connection before the pull ends, it says so (**Lost the connection to the pull. It may still be running on the machine.**) rather than reporting it pulled, and refreshes the model list, where the model shows up once the machine has it.
 
-When the machine doesn't report an Ollama, llama.cpp or Strata running, its tab says why at the top and what to do: **Start Ollama**, **Start llama.cpp**, or **Start** a Strata profile, when it's installed there and you may manage the machine's servers (`agent-machine servers on`); otherwise whether it isn't installed, or how to let the console start it.
-
-Changing models needs `agent-machine servers on` there; without it the tab shows the models but doesn't change them.
-
-#### Ollama server
+When the machine doesn't report an Ollama, llama.cpp or Strata running, its tab says why at the top and what to do: **Start Ollama**, **Start llama.cpp**, or **Start** a Strata profile, when it's installed there and you may manage the machine's servers (`agent-machine servers on`); otherwise whether it isn't installed, or how to let the console start it. Changing models needs `agent-machine servers on` there; without it the tab shows the models but doesn't change them.
 
 ![The machine's Ollama settings](screenshots/ollama-server.png)
 
-For the Ollama installed on the machine: **Start**, **Stop** or **Restart** it (with `servers on`), **Settings** (the `OLLAMA_*` settings agent-machine starts it with, such as context length, parallel requests, flash attention and KV cache type, with warnings), **Environment** (what Ollama starts with, plus **Extra variables**) and **Log**.
+**Ollama server**, for the Ollama installed on the machine: **Start**, **Stop** or **Restart** it (with `servers on`), **Settings** (the `OLLAMA_*` settings agent-machine starts it with, such as context length, parallel requests, flash attention and KV cache type, with warnings), **Environment** (what Ollama starts with, plus **Extra variables**) and **Log**.
 
-#### llama.cpp server
-
-For llama.cpp on the machine (with `servers on`): its state, build and where it came from; **Install llama.cpp** (or **Update or change build**), which lists the builds that fit the machine, suggests one, and shows the install's progress; **Remove** for builds installed from here; **Start**, **Stop** and **Restart**; **Settings** (the `LLAMA_ARG_*` settings agent-machine starts it with: context, KV cache, GPU layers, devices, models loaded at once, thinking budget, download folder and more, with warnings), **Environment** (what llama-server starts with, plus **Extra variables**) and **Log**. See [llama.cpp](providers.md#llamacpp).
-
-#### Containers
+**llama.cpp server**, for llama.cpp on the machine (with `servers on`): its state, build and where it came from; **Install llama.cpp** (or **Update or change build**), which lists the builds that fit the machine, suggests one, and shows the install's progress; **Remove** for builds installed from here; **Start**, **Stop** and **Restart**; **Settings** (the `LLAMA_ARG_*` settings agent-machine starts it with: context, KV cache, GPU layers, devices, models loaded at once, thinking budget, download folder and more, with warnings), **Environment** (what llama-server starts with, plus **Extra variables**) and **Log**. See [llama.cpp](providers.md#llamacpp).
 
 ![Containers a machine runs](screenshots/containers.png)
 
-Strata, Ollama and llama.cpp containers the machine runs for the server. Each shows its phase (Not created, Pulling image, Starting, Loading model, Ready, Unhealthy, Stopping, Stopped, Failed), settings and GPU, with start, stop, restart, switch (stop the others holding its GPU), logs, edit and delete. **Add a container** picks the engine and its settings; **Shared model storage** is the volume or folder its models live in; **The command its machine runs** shows the exact `docker run`. See [Providers](providers.md#containers-machines-run).
+**Containers**: the Strata, Ollama and llama.cpp containers the machine runs for the server. Each shows its phase (Not created, Pulling image, Starting, Loading model, Ready, Unhealthy, Stopping, Stopped, Failed), settings and GPU, with start, stop, restart, switch (stop the others holding its GPU), logs, edit and delete. **Add a container** picks the engine and its settings; **Shared model storage** is the volume or folder its models live in; **The command its machine runs** shows the exact `docker run`. See [Providers](providers.md#containers-machines-run).
 
-### Load
+### Load, MCP servers and access
 
 ![A machine's load](screenshots/hosts.png)
 
-The machine's CPU, memory and GPU use over time, sampled there, and **Loaded on** each Ollama: which models are in memory.
-
-### MCP servers
+**Load**: the machine's CPU, memory and GPU use over time, sampled there, and **Loaded on** each Ollama: which models are in memory.
 
 ![A machine's MCP servers](screenshots/machine-mcp.png)
 
-The MCP servers the machine shares, by name, with how each runs (a command or a URL) and whether it's installed there. Its owner sees the `agent-machine mcp add` commands. See [MCP servers](mcp.md).
-
-### Access
+**MCP servers**: the MCP servers the machine shares, by name, with how each runs (a command or a URL) and whether it's installed there. Its owner sees the `agent-machine mcp add` commands. See [MCP servers](mcp.md).
 
 ![A machine's Access tab](screenshots/machine-access.png)
 
-For its owner and its organization's admins: whether the whole organization, or which of its teams, may use each feature (see it, start agents, open terminals, change models, run model servers, update it, use MCP servers), and which of the machine's own switches each also needs. See [Machines](machines.md#who-may-use-a-machine).
-
-## Pairing a phone
-
-Pairing keys and codes no longer grant access. Open the console on the phone and sign in through OIDC. Terminal access follows session sharing. Old `/pair` links redirect to Running agents after sign-in. See [Security](security.md#pairing-how-each-device-joins) for how phones, the Android app and computers pair now.
-
-## Documentation
-
-`/help` shows this documentation in the console: the pages of `docs/` on the server, with their pictures, and **API reference (OpenAPI)** for the server's `/docs`. Links between pages stay in the console, and each heading has its own address (`/help/mcp#how-it-works`). Diagrams are drawn from the pages' Mermaid blocks, in the console's light or dark theme. Like Downloads it's public, so it can be read before signing in; the sign-in page links to it.
-
-The server reads the pages from the `docs` folder of its checkout (the Docker image has them in `/app/docs`), or `AI_PROXY_DOCS_DIR`. A server installed without them says so on the page.
+**Access**, for its owner and its organization's admins: whether the whole organization, or which of its teams, may use each feature (see it, start agents, open terminals, change models, run model servers, update it, use MCP servers), and which of the machine's own switches each also needs. See [Machines](machines.md#who-may-use-a-machine).

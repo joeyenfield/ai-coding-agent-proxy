@@ -1265,6 +1265,7 @@ code { background: var(--ground); border: 1px solid var(--line); padding: 0 5px;
 .docs-nav a { padding: 6px 10px; border-radius: var(--radius-small); color: var(--steel); text-decoration: none; font-weight: 520; }
 .docs-nav a:hover { color: var(--ink); background: var(--raised); }
 .docs-nav a.active { color: var(--accent-ink); background: var(--accent-soft); }
+.docs-nav-section { display: flex; flex-direction: column; gap: 2px; margin-bottom: 14px; }
 .docs-nav .docs-nav-api { margin-top: 10px; font-size: 13px; }
 .docs-body { min-width: 0; max-width: 920px; }
 .markdown { font-size: 15px; line-height: 1.65; overflow-wrap: break-word; }
@@ -1296,6 +1297,7 @@ code { background: var(--ground); border: 1px solid var(--line); padding: 0 5px;
 @media (max-width: 900px) {
   .docs-layout { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .docs-nav { position: static; flex-direction: row; flex-wrap: wrap; gap: 4px; }
+  .docs-nav-section { flex-direction: row; flex-wrap: wrap; gap: 4px; width: 100%; margin-bottom: 8px; }
   .docs-nav-title { width: 100%; }
   .docs-nav a { padding: 4px 9px; border: 1px solid var(--line); }
   .markdown h1 { font-size: 25px; }

@@ -33,9 +33,7 @@ Three things stay files:
 
 `agent-server db info` says which database the server uses, its size and how many sessions it holds. `agent-server vault key|status|rotate` looks after the key subscriptions' managed tokens are encrypted with (see [Subscriptions](subscriptions.md#the-vault)).
 
-### How long recordings are kept
-
-By default, everything is kept until you delete sessions. To keep payloads and terminal output for a number of days, set it on **Server settings** → **Storage**, or with `PUT /api/config/storage`. Once an hour the server deletes the payloads, chat indexes and terminal output of sessions whose last request is older than that. Their request records and token counts stay, so totals and **Request history** still show them.
+**How long recordings are kept.** By default, everything is kept until you delete sessions. To keep payloads and terminal output for a number of days, set it on **Server settings** → **Storage**, or with `PUT /api/config/storage`. Once an hour the server deletes the payloads, chat indexes and terminal output of sessions whose last request is older than that. Their request records and token counts stay, so totals and **Request history** still show them.
 
 That one setting is the traces and terminal days of the full **retention policy**: what's captured, how long each kind of recording, request records, sessions and the audit log are kept, the bounds organizations set their own within, and legal holds. See [Retention](retention.md).
 
@@ -117,11 +115,7 @@ agents:
 | `public_url` | none | Where other devices reach the console, such as a DNS name your router forwards here. The first-start message and the console use it ahead of this computer's own addresses. It's **Public console address** on **Server settings**. |
 | `tls.cert`, `tls.key` | none | A certificate and key, as full paths. With both set, the server itself serves HTTPS. Most setups put nginx in front instead ([Deployment](deployment.md)). `AI_PROXY_TLS_CERT` and `AI_PROXY_TLS_KEY` set them too. |
 
-### default_backend
-
-The backend an agent gets when the launch doesn't name one, if the agent can use it. Otherwise the server picks a backend of the agent's own type first, then any other that serves it (`Settings.backend_for` in `server/agent_server/config.py`).
-
-### backends
+### backends and default_backend
 
 Each entry is a name (letters, numbers, `_` and `-`, starting with a letter or number) mapped to:
 
@@ -135,6 +129,8 @@ Each entry is a name (letters, numbers, `_` and `-`, starting with a letter or n
 Local backends are never added by URL. You add them from their machine: **Add as a provider** on the machine's page (`POST /api/machines/{id}/providers/adopt`, admins), or a container (`POST /api/containers`). Backends from before this have no `machine`; they keep working. An admin links a matching backend with **Add as a provider**, preserving its name and settings.
 
 On **Server settings** you can remove local backends and pick the default among them, and add or edit hosted ones. You can't add a local backend or point one somewhere else: the server refuses it. Each backend's `machine` and `container` are kept as they are. A change to the listen address applies after a restart (**Restart the proxy**, or `POST /api/server/restart`).
+
+`default_backend` is the backend an agent gets when the launch doesn't name one, if the agent can use it. Otherwise the server picks a backend of the agent's own type first, then any other that serves it (`Settings.backend_for` in `server/agent_server/config.py`).
 
 ### intercept
 
@@ -202,7 +198,7 @@ See [Agents](agents.md) for the format and how to add one, and [MCP](mcp.md) for
 
 | Variable | What it overrides |
 |---|---|
-| `AI_PROXY_HOME` | The install folder (see below). |
+| `AI_PROXY_HOME` | The install folder (see after this table). |
 | `AI_PROXY_DATABASE_URL` | The database (see [The database](#the-database)). A secret: keep it in the environment or a secret manager. Its password is hidden wherever the server shows it. |
 | `AI_PROXY_AUTH_DATABASE_URL` | agent-auth's database: its own role on the same PostgreSQL (schema `mesh_auth`). Without it, agent-auth uses the server's PostgreSQL URL, or a SQLite file of its own. |
 | `AI_PROXY_HOST`, `AI_PROXY_PORT` | `proxy.listen_host` and `proxy.listen_port`. When either is set and `AI_PROXY_URL` isn't, `proxy.url` becomes `http://<host>:<port>`, with `127.0.0.1` for `0.0.0.0` and `::`. |
@@ -235,13 +231,9 @@ See [Agents](agents.md) for the format and how to add one, and [MCP](mcp.md) for
 | `AI_PROXY_RETENTION_SEED` | A retention policy (JSON) `agent-server db migrate` stores on a new install. See [Retention](retention.md). |
 | `AI_PROXY_VAULT_KEYS_FILE` | A file holding the same, for container secrets, when `AI_PROXY_VAULT_KEYS` isn't set. |
 
-## How the server finds its install folder
+**How the server finds its install folder.** The install folder holds `VERSION`, `logs/`, `certs/`, `ui/dist`, `dist/`, `docs/` and `benchmarks/`. The server uses `AI_PROXY_HOME` when it's set. Otherwise it takes the first of these that has `VERSION` and `server/`: the checkout the package was installed from, the current folder, then each folder above it. If none has them, it uses the current folder. The Docker image sets `AI_PROXY_HOME=/app`.
 
-The install folder holds `VERSION`, `logs/`, `certs/`, `ui/dist`, `dist/`, `docs/` and `benchmarks/`. The server uses `AI_PROXY_HOME` when it's set. Otherwise it takes the first of these that has `VERSION` and `server/`: the checkout the package was installed from, the current folder, then each folder above it. If none has them, it uses the current folder.
-
-The Docker image sets `AI_PROXY_HOME=/app`.
-
-The standalone console uses `VITE_API_URL` at build time (for example `https://api.example.net`). It routes HTTP calls, live streams, terminals, documentation and download links there. Leave it unset for same-origin bundled installs. Rebuild after changing it; this value contains no secret.
+**The standalone console** uses `VITE_API_URL` at build time (for example `https://api.example.net`). It routes HTTP calls, live streams, terminals, documentation and download links there. Leave it unset for same-origin bundled installs. Rebuild after changing it; this value contains no secret.
 
 ## Secrets
 

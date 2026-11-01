@@ -4,10 +4,6 @@ Everyone signs in through the separate OIDC issuer at **auth.aicontrolmesh.com**
 
 This page covers accounts, who can see and control what, and using the console from a phone. Your own AI plans (Claude, ChatGPT, Copilot) are something else, kept as [Subscriptions](subscriptions.md).
 
-## Authentication is always required
-
-On the first start against a new database, if there is no environment account, the API creates `admin`, a site admin, with a random password, including on loopback. It prints the password and saves it in the file `first-user-password` (in `certs/` normally). Reset it with `agent-server user passwd admin`, then delete that file. Removing every user does not disable authentication.
-
 ## Organizations are tenants
 
 Each organization is a tenant: a separate part of the server that shares nothing with the others. There is one **root** organization above all the rest, which holds only the site admins. Every other organization lives under it.
@@ -52,6 +48,8 @@ agent-server user list
 
 The full list of commands is on [Configuration](configuration.md#users-organizations-and-teams). They change the accounts in the server's database, which a running server and the issuer pick up straight away. If no site admin is left, the server says so when it starts; make one with `agent-server user add <name> --admin`.
 
+**The first admin.** Authentication is always required. On the first start against a new database, if there is no environment account, the API creates `admin`, a site admin, with a random password, including on loopback. It prints the password and saves it in the file `first-user-password` (in `certs/` normally). Reset it with `agent-server user passwd admin`, then delete that file. Removing every user does not disable authentication.
+
 **An account from the environment.** Set `AI_PROXY_USERNAME` and `AI_PROXY_PASSWORD` on the server and that account is a site admin, without an account in the database. Use it for servers set up by script. It can't change its password through the console.
 
 **Upgrading from before organizations were tenants.** On the first start of this version, each user goes to their first organization (by id), keeping their role there, and leaves their teams of other organizations. An admin in no organization becomes a site admin; a member in none goes to a new organization, `main`. Sessions and machines go to their owner's organization, and those without an owner to the root. Anything a user shared with another of their old organizations is no longer shared.
@@ -80,6 +78,8 @@ Passwords are hashed in the server's database; OAuth tokens and grant state are 
 
 **Other sites can't act for you.** Unsafe methods and WebSockets require the API's origin or an explicitly allowed console origin.
 
+**No access keys or pairing.** Access-key pairing has been removed. Old keys, short codes and `/pair` links no longer authenticate. Phones sign in through OIDC like other browsers; loopback has no special privilege. How each kind of device pairs now (computers, fleet machines, browsers, the Android app, scripts) and why the old way went is on [Security](security.md#pairing-how-each-device-joins).
+
 ## What only admins can change
 
 The lists are `SITE_ADMIN_ONLY` and `ADMIN_ONLY` in `server/agent_server/auth.py`.
@@ -99,9 +99,7 @@ An organization's admins (and site admins, for the users and teams of any organi
 
 Everything else is open to any signed-in user, limited to their organization, session sharing and machine grants. Another organization's sessions, machines, users and teams answer `404`, as if they didn't exist.
 
-### Usage limits
-
-An organization's admins can limit how many tokens each person (or everyone) uses on each provider in a window, on the organization's **Usage** tab. A person who reaches one is blocked from that provider until it frees up. See [Providers and usage limits](usage-limits.md).
+**Usage limits.** An organization's admins can limit how many tokens each person (or everyone) uses on each provider in a window, on the organization's **Usage** tab. A person who reaches one is blocked from that provider until it frees up. See [Providers and usage limits](usage-limits.md).
 
 ## Session sharing
 
@@ -132,17 +130,13 @@ Rules worth knowing:
 
 ## Machine access
 
-Terminal viewers use their current sign-in and memberships. Removing a user's access,
-revoking their token, signing them out or resetting their browser sign-in stops further
-terminal input and output. An idle viewer is disconnected within about one second.
-
 A machine belongs to whoever signed it in with `agent-machine login`, and to their organization. Nobody outside that organization can see or use it, except site admins, who may use and remove any machine. Its owner (or an admin of its organization) can let the whole organization, or its teams, use each of its features: `view`, `launch`, `terminal`, `models`, `servers`, `update` and `mcp`. Any grant includes `view`. Grants never name another organization. The organization's admins can always `view`, manage `models` and `update` a machine; starting agents, terminals and MCP servers there needs a grant even for them. Members can grant only teams they're in.
 
 Containers stay the owner's (and their organization's admins'). See [Machines](machines.md) for the details and the **Access** tab.
 
-## The terminal access key and pairing
-
-Access-key pairing has been removed. Old keys, short codes and `/pair` links no longer authenticate. Phones sign in through OIDC like other browsers; loopback has no special privilege. How each kind of device pairs now (computers, fleet machines, browsers, the Android app, scripts) and why the old way went is on [Security](security.md#pairing-how-each-device-joins).
+**Access is checked as it changes.** Terminal viewers use their current sign-in and memberships. Removing a user's access,
+revoking their token, signing them out or resetting their browser sign-in stops further
+terminal input and output. An idle viewer is disconnected within about one second.
 
 ## Running agents on your phone
 
@@ -196,9 +190,7 @@ The app (`android/`) keeps a list of your agent-servers and opens each one's con
 
 Building it is in `android/README.md`.
 
-### Private Android Auto experiment
-
-Debug APKs include **AI Control Mesh (private test)** in Android Auto development
+**Private Android Auto experiment.** Debug APKs include **AI Control Mesh (private test)** in Android Auto development
 hosts. Add servers and sign in on the phone while parked, then select a server in the
 car app. It shows up to five recent visible sessions, open first, with status, model
 and request counts, refreshing every 15 seconds while visible. Open means the session

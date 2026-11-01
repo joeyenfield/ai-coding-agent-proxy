@@ -211,7 +211,7 @@ VERSION                     The project's version (X.Y.Z), stamped into every co
 compose.yaml .dockerignore  PostgreSQL, the site, agent-auth and server in Docker (postgres-data; logs and certs; the old config and auth-state volumes, read only to import an older install),
                             the standalone console (--profile console) and the sandbox (--profile sandbox)
 ui/Dockerfile ui/nginx.conf The standalone console's image for split hosting (built with VITE_API_URL)
-quickstart/                 Local Podman/Docker Compose demo: server, issuer, two fleet machines, Ollama on machine-1; admin/secret, loopback ports 19999/20000
+quickstart/                 Local Podman/Docker Compose demo: server, issuer, two fleet machines, Ollama on machine-1; admin/secret, loopback ports 19999/20000; kubernetes/: the Kubernetes quickstart's chart values and machine pod (docs/quickstart-kubernetes.md)
 site/                       the static public brochure website, served separately from the console (its own Dockerfile and nginx.conf); site.js enhances menu/copy controls, assets/ holds branding and SEO images, and the image copies selected docs/screenshots/ captures. Preview/check it with scripts/site/ (docs/website.md).
 sandbox/                    agent-sandbox's Dockerfile and entrypoint: agent + agent-machine + npm coding agents; signs in from env, launches on for /workspace only
 scripts/https/              setup-https.ps1 (Windows: nginx + win-acme for Let's Encrypt, firewall, startup task) and the templates it fills in (nginx.conf.template, nginx-https.conf.template)
@@ -419,7 +419,7 @@ There are no configuration files. Every setting is in the database (`settings`, 
   - `LogPanel`.
   - `RouteBadge`.
 - Styling goes in `styles.css`, using the existing CSS variables, so both themes keep working. Check dark mode and a narrow viewport (412 px, as above) for layout changes.
-- **Every user-facing function is documented in `docs/`.** A new command, option, console page or control, endpoint, setting or environment variable goes into its page (`docs/index.md` maps features to pages; `docs/api.md` lists every route). Keep `README.md` short: it only introduces and links. Draw diagrams as Mermaid blocks (`sequenceDiagram` for flows, `flowchart` for structure), not ASCII art: the Docs page (`/help`) and GitHub both render them.
+- **Every user-facing function is documented in `docs/`.** A new command, option, console page or control, endpoint, setting or environment variable goes into its page (`docs/index.md` maps features to pages; `docs/api.md` lists every route). Keep `README.md` short: it only introduces and links. Draw diagrams as Mermaid blocks (`sequenceDiagram` for flows, `flowchart` for structure), not ASCII art: the Docs page (`/help`) and GitHub both render them. The pages are grouped into sections (Start here, Use it, People and data, Run a server, How it works, Contribute): a new page goes into `DOC_SECTIONS` in `ui/src/pages/Docs.tsx` (`test_help.py` checks every page is listed), the same section of `docs/index.md`, and `README.md`'s table. Keep headings few: an H1, a handful of H2s for real areas, H3s only where an H2 has genuinely separate parts, no H4s; small topics are a paragraph with a bold lead-in, a list item or a table row, and pages have no Contents lists.
 - UI, README and docs text: plain, short sentences, sentence case, and say what something does for the user. Name providers with `providerLabel()`/`PROVIDERS` in `routes.ts`.
 
 ## Checklists

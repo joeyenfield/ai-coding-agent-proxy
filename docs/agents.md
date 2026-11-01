@@ -4,19 +4,6 @@ You start every coding agent with the `agent` command on the computer where you 
 
 This page covers the `agent` command, the `agent-proxy`, the agents the server knows, what their requests are, sharing an agent's terminal, and adding a new agent. To put a computer in the server's fleet (its model servers, containers, launches from the console) you use a different program, `agent-machine`: see [Machines](machines.md).
 
-## Contents
-
-- [The three routes](#the-three-routes)
-- [The agent command](#the-agent-command)
-- [Signing in: agent login and agent logout](#signing-in-agent-login-and-agent-logout)
-- [The agent-proxy](#the-agent-proxy)
-- [Other subcommands](#other-subcommands)
-- [Environment variables](#environment-variables)
-- [Supported agents](#supported-agents)
-- [What the requests are](#what-the-requests-are)
-- [Sharing a terminal with --control](#sharing-a-terminal-with---control)
-- [Adding a new agent](#adding-a-new-agent)
-
 ## The three routes
 
 Each agent takes one of three routes to a model. The console colours requests, sessions and agents by route.
@@ -30,6 +17,24 @@ Each agent takes one of three routes to a model. The console colours requests, s
 | **What the server does** | Decrypts, records and forwards unchanged | Ollama: translates to its native API and applies the model tuning. llama.cpp, Strata and Docker Model Runner: forwards unchanged | Forwards unchanged |
 | **What you see** | Requests to public hosts: model calls plus sign-in, settings, MCP, telemetry | Model calls, with the exact payload sent to Ollama | Model calls and other Anthropic API calls Claude Code makes |
 | **Credentials** | The agent's own login | None needed | The agent's own login |
+
+**Local models.** Local-model agents get API base URLs on the `agent-proxy` that contain the session id. The server sends each request to the session's backend. For an Ollama backend it translates OpenAI Chat and Anthropic Messages requests to Ollama's native `/api/chat` and applies the server's Ollama model tuning. llama.cpp, Strata and Docker Model Runner speak the agents' APIs themselves and get requests unchanged. See [Providers](providers.md).
+
+```bash
+agent qwen . --model qwen3.6:35b                          # the server's default backend for the agent
+agent opencode . --model qwen3.8:latest --backend desktop
+agent claude . --model qwen3.6:27b-coding -- --continue   # Claude Code, translated to Ollama
+```
+
+An agent declared for Ollama can also use a llama.cpp, Strata or Docker Model Runner backend when that backend speaks the agent's protocol. llama.cpp and Strata have no native Ollama API, so `aider` and `goose` can't use them. The server decides which backends an agent can use and which one a launch picks, unless you name one with `--backend`.
+
+**Hosted API pass-through.** `claude-subscription` sets only `ANTHROPIC_BASE_URL`, pointing at the proxy's Anthropic endpoint. The server forwards everything unchanged to a `type: anthropic` backend, which the launcher picks by itself. Claude Code keeps its own login.
+
+```bash
+agent claude-subscription . --model sonnet
+```
+
+The proxy sees Claude Code's API calls (`/v1/messages`, `count_tokens`, `/v1/models` and any other `/anthropic/...` path), but not its OAuth, telemetry or MCP traffic, which goes directly to Anthropic. Use `claude-account` when you want those too.
 
 ### Your accounts (HTTPS capture)
 
@@ -63,28 +68,6 @@ Privacy and security:
 - **No credential handling.** The proxy never reads the agents' credentials from disk or asks you to copy tokens. The agents keep managing their own sign-in and refresh.
 - **VS Code extensions** (Copilot, ChatGPT/Codex) run their own processes and aren't captured. Only agents started with `agent` go through the proxy.
 
-### Local models
-
-Local-model agents get API base URLs on the `agent-proxy` that contain the session id. The server sends each request to the session's backend. For an Ollama backend it translates OpenAI Chat and Anthropic Messages requests to Ollama's native `/api/chat` and applies the server's Ollama model tuning. llama.cpp, Strata and Docker Model Runner speak the agents' APIs themselves and get requests unchanged. See [Providers](providers.md).
-
-```bash
-agent qwen . --model qwen3.6:35b                          # the server's default backend for the agent
-agent opencode . --model qwen3.8:latest --backend desktop
-agent claude . --model qwen3.6:27b-coding -- --continue   # Claude Code, translated to Ollama
-```
-
-An agent declared for Ollama can also use a llama.cpp, Strata or Docker Model Runner backend when that backend speaks the agent's protocol. llama.cpp and Strata have no native Ollama API, so `aider` and `goose` can't use them. The server decides which backends an agent can use and which one a launch picks, unless you name one with `--backend`.
-
-### Hosted API pass-through
-
-`claude-subscription` sets only `ANTHROPIC_BASE_URL`, pointing at the proxy's Anthropic endpoint. The server forwards everything unchanged to a `type: anthropic` backend. Claude Code keeps its own login.
-
-```bash
-agent claude-subscription . --model sonnet
-```
-
-The launcher picks the `anthropic` backend by itself. The proxy sees Claude Code's API calls (`/v1/messages`, `count_tokens`, `/v1/models` and any other `/anthropic/...` path), but not its OAuth, telemetry or MCP traffic, which goes directly to Anthropic. Use `claude-account` when you want those too.
-
 ## The agent command
 
 ```text
@@ -110,10 +93,9 @@ What a launch does:
 5. Writes those files to a new folder, `~/.cache/agent-proxy/sessions/<random>/`, and starts the backend's container first if it's one a machine runs.
 6. Runs the agent and waits. When it exits, the launcher ends the session with its exit status and removes the files.
 
-It prints the session id, agent, model, backend, the server's Live page, whether the terminal is shared, and the MCP servers the agent got.
+It prints the session id, agent, model, backend, the server's Live page, whether the terminal is shared, and the MCP servers the agent got. Ctrl+C goes to the agent while the launcher waits to record its exit status. This also applies to Python launches without terminal sharing on Linux and other POSIX systems.
 
-Ctrl+C goes to the agent while the launcher waits to record its exit status. This also
-applies to Python launches without terminal sharing on Linux and other POSIX systems.
+**The Python client.** `python/agent_py/client` is a drop-in for the Go client: the commands `agent` and `agent-proxy`, the same options and subcommands (`login`, `logout`, `proxy`, `proxy stop`, `update [--force]`, `accounts`, `version`, `--list`, `--shell`, `--headless`, `--account`), the same files, ports and environment variables, and the same `agent-proxy` checks. `--control` runs the agent in a POSIX pty, or a ConPTY through pywinpty on Windows. Its `agent update` installs the server's Python wheel with pip. Install one client or the other on a computer, not both. See `python/README.md`.
 
 ### Options
 
@@ -124,40 +106,50 @@ applies to Python launches without terminal sharing on Linux and other POSIX sys
 | `--trace` | Save full request and response bodies for the session. |
 | `--mcp NAMES` | MCP servers that machines share, for the agent: `machine/name`, a machine for all of its servers, or `all`. Comma-separated or repeated. See [MCP servers](mcp.md). |
 | `--account ID` | For account agents: which of your [subscriptions](subscriptions.md) it runs with (`agent accounts list`). Without it, whatever the agent's CLI is signed in to here. A managed Copilot token is only handed to launches from the console. |
-| `--list` | List the server's agents, whether each is installed here, and the `agent-proxy`'s server and sign-in. |
-| `--control` | Share the agent's terminal with the server, to watch it and type into it from the console or a phone. `AI_PROXY_CONTROL=1` makes it the default. |
+| `--list` | List the server's agents, whether each is installed here, and the `agent-proxy`'s server and sign-in (below). |
+| `--control` | Share the agent's terminal with the server, to watch it and type into it from the console or a phone. `AI_PROXY_CONTROL=1` makes it the default. See [Sharing a terminal](#sharing-a-terminal-with---control). |
 | `--switch` | If the backend is a container a machine runs, stop other containers using its GPU to start it. |
 | `--share WHO` | On a server with accounts: `private` (default), `team` or `org`. Who else can see this session. |
 | `--team NAME` | With `--share team`, which of your teams (`org/team`); with `--share org`, which of your organizations. Needed if you're in several. |
 | `--let-others-type` | With `--control`: people the session is shared with can type into its terminal and end it, not only watch. Has no effect without `--control`. |
-| `--shell` | Run your shell instead of an agent: see [agent --shell](#agent---shell). |
+| `--shell` | Run your shell instead of an agent (below). |
 | `--headless` | Used by `agent-machine` for launches from the console: no local window, the terminal shared with the server. |
 | `--launch-id ID` | Used by `agent-machine`: the launch record this session belongs to. |
 | `-h`, `--help` | Show the usage. |
 
 Old options: `--proxy` is refused with a pointer to `agent login`. `--no-remote` is accepted and ignored, as sharing is off unless you ask for it. `agent machine` says to use `agent-machine` instead.
 
-`agent` with no agent prints the same list as `agent --list` and exits with status 2.
+**`agent --list`** starts the `agent-proxy` if needed, then prints each of the server's agents with whether it's installed here, its name and its protocol (or "account, captured via HTTPS intercept"). For a missing agent it prints the install command for this environment. The last line names the server the `agent-proxy` carries traffic to and who it's signed in as. `agent` with no agent prints the same list and exits with status 2.
 
-### agent --list
+**`agent --shell [folder]`** runs your shell (`$SHELL` as a login shell, else `/bin/bash` or `/bin/sh`; on Windows `pwsh`, else `powershell`, else `%ComSpec%`) in a terminal shared with the server, in a session only you can see. Use it to reach this computer from the console or your phone. It sends no model traffic. It needs an interactive terminal. The session's client is `shell`, and the server keeps those sessions private: their sharing can't be widened. `agent-machine` uses the same thing, headless, for **Open a terminal** on a machine's page (see [Machines](machines.md)).
 
-```bash
-agent --list
-```
+**Launches from the console.** When someone starts an agent on a machine from the console, `agent-machine` runs `agent <id> <folder> --headless --launch-id <id>` there, with `AI_PROXY_MACHINE_ID` and `AI_PROXY_MACHINE_NAME` set. In headless mode the launcher prints `{"session_id": "..."}` as its only line of output, then runs the agent in a pseudo-terminal with no local window, shared with the server. `--headless` turns on `--control`. You don't normally run these options yourself.
 
-Starts the `agent-proxy` if needed, then prints each of the server's agents with whether it's installed here, its name and its protocol (or "account, captured via HTTPS intercept"). For a missing agent it prints the install command for this environment. The last line names the server the `agent-proxy` carries traffic to and who it's signed in as.
+### Other subcommands
 
-### agent --shell
+| Command | What it does |
+|---|---|
+| `agent login`, `agent logout` | Sign this computer in to a server, or forget a sign-in. See [Signing in](#signing-in-agent-login-and-agent-logout). |
+| `agent proxy`, `agent proxy stop` | Run this computer's `agent-proxy` in the foreground, or stop it. See [The agent-proxy](#the-agent-proxy). |
+| `agent update [--force] [--server url]` | Replaces `agent` and `agent-proxy` with the build the server offers for this platform, checked against the server's SHA-256, then stops the running `agent-proxy` so the new one takes over: agents still running start it again within seconds, else the next agent does. It does nothing when the server's version is this one, unless you pass `--force`. `--server` names the server to update from (default: the one the `agent-proxy` uses). If the server has no build of its exact version, it takes the closest one and says so. See [Deployment](deployment.md) for how the server hands out builds. |
+| `agent accounts list\|detect\|status\|enroll` | Your AI subscriptions (provider accounts), the provider CLIs here and whether each is signed in, and registering this computer as a machine one runs on. See [Subscriptions](subscriptions.md#agent-accounts). |
+| `agent version` (or `agent --version`) | Prints the version and the protocol level. |
 
-```bash
-agent --shell [folder]
-```
+### Environment variables
 
-Runs your shell (`$SHELL` as a login shell, else `/bin/bash` or `/bin/sh`; on Windows `pwsh`, else `powershell`, else `%ComSpec%`) in a terminal shared with the server, in a session only you can see. Use it to reach this computer from the console or your phone. It sends no model traffic. It needs an interactive terminal. The session's client is `shell`, and the server keeps those sessions private: their sharing can't be widened. `agent-machine` uses the same thing, headless, for **Open a terminal** on a machine's page (see [Machines](machines.md)).
+What the client reads:
 
-### Launches from the console
+| Variable | What it does |
+|---|---|
+| `AI_PROXY_URL` | The server the `agent-proxy` uses, over the one from `agent login`. |
+| `AI_PROXY_TOKEN` | A pre-issued OAuth access token, overriding stored credentials. Obtain a replacement before it expires. |
+| `AI_PROXY_CREDENTIALS` | Where `credentials.json` is. Use a Windows path when you set it from Git Bash. |
+| `AI_PROXY_LOCAL_PORT` | The `agent-proxy`'s HTTP port (default 8184). |
+| `AI_PROXY_LOCAL_INTERCEPT_PORT` | The `agent-proxy`'s HTTPS proxy port (default 8183). |
+| `AI_PROXY_CONTROL` | `1` makes `--control` the default. |
+| `AI_PROXY_MACHINE_ID`, `AI_PROXY_MACHINE_NAME` | Set by `agent-machine` for launches from the console: tag the session with its fleet machine. |
 
-When someone starts an agent on a machine from the console, `agent-machine` runs `agent <id> <folder> --headless --launch-id <id>` there, with `AI_PROXY_MACHINE_ID` and `AI_PROXY_MACHINE_NAME` set. In headless mode the launcher prints `{"session_id": "..."}` as its only line of output, then runs the agent in a pseudo-terminal with no local window, shared with the server. `--headless` turns on `--control`. You don't normally run these options yourself.
+Every session is also tagged with the computer's hostname, so the server can list agents you start by hand under the fleet machine of the same owner with that hostname. The agent itself gets `AI_PROXY_SESSION`, its session id, along with the variables its definition sets.
 
 ## Signing in: agent login and agent logout
 
@@ -183,9 +175,7 @@ agent logout                               # the server signed in to last
 agent logout http://server:9999
 ```
 
-`agent login [url]` signs this computer's `agent-proxy` in through OIDC device authorization. Open the printed verification URL, sign in and approve the displayed code. The CLI never collects your password. Access tokens refresh automatically; see [OIDC authentication](oidc.md).
-
-Authentication is mandatory. The old `--user`, `--key` and password-input flow no longer grant access.
+`agent login [url]` signs this computer's `agent-proxy` in through OIDC device authorization. Open the printed verification URL, sign in and approve the displayed code. The CLI never collects your password. Access tokens refresh automatically; see [OIDC authentication](oidc.md). Authentication is mandatory: the old `--user`, `--key` and password-input flow no longer grant access.
 
 The sign-in is kept in `credentials.json`: `%APPDATA%\agent-proxy\` on Windows, `$XDG_CONFIG_HOME/agent-proxy/` (or `~/.config/agent-proxy/`) elsewhere, readable only by you. `AI_PROXY_CREDENTIALS` names another file. The last server signed in to is the default. The `agent-proxy` reads the file on every request, so signing in or out applies at once, with no restart.
 
@@ -240,37 +230,7 @@ Any program on the computer can reach the `agent-proxy`, and what it forwards to
 
 - **Agent traffic is signed too, but the session decides.** Model traffic under `/session/...`, `/v1/...` and `/anthropic/...` goes to the server with this computer's token in `X-AI-Proxy-Token`, leaving the agent's own `Authorization` as it is. The server also needs an open session that the signed-in user may control: a session id alone grants nothing. MCP URLs also carry a separate per-session capability that is only delivered in the launch settings. Cookies, `Origin`, `Proxy-Authorization` and `Proxy-Connection` are never forwarded.
 - **It never uses a proxy itself.** Every HTTP client and WebSocket dialer in the client ignores `HTTPS_PROXY`, which inside an account agent points back at the `agent-proxy` and would loop.
-- `/api/terminals/<id>/host` relays a `--control` terminal to the server, signed as this computer. `POST /shutdown` stops it (for `agent proxy stop` and `agent update`), with the same loopback and origin checks.
-
-## Other subcommands
-
-| Command | What it does |
-|---|---|
-| `agent update [--force] [--server url]` | Replaces `agent` and `agent-proxy` with the build the server offers for this platform, checked against the server's SHA-256, then stops the running `agent-proxy` so the new one takes over: agents still running start it again within seconds, else the next agent does. It does nothing when the server's version is this one, unless you pass `--force`. `--server` names the server to update from (default: the one the `agent-proxy` uses). If the server has no build of its exact version, it takes the closest one and says so. |
-| `agent accounts list\|detect\|status\|enroll` | Your AI subscriptions (provider accounts), the provider CLIs here and whether each is signed in, and registering this computer as a machine one runs on. See [Subscriptions](subscriptions.md#agent-accounts). |
-| `agent version` (or `agent --version`) | Prints the version and the protocol level. |
-
-See [Deployment](deployment.md) for how the server hands out builds.
-
-## Environment variables
-
-What the client reads:
-
-| Variable | What it does |
-|---|---|
-| `AI_PROXY_URL` | The server the `agent-proxy` uses, over the one from `agent login`. |
-| `AI_PROXY_TOKEN` | A pre-issued OAuth access token, overriding stored credentials. Obtain a replacement before it expires. |
-| `AI_PROXY_CREDENTIALS` | Where `credentials.json` is. Use a Windows path when you set it from Git Bash. |
-| `AI_PROXY_LOCAL_PORT` | The `agent-proxy`'s HTTP port (default 8184). |
-| `AI_PROXY_LOCAL_INTERCEPT_PORT` | The `agent-proxy`'s HTTPS proxy port (default 8183). |
-| `AI_PROXY_CONTROL` | `1` makes `--control` the default. |
-| `AI_PROXY_MACHINE_ID`, `AI_PROXY_MACHINE_NAME` | Set by `agent-machine` for launches from the console: tag the session with its fleet machine. |
-
-Every session is also tagged with the computer's hostname, so the server can list agents you start by hand under the fleet machine of the same owner with that hostname. The agent itself gets `AI_PROXY_SESSION`, its session id, along with the variables its definition sets.
-
-## The Python client
-
-`python/agent_py/client` is a drop-in for the Go client: the commands `agent` and `agent-proxy`, the same options and subcommands (`login`, `logout`, `proxy`, `proxy stop`, `update [--force]`, `accounts`, `version`, `--list`, `--shell`, `--headless`, `--account`), the same files, ports and environment variables, and the same `agent-proxy` checks. `--control` runs the agent in a POSIX pty, or a ConPTY through pywinpty on Windows. Its `agent update` installs the server's Python wheel with pip. Install one client or the other on a computer, not both. See `python/README.md`.
+- **Its own routes.** `/api/terminals/<id>/host` relays a `--control` terminal to the server, signed as this computer. `POST /shutdown` stops it (for `agent proxy stop` and `agent update`), with the same loopback and origin checks.
 
 ## Supported agents
 
@@ -290,116 +250,47 @@ The server keeps every agent's definition in its database and renders it for eac
 | Aider | `agent aider` | Local models | Native Ollama | No |
 | Goose | `agent goose` | Local models | Native Ollama | Yes |
 
-"MCP" says whether the agent can take the MCP servers your machines share (`--mcp`): see [MCP servers](mcp.md).
+"MCP" says whether the agent can take the MCP servers your machines share (`--mcp`). How each one is given them (its settings file, or arguments) is in [MCP servers](mcp.md#what-each-agent-gets).
 
-### qwen: Qwen Code
+Install commands:
 
-Alibaba's terminal agent, tuned for the Qwen tool-calling format.
+| Agent | Install |
+|---|---|
+| `qwen` | `npm install -g @qwen-code/qwen-code` |
+| `opencode` | Linux and macOS: `curl -fsSL https://opencode.ai/install \| bash`. Windows: `npm install -g opencode-ai` (the script installs into WSL rather than Windows when WSL is there). |
+| `copilot`, `copilot-account` | `npm install -g @github/copilot` |
+| `claude`, `claude-subscription`, `claude-account` | Linux and macOS: `curl -fsSL https://claude.ai/install.sh \| bash`. Windows: `irm https://claude.ai/install.ps1 \| iex`. |
+| `codex`, `codex-account` | `npm install -g @openai/codex` |
+| `aider` | `python -m pip install aider-install && aider-install` |
+| `goose` | `curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh \| bash`. On Windows, run it in Git Bash (it needs bash, curl and unzip). |
 
-- **Install:** `npm install -g @qwen-code/qwen-code`
-- **Sets:** `OPENAI_BASE_URL` (`{openai_url}`), `OPENAI_API_KEY=local-ollama`, `OPENAI_MODEL`, and `QWEN_CODE_SYSTEM_SETTINGS_PATH` pointing at a `qwen-settings.json` the launcher writes. Runs `qwen --auth-type openai --model <model>`.
-- **Context size:** Qwen Code guesses the context size from the model's name and takes any `qwen3.x` for 1M. The settings file gives it the real one (`model.generationConfig.contextWindowSize`, from `{context_window}`).
-- **MCP:** in the same settings file, under `mcpServers`, each as `{"httpUrl": "<url>"}`.
+### Local-model agents
 
-### opencode: OpenCode
+- **`qwen`: Qwen Code.** Alibaba's terminal agent, tuned for the Qwen tool-calling format. Sets `OPENAI_BASE_URL` (`{openai_url}`), `OPENAI_API_KEY=local-ollama`, `OPENAI_MODEL`, and `QWEN_CODE_SYSTEM_SETTINGS_PATH` pointing at a `qwen-settings.json` the launcher writes. Runs `qwen --auth-type openai --model <model>`. Qwen Code guesses the context size from the model's name and takes any `qwen3.x` for 1M; the settings file gives it the real one (`model.generationConfig.contextWindowSize`, from `{context_window}`).
+- **`opencode`: OpenCode.** Open-source terminal agent with first-class support for local providers. Sets `OPENCODE_CONFIG_CONTENT`, a JSON config with a provider `agent-proxy` (`@ai-sdk/openai-compatible`, base URL `{openai_url}`) and the model with tool calls on. Runs `opencode --model agent-proxy/<model>`.
+- **`copilot`: GitHub Copilot CLI (Ollama, BYOK).** GitHub's terminal agent in bring-your-own-model mode. Sets `COPILOT_PROVIDER_TYPE=openai`, `COPILOT_PROVIDER_BASE_URL` (`{openai_url}`), `COPILOT_PROVIDER_API_KEY=local-ollama`, `COPILOT_MODEL` and `COPILOT_OFFLINE=true`. `COPILOT_OFFLINE` stops the CLI from contacting GitHub; remove it to keep GitHub sign-in features.
+- **`claude`: Claude Code (Ollama).** Anthropic's agent, translated from the Messages API to Ollama by the server. Sets `ANTHROPIC_BASE_URL` (`{anthropic_url}`), `ANTHROPIC_AUTH_TOKEN=local-ollama`, an empty `ANTHROPIC_API_KEY`, the model for `ANTHROPIC_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL` and `CLAUDE_CODE_SUBAGENT_MODEL`, and `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`. Runs `claude --model <model>`.
+- **`codex`: OpenAI Codex CLI (Ollama).** OpenAI's agent in `--oss` mode. Sets `CODEX_OSS_BASE_URL` (`{openai_url}`). Runs `codex --oss -m <model>`. The Responses API is passed through to Ollama unchanged, so set `OLLAMA_CONTEXT_LENGTH` on the Ollama server for a larger context (Ollama's settings are on its machine's page, see [Machines](machines.md)).
+- **`aider`: Aider.** Pair-programming agent that talks to Ollama's native chat API. Sets `OLLAMA_API_BASE` (`{ollama_url}`). Runs `aider --model ollama_chat/<model>`. It speaks native Ollama, so it can use Ollama and Docker Model Runner backends, not llama.cpp or Strata. It has no MCP support.
+- **`goose`: Goose.** Block's extensible open-source agent. Sets `GOOSE_PROVIDER=ollama`, `OLLAMA_HOST` (`{ollama_url}`) and `GOOSE_MODEL`. Runs `goose session`. Like Aider, it can use Ollama and Docker Model Runner backends, not llama.cpp or Strata.
 
-Open-source terminal agent with first-class support for local providers.
+### Account and hosted agents
 
-- **Install:** Linux and macOS: `curl -fsSL https://opencode.ai/install | bash`. Windows: `npm install -g opencode-ai` (the script installs into WSL rather than Windows when WSL is there).
-- **Sets:** `OPENCODE_CONFIG_CONTENT`, a JSON config with a provider `agent-proxy` (`@ai-sdk/openai-compatible`, base URL `{openai_url}`) and the model with tool calls on. Runs `opencode --model agent-proxy/<model>`.
-- **MCP:** in the same config, under `mcp`, each as `{"type": "remote", "url": "<url>", "enabled": true}`.
+Sign each one in with its own client first. The account agents get the HTTPS capture variables (see [Your accounts](#your-accounts-https-capture)) and no model: pass one after `--`.
 
-### copilot: GitHub Copilot CLI (Ollama, BYOK)
-
-GitHub's terminal agent in bring-your-own-model mode.
-
-- **Install:** `npm install -g @github/copilot`
-- **Sets:** `COPILOT_PROVIDER_TYPE=openai`, `COPILOT_PROVIDER_BASE_URL` (`{openai_url}`), `COPILOT_PROVIDER_API_KEY=local-ollama`, `COPILOT_MODEL`, `COPILOT_OFFLINE=true`.
-- **Notes:** `COPILOT_OFFLINE` stops the CLI from contacting GitHub. Remove it to keep GitHub sign-in features.
-- **MCP:** a `copilot-mcp.json` file (`mcpServers`, each `{"type": "http", "url": "<url>", "tools": ["*"]}`), passed with `--additional-mcp-config @<file>`.
-
-### claude: Claude Code (Ollama)
-
-Anthropic's agent, translated from the Messages API to Ollama by the server.
-
-- **Install:** Linux and macOS: `curl -fsSL https://claude.ai/install.sh | bash`. Windows: `irm https://claude.ai/install.ps1 | iex`.
-- **Sets:** `ANTHROPIC_BASE_URL` (`{anthropic_url}`), `ANTHROPIC_AUTH_TOKEN=local-ollama`, an empty `ANTHROPIC_API_KEY`, the model for `ANTHROPIC_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL` and `CLAUDE_CODE_SUBAGENT_MODEL`, and `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`. Runs `claude --model <model>`.
-- **MCP:** a `claude-mcp.json` file (`mcpServers`, each `{"type": "http", "url": "<url>"}`), passed with `--mcp-config <file>`.
-
-### claude-subscription: Claude Code (Anthropic API pass-through)
-
-Claude Code on its saved claude.ai login, through an `anthropic` backend.
-
-- **Install:** as for `claude`.
-- **Sets:** only `ANTHROPIC_BASE_URL` (`{anthropic_url}`). Runs `claude --model <model>`. Uses a backend of type `anthropic`.
-- **Notes:** sign in with `claude` first. Unset `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN`, and remove any `apiKeyHelper`, to keep subscription authentication.
-- **MCP:** as for `claude`.
-
-### claude-account: Claude Code (claude.ai account)
-
-Claude Code signed in to your Claude account. All of its HTTPS traffic is recorded: messages, token counts, OAuth refresh, telemetry, MCP and web fetches.
-
-- **Install:** as for `claude`.
-- **Sets:** the HTTPS capture variables (see [Your accounts](#your-accounts-https-capture)). No model: pass one with `-- --model sonnet`.
-- **Notes:** sign in with `claude` first. Unset `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_BASE_URL`, and remove any `apiKeyHelper`, so the account login is used.
-- **Subscription:** `claude` (`subscription:` in its definition). Started from the console on a machine, it can run with one of your [subscriptions](subscriptions.md); anyone but the machine's owner must choose one.
-- **MCP:** as for `claude`.
-
-### copilot-account: GitHub Copilot CLI (GitHub account)
-
-Copilot CLI signed in to your GitHub Copilot subscription. All of its HTTPS traffic to GitHub and Copilot is recorded.
-
-- **Install:** `npm install -g @github/copilot`
-- **Sets:** the HTTPS capture variables. Pass a model with `-- --model <name>`.
-- **Notes:** sign in with `copilot` (`/login`) first. Unset `COPILOT_PROVIDER_*` and `COPILOT_OFFLINE` so the GitHub subscription is used.
-- **MCP:** as for `copilot`.
-
-### codex-account: OpenAI Codex CLI (ChatGPT account)
-
-Codex signed in with your ChatGPT plan. All of its HTTPS and WebSocket traffic to OpenAI and ChatGPT is recorded.
-
-- **Install:** `npm install -g @openai/codex`
-- **Sets:** the HTTPS capture variables, plus `CODEX_CA_CERTIFICATE` set to the bundle (Codex replaces its trusted roots with this file, so it gets the full bundle, not only the CA). Runs `codex --no-daemon`. Pass a model with `-- -m <model>`.
-- **Notes:** sign in with `codex login` (ChatGPT) first, and unset `OPENAI_API_KEY` and `OPENAI_BASE_URL` so the ChatGPT login is used.
+- **`claude-subscription`: Claude Code (Anthropic API pass-through).** Claude Code on its saved claude.ai login, through a backend of type `anthropic`. Sets only `ANTHROPIC_BASE_URL` (`{anthropic_url}`). Runs `claude --model <model>`. Sign in with `claude` first. Unset `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN`, and remove any `apiKeyHelper`, to keep subscription authentication.
+- **`claude-account`: Claude Code (claude.ai account).** Claude Code signed in to your Claude account. All of its HTTPS traffic is recorded: messages, token counts, OAuth refresh, telemetry, MCP and web fetches. Pass a model with `-- --model sonnet`. Sign in with `claude` first. Unset `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_BASE_URL`, and remove any `apiKeyHelper`, so the account login is used. Its subscription kind is `claude` (`subscription:` in its definition): started from the console on a machine, it can run with one of your [subscriptions](subscriptions.md), and anyone but the machine's owner must choose one.
+- **`copilot-account`: GitHub Copilot CLI (GitHub account).** Copilot CLI signed in to your GitHub Copilot subscription. All of its HTTPS traffic to GitHub and Copilot is recorded. Pass a model with `-- --model <name>`. Sign in with `copilot` (`/login`) first. Unset `COPILOT_PROVIDER_*` and `COPILOT_OFFLINE` so the GitHub subscription is used.
+- **`codex-account`: OpenAI Codex CLI (ChatGPT account).** Codex signed in with your ChatGPT plan. All of its HTTPS and WebSocket traffic to OpenAI and ChatGPT is recorded. Also sets `CODEX_CA_CERTIFICATE` to the bundle: Codex replaces its trusted roots with this file, so it gets the full bundle, not only the CA. Runs `codex --no-daemon`. Pass a model with `-- -m <model>`. Sign in with `codex login` (ChatGPT) first, and unset `OPENAI_API_KEY` and `OPENAI_BASE_URL` so the ChatGPT login is used.
   - `--no-daemon` matters: without it the interactive TUI hands conversations to Codex's shared background app-server daemon, which runs without the proxy settings, so only startup calls would be captured.
   - Each Codex conversation opens with a *prewarm* turn (`generate: false`), which shows up as a model call with no output.
   - Codex may print `[UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental` when it picks up the proxy settings. It's harmless.
-- **MCP:** one `-c mcp_servers.<name>.url="<url>"` per server.
-
-### codex: OpenAI Codex CLI (Ollama)
-
-OpenAI's agent in `--oss` mode. It uses the Responses API, passed through to Ollama.
-
-- **Install:** `npm install -g @openai/codex`
-- **Sets:** `CODEX_OSS_BASE_URL` (`{openai_url}`). Runs `codex --oss -m <model>`.
-- **Notes:** the Responses API is passed through to Ollama unchanged, so set `OLLAMA_CONTEXT_LENGTH` on the Ollama server for a larger context (Ollama's settings are on its machine's page, see [Machines](machines.md)).
-- **MCP:** as for `codex-account`.
-
-### aider: Aider
-
-Pair-programming agent that talks to Ollama's native chat API.
-
-- **Install:** `python -m pip install aider-install && aider-install`
-- **Sets:** `OLLAMA_API_BASE` (`{ollama_url}`). Runs `aider --model ollama_chat/<model>`.
-- **Notes:** speaks native Ollama, so it can use Ollama and Docker Model Runner backends, not llama.cpp or Strata.
-- **MCP:** none. Aider has no MCP support.
-
-### goose: Goose
-
-Block's extensible open-source agent.
-
-- **Install:** `curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | bash`. On Windows, run it in Git Bash (it needs bash, curl and unzip).
-- **Sets:** `GOOSE_PROVIDER=ollama`, `OLLAMA_HOST` (`{ollama_url}`), `GOOSE_MODEL`. Runs `goose session`.
-- **Notes:** speaks native Ollama, so it can use Ollama and Docker Model Runner backends, not llama.cpp or Strata.
-- **MCP:** one `--with-streamable-http-extension <url>` per server, after `session`.
 
 ## What the requests are
 
-Every request is recorded with timing, sizes and status, and labelled with the service it went to and what it was for. For account agents, model calls are usually a small part of the traffic: most of it is what the agent does around them.
+Every request is recorded with timing, sizes and status, and labelled with the service it went to and what it was for. For account agents, model calls are usually a small part of the traffic: most of it is what the agent does around them. See [Console](console.md) for the pages that show them.
 
-### Request types
-
-The console sorts every request into one of these types (`ui/src/traffic.ts`):
+**Request types.** The console sorts every request into one of these types (`ui/src/traffic.ts`):
 
 | Type | What it is | Examples |
 |---|---|---|
@@ -417,9 +308,7 @@ The console sorts every request into one of these types (`ui/src/traffic.ts`):
 
 Back-to-back identical requests (same session, method, host and path) are folded into one row in the traffic list, except model calls.
 
-### What each account agent sends
-
-From real captures, grouped by purpose. Exact paths change between agent versions.
+**What each account agent sends**, from real captures, grouped by purpose. Exact paths change between agent versions.
 
 | | Claude Code | Copilot CLI | Codex CLI |
 |---|---|---|---|
@@ -428,7 +317,7 @@ From real captures, grouped by purpose. Exact paths change between agent version
 | **Around each prompt** | Token counts, MCP tool calls | MCP | Prewarm turn (`generate: false`) |
 | **In the background** | Event logging batches, metrics, Datadog logs; organization settings polled repeatedly | Telemetry batches, release check | Telemetry and analytics events, npm and GitHub release checks |
 
-### What's recorded for each request
+**What's recorded for each request:**
 
 | Field | Meaning |
 |---|---|
@@ -440,8 +329,6 @@ From real captures, grouped by purpose. Exact paths change between agent version
 | Headers | Request and response headers, credentials redacted. |
 | Request, response, conversation | Full bodies and a readable conversation (system prompt, messages, reasoning, reply, tool calls), when capture is on. |
 | Sent to Ollama | For local models, the exact payload after translation and model settings. |
-
-See [Console](console.md) for the pages that show them.
 
 ## Sharing a terminal with --control
 
@@ -460,9 +347,7 @@ With `--control`, the launcher runs the agent in a pseudo-terminal (ConPTY on Wi
 
 Typing into an agent's terminal is as good as a shell on that computer. Viewers need an active OIDC sign-in and session permission. See [Console](console.md) and [Accounts](accounts.md).
 
-### Who can see a session
-
-Every session belongs to whoever started it and is private until they share it. The launcher's sharing flags set it when the session starts:
+**Who can see a session.** Every session belongs to whoever started it and is private until they share it. The launcher's sharing flags set it when the session starts:
 
 | `--share` | Who sees it |
 |---|---|
@@ -483,6 +368,15 @@ An admin adds one in any of these ways:
 - **In a settings document:** under `agents:` in a file for `agent-server config import` (see [Configuration](configuration.md)).
 
 The agents that ship with the server are in `server/agent_server/defaults.py`. They're added to the database on the first start and follow the server's upgrades until someone changes them; the console marks each one **Shipped**, **Shipped, changed** or **Added here**. **Reset to the shipped one** (or `POST /api/config/agents/<id>/reset`) undoes a change. A shipped agent that was removed stays removed through upgrades until it's added again or reset. To ship a new agent with the server itself, add it to `defaults.py` (see [Development](development.md)).
+
+The server stores a definition's contents, not its YAML text, so comments in a definition you save aren't kept. The comments on the shipped agents are in `defaults.py`.
+
+Checklist for a new agent:
+
+1. Add the definition on **Server settings** → **Agents** (`executable`, `protocol`, `env` and `args` templates, `install`, `homepage`, and `backend_type` or `intercept`; an `mcp` block if the agent takes MCP servers over Streamable HTTP).
+2. Run `agent --list` to check it's found.
+3. Launch it once with `--trace` and read the recorded traces on **Traffic**.
+4. If it ships with the server, add it to `defaults.py` and to this page's [Supported agents](#supported-agents).
 
 ### The entry
 
@@ -521,14 +415,12 @@ agents:
 | `protocol` | The API it speaks: `openai-chat`, `openai-responses`, `anthropic` or `ollama`. Default: `openai-chat`. The server uses it to decide which backends can serve it. |
 | `backend_type` | `ollama` (default) for local models: Ollama, and llama.cpp, Strata or Docker Model Runner when they speak the protocol. `anthropic` for hosted pass-through. Ignored with `intercept`. |
 | `intercept` | `true` for an agent that keeps its own login and is captured in transit. The launcher sets the HTTPS capture variables, the session's backend is `direct`, and `--model` becomes optional. |
-| `env` | Environment variables, as templates. A value written as a YAML mapping or list is rendered and passed as compact JSON (OpenCode's `OPENCODE_CONFIG_CONTENT` is one). |
+| `env` | Environment variables, as templates. A value written as a YAML mapping or list is rendered and passed as compact JSON (OpenCode's `OPENCODE_CONFIG_CONTENT` is one). The server adds `AI_PROXY_SESSION` (the session id) to every agent's environment. |
 | `args` | Command-line arguments, as templates. Arguments you pass after `--` come after these. |
 | `files` | Settings files the launcher writes for the session into `{files_dir}`, and removes when the agent exits. Name to contents: a string is written as it is, a mapping as JSON. Names are plain file names (letters, numbers, `.`, `_`, `-`, up to 64 characters). |
 | `install` | The install command: one string for everywhere, or a mapping with `linux`, `macos`, `windows`, `wsl` and `default`. `wsl` falls back to `linux`; `default` (or else the Linux one) covers the rest. The console shows the one for the environment you pick, and `agent` prints the one for its own. |
 | `homepage`, `description`, `notes`, `recommended_for` | Shown in the console. |
-| `mcp` | How the agent takes shared MCP servers (below). Without it, it can't have any. |
-
-The server adds `AI_PROXY_SESSION` (the session id) to every agent's environment.
+| `mcp` | How the agent takes shared MCP servers (see [The mcp block](#the-mcp-block)). Without it, it can't have any. |
 
 ### Placeholders
 
@@ -560,7 +452,7 @@ Rules for rendering:
 
 ### The mcp block
 
-The `mcp` block says how the agent takes the MCP servers its launch chose (`--mcp`, or a picker in the console). See [MCP servers](mcp.md) for the feature itself.
+The `mcp` block says how the agent takes the MCP servers its launch chose (`--mcp`, or a picker in the console). See [MCP servers](mcp.md) for the feature itself. The block may only have these keys; the server refuses others when the definition is saved.
 
 | Key | What it does |
 |---|---|
@@ -573,14 +465,3 @@ The `mcp` block says how the agent takes the MCP servers its launch chose (`--mc
 The MCP arguments (`args` then `args_each`) go where the agent's `args` contain `"{mcp_args}"`, or else before the agent's own arguments. Goose uses `{mcp_args}` because its extensions are options of `goose session`. Before is the default because Claude Code's `--mcp-config` takes every value up to the next option.
 
 `{mcp_name}` is the server's own name, or `<machine>-<name>` when two machines share a server of the same name in one launch.
-
-The block may only have the keys `entry`, `env`, `files`, `args` and `args_each`; the server refuses others when the definition is saved.
-
-### Checklist
-
-1. Add the definition on **Server settings** → **Agents** (`executable`, `protocol`, `env` and `args` templates, `install`, `homepage`, and `backend_type` or `intercept`; an `mcp` block if the agent takes MCP servers over Streamable HTTP).
-2. Run `agent --list` to check it's found.
-3. Launch it once with `--trace` and read the recorded traces on **Traffic**.
-4. If it ships with the server, add it to `defaults.py` and to this page's [Supported agents](#supported-agents).
-
-The server stores a definition's contents, not its YAML text, so comments in a definition you save aren't kept. The comments on the shipped agents are in `defaults.py`.

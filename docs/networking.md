@@ -45,9 +45,9 @@ flowchart LR
   style M fill:#d9770612,stroke:#d97706
 ```
 
-## Every connection
+## Every connection and port
 
-Which of these are encrypted, and why the few plain-HTTP ones stay on one computer, is on [Security](security.md#encryption-in-transit).
+Every connection, what opens it and what it carries. Which of these are encrypted, and why the few plain-HTTP ones stay on one computer, is on [Security](security.md#encryption-in-transit).
 
 | From | To | Transport | Opened by | Credential | Carries |
 | --- | --- | --- | --- | --- | --- |
@@ -69,7 +69,7 @@ Which of these are encrypted, and why the few plain-HTTP ones stay on one comput
 
 Every HTTP client and WebSocket dialer in `agent` and `agent-machine` ignores `HTTPS_PROXY` and `HTTP_PROXY` (`Proxy: nil` in Go, `trust_env=False` in Python). They often run inside an intercepted agent's environment, and would otherwise send themselves through their own proxy in a loop.
 
-## Ports
+The ports each part listens on:
 
 | Port | Where | Listens on | What |
 | --- | --- | --- | --- |
@@ -103,26 +103,17 @@ The `agent-proxy` sorts every request by its path:
 
 Every route checks that the request came from this computer: a loopback Host and no other site's `Origin`. A web page in a browser on the same computer can't use the `agent-proxy` to act as you.
 
-### 2. At the server's door
+### 2. At the server: sign-in, session and backend
 
 - **Protocol check.** `agent` and `agent-machine` send `X-AI-Proxy-Version` and `X-AI-Proxy-Protocol`. A protocol outside the server's `MIN_PROTOCOL`…`PROTOCOL` gets `426 Upgrade Required` (WebSockets: close `4426`), with how to update. Agents' own requests carry no such header and aren't checked.
 - **Sign-in.** Everything under `/api/`, `/v1/`, `/anthropic/` and `/session/` needs an OAuth access token (the `agent-proxy` adds its machine's as `X-AI-Proxy-Token`). An agent's request also has to name an **open** session (not ended) that the signed-in user may control: in the path, or in `X-AI-Proxy-Session` on bare `/v1/` and `/anthropic/`. The agent's own `Authorization` header is passed on to the provider; platform credentials never are.
-
-### 3. The session and its backend
-
-`routes/compat.py` takes the session id from the path, else from `X-AI-Proxy-Session`:
-
-- **Known session:** used as it is.
-- **Unknown id:** `404 Session not found`.
-- **No id at all** (a tool pointed at bare `/v1`): the server opens an implicit session for it, client `unregistered`, owned by whoever is signed in, on the default backend.
+- **The session.** `routes/compat.py` takes the session id from the path, else from `X-AI-Proxy-Session`. A known session is used as it is; an unknown id gets `404 Session not found`. With no id at all (a tool pointed at bare `/v1`), the server opens an implicit session for it, client `unregistered`, owned by whoever is signed in, on the default backend.
 
 The **backend** is `X-AI-Proxy-Backend` if the request sends it, else the session's backend (picked when it was opened), else `default_backend`. Which backend a session gets at launch is `config.backend_for()`, from what the agent speaks and what each backend serves; see [Architecture](architecture.md#routes-and-backends).
 
-### 4. Endpoint and backend type
+### 3. Endpoint and backend type
 
-What the server does depends on both the endpoint the agent called and the backend's type:
-
-llama.cpp (`llamacpp`) is handled as Strata is below, apart from the key: the server adds none, except a container's own.
+What the server does depends on both the endpoint the agent called and the backend's type. llama.cpp (`llamacpp`) is handled as Strata is below, apart from the key: the server adds none, except a container's own.
 
 | Agent calls | `ollama` backend | `strata` backend | `docker` backend | `anthropic` backend |
 | --- | --- | --- | --- | --- |
@@ -138,9 +129,9 @@ llama.cpp (`llamacpp`) is handled as Strata is below, apart from the key: the se
 
 Why Ollama is translated: its OpenAI-compatible `/v1` ignores per-request settings such as `num_ctx`, so agents' long conversations would be cut to Ollama's default context with no error. The native API takes the context size and sampling settings from the server's Ollama model tuning. See [Providers](providers.md).
 
-### 5. The upstream address
+### 4. The upstream address
 
-The request goes to the backend's address, or through its machine:
+The request goes to the backend's address, or through its machine (see [Tunnels](#tunnels)):
 
 ```mermaid
 flowchart TD
@@ -155,7 +146,7 @@ flowchart TD
 
 "On the server's computer" means the machine's address, as the server saw its connection or as set with `agent-machine address`, is a loopback address. Hosted backends (`anthropic`) have no machine and always go direct.
 
-### 6. Headers and streaming
+### 5. Headers and streaming
 
 - **To the backend**, the request goes with the agent's own headers, `Authorization` included, minus `Host`, `Content-Length`, `Connection`, `Accept-Encoding`, `X-AI-Proxy-Session`, `X-AI-Proxy-Backend` and `X-AI-Proxy-Finish`. For Strata the server puts in Strata's key: a container's, `STRATA_API_KEY`, or the one its machine reported. For a llama.cpp container it puts in the key it gave the container.
 - **Back to the agent**, a passed-through reply keeps `retry-after`, `x-should-retry`, `request-id` and `anthropic-ratelimit-*`, so agents' own retry logic still works. Every reply adds `X-Request-ID` and `X-Session-ID`.
@@ -183,23 +174,26 @@ sequenceDiagram
 
 - The `agent-proxy` doesn't read the `CONNECT` itself. It opens one WebSocket to the server per TCP connection and copies the bytes both ways as binary messages. The server reads the `CONNECT`, the session from `Proxy-Authorization`, and does the TLS.
 - **Refusals.** If the server won't take the tunnel (401 or 403, or a close `4401` or `4403`), the agent-proxy answers the agent's `CONNECT` with `407 Proxy Authentication Required`; any other failure is `502 Bad Gateway`. Both carry the reason in `X-Agent-Proxy-Error`. It reads the agent's request head first, because on Windows closing a socket with unread data resets it, and the agent would never see the answer.
-- Hosts under `intercept.passthrough` are tunnelled without being decrypted. All intercepted destinations must resolve only to public IP addresses; private, loopback, link-local and reserved addresses are refused.
-- WebSockets inside the TLS (Codex sends its turns this way) are relayed byte for byte, and their messages decoded on the side for the record.
+- All intercepted destinations must resolve only to public IP addresses; private, loopback, link-local and reserved addresses are refused.
 
-More in [Architecture](architecture.md#https-interception).
+The CA, `intercept.passthrough` hosts and WebSockets inside the TLS are covered in [Architecture](architecture.md#https-interception).
 
-## Tunnels
+## Machines: the fleet socket and tunnels
 
-When a backend's traffic goes through its machine (step 5 above):
+Each machine holds one WebSocket open to the server, and dials a second one back for each connection the server needs to something on it.
+
+### Tunnels
+
+When a backend's traffic goes through its machine (step 4 above):
 
 1. The server opens a listener on `127.0.0.1:<random>` for that machine and model server port, once, and sends the backend's requests there.
 2. Each new TCP connection to the listener gets a fresh random tunnel id. The server sends `{"type": "tunnel", "tunnel": "<id>", "port": 11434}` over the machine's fleet socket.
-3. The machine checks the port is one it reported (a model server, a container it runs, or its MCP bridge), connects to `127.0.0.1:<port>`, and dials `WS /api/machines/tunnel/<id>` back, signed with its token.
+3. The machine checks the port is one it reported (a model server, a container it runs, or its MCP bridge), connects to `127.0.0.1:<port>`, and dials `WS /api/machines/tunnel/<id>` back, signed with its token (`machine/internal/presence/tunnel.go`).
 4. The server checks the id is one it's waiting for, and that the machine dialling back is the machine it asked (the same owner). Then it pipes the bytes both ways until either side closes.
 
 If the machine doesn't dial back within 10 seconds, the server asks once more; nothing of the request has been read yet, so that's safe. A machine that dropped its fleet connection in the last minute is still tunnelled: the connection waits up to 10 seconds for it to come back. If it still can't get a tunnel, the connection is dropped and the agent sees a gateway error. Bytes already on their way are never replayed (the model would answer again); the agent retries the whole request, as it does for any failed call. The tunnel's WebSocket renews its token as the fleet connection does: the machine sends `{"type": "token", "token": ...}` as a text frame (the model's bytes are binary), so a long reply isn't cut when the token it opened with expires. Inside it's plain TCP, so HTTP keep-alive, chunked replies and streaming all work unchanged, and the server's HTTP client reuses an open tunnel like any other connection. The listener only takes connections from the server's own process, on loopback; nothing outside can open a tunnel.
 
-## The fleet socket
+### The fleet socket
 
 `agent-machine run` holds `WS /api/machines/connect` open, signed with its own token. Every message is a JSON text frame with a `type`.
 
@@ -227,7 +221,7 @@ sequenceDiagram
 
 | `type` | Asks for | Answered with |
 | --- | --- | --- |
-| `tunnel` | A tunnel to a loopback port (above) | the machine dialling `WS /api/machines/tunnel/<id>` |
+| `tunnel` | A tunnel to a loopback port ([above](#tunnels)) | the machine dialling `WS /api/machines/tunnel/<id>` |
 | `provider` | Something about one of its model servers: status, models, pull, delete, load, unload, log, metrics, catalogue search | `provider_result`; a pull also sends `provider_progress` as it goes |
 | `server` | Start, stop or restart its Ollama, llama.cpp or a Strata profile; Ollama's and llama.cpp's settings; installing llama.cpp | `server_result`, with the machine's `servers` state |
 | `container` | Status, start, stop, restart, remove or logs of a container it runs | `container_result` |
@@ -280,7 +274,9 @@ A shared terminal has one host (the launcher) and any number of viewers (console
 - **The `agent-proxy`'s relay** passes a refusal from the server through as it is. It turns any other failure, such as a reverse proxy's `502`, `503` or `504` while the server restarts, into `1011`, which the launcher retries.
 - **A viewer** reconnects after 2 seconds with `?from=<offset>`, the end of the output it has, and gets only what it missed (`replay` says `resumed`). Output from before a server restart, or before a gap the launcher skipped, can't be resumed from: the viewer then gets the whole history again. A `4404` (no terminal yet) is retried every 1.5 seconds for a minute: a launch from the console opens its page as soon as the session exists, a moment before the launcher has connected.
 
-## Headers
+## Headers and close codes
+
+The headers the parts add or read:
 
 | Header | Sent by | Meaning |
 | --- | --- | --- |
@@ -295,7 +291,7 @@ A shared terminal has one host (the launcher) and any number of viewers (console
 | Cookie `ai_proxy_session` | browsers | A console sign-in (SameSite=Lax) |
 | Cookie `mesh_accounts` | browser, API `/api/auth` only | HttpOnly and signed: the rotating refresh token of each account the browser is signed in to (up to 5), and which is active; never sent to providers. Replaces the older `mesh_refresh`, which is read once and moved into it |
 
-## WebSocket close codes
+The WebSocket close codes, and who retries after each:
 
 | Code | Where | Meaning | Who retries |
 | --- | --- | --- | --- |

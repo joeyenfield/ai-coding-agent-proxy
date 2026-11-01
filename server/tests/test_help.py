@@ -85,5 +85,5 @@ def test_every_docs_page_is_in_the_consoles_docs_list():
 
     listed = set(re.findall(r'id: "([a-z0-9-]+)"', (ROOT / "ui" / "src" / "pages" / "Docs.tsx").read_text(encoding="utf-8")))
     pages = {path.stem for path in (ROOT / "docs").glob("*.md")}
-    assert pages - listed == set(), "add these to DOC_PAGES in ui/src/pages/Docs.tsx"
-    assert listed - pages == set(), "DOC_PAGES names pages docs/ doesn't have"
+    assert pages - listed == set(), "add these to DOC_SECTIONS in ui/src/pages/Docs.tsx"
+    assert listed - pages == set(), "DOC_SECTIONS names pages docs/ doesn't have"

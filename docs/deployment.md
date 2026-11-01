@@ -1,70 +1,12 @@
 # Deployment
 
-**Authentication is mandatory.** For public deployments, run `agent-auth` separately at **auth.aicontrolmesh.com**, register API callbacks, configure the shared introspection secret and provide HTTPS. The root Compose includes the issuer on host loopback :10000, with its state in its own PostgreSQL schema. See [OIDC authentication](oidc.md) before starting or upgrading public services. The local demo below includes its own loopback issuer.
-
 How to run the server for other machines and people, put HTTPS in front of it, and get `agent` and `agent-machine` onto the computers that use it.
 
-For Kubernetes, and for running several server processes behind a load balancer (high availability, or hundreds of engineers), see [Running several server processes](scaling.md) and the Helm chart in `deploy/helm/agent-mesh/`.
+**Authentication is mandatory.** For public deployments, run `agent-auth` separately at **auth.aicontrolmesh.com**, register API callbacks, configure the shared introspection secret and provide HTTPS. The root Compose includes the issuer on host loopback :10000, with its state in its own PostgreSQL schema. See [OIDC authentication](oidc.md) before starting or upgrading public services.
 
-## Local container quickstart
+**To try it first**, run the self-contained demo stack on your own computer: [Quickstart with Docker or Podman](quickstart.md), or [Quickstart on Kubernetes](quickstart-kubernetes.md). The demo has its own loopback issuer, signs its machines in through normal device authorization, and mounts no host project folders or Docker socket; `quickstart/README.md` explains how its local sign-in and Podman setup work. For a public install, follow this page and the [OIDC deployment guide](oidc.md).
 
-For a local demo, the checkout's `quickstart/` folder contains a separate Compose project
-with the API and console, its OIDC issuer, PostgreSQL, two fleet machines, and Ollama on machine-1.
-[Quickstart](quickstart.md) is a step-by-step guide to it.
-From the repository root:
-
-```bash
-podman compose -f quickstart/compose.yaml up -d
-```
-
-It runs the published images ([below](#images-on-ghcrio)); add `-f quickstart/compose.build.yaml` and `--build` to build them from the checkout instead. Use `docker compose` instead for Docker. With Podman on Windows/macOS, start the VM
-with `podman machine start` first (`podman machine init` once if none exists).
-`podman compose version` checks the Compose provider; Podman Desktop can install it
-under **Settings > Resources > Compose**. A provider named Docker Compose works with
-Podman: `podman compose` connects it to the Podman engine.
-
-Open **http://localhost:19999**, using `localhost` exactly, and sign in with **admin** /
-**secret**. Sign-in uses the local issuer on `http://localhost:20000`. Both published ports
-bind host loopback. The demo's environment-defined admin password can be overridden with
-`QUICKSTART_ADMIN_PASSWORD`; these known demo credentials are for local use.
-
-The machines automatically sign in separately for the launcher and fleet connection.
-They have independent home/workspace volumes and allow launches and shells in `/workspace`.
-Ollama runs in its own container on CPU by default; machine-1 relays its loopback port
-11434 to it, where agent-machine finds it. No host project folders or Docker socket are mounted.
-
-In **Machines**, open **machine-1** and choose **Add as a provider** for Ollama. This creates
-the default `machine-1` backend. Pull a model from its model page, then start an agent on
-either machine with that backend and model. No model is downloaded automatically.
-The server reaches Ollama through the fleet tunnel; model operations run on machine-1.
-Compose controls the Ollama process itself.
-
-Use `podman compose -f quickstart/compose.yaml logs -f machine-1 machine-2` to inspect the
-machines and `podman compose -f quickstart/compose.yaml stop` to stop the demo. Volumes
-preserve the database (configuration, accounts, auth state, recordings), workspaces and models. To delete all of
-that demo state, run `podman compose -f quickstart/compose.yaml down -v`. Reset or sign the
-machines in again after changing the admin password, which invalidates their tokens.
-
-The helper scripts in `quickstart/` forward the canonical localhost addresses inside
-containers and provision machine credentials through normal issuer device authorization.
-They do not change the server's authentication rules. For public deployment use the
-HTTPS setup below and the [OIDC deployment guide](oidc.md).
-
-Images use explicit registries to avoid Podman's short-name selection prompt. The
-shared read-only helper mounts use SELinux's `z` label. Keep the services in separate
-network namespaces: a container sharing another's (`network_mode: service:...`) stops
-Podman from recreating that one after a rebuild.
-
-The root `.dockerignore` excludes generated screenshot/test folders, virtual environments
-and agent history. Keep these exclusions when customizing the build context: private
-Windows ACLs on generated directories can otherwise cause `checking context: can't stat`
-before a build starts.
-
-On Windows, a `netavark`/`nftables` failure before containers start can be a WSL kernel
-compatibility problem ([reported upstream](https://github.com/containers/netavark/issues/1495)).
-Update WSL with `wsl --update`, save other WSL work, and restart WSL/Podman before
-retrying. `wsl --shutdown` stops all distributions, so schedule it accordingly. The
-quickstart retains bridge networking and does not disable the VM firewall.
+**For Kubernetes in production**, and for running several server processes behind a load balancer (high availability, or hundreds of engineers), see [Running several server processes](scaling.md) and the Helm chart in `deploy/helm/agent-mesh/`.
 
 ## The server in Docker
 
@@ -100,6 +42,12 @@ Everything the server keeps is in PostgreSQL ([below](#postgresql)), so its own 
 A new server starts with the hosted Anthropic API as its one provider. Local providers come from machines in the fleet: run `agent-machine` where the models are and add them from the console ([Machines](machines.md)).
 
 Authentication is always required. The first start on a new database creates an `admin` user with a random password. `docker compose logs agent-server` shows it, and it's saved as `first-user-password` in the certs volume. See [Accounts](accounts.md).
+
+**Versions in Docker.** The published images carry their version (`2.0.1`, or `2.0.1+<commit>` for `sha-<commit>`). An image you build has no git inside, so pass the version as a build argument: `AI_PROXY_VERSION=1.2.0+abc1234 docker compose -f compose.yaml -f compose.build.yaml build`. The server hands out the `dist/<version>/` of its own version, or the newest of the same `X.Y.Z` when that wasn't built, so match it to the builds you mount.
+
+**A sandbox machine.** `docker compose --profile sandbox up -d` also starts `agent-sandbox` (`ghcr.io/joeyenfield/agent-sandbox`, from `sandbox/Dockerfile`): `agent`, `agent-machine` and npm coding agents in a container that joins the fleet and takes launches in `/workspace` only. Set `AI_PROXY_SERVER` to your HTTPS API and optionally `AI_PROXY_MACHINE_NAME`. Approve both device codes from its logs on first start; persistent credentials refresh on later starts. Password/key bootstrap is removed. See [Machines](machines.md).
+
+**Podman** runs the same images; when building them yourself, pass `--http-proxy=false` to `podman build`. `podman compose` works with any Compose provider, a Docker Compose one included: it connects it to the Podman engine. Keep the root `.dockerignore`'s exclusions (generated screenshot and test folders, virtual environments, agent history) when you customize the build context: private Windows ACLs on generated folders otherwise stop a build with `checking context: can't stat`. On Windows, a `netavark`/`nftables` failure before containers start can be a WSL kernel problem ([reported upstream](https://github.com/containers/netavark/issues/1495)): run `wsl --update`, then restart WSL and Podman (`wsl --shutdown` stops every distribution, so save other WSL work first). Keep bridge networking and the VM firewall as they are.
 
 ### Images on ghcr.io
 
@@ -150,6 +98,8 @@ On its first start the service runs `server/docker/postgres-init.sh`, which make
 
 `agent-server` gets `AI_PROXY_DATABASE_URL=postgresql+psycopg://mesh_api:...@postgres:5432/mesh` and `agent-auth` gets `AI_PROXY_AUTH_DATABASE_URL=postgresql+psycopg://mesh_auth:...@postgres:5432/mesh`. Both wait for the database to be healthy, and the server brings its tables up to date on every start.
 
+**Upgrading from files.** An install from before the database keeps its old volumes (`agent-server-config`, `agent-server-logs`, `agent-server-certs`, `agent-auth-state`), and `compose.yaml` still mounts them. On the first start with PostgreSQL, the server imports `backends.yaml`, `models.yaml`, `agents.yaml`, `users.json`, the keys, the capture CA, `machines.json` and every recorded session, and agent-auth imports its `issuer.sqlite3` and signing key, so everyone stays signed in. A large `logs/` takes a while; the server logs its progress and carries on after an interruption. Nothing is deleted. Once it runs from the database you can drop the old files, and the `/app/config` and `/app/auth-state` mounts. See [Upgrading from files](configuration.md#upgrading-from-files).
+
 ### A PostgreSQL of your own
 
 Make a database named `mesh` (`CREATE DATABASE mesh;`), then run the same statements in it as its administrator, with your own passwords, and give the two programs their URLs:
@@ -177,19 +127,11 @@ docker compose exec -T postgres pg_restore -U postgres -d mesh --clean --if-exis
 
 To copy only the settings (no accounts or recordings), use `agent-server config export` and `import` ([Configuration](configuration.md#all-settings-as-one-document)).
 
-### Upgrading from files
-
-An install from before the database keeps its old volumes (`agent-server-config`, `agent-server-logs`, `agent-server-certs`, `agent-auth-state`), and `compose.yaml` still mounts them. On the first start with PostgreSQL, the server imports `backends.yaml`, `models.yaml`, `agents.yaml`, `users.json`, the keys, the capture CA, `machines.json` and every recorded session, and agent-auth imports its `issuer.sqlite3` and signing key, so everyone stays signed in. A large `logs/` takes a while; the server logs its progress and carries on after an interruption. Nothing is deleted. Once it runs from the database you can drop the old files, and the `/app/config` and `/app/auth-state` mounts. See [Upgrading from files](configuration.md#upgrading-from-files).
-
-**Versions in Docker.** The published images carry their version (`2.0.1`, or `2.0.1+<commit>` for `sha-<commit>`). An image you build has no git inside, so pass the version as a build argument: `AI_PROXY_VERSION=1.2.0+abc1234 docker compose -f compose.yaml -f compose.build.yaml build`. The server hands out the `dist/<version>/` of its own version, or the newest of the same `X.Y.Z` when that wasn't built, so match it to the builds you mount.
-
-**A sandbox machine.** `docker compose --profile sandbox up -d` also starts `agent-sandbox` (`ghcr.io/joeyenfield/agent-sandbox`, from `sandbox/Dockerfile`): `agent`, `agent-machine` and npm coding agents in a container that joins the fleet and takes launches in `/workspace` only. Set `AI_PROXY_SERVER` to your HTTPS API and optionally `AI_PROXY_MACHINE_NAME`. Approve both device codes from its logs on first start; persistent credentials refresh on later starts. Password/key bootstrap is removed. See [Machines](machines.md).
-
-Podman runs the same images; when building them yourself, pass `--http-proxy=false` to `podman build`.
-
 ## HTTPS
 
 Put HTTPS in front of the server whenever it's reachable from outside your own network. Without it, sign-in cookies, tokens and recorded traffic cross the network in the clear. What any reverse proxy in front needs to do (WebSockets, no buffering, long timeouts, `Host` and `X-Forwarded-For`) is in [Networking](networking.md#behind-a-reverse-proxy). [Security](security.md#a-checklist-for-a-public-server) has a checklist for a public server.
+
+**HTTPS from the server itself.** The server can also serve HTTPS directly: set `AI_PROXY_TLS_CERT` and `AI_PROXY_TLS_KEY` (or `proxy.tls` in its settings) to a certificate and key file. See [Configuration](configuration.md).
 
 ### Separate console and API domains
 
@@ -265,10 +207,6 @@ nginx forwards the `Host` header to each service. The API routes upgrade WebSock
 
 Set `proxy.public_url` to `https://console.<domain>`. The HTTPS script also configures `auth.<domain>` (`-AuthHostName`, `-AuthBackend`) for the separate issuer; supply its registered URLs and shared secret as described in [OIDC](oidc.md).
 
-### HTTPS from the server itself
-
-The server can also serve HTTPS directly: set `AI_PROXY_TLS_CERT` and `AI_PROXY_TLS_KEY` (or `proxy.tls` in its settings) to a certificate and key file. See [Configuration](configuration.md).
-
 ## What the server hands out
 
 Each server offers the builds of its own version, so the programs a machine installs from it always speak its protocol. They're public, like `/health`, because a machine needs them before it can sign in.
@@ -300,14 +238,14 @@ The server writes each script for the request: its address as you reached it (ch
 | `install.sh` | `install.ps1` | What it does |
 |---|---|---|
 | `--only agent` or `--only agent-machine` | `-Only` | Just one of them (default: both). |
-| `--service` | `-Service` | Start `agent-machine` at boot or sign-in (below). |
+| `--service` | `-Service` | Start `agent-machine` at boot or sign-in ([below](#from-an-archive-and-as-a-service)). |
 | `--prefix DIR` | `-Prefix DIR` | Install into `DIR`. |
 | `--no-login` | `-NoLogin` | Don't sign in; print the commands instead. |
 | `--no-start` | `-NoStart` | Don't start `agent-machine` after signing it in. |
 
 `AGENT_PLATFORM` overrides the detected platform (such as `linux-arm64`). The console's **Downloads** page and **Add a machine** show the commands for your server, ready to copy.
 
-### By hand from an archive
+### From an archive, and as a service
 
 Every archive has an installer for its system. Unpack it, then:
 
@@ -324,8 +262,6 @@ powershell -ExecutionPolicy Bypass -File install.ps1 -Service   # also start age
 powershell -ExecutionPolicy Bypass -File install.ps1 -Uninstall # runs uninstall.ps1
 ```
 
-### As a service
-
 `--service` (`-Service`) makes `agent-machine` start by itself. It runs as the user who ran the installer (the `sudo` user under `sudo`), because that user's `agent-machine login` and settings are the ones it uses. If an `agent-machine` is already running, the installer stops it and says so, so the service's own can join the fleet. Sign in with `agent-machine login` before or after; the service keeps trying until then.
 
 | System | What `--service` sets up |
@@ -335,6 +271,35 @@ powershell -ExecutionPolicy Bypass -File install.ps1 -Uninstall # runs uninstall
 | macOS | A launchd agent, `~/Library/LaunchAgents/com.ai-coding-agent-proxy.agent-machine.plist`, run when you log in |
 | FreeBSD, as root | An rc.d service, `/usr/local/etc/rc.d/agent_machine`, enabled with `sysrc` |
 | Windows | A scheduled task, `agent-machine`, that runs `agent-machine start` when you sign in |
+
+### Native packages and the Python wheel
+
+Built with `PACKAGES=1` (`-Packages`), native packages install the same programs:
+
+```bash
+sudo apt install ./agent-<version>-linux-amd64.deb               # Debian, Ubuntu
+sudo dnf install ./agent-<version>-linux-amd64.rpm               # Fedora, RHEL (warns that it isn't signed)
+sudo apk add --allow-untrusted ./agent-<version>-linux-amd64.apk # Alpine
+sudo pacman -U ./agent-<version>-linux-amd64.pkg.tar.gz          # Arch
+msiexec /i agent-<version>-windows-amd64.msi                     # Windows
+sudo installer -pkg agent-<version>-darwin-arm64.pkg -target /   # macOS
+```
+
+| Format | Installs to |
+|---|---|
+| `.deb`, `.rpm`, `.apk`, Arch `.pkg.tar.gz` | `/usr/bin` |
+| `.msi` | `Program Files\agent` or `Program Files\agent-machine`, on the system `PATH` |
+| macOS `.pkg` | `/usr/local/bin` |
+
+`agent-<version>-...` holds the package named `agent-proxy` (with `agent` and `agent-proxy`), and `agent-machine-<version>-...` the `agent-machine` one. None are signed. The `agent-machine` Linux packages include a systemd user unit, not enabled: after `agent-machine login`, turn it on with `systemctl --user enable --now agent-machine`. The MSI and macOS packages set up no service: run `agent-machine start`, or use the archive's installer with `--service`.
+
+**The Python wheel.** For computers without a Go build, `python/` is a drop-in `agent`, `agent-proxy` and `agent-machine` in Python, with the same protocol, files and ports, and everything the Go programs do. The server hands it out as one wheel:
+
+```bash
+pip install http://server:9999/downloads/<version>/python/ai_proxy_agent_py-<version>-py3-none-any.whl
+```
+
+The **Downloads** page has its exact address. Its `update` pip-installs the server's wheel. See `python/README.md`.
 
 ### Uninstalling
 
@@ -369,37 +334,6 @@ Every archive has the same script (`uninstall.sh` or `uninstall.ps1`), which `in
 
 Without `--purge`, sign-ins and settings stay, so reinstalling picks up where you left off. Containers agent-machine ran, and the models it pulled, stay too. The machine stays in the server's fleet list until someone removes it there (the machine's page, **Remove from this server**; see [Machines](machines.md#removing-and-restoring-a-machine)). On Windows, a program that's still in use (an agent running through `agent.exe`) can't be deleted: the script says which, so close it and run the script again.
 
-### Native packages
-
-Built with `PACKAGES=1` (`-Packages`), they install the same programs:
-
-```bash
-sudo apt install ./agent-<version>-linux-amd64.deb               # Debian, Ubuntu
-sudo dnf install ./agent-<version>-linux-amd64.rpm               # Fedora, RHEL (warns that it isn't signed)
-sudo apk add --allow-untrusted ./agent-<version>-linux-amd64.apk # Alpine
-sudo pacman -U ./agent-<version>-linux-amd64.pkg.tar.gz          # Arch
-msiexec /i agent-<version>-windows-amd64.msi                     # Windows
-sudo installer -pkg agent-<version>-darwin-arm64.pkg -target /   # macOS
-```
-
-| Format | Installs to |
-|---|---|
-| `.deb`, `.rpm`, `.apk`, Arch `.pkg.tar.gz` | `/usr/bin` |
-| `.msi` | `Program Files\agent` or `Program Files\agent-machine`, on the system `PATH` |
-| macOS `.pkg` | `/usr/local/bin` |
-
-`agent-<version>-...` holds the package named `agent-proxy` (with `agent` and `agent-proxy`), and `agent-machine-<version>-...` the `agent-machine` one. None are signed. The `agent-machine` Linux packages include a systemd user unit, not enabled: after `agent-machine login`, turn it on with `systemctl --user enable --now agent-machine`. The MSI and macOS packages set up no service: run `agent-machine start`, or use the archive's installer with `--service`.
-
-### The Python wheel
-
-For computers without a Go build, `python/` is a drop-in `agent`, `agent-proxy` and `agent-machine` in Python, with the same protocol, files and ports, and everything the Go programs do. The server hands it out as one wheel:
-
-```bash
-pip install http://server:9999/downloads/<version>/python/ai_proxy_agent_py-<version>-py3-none-any.whl
-```
-
-The **Downloads** page has its exact address. Its `update` pip-installs the server's wheel. See `python/README.md`.
-
 ## Versions and updates
 
 The whole project has one version, in `VERSION` at the root. The server, `agent`, `agent-machine`, the Android app and the Python wheel are all stamped with it: `X.Y.Z` for a build of its `vX.Y.Z` tag, otherwise `X.Y.Z+<commit>`, with `.dirty` for uncommitted changes to tracked files. `AI_PROXY_VERSION` names another. `/health` shows the server's; `agent version` and `agent-machine version` print theirs.
@@ -432,5 +366,6 @@ So to roll out a new version: build it on the server's computer (`scripts/build-
 | 9931 | llama.cpp's `llama-server` | Loopback on its machine |
 | 12434 | Docker Model Runner | On its machine |
 | 5173 | Vite, in development | This computer |
+| 19999, 20000 | The quickstart's API and issuer | Loopback |
 
 Only the server's port, and the issuer's for signing in (through the reverse proxy), have to be reachable from other machines. Account agents' HTTPS travels over it, tunnelled by each `agent-proxy`, and so does agents' traffic to a machine's model servers when that machine's `agent-machine` can tunnel, so model servers can stay on loopback. The server needs no other open port. The server listens on 8183 itself only when `intercept.listen_port` is set.

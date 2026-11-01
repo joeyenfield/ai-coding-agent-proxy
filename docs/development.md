@@ -26,11 +26,9 @@ VERSION          The project's one hand-written version
 
 `logs/`, `certs/`, `ui/dist/`, `client/bin/`, `machine/bin/` and `dist/` are runtime output and builds, all gitignored. Don't commit them, or benchmark results.
 
-### Where the server keeps things
+**Where the server keeps things.** The server keeps its settings, agents, accounts, machines and recordings in one database. Without `AI_PROXY_DATABASE_URL` that's SQLite, `logs/agent-server.sqlite3` in the checkout (`AI_PROXY_LOG_DIR` moves it); production uses PostgreSQL, such as `AI_PROXY_DATABASE_URL=postgresql+psycopg://mesh_api:<password>@host:5432/mesh`. A new database gets its tables and the defaults from `defaults.py` on the first start. Change the settings on the console's **Server settings** page, or with `agent-server config export` and `agent-server config import <file>`; `agent-server db info` says which database is in use. See [Configuration](configuration.md) and, for PostgreSQL, [Deployment](deployment.md).
 
-The server keeps its settings, agents, accounts, machines and recordings in one database. Without `AI_PROXY_DATABASE_URL` that's SQLite, `logs/agent-server.sqlite3` in the checkout (`AI_PROXY_LOG_DIR` moves it); production uses PostgreSQL, such as `AI_PROXY_DATABASE_URL=postgresql+psycopg://mesh_api:<password>@host:5432/mesh`. A new database gets its tables and the defaults from `defaults.py` on the first start. Change the settings on the console's **Server settings** page, or with `agent-server config export` and `agent-server config import <file>`; `agent-server db info` says which database is in use. See [Configuration](configuration.md) and, for PostgreSQL, [Deployment](deployment.md).
-
-## Setup
+## Setup and running
 
 You need Python 3.11 or later (development uses 3.13), Node with npm, and Go (the modules stay at Go 1.24; build with `GOTOOLCHAIN=local` so Go doesn't download another toolchain).
 
@@ -43,7 +41,7 @@ cd ui && npm install
 
 On Windows, every script has a PowerShell twin: `.\scripts\build-client.ps1` and so on. When you change one, change both.
 
-## Running it
+To run it:
 
 ```bash
 agent-server                       # API and console on the configured address; rebuilds ui/dist if stale
@@ -70,7 +68,7 @@ Vite on 5173 proxies `/api` (WebSockets included), `/health`, the OpenAPI pages,
 |---|---|
 | `cd server && python -m pytest -q` | The server: every area, against mocked upstreams. `test_client.py` builds `../client` and `../machine` and runs them against a real server on free ports (skipped without Go). No network beyond 127.0.0.1. |
 | `cd python && python -m pytest -q` | The Python `agent` and `agent-machine` against a real server, including `server/tests/test_client.py`'s contract. |
-| `python -m pytest -q quickstart/tests` | End to end against the running [quickstart](deployment.md#local-container-quickstart) stack: browser and device sign-in through the real issuer, refused passwords and origins, admin-only routes, machines shared through organization grants, and a removed user's sign-in ending. Skipped when the stack isn't running (`QUICKSTART_E2E=1` makes that a failure). The issuer allows 10 password attempts per address per 10 minutes; the suite makes 7, so `podman compose restart auth` before a quick rerun. |
+| `python -m pytest -q quickstart/tests` | End to end against the running [quickstart](quickstart.md) stack: browser and device sign-in through the real issuer, refused passwords and origins, admin-only routes, machines shared through organization grants, and a removed user's sign-in ending. Skipped when the stack isn't running (`QUICKSTART_E2E=1` makes that a failure). The issuer allows 10 password attempts per address per 10 minutes; the suite makes 7, so `podman compose restart auth` before a quick rerun. |
 | `cd client && go test ./...` | The client's unit tests. |
 | `cd client && go vet ./... && GOOS=linux go vet ./...` | Both pseudo-terminal paths (ConPTY and POSIX). |
 | `cd machine && go test ./...` | agent-machine's unit tests. Vet it for Windows and Linux too. |
@@ -91,7 +89,16 @@ cd server && AI_PROXY_TEST_DATABASE_URL=postgresql+psycopg://postgres:testpass@1
 
 Each server test file has `make_app(tmp_path, handler, ...)` and `close_app(...)`: they build `Settings` in code, run `create_app`, and swap the shared HTTP client's transport for a mock whose `handler(request)` plays the upstream. Assert on what the upstream received as well as what the agent got back. `fake_docker.py`, `fake_ollama.py`, `fake_llamacpp.py` (llama-server's router), `fake_strata.py`, `fake_mcp.py` and `fake_systemctl.py` stand in for real programs.
 
-## The demo and screenshots
+**Benchmarks.** Add a folder under `benchmarks/tests/` with `prompt.md` and `test.yaml`, then:
+
+```bash
+agent-benchmark reasoning --model qwen3.6:35b --backend desktop
+agent-benchmark --all
+```
+
+Each run gets its own session, and results go to `benchmarks/results/<timestamp>/`. The keys of `test.yaml` and the flags are on [Configuration](configuration.md#agent-benchmark).
+
+## The demo, screenshots and diagrams
 
 The separate public brochure in `site/` has its own [preview and browser checks](website.md). It uses existing isolated-demo screenshots; changing the brochure does not require rebuilding the console.
 
@@ -106,17 +113,15 @@ node scripts/screenshots/capture.mjs http://127.0.0.1:8199 docs/screenshots [nam
 
 Check layout changes in dark mode and at a phone-sized width (about 412 px): the Android app shows the same pages.
 
-### Diagrams in the docs
+**Diagrams in the docs.** Draw diagrams in `docs/` as [Mermaid](https://mermaid.js.org) in a ` ```mermaid ` block: `sequenceDiagram` for a flow between parts (a session, a launch, the MCP relay), `flowchart` for how parts connect. The console's **Docs** page (`/help`) draws them with mermaid.js, loaded only on pages that have one, in its light or dark theme, and shows the source with the error if one can't be drawn. GitHub draws the same blocks, so the files read the same in the repository. Write `<id>` as it is in a sequence diagram, and as `#lt;id#gt;` in a flowchart label (where `<...>` would be read as HTML). Check a new diagram on the Docs page in both themes.
 
-Draw diagrams in `docs/` as [Mermaid](https://mermaid.js.org) in a ` ```mermaid ` block: `sequenceDiagram` for a flow between parts (a session, a launch, the MCP relay), `flowchart` for how parts connect. The console's **Docs** page (`/help`) draws them with mermaid.js, loaded only on pages that have one, in its light or dark theme, and shows the source with the error if one can't be drawn. GitHub draws the same blocks, so the files read the same in the repository. Write `<id>` as it is in a sequence diagram, and as `#lt;id#gt;` in a flowchart label (where `<...>` would be read as HTML). Check a new diagram on the Docs page in both themes.
-
-### Playwright MCP for coding agents
-
-The repository's `.mcp.json` gives coding agents working on it (Claude Code, and others that read the file) the [Playwright MCP server](https://github.com/microsoft/playwright-mcp): a browser they can drive to open the demo or a real console, click through pages, read them and take screenshots. It runs `npx -y @playwright/mcp@latest --browser msedge`, so it uses the installed Microsoft Edge rather than a downloaded browser; change `--browser` to `chrome` or `chromium` elsewhere. Claude Code asks you to approve a project's MCP servers the first time it starts in the folder (`claude mcp list` shows it as pending until then).
+**Playwright MCP for coding agents.** The repository's `.mcp.json` gives coding agents working on it (Claude Code, and others that read the file) the [Playwright MCP server](https://github.com/microsoft/playwright-mcp): a browser they can drive to open the demo or a real console, click through pages, read them and take screenshots. It runs `npx -y @playwright/mcp@latest --browser msedge`, so it uses the installed Microsoft Edge rather than a downloaded browser; change `--browser` to `chrome` or `chromium` elsewhere. Claude Code asks you to approve a project's MCP servers the first time it starts in the folder (`claude mcp list` shows it as pending until then).
 
 The browser doesn't use the agent's `HTTPS_PROXY`, so the pages it opens aren't recorded by the server (only its MCP calls are, when a machine shares it; see [MCP servers](mcp.md)). Add `--ignore-https-errors` for a server with a self-signed certificate.
 
-## Versions and the protocol
+## Releases
+
+### Versions and the protocol
 
 `VERSION` holds `X.Y.Z` and is the only version written by hand. A build is `X.Y.Z` when `HEAD` is tagged `vX.Y.Z` and clean, otherwise `X.Y.Z+<commit>`, with `.dirty` for uncommitted changes to tracked files. `server/agent_server/version.py` and `tools/dist/version.go` compute it the same way; keep them in step. `AI_PROXY_VERSION` overrides both.
 
@@ -128,7 +133,7 @@ Compatibility is `PROTOCOL`, an integer in `version.py` and in `settings.Protoco
 
 To release, change `VERSION`, commit, tag `vX.Y.Z`, and build the distributions.
 
-## Distributions
+### Distributions
 
 `scripts/build-dist.sh` (`.\scripts\build-dist.ps1`) runs `tools/dist` (`go run ./dist` in `tools/`), which builds both Go components for every target with `CGO_ENABLED=0`, packs them, and builds the Android app and the Python wheel.
 
@@ -165,17 +170,6 @@ A build replaces its version's folder and leaves the others alone. `build-client
 The Linux packages (`.deb`, `.rpm`, `.apk`, Arch) are written in Go by `tools/dist`, so they come out the same from any build machine. `.msi` needs [WiX](https://wixtoolset.org) 4 or later on `PATH`, and macOS `.pkg` needs `pkgbuild` (a Mac); a missing tool skips its format with a note. Package versions are the build's `X.Y.Z`, with the commits since the tag as the release. None are signed.
 
 To test installers and packages, use a throwaway user in a separate WSL distribution, not your own user: a test service would join the real fleet. `AGENTS.md` has the details.
-
-## Benchmarks
-
-Add a folder under `benchmarks/tests/` with `prompt.md` and `test.yaml`, then:
-
-```bash
-agent-benchmark reasoning --model qwen3.6:35b --backend desktop
-agent-benchmark --all
-```
-
-Each run gets its own session, and results go to `benchmarks/results/<timestamp>/`. The keys of `test.yaml` and the flags are on [Configuration](configuration.md#agent-benchmark).
 
 ## Checklists
 

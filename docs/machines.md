@@ -34,7 +34,7 @@ Settings changes reach the server within a minute, with the machine's next updat
 
 | Command | What it does |
 |---|---|
-| `agent-machine` (or `agent-machine status`) | Shows the machine as the fleet sees it. See [The status display](#the-status-display). |
+| `agent-machine` (or `agent-machine status`) | Shows the machine as the fleet sees it. See [Running it](#running-it). |
 | `agent-machine login [url]` | Signs the machine in using OIDC device authorization. |
 | `agent-machine logout [url]` | Forgets a sign-in and revokes its token on the server. |
 | `agent-machine start` | Joins the fleet in the background. |
@@ -56,7 +56,7 @@ Settings changes reach the server within a minute, with the machine's next updat
 | `agent-machine version` | Prints the version and protocol level. |
 | `agent-machine help` | Prints the usage. |
 
-### login and logout
+### Signing in
 
 `agent-machine login` signs this machine in. The URL defaults to the server signed in to last, or `http://127.0.0.1:9999`. A URL without a scheme gets `https://`.
 
@@ -64,11 +64,9 @@ Open the printed OIDC verification URL in your browser, sign in and approve the 
 
 The machine belongs to whoever signed it in: that user is its **owner**. A machine id already registered to another user is refused, so one user can't take over another's machine.
 
-`agent-machine logout [url]` forgets the sign-in to that server (default: the last one) and revokes its token on the server when it can reach it.
+`agent-machine logout [url]` forgets the sign-in to that server (default: the last one) and revokes its token on the server when it can reach it. `agent-machine run` reads the credentials file each time it connects, so `login` and `logout` apply at once.
 
-`agent-machine run` reads the credentials file each time it connects, so `login` and `logout` apply at once.
-
-### start, stop and run
+### Running it
 
 - `run` stays in the foreground and reconnects whenever the connection drops. It waits 2, 5, 10, then 30 seconds between tries, and starts over after a connection that lasted more than a minute. It renews its access token over the open connection, so the token's expiry doesn't drop it. `--server` joins another server than the signed-in one.
 - `start` runs `agent-machine run` detached from the terminal, and waits up to 15 seconds for it to connect or fail. It prints the log's path.
@@ -76,57 +74,7 @@ The machine belongs to whoever signed it in: that user is its **owner**. A machi
 
 Only one agent-machine runs per folder. `run` refuses while another is running, and `start` says it's already running. It knows by the process id in `status.json` and only counts a process of its own user: if the one it ran has gone and its id now belongs to another user's process, it isn't running, and `start` starts a new one.
 
-**On Android (Termux)**, Android stops apps' background processes when it wants the memory or battery, Termux's included, so agent-machine can go away while the phone is idle, and the machine shows offline on the console. Keep it running with:
-
-- `termux-wake-lock` (or **Acquire wakelock** in Termux's notification) before `agent-machine start`;
-- Android's battery settings for Termux set to **Unrestricted**;
-- on Android 12 and later, Android's limit on background processes ("phantom process killer") turned off: in Developer options, **Disable child process restrictions**, or `adb shell settings put global settings_enable_monitor_phantom_procs false`.
-
-If it went anyway, `agent-machine start` starts it again. The server's [Access log](console.md#access-log) shows each of the machine's connections and how it ended.
-
-### containers
-
-`agent-machine containers on` lets the server run Strata, Ollama or llama.cpp containers here. `docker run` is root on the machine, so it's off until you turn it on, and the machine checks every request itself. `agent-machine containers cli docker` or `podman` always uses that CLI. `auto` (the default) uses Docker when it answers, else Podman. See [Containers machines run](providers.md#containers-machines-run).
-
-### servers
-
-`agent-machine servers on` lets the server start and stop the Ollama, llama.cpp and Strata profiles installed here, install llama.cpp (Termux's packages, or llama.cpp's own build from GitHub, checked by SHA-256, into agent-machine's folder), change Ollama's and llama.cpp's settings, and pull, delete, load and unload models ([llama.cpp](providers.md#llamacpp)). With it on, agent-machine also saves a Strata profile for each model installed in Strata that has none, so every one can be started from the console ([Providers](providers.md#strata)). Without it, the machine still reports its model servers, their models, logs and its load, but changes nothing.
-
-`sudo agent-machine servers service` is for an Ollama installed as the systemd service `ollama.service`, which Ollama's Linux installer sets up and which belongs to root. Run it once, with sudo, as the user agent-machine runs as. It:
-
-- adds a sudoers rule (`/etc/sudoers.d/agent-machine-ollama`) that lets only that user run `systemctl start|stop|restart ollama` without a password;
-- adds a drop-in (`/etc/systemd/system/ollama.service.d/agent-machine.conf`) so the service reads its environment from `/etc/agent-machine/ollama.env`, which that user may write.
-
-The console's `OLLAMA_*` settings then apply when the service restarts. The file only sets environment variables for the ollama user's process; it can't change what runs or as whom. `sudo agent-machine servers service off` undoes it. See [Ollama](providers.md#ollama).
-
-### launches, commands and roots
-
-`launches on` lets the server start agents here. `commands on` lets you open a terminal here. Both only work inside the folders listed with `roots add`. `roots add` makes the folder absolute and checks that it exists. With launches on and no roots, the status display and the command say so.
-
-### name and address
-
-- `name` is the name on **Machines**. The default is the hostname.
-- `address` is the host the server uses to reach this machine's model servers, when the address it sees isn't right (behind NAT or a reverse proxy). Without it, the server uses the address the machine connected from. When the address changes, the machine's backends move with it, on the same ports. Most machines don't need it, as agents' traffic goes through the machine itself (see [Tunnels](#tunnels)).
-
-### update and updates
-
-`agent-machine update` replaces this binary with the build the server offers for this platform (`<os>-<arch>`), from its downloads. It checks each file against the server's SHA-256 before it replaces anything. It does nothing when the server's version is this one, unless you pass `--force`. `--server` updates from another server than the signed-in one (by default it's the server the running agent-machine is connected to).
-
-After updating, it puts the running agent-machine on the new binary, depending on how it was started:
-
-| Started by | What happens |
-|---|---|
-| `agent-machine start` | Stopped and started again on the new binary |
-| A service (systemd, launchd, rc.d) | Stopped; the service starts it again |
-| `agent-machine run` in a terminal | Left running; stop it and run it again |
-
-A binary installed by a package manager (`/usr/bin`, `Program Files`) belongs to it: update those with the package.
-
-`agent-machine updates on` lets the console do this remotely. See [Remote updates](#remote-updates).
-
-### The status display
-
-`agent-machine` with no arguments shows:
+**The status display.** `agent-machine` with no arguments shows:
 
 - **Machine**: its name and id.
 - **Server**: its server and OIDC sign-in.
@@ -138,7 +86,44 @@ A binary installed by a package manager (`/usr/bin`, `Program Files`) belongs to
 - **MCP**: the MCP servers it shares.
 - **Folders**: the launch folders.
 
-## Its folder and files
+**On Android (Termux)**, Android stops apps' background processes when it wants the memory or battery, Termux's included, so agent-machine can go away while the phone is idle, and the machine shows offline on the console. Keep it running with:
+
+- `termux-wake-lock` (or **Acquire wakelock** in Termux's notification) before `agent-machine start`;
+- Android's battery settings for Termux set to **Unrestricted**;
+- on Android 12 and later, Android's limit on background processes ("phantom process killer") turned off: in Developer options, **Disable child process restrictions**, or `adb shell settings put global settings_enable_monitor_phantom_procs false`.
+
+If it went anyway, `agent-machine start` starts it again. The server's [Access log](console.md#access-log) shows each of the machine's connections and how it ended.
+
+### Settings
+
+- **`containers on`** lets the server run Strata, Ollama or llama.cpp containers here. `docker run` is root on the machine, so it's off until you turn it on, and the machine checks every request itself. `agent-machine containers cli docker` or `podman` always uses that CLI. `auto` (the default) uses Docker when it answers, else Podman. See [Containers machines run](providers.md#containers-machines-run).
+- **`servers on`** lets the server start and stop the Ollama, llama.cpp and Strata profiles installed here, install llama.cpp (Termux's packages, or llama.cpp's own build from GitHub, checked by SHA-256, into agent-machine's folder), change Ollama's and llama.cpp's settings, and pull, delete, load and unload models ([llama.cpp](providers.md#llamacpp)). With it on, agent-machine also saves a Strata profile for each model installed in Strata that has none, so every one can be started from the console ([Providers](providers.md#strata)). Without it, the machine still reports its model servers, their models, logs and its load, but changes nothing.
+- **`launches on`** lets the server start agents here. **`commands on`** lets you open a terminal here. Both only work inside the folders listed with `roots add`. `roots add` makes the folder absolute and checks that it exists. With launches on and no roots, the status display and the command say so.
+- **`name`** is the name on **Machines**. The default is the hostname.
+- **`address`** is the host the server uses to reach this machine's model servers, when the address it sees isn't right (behind NAT or a reverse proxy). Without it, the server uses the address the machine connected from. When the address changes, the machine's backends move with it, on the same ports. Most machines don't need it, as agents' traffic goes through the machine itself (see [Tunnels](#tunnels)).
+
+**Ollama's systemd service.** `sudo agent-machine servers service` is for an Ollama installed as the systemd service `ollama.service`, which Ollama's Linux installer sets up and which belongs to root. Run it once, with sudo, as the user agent-machine runs as. It:
+
+- adds a sudoers rule (`/etc/sudoers.d/agent-machine-ollama`) that lets only that user run `systemctl start|stop|restart ollama` without a password;
+- adds a drop-in (`/etc/systemd/system/ollama.service.d/agent-machine.conf`) so the service reads its environment from `/etc/agent-machine/ollama.env`, which that user may write.
+
+The console's `OLLAMA_*` settings then apply when the service restarts. The file only sets environment variables for the ollama user's process; it can't change what runs or as whom. `sudo agent-machine servers service off` undoes it. See [Ollama](providers.md#ollama).
+
+### Updating it
+
+`agent-machine update` replaces this binary with the build the server offers for this platform (`<os>-<arch>`), from its downloads. It checks each file against the server's SHA-256 before it replaces anything. It does nothing when the server's version is this one, unless you pass `--force`. `--server` updates from another server than the signed-in one (by default it's the server the running agent-machine is connected to).
+
+After updating, it puts the running agent-machine on the new binary, depending on how it was started:
+
+| Started by | What happens |
+|---|---|
+| `agent-machine start` | Stopped and started again on the new binary |
+| A service (systemd, launchd, rc.d) | Stopped; the service starts it again |
+| `agent-machine run` in a terminal | Left running; stop it and run it again |
+
+A binary installed by a package manager (`/usr/bin`, `Program Files`) belongs to it: update those with the package. `agent-machine updates on` lets the console do this remotely. See [Remote updates](#remote-updates).
+
+## Files and environment variables
 
 agent-machine keeps everything in one folder:
 
@@ -165,7 +150,7 @@ agent-machine keeps everything in one folder:
 
 Files are written readable by this user only. The machine's id is made the first time it's needed. A `machine.json` from before agent-machine existed (in the client's `agent-proxy` folder) is carried over once, so the server still knows the machine by its id. That doesn't happen when `AI_PROXY_MACHINE_HOME` is set.
 
-## Environment variables
+It reads these environment variables:
 
 | Variable | What it does |
 |---|---|
@@ -181,11 +166,9 @@ Files are written readable by this user only. The machine's id is made the first
 | `PREFIX`, `TERMUX_VERSION` | Set by Termux: llama.cpp is installed from Termux's packages there |
 | `HF_TOKEN` | A Hugging Face token, for downloading models from gated repos into llama.cpp's GGUF folder |
 
-The container CLI runs with the machine's environment, so `DOCKER_HOST` and Docker contexts work as they do in a terminal there.
+The container CLI runs with the machine's environment, so `DOCKER_HOST` and Docker contexts work as they do in a terminal there. agent-machine never uses an `HTTPS_PROXY` from its environment. Started from inside an intercepted agent, it would otherwise loop through that agent's proxy.
 
 Tests replace the programs it runs with JSON lists of arguments: `AI_PROXY_CONTAINER_COMMAND`, `AI_PROXY_OLLAMA_COMMAND`, `AI_PROXY_LLAMACPP_COMMAND`, `AI_PROXY_LLAMACPP_APT` (Termux's `apt-get`), `AI_PROXY_STRATA_COMMAND`, `AI_PROXY_SYSTEMCTL_COMMAND`, `AI_PROXY_SERVICE_COMMAND` and `AI_PROXY_SERVICE_ENV`. `AI_PROXY_LLAMACPP_RELEASES` points the llama.cpp installer at another releases list. `AI_PROXY_MACHINE_STARTED` is set by `agent-machine start` for the run it starts.
-
-agent-machine never uses an `HTTPS_PROXY` from its environment. Started from inside an intercepted agent, it would otherwise loop through that agent's proxy.
 
 ## The fleet connection
 
@@ -232,7 +215,22 @@ agent-machine asks each default port on `127.0.0.1` whether its model server ans
 
 With `servers on`, Strata profiles serving on other loopback ports are added too, from Strata's own state. For each Strata it finds, it reads the key from the profile serving on that port and sends it in the hello.
 
-## Launches
+### Tunnels
+
+Agents' requests to a machine's model servers go through the machine. The server doesn't need a route to it, so a machine behind NAT, in WSL or on another network serves models without a port forward.
+
+- For a backend on a machine that can tunnel, is connected and isn't the server's own computer, the server opens a loopback listener and sends that backend's requests there.
+- Each connection to it asks the machine, over the fleet connection, to open a tunnel.
+- agent-machine dials `/api/machines/tunnel/<id>` back and passes the bytes to and from `127.0.0.1:<port>`.
+- Only the machine that was asked, signed in as its owner, can take its tunnel.
+
+A machine only tunnels to the ports of the model servers it reported, the containers it runs for the server, and its MCP bridge. It refuses any other port. If the model server doesn't answer, it closes the tunnel with code 4502.
+
+A machine on the server's own computer is reached directly. So is one that isn't connected, or whose agent-machine is too old to tunnel: those use the machine's address as the server saw it, or the one set with `agent-machine address`.
+
+## What a machine runs for you
+
+### Launches
 
 ```mermaid
 sequenceDiagram
@@ -255,11 +253,6 @@ sequenceDiagram
 
 A launch starts an agent on the machine, from **Start an agent** or the machine's **Agents** tab. It runs in a shared terminal, and the console takes you to it.
 
-The server accepts a successful launch only when the reported session belongs to the
-machine's owner and matches that machine, launch id and agent. An unrelated session is
-refused with `502`; it never grants the requester access to that session. Machine launch
-history only includes sessions you may view, plus your own pending or failed launches.
-
 The server checks that:
 
 - the person asking may launch there (see [Who may use a machine](#who-may-use-a-machine));
@@ -278,22 +271,13 @@ agent <agent> <folder> --headless --launch-id <id> --share private|team|org
 
 with `AI_PROXY_URL` set to its server, and `AI_PROXY_MACHINE_ID` and `AI_PROXY_MACHINE_NAME` to tag the session with the machine. The program is `AI_PROXY_AGENT`, or `agent` from PATH. In headless mode `agent` prints `{"session_id": ...}` as its only line of output and runs the agent in a pseudo-terminal shared with the server. agent-machine waits up to 50 seconds for that line, and the server up to 60.
 
+The server accepts a successful launch only when the reported session belongs to the machine's owner and matches that machine, launch id and agent. An unrelated session is refused with `502`; it never grants the requester access to that session.
+
 The agent's traffic goes through this computer's agent-proxy, signed in with `agent login`. So that has to be the same server: if the agent-proxy here is already running for another server, the launch is refused with `agent login <server>` as the fix. Install the client and sign it in to the same server to take launches.
 
-The server records the last 30 launches per machine, with who asked, the agent, the folder and the session or the error. The machine's page shows the last 10. Sessions carry `machine`, `machine_name` and `launch` tags. Agents started by hand on the computer only carry `hostname`, and the server puts them under the same owner's machine with that hostname, so the machine's page lists both.
+The server records the last 30 launches per machine, with who asked, the agent, the folder and the session or the error. The machine's page shows the last 10. Machine launch history only includes sessions you may view, plus your own pending or failed launches. Sessions carry `machine`, `machine_name` and `launch` tags. Agents started by hand on the computer only carry `hostname`, and the server puts them under the same owner's machine with that hostname, so the machine's page lists both.
 
-## Terminals
-
-With `agent-machine commands on`, **Open a terminal** on the machine's page starts a shell there. It's a real remote shell as the user agent-machine runs as.
-
-- It needs the `terminal` feature (the owner, or organizations and teams granted it) and `commands on`.
-- It starts in a launch folder (the first root by default), which must exist. The server and the machine both check it's inside a root. From there, the shell can go anywhere that user can.
-- The machine runs `agent --shell <folder> --headless --launch-id <id>`.
-- Its session's client is `shell`. The server keeps those sessions private and refuses to widen their sharing.
-
-## The folder picker
-
-When you start an agent or a terminal on a machine, you pick the folder by opening the folders inside its launch folders one by one. With no path, the server lists the roots. Inside one, the machine lists the folder:
+**The folder picker.** When you start an agent or a terminal on a machine, you pick the folder by opening the folders inside its launch folders one by one. With no path, the server lists the roots. Inside one, the machine lists the folder:
 
 - only for those who may launch or open terminals there, and only while launches or commands are on;
 - only inside the roots, checked by the server and again by the machine after resolving links;
@@ -302,7 +286,16 @@ When you start an agent or a terminal on a machine, you pick the folder by openi
 - at most 500 folders; the answer says when it's cut short;
 - **Up** stops at a root.
 
-## Remote updates
+### Terminals
+
+With `agent-machine commands on`, **Open a terminal** on the machine's page starts a shell there. It's a real remote shell as the user agent-machine runs as.
+
+- It needs the `terminal` feature (the owner, or organizations and teams granted it) and `commands on`.
+- It starts in a launch folder (the first root by default), which must exist. The server and the machine both check it's inside a root. From there, the shell can go anywhere that user can.
+- The machine runs `agent --shell <folder> --headless --launch-id <id>`.
+- Its session's client is `shell`. The server keeps those sessions private and refuses to widen their sharing.
+
+### Remote updates
 
 ```mermaid
 sequenceDiagram
@@ -324,19 +317,6 @@ With `agent-machine updates on`, a machine on another build than the server's ha
 The machine runs `agent-machine update --server <server>` detached, so it can stop itself and start the new binary. Its output goes to `agent-machine.log`. With the agent box ticked, it adds `--with-agent`, which runs `agent update` from the same server first. Launches and terminals run `agent`, so it should be the server's build too. A failed `agent update` doesn't stop agent-machine's.
 
 It only ever installs the build the server offers, checked against its SHA-256. Without `updates on`, the machine refuses.
-
-## Tunnels
-
-Agents' requests to a machine's model servers go through the machine. The server doesn't need a route to it, so a machine behind NAT, in WSL or on another network serves models without a port forward.
-
-- For a backend on a machine that can tunnel, is connected and isn't the server's own computer, the server opens a loopback listener and sends that backend's requests there.
-- Each connection to it asks the machine, over the fleet connection, to open a tunnel.
-- agent-machine dials `/api/machines/tunnel/<id>` back and passes the bytes to and from `127.0.0.1:<port>`.
-- Only the machine that was asked, signed in as its owner, can take its tunnel.
-
-A machine only tunnels to the ports of the model servers it reported, the containers it runs for the server, and its MCP bridge. It refuses any other port. If the model server doesn't answer, it closes the tunnel with code 4502.
-
-A machine on the server's own computer is reached directly. So is one that isn't connected, or whose agent-machine is too old to tunnel: those use the machine's address as the server saw it, or the one set with `agent-machine address`.
 
 ## Who may use a machine
 
@@ -360,7 +340,7 @@ A machine's owner may use all its features. Others get them through grants on th
 
 See [Accounts and sharing](accounts.md) for organizations, teams and roles.
 
-## Removing and restoring a machine
+### Removing and restoring a machine
 
 The owner or an admin can remove a machine from its **Summary** tab (`DELETE /api/machines/{id}`), connected or not. The server closes its connection (code 4403) and refuses it when it connects again. What it ran for the server stops reaching agents.
 

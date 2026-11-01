@@ -4,17 +4,6 @@ A machine in the fleet can share MCP (Model Context Protocol) servers with the a
 
 Use it to give agents tools that live on one computer: a GitHub server with your token, a database on a machine's own network, a docs server on its loopback. The command, its environment and any tokens stay on that machine. The server only learns the names.
 
-## Contents
-
-- [Sharing an MCP server](#sharing-an-mcp-server)
-- [Giving MCP servers to an agent](#giving-mcp-servers-to-an-agent)
-- [What each agent gets](#what-each-agent-gets)
-- [How it works](#how-it-works)
-- [What's recorded](#whats-recorded)
-- [Who may use them](#who-may-use-them)
-- [API](#api)
-- [Limitations](#limitations)
-
 ## Sharing an MCP server
 
 On the machine, with `agent-machine` signed in to the server (see [Machines](machines.md)):
@@ -27,6 +16,10 @@ agent-machine mcp add docs --url http://127.0.0.1:3000/mcp --header "Authorizati
 agent-machine mcp                      # what this machine shares
 agent-machine mcp remove docs
 ```
+
+**Listing and removing.** `agent-machine mcp` lists what the machine shares: each name, whether it's `stdio` or `http`, and its command or URL. `agent-machine mcp remove <name>` stops sharing one. Plain `agent-machine` shows the same list in its status. On the machine's page in the console, the **MCP servers** tab lists what it shares and, for its owner, the commands to add more.
+
+**Where they're kept.** The servers are kept in `mcp.json` in agent-machine's folder (`AI_PROXY_MACHINE_HOME`, or `agent-machine` in your config folder), written readable only by the user agent-machine runs as, because environments and headers often hold tokens. Entries that aren't valid are skipped when the file is read. Changes need no restart. The machine's bridge reads `mcp.json` for every request, and the next update the machine sends the server (at most a minute later) brings the new list to the console and to launches.
 
 ### agent-machine mcp add
 
@@ -56,18 +49,6 @@ agent-machine mcp add github --env GITHUB_PERSONAL_ACCESS_TOKEN=ghp_... -- npx -
 ```
 
 A stdio server like Playwright gets a process (and here a browser) of its own for each agent session, on the machine that shares it.
-
-### agent-machine mcp and mcp remove
-
-`agent-machine mcp` lists what the machine shares: each name, whether it's `stdio` or `http`, and its command or URL. `agent-machine mcp remove <name>` stops sharing one. Plain `agent-machine` shows the same list in its status.
-
-### mcp.json
-
-The servers are kept in `mcp.json` in agent-machine's folder (`AI_PROXY_MACHINE_HOME`, or `agent-machine` in your config folder), written readable only by the user agent-machine runs as, because environments and headers often hold tokens. Entries that aren't valid are skipped when the file is read.
-
-Changes need no restart. The machine's bridge reads `mcp.json` for every request, and the next update the machine sends the server (at most a minute later) brings the new list to the console and to launches.
-
-On the machine's page in the console, the **MCP servers** tab lists what it shares and, for its owner, the commands to add more.
 
 ## Giving MCP servers to an agent
 
@@ -149,11 +130,7 @@ sequenceDiagram
 - **A URL** is proxied as it is, with the server's `--header` values added.
 - **The Python agent-machine** (`python/agent_py/machine`) has the same `mcp` commands, file and bridge.
 
-## What's recorded
-
-Every POST to a shared server is recorded in the agent's session as a request of kind `mcp`. Its host is `<machine name>/<server>` and its endpoint says what the JSON-RPC message does: `initialize`, `tools/list`, `tools/call search_code`, `resources/read <uri>`, or for a batch the first one and how many more. The reply is recorded too (up to 2 MB of it in the trace), and a JSON-RPC error in it marks the request with an error. Bodies are saved when the session saves payloads (`--trace`). On **Traffic** these show as **MCP**, with the service "MCP `<machine>/<server>`".
-
-The GET stream and DELETE are passed on without being recorded.
+**What's recorded.** Every POST to a shared server is recorded in the agent's session as a request of kind `mcp`. Its host is `<machine name>/<server>` and its endpoint says what the JSON-RPC message does: `initialize`, `tools/list`, `tools/call search_code`, `resources/read <uri>`, or for a batch the first one and how many more. The reply is recorded too (up to 2 MB of it in the trace), and a JSON-RPC error in it marks the request with an error. Bodies are saved when the session saves payloads (`--trace`). On **Traffic** these show as **MCP**, with the service "MCP `<machine>/<server>`". The GET stream and DELETE are passed on without being recorded.
 
 ## Who may use them
 

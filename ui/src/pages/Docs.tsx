@@ -4,32 +4,66 @@ import { NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
 import { Marked, type Tokens } from "marked";
 import { api, apiUrl } from "../api";
 
-/** The documentation's pages (docs/*.md), in the order the index lists them. */
-export const DOC_PAGES: { id: string; label: string }[] = [
-  { id: "index", label: "Overview" },
-  { id: "quickstart", label: "Quickstart" },
-  { id: "getting-started", label: "Getting started" },
-  { id: "architecture", label: "Architecture" },
-  { id: "networking", label: "Networking and protocols" },
-  { id: "agents", label: "Agents" },
-  { id: "mcp", label: "MCP servers" },
-  { id: "machines", label: "Machines" },
-  { id: "providers", label: "Providers" },
-  { id: "console", label: "The console" },
-  { id: "accounts", label: "Accounts and sharing" },
-  { id: "subscriptions", label: "Subscriptions" },
-  { id: "usage-limits", label: "Usage limits" },
-  { id: "retention", label: "Retention" },
-  { id: "audit", label: "Audit log" },
-  { id: "security", label: "Security" },
-  { id: "oidc", label: "OIDC authentication" },
-  { id: "configuration", label: "Configuration" },
-  { id: "api", label: "API" },
-  { id: "deployment", label: "Deployment" },
-  { id: "scaling", label: "Several server processes" },
-  { id: "development", label: "Development" },
-  { id: "website", label: "Marketing website" },
+/** The documentation's pages (docs/*.md), in sections, in the order the index lists them. */
+export const DOC_SECTIONS: { title: string; pages: { id: string; label: string }[] }[] = [
+  {
+    title: "Start here",
+    pages: [
+      { id: "index", label: "Overview" },
+      { id: "quickstart", label: "Quickstart: Docker or Podman" },
+      { id: "quickstart-kubernetes", label: "Quickstart: Kubernetes" },
+      { id: "getting-started", label: "Getting started" },
+    ],
+  },
+  {
+    title: "Use it",
+    pages: [
+      { id: "agents", label: "Agents" },
+      { id: "console", label: "The console" },
+      { id: "machines", label: "Machines" },
+      { id: "providers", label: "Providers" },
+      { id: "mcp", label: "MCP servers" },
+      { id: "subscriptions", label: "Subscriptions" },
+    ],
+  },
+  {
+    title: "People and data",
+    pages: [
+      { id: "accounts", label: "Accounts and sharing" },
+      { id: "usage-limits", label: "Usage limits" },
+      { id: "retention", label: "Retention" },
+      { id: "audit", label: "Audit log" },
+    ],
+  },
+  {
+    title: "Run a server",
+    pages: [
+      { id: "deployment", label: "Deployment" },
+      { id: "scaling", label: "Several server processes" },
+      { id: "configuration", label: "Configuration" },
+      { id: "security", label: "Security" },
+      { id: "oidc", label: "OIDC authentication" },
+    ],
+  },
+  {
+    title: "How it works",
+    pages: [
+      { id: "architecture", label: "Architecture" },
+      { id: "networking", label: "Networking and protocols" },
+      { id: "api", label: "API" },
+    ],
+  },
+  {
+    title: "Contribute",
+    pages: [
+      { id: "development", label: "Development" },
+      { id: "website", label: "Marketing website" },
+    ],
+  },
 ];
+
+/** Every page, in order. */
+export const DOC_PAGES = DOC_SECTIONS.flatMap((section) => section.pages);
 
 const escapeHtml = (text: string) => text.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
 
@@ -179,11 +213,15 @@ export function DocsPage() {
     <div className="page wide docs-page">
       <div className="docs-layout">
         <nav className="docs-nav" aria-label="Documentation">
-          <p className="docs-nav-title">Documentation</p>
-          {DOC_PAGES.map((item) => (
-            <NavLink key={item.id} to={item.id === "index" ? "/help" : `/help/${item.id}`} end>
-              {item.label}
-            </NavLink>
+          {DOC_SECTIONS.map((section) => (
+            <div key={section.title} className="docs-nav-section">
+              <p className="docs-nav-title">{section.title}</p>
+              {section.pages.map((item) => (
+                <NavLink key={item.id} to={item.id === "index" ? "/help" : `/help/${item.id}`} end>
+                  {item.label}
+                </NavLink>
+              ))}
+            </div>
           ))}
           <a href={apiUrl("/docs")} target="_blank" rel="noreferrer" className="docs-nav-api">
             API reference (OpenAPI)

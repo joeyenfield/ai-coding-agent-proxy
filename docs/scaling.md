@@ -137,7 +137,7 @@ Recordings made before blob storage was turned on stay in the database and are r
 
 ## The Helm chart
 
-`deploy/helm/agent-mesh/` installs the server, agent-auth and optionally the console, PostgreSQL (CloudNativePG), PgBouncer and Valkey. Its [README](../deploy/helm/agent-mesh/README.md) has every value. In short:
+`deploy/helm/agent-mesh/` installs the server, agent-auth and optionally the console, PostgreSQL (CloudNativePG), PgBouncer and Valkey. Its [README](../deploy/helm/agent-mesh/README.md) has every value. To try the chart on a local cluster first, follow [Quickstart on Kubernetes](quickstart-kubernetes.md); this page is the reference for production. In short:
 
 ```bash
 # One pod, every role (SQLite on a volume, or an external PostgreSQL)
@@ -160,9 +160,7 @@ helm install mesh deploy/helm/agent-mesh -n mesh --create-namespace -f deploy/he
 - Secrets (database URLs, `AI_PROXY_VAULT_KEYS`, the introspection secret, the internal token) come from Kubernetes Secrets, or External Secrets.
 - In scaled mode the worker makes the first user and prints its password in its log once (or set `AI_PROXY_USERNAME`/`AI_PROXY_PASSWORD` from a Secret).
 
-## Upgrades and shutdowns
-
-A rolling upgrade replaces pods one by one. A pod that stops closes its machines' connections and terminals with codes they reconnect after; machines reconnect to another pod within seconds, and requests waiting for them wait (up to 10 s) rather than fail. Streamed replies on a stopping pod get `AI_PROXY_GRACEFUL_SECONDS` to finish. During the rollout, old and new processes run together: the database is migrated first, and a database newer than a process is fine for it.
+**Upgrades and shutdowns.** A rolling upgrade replaces pods one by one. A pod that stops closes its machines' connections and terminals with codes they reconnect after; machines reconnect to another pod within seconds, and requests waiting for them wait (up to 10 s) rather than fail. Streamed replies on a stopping pod get `AI_PROXY_GRACEFUL_SECONDS` to finish. During the rollout, old and new processes run together: the database is migrated first, and a database newer than a process is fine for it.
 
 ## Sizing
 

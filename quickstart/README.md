@@ -1,7 +1,9 @@
 # Local container quickstart
 
 A step-by-step guide to using this stack, from the first start to an agent working in the
-console, is in [docs/quickstart.md](../docs/quickstart.md). This file has the details.
+console, is in [docs/quickstart.md](../docs/quickstart.md). This file has the details. To try the
+Helm chart on a local Kubernetes cluster instead, see [docs/quickstart-kubernetes.md](../docs/quickstart-kubernetes.md),
+which uses the files in `kubernetes/`.
 
 From this folder, with Podman and a Compose provider:
 

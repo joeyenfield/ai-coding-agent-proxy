@@ -10,7 +10,7 @@ You need whichever of these you want to try:
 
 For how the pieces fit together, see [Architecture](architecture.md).
 
-**Just want to try it?** The [Quickstart](quickstart.md) runs the whole system on your computer in containers with one command: the server, the sign-in service, a database, two fleet machines with coding agents and Ollama. It walks you from `podman compose up` to an agent working in the console in about fifteen minutes, with no HTTPS or accounts to set up. Come back here when you want a real install.
+**Just want to try it?** A quickstart runs the whole system on your computer with one command: the server, the sign-in service, a database, two fleet machines with coding agents and Ollama. [Quickstart with Docker or Podman](quickstart.md) walks you from `podman compose up` to an agent working in the console in about fifteen minutes, with no HTTPS or accounts to set up; [Quickstart on Kubernetes](quickstart-kubernetes.md) does the same on a local cluster with the Helm chart. Come back here when you want a real install.
 
 **Authentication prerequisite:** run the separate `agent-auth` issuer and configure HTTPS, callback URLs and the shared introspection secret as described in [OIDC authentication](oidc.md). API authentication is mandatory, including on loopback.
 
@@ -65,9 +65,7 @@ On first start, including loopback, the API creates `admin` if accounts were nev
 
 The admin is created only once, on the first start against a new database. Removing all users never disables authentication.
 
-### Adding users from the shell
-
-Run these on the server's computer. Each `add` and `passwd` asks for the password. A new user is a member unless you pass `--admin`; only a user added to a new database, before the server's first start, becomes an admin by being first.
+**Adding users from the shell.** Run these on the server's computer. Each `add` and `passwd` asks for the password. A new user is a member unless you pass `--admin`; only a user added to a new database, before the server's first start, becomes an admin by being first.
 
 ```bash
 agent-server org add pockets --name "Empty Pockets"
@@ -96,9 +94,7 @@ The console's **Organizations** page does the same.
 
 `agent` is the client, a single Go binary. It starts coding agents and runs that computer's `agent-proxy`, which carries their traffic to the server. Install it on every computer where you'll start an agent, the server's own included.
 
-### With the one-line installer
-
-A running server serves an installer for its address and build. It verifies downloaded archives, installs the programs and starts OIDC device sign-in. Approve the printed codes in your browser; the installer never collects your password.
+**With the one-line installer.** A running server serves an installer for its address and build. It verifies downloaded archives, installs the programs and starts OIDC device sign-in. Approve the printed codes in your browser; the installer never collects your password.
 
 ```bash
 curl -fsSL http://server:9999/install.sh | sh                        # Linux, macOS, FreeBSD
@@ -120,13 +116,9 @@ irm http://server:9999/install.ps1 | iex                             # Windows
 
 The installer only works when the server has builds for its version in `dist/<version>/`. Build them on the server's computer with `./scripts/build-dist.sh` (or `.\scripts\build-dist.ps1`), which needs Go. In Docker, compose mounts `./dist` into the container.
 
-### From the Downloads page
+**From the Downloads page.** The console's **Downloads** page (`/get`) lists the same builds per platform, with their sizes, SHA-256 and the commands to install them. It's public, so a new computer can use it before signing in. Each archive has its own `install.sh` or `install.ps1` that copies the programs onto your `PATH`.
 
-The console's **Downloads** page (`/get`) lists the same builds per platform, with their sizes, SHA-256 and the commands to install them. It's public, so a new computer can use it before signing in. Each archive has its own `install.sh` or `install.ps1` that copies the programs onto your `PATH`.
-
-### Building it yourself
-
-With Go 1.24 or later, `./scripts/build-client.sh` (or `.\scripts\build-client.ps1`) builds `client/bin/agent`. Put it on your `PATH`.
+**Building it yourself.** With Go 1.24 or later, `./scripts/build-client.sh` (or `.\scripts\build-client.ps1`) builds `client/bin/agent`. Put it on your `PATH`.
 
 A computer without a Go build can use the Python port instead. It installs the same commands (`agent`, `agent-proxy`, `agent-machine`) from the wheel the server offers on its Downloads page. See [Development](development.md).
 

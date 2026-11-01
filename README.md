@@ -6,7 +6,7 @@ AIControlMesh is an open-source, self-hosted control plane for AI coding agents,
 
 ![The console's Overview: agents, the server and the machines that answer them](docs/screenshots/overview.png)
 
-**[Website](https://aicontrolmesh.com/) · [Try the local quickstart](docs/quickstart.md) · [Documentation](docs/index.md) · [MIT license](LICENSE)**
+**[Website](https://aicontrolmesh.com/) · [Try the local quickstart](docs/quickstart.md) ([or on Kubernetes](docs/quickstart-kubernetes.md)) · [Documentation](docs/index.md) · [MIT license](LICENSE)**
 
 ## What it does
 
@@ -62,27 +62,16 @@ Then open the console, add its model server with **Add as a provider**, and star
 
 ## Documentation
 
-| | |
+Start at the [documentation's overview](docs/index.md). The pages, by section:
+
+| Section | Pages |
 | --- | --- |
-| [Overview](docs/index.md) | The system in one page, every feature and where it's documented |
-| [Quickstart](docs/quickstart.md) | The whole system on your computer in containers, and a guided tour |
-| [Getting started](docs/getting-started.md) | From nothing to a first recorded agent session |
-| [Architecture](docs/architecture.md) | How it works inside |
-| [Networking and protocols](docs/networking.md) | Every connection, port, message and routing rule |
-| [Agents](docs/agents.md) | The `agent` command, every supported agent, what the requests are |
-| [MCP servers](docs/mcp.md) | Sharing MCP servers from machines with agents |
-| [Machines](docs/machines.md) | The fleet and `agent-machine` |
-| [Providers](docs/providers.md) | Ollama, llama.cpp, Strata, Docker Model Runner, containers, hosted APIs |
-| [The console](docs/console.md) | Every page of the web console |
-| [Accounts and sharing](docs/accounts.md) | Users, organizations, teams, sharing, phones |
-| [OIDC authentication](docs/oidc.md) | The sign-in service, device sign-in, service accounts |
-| [Security](docs/security.md) | Device approval, tokens, encryption in transit, a checklist for a public server |
-| [Configuration](docs/configuration.md) | The database and stored settings, environment variables, server commands |
-| [API](docs/api.md) | Every endpoint and WebSocket |
-| [Deployment](docs/deployment.md) | Docker, HTTPS, installers, packages, updates |
-| [Running several server processes](docs/scaling.md) | Kubernetes, the Helm chart, roles, Redis, blob storage |
-| [Retention](docs/retention.md) and [the audit log](docs/audit.md) | What's kept and for how long, legal holds, who did what, exports to a SIEM |
-| [Development](docs/development.md) | Building, testing, releasing |
+| Start here | [Quickstart with Docker or Podman](docs/quickstart.md) · [Quickstart on Kubernetes](docs/quickstart-kubernetes.md) · [Getting started](docs/getting-started.md) |
+| Use it | [Agents](docs/agents.md) · [The console](docs/console.md) · [Machines](docs/machines.md) · [Providers](docs/providers.md) · [MCP servers](docs/mcp.md) · [Subscriptions](docs/subscriptions.md) |
+| People and data | [Accounts and sharing](docs/accounts.md) · [Usage limits](docs/usage-limits.md) · [Retention](docs/retention.md) · [The audit log](docs/audit.md) |
+| Run a server | [Deployment](docs/deployment.md) · [Several server processes](docs/scaling.md) · [Configuration](docs/configuration.md) · [Security](docs/security.md) · [OIDC authentication](docs/oidc.md) |
+| How it works | [Architecture](docs/architecture.md) · [Networking and protocols](docs/networking.md) · [API](docs/api.md) |
+| Contribute | [Development](docs/development.md) · [Marketing website](docs/website.md) |
 
 ## The parts
 

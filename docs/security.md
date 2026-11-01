@@ -2,18 +2,6 @@
 
 How each device pairs with the server, how computers sign in without passwords, what keeps a device code from being misused, where tokens are kept, and which connections are encrypted. For the issuer's endpoints and settings see [OIDC authentication](oidc.md); for accounts, roles and sharing see [Accounts](accounts.md).
 
-## Contents
-
-- [Pairing: how each device joins](#pairing-how-each-device-joins)
-- [Device approval](#device-approval)
-- [What protects a device code](#what-protects-a-device-code)
-- [Approving safely](#approving-safely)
-- [Tokens after approval](#tokens-after-approval)
-- [Encryption in transit](#encryption-in-transit)
-- [Where plain HTTP is used, and why](#where-plain-http-is-used-and-why)
-- [What to watch for](#what-to-watch-for)
-- [A checklist for a public server](#a-checklist-for-a-public-server)
-
 ## Pairing: how each device joins
 
 There is no separate pairing step any more. Every device pairs with the server by signing in through the issuer (agent-auth), as a person, and the server then decides what that person may do. What differs is how each kind of device signs in:
@@ -21,36 +9,34 @@ There is no separate pairing step any more. Every device pairs with the server b
 | Device | How it pairs | What it gets | What it's tied to |
 |---|---|---|---|
 | A computer that runs agents | `agent login https://<server>`: the [device approval](#device-approval) below | Access and refresh tokens in `agent`'s `credentials.json` | You. Its sessions are yours. |
-| A fleet machine | `agent-machine login https://<server>`: the same device approval, with its own tokens | Tokens in agent-machine's own `credentials.json`, and a machine id | You: the machine is yours, as [below](#a-machine-becomes-yours) |
+| A fleet machine | `agent-machine login https://<server>`: the same device approval, with its own tokens | Tokens in agent-machine's own `credentials.json`, and a machine id | You: the machine is yours, as [below](#pairing-how-each-device-joins) |
 | A browser or a phone's browser | Open the console and sign in on the issuer's page (authorization code with PKCE) | `HttpOnly` cookies on the API's own host | You, in that browser |
 | The Android app | Add the server's address, then sign in as in a browser | The same cookies, in the app's own WebView | You, on that phone |
 | A script or service | An admin provisions a service client (`agent-auth client add <id> --user <name>`) | A client id and secret for the client-credentials grant | A member account, never an admin |
 
 A computer that runs agents *and* is in the fleet pairs twice, once for each program, and you approve two codes. They're kept apart on purpose: logging `agent` out doesn't take the machine out of the fleet, and the other way round.
 
-### A machine becomes yours
+**A machine becomes yours.**
 
 - On its first run, agent-machine makes a random machine id (8 random bytes, as hex, in `machine.json` in its folder) and sends it with every connection, signed with its token.
 - The first account to connect with that id owns the machine. If another account later connects with the same id, the server refuses it (close code 4403) rather than hand the machine over, so knowing (or copying) a machine's id doesn't let anyone else take it.
 - The owner, or an admin, can remove a machine (**Remove** on its page). It's disconnected at once and refused when it tries again, until the owner or an admin allows it back.
 - What others may do on it (start agents, open terminals, use its models or MCP servers) is up to its owner: see [Machine access](accounts.md#machine-access).
 
-### Browsers and phones
+**Browsers and phones.**
 
 - The console sends you to the issuer to sign in (`GET /api/auth/login`). It uses the authorization-code flow with PKCE (S256), a random `state` and `nonce`, and a signed state cookie that lasts ten minutes. Only the exact callback addresses the issuer has registered are accepted.
 - Back from the issuer, the API keeps your access token and refresh token in `HttpOnly`, host-only cookies (`SameSite=Lax`, and `Secure` with HTTPS). Scripts in the page can't read them, and no other site's page can use them: unsafe requests and every WebSocket must come from the console's own origin (or one listed in `AI_PROXY_CONSOLE_ORIGINS`).
 - Signed in to the console already? Approve another computer's code there (**Machines › Approve a device**) instead of typing your password on the issuer's page.
 
-### The Android app
+**The Android app.**
 
 - You add a server by its address. The app checks it's an agent-server (`/health`) before saving it.
 - It learns the issuer only from that server, without following redirects, and allows only that HTTPS issuer and the server's sign-in paths inside its WebView. Anything else opens in your browser, so a link can't steer the sign-in page elsewhere.
 - The sign-in belongs to that phone's WebView; signing out there, or changing your password, ends it.
 - The app allows plain HTTP for servers on a LAN or Tailscale, and says when a connection isn't encrypted. Use HTTPS for anything reachable from the internet.
 
-### What pairing used to be, and why it went
-
-Versions before protocol 2 paired phones and launchers with a server-wide **access key**: a short pairing code or a `/pair?key=...` link, and launcher tokens (`aip_...`). The key belonged to no one, so anyone holding it had the same access, and it couldn't be revoked for one device without changing it for all. The server's own computer was also trusted without a sign-in.
+**What pairing used to be, and why it went.** Versions before protocol 2 paired phones and launchers with a server-wide **access key**: a short pairing code or a `/pair?key=...` link, and launcher tokens (`aip_...`). The key belonged to no one, so anyone holding it had the same access, and it couldn't be revoked for one device without changing it for all. The server's own computer was also trusted without a sign-in.
 
 All of that is gone. Old keys, codes, `/pair` links and `aip_` tokens grant nothing, loopback is trusted no more than anywhere else, and the old routes answer `403` or `410` so old consoles and scripts say why ([API](api.md#terminals-and-pairing)). Old `/pair` links in the console just take you to **Running agents** after you sign in. Every device now has its own sign-in, tied to a person, which you can revoke on its own.
 
@@ -97,7 +83,7 @@ Step by step:
 
 `agent-machine login` is the same flow with its own client and its own credentials file, so a computer that runs agents and is in the fleet signs in twice and you approve two codes.
 
-## What protects a device code
+### What protects a device code
 
 | Protection | What it stops |
 |---|---|
@@ -110,7 +96,7 @@ Step by step:
 | No password on the computer | The CLI never asks for one, and the API never sees one. Only the issuer checks passwords. |
 | One issuer, checked | The computer refuses an issuer that isn't the one the server named, endpoints outside its origin, plain-HTTP issuers (except loopback) and redirects. |
 
-## Approving safely
+### Approving safely
 
 - **Approve only a code you just started yourself**, on a computer you're at or control. The classic attack on device sign-in is someone starting a login on their own computer and asking you to "enter this code". Approving it signs their computer in as you.
 - **Check the code matches** what your terminal printed, letter for letter.
@@ -162,7 +148,7 @@ What enforces it:
 - **Model traffic to machines rides the fleet socket.** When a machine can tunnel (any current `agent-machine`) and isn't the server's own computer, the server reaches its model servers through the machine's own WSS connection, and the machine connects to them on its loopback.
 - **nginx from `setup-https.ps1`** redirects HTTP to HTTPS and sends `Strict-Transport-Security`, so browsers use HTTPS from then on.
 
-## Where plain HTTP is used, and why
+### Where plain HTTP is used, and why
 
 You'll see `http://` in a few places. Each of these stays on one computer (or inside Docker's network on one host), so nothing crosses a network in the clear:
 
@@ -176,7 +162,7 @@ You'll see `http://` in a few places. Each of these stays on one computer (or in
 | agent-server and agent-auth to PostgreSQL in Compose | `postgres:5432` | Docker's private network on the same host, never published. |
 | Development, the quickstart and tests | `http://localhost:19999`, `:20000`, `:5173` | Loopback only, with demo passwords. Not for real use. |
 
-## What to watch for
+### What to watch for
 
 These can send something in the clear if you set things up that way. Each has a fix:
 
