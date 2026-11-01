@@ -3,6 +3,12 @@
 Text and payloads are held in memory only while a request is in flight (plus a
 short tail of recently finished requests) and are never written to disk;
 persisted payloads remain controlled by the session's trace setting.
+
+With several processes (cluster.py), each one's events also go to the others (live.events, batched
+every BATCH_SECONDS), but only while some process has a console watching (its heartbeat says how
+many): with nobody watching, a token costs nothing. Each process mirrors the others' requests
+(without their payloads), so a console sees every process's traffic; a request's details are asked
+of the process it runs on (internal.py's /internal/live).
 """
 
 from __future__ import annotations
@@ -19,16 +25,81 @@ MAX_TEXT = 24_000
 # Intercepted sessions make many small requests, so keep a longer tail.
 RECENT_LIMIT = 40
 RAW_LIMIT = 200
+BATCH_SECONDS = 0.1
+# How often whether anyone elsewhere watches is looked at again.
+WATCH_CHECK_SECONDS = 1.0
 
 
 class LiveHub:
-    def __init__(self, enabled: bool = True):
+    def __init__(self, enabled: bool = True, cluster: Any = None):
         self.enabled = enabled
         self.subscribers: set[asyncio.Queue[dict[str, Any] | None]] = set()
         self.active: dict[str, dict[str, Any]] = {}
         self.recent: OrderedDict[str, dict[str, Any]] = OrderedDict()
         # Kept apart from the entries so large payloads never go out with stream events.
         self.payloads: dict[str, dict[str, Any]] = {}
+        self.cluster = cluster
+        self._outbox: list[dict[str, Any]] = []
+        self._watched: tuple[float, bool] = (0.0, False)
+        if cluster is not None:
+            cluster.beacons["live"] = lambda: len(self.subscribers)
+            cluster.on("live.events", self._remote)
+
+    @property
+    def pod(self) -> str | None:
+        return self.cluster.pod_id if self.cluster is not None else None
+
+    def _watching_elsewhere(self) -> bool:
+        if self.cluster is None or not self.cluster.scaled:
+            return False
+        now = time.monotonic()
+        if now - self._watched[0] >= WATCH_CHECK_SECONDS:
+            watching = any(int(info.get("live") or 0) > 0 for pod, info in self.cluster.pods().items() if pod != self.cluster.pod_id)
+            self._watched = (now, watching)
+        return self._watched[1]
+
+    async def run(self) -> None:
+        """Send this process's events to the others, a batch at a time (started by the app's lifespan)."""
+        while True:
+            await asyncio.sleep(BATCH_SECONDS)
+            if self._outbox and self.cluster is not None:
+                events, self._outbox = self._outbox, []
+                self.cluster.publish("live.events", {"events": events})
+
+    def _remote(self, data: dict[str, Any], sender: str) -> None:
+        """Another process's events: mirrored here (no payloads) and passed to this process's consoles."""
+        for event in data.get("events") or []:
+            if not isinstance(event, dict):
+                continue
+            kind, key = event.get("type"), str(event.get("key") or "")
+            if kind == "start" and isinstance(event.get("request"), dict):
+                entry = {**event["request"], "pod": sender}
+                self.active[entry["key"]] = entry
+            elif kind == "summary" and key in self.active:
+                self.active[key]["summary"] = event.get("summary")
+            elif kind == "delta" and key in self.active:
+                entry = self.active[key]
+                if entry.get("first_token_at") is None:
+                    entry["first_token_at"] = time.time()
+                text_kind = str(event.get("kind") or "content")
+                if text_kind in ("reasoning", "content", "tool"):
+                    entry[text_kind] = (entry[text_kind] + str(event.get("text") or ""))[-MAX_TEXT:]
+                    entry["chunks"][text_kind] = event.get("chunks") or entry["chunks"][text_kind] + 1
+            elif kind == "end":
+                entry = self.active.pop(key, None)
+                if entry is not None:
+                    entry.update({"done": True, "ended_at": time.time(), "record": event.get("record")})
+                    self.recent[key] = entry
+                    while len(self.recent) > RECENT_LIMIT:
+                        old_key, _ = self.recent.popitem(last=False)
+                        self.payloads.pop(old_key, None)
+            self._fanout(event)
+
+    def elsewhere(self, key: str) -> str | None:
+        """The other process a live (or recently finished) request ran on, if it isn't this one."""
+        entry = self.active.get(key) or self.recent.get(key)
+        pod = (entry or {}).get("pod")
+        return pod if pod and pod != self.pod else None
 
     def subscribe(self) -> asyncio.Queue[dict[str, Any] | None]:
         queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue(maxsize=2000)
@@ -58,6 +129,7 @@ class LiveHub:
             "chunks": {"reasoning": 0, "content": 0, "tool": 0},
             "summary": None,
             "done": False,
+            "pod": self.pod,
         }
         self.active[key] = entry
         self.payloads[key] = {"request": None, "upstream": None, "http": None, "raw": deque(maxlen=RAW_LIMIT), "raw_total": 0}
@@ -112,8 +184,8 @@ class LiveHub:
             self.payloads.pop(old_key, None)
         self._publish({"type": "end", "key": key, "record": record})
 
-    def details(self, key: str) -> dict[str, Any] | None:
-        """Everything known about one live or recently finished request."""
+    def details(self, key: str, local: bool = False) -> dict[str, Any] | None:
+        """Everything known about one live or recently finished request (here: one another process ran is asked of it)."""
         entry = self.active.get(key) or self.recent.get(key)
         payload = self.payloads.get(key)
         if entry is None or payload is None:
@@ -142,6 +214,11 @@ class LiveHub:
             self.payloads.pop(key, None)
 
     def _publish(self, event: dict[str, Any]) -> None:
+        self._fanout(event)
+        if self._watching_elsewhere():
+            self._outbox.append(event)
+
+    def _fanout(self, event: dict[str, Any]) -> None:
         for queue in list(self.subscribers):
             try:
                 queue.put_nowait(event)

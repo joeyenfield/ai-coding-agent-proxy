@@ -1,0 +1,2 @@
+{{- /* Renders nothing: fails the install on values that can't work. */ -}}
+{{- include "agent-mesh.validate" . -}}

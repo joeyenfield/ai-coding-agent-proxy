@@ -1,0 +1,84 @@
+{{- /*
+The standalone console: ui/Dockerfile's nginx image, built with VITE_API_URL set to the
+server's public URL. The server then runs with AI_PROXY_SERVE_UI=0 and allows this origin
+(AI_PROXY_CONSOLE_ORIGINS, set in the server's environment).
+*/ -}}
+{{- if .Values.console.enabled }}
+{{- $fullname := include "agent-mesh.fullname" . }}
+{{- $c := .Values.console }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-console
+  labels:
+    {{- include "agent-mesh.labels" (dict "root" . "component" "console") | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - {name: http, port: 80, targetPort: http}
+  selector:
+    {{- include "agent-mesh.selectorLabels" (dict "root" . "component" "console") | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}-console
+  labels:
+    {{- include "agent-mesh.labels" (dict "root" . "component" "console") | nindent 4 }}
+spec:
+  replicas: {{ $c.replicas }}
+  selector:
+    matchLabels:
+      {{- include "agent-mesh.selectorLabels" (dict "root" . "component" "console") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "agent-mesh.labels" (dict "root" . "component" "console") | nindent 8 }}
+      {{- with $c.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      automountServiceAccountToken: false
+      {{- with include "agent-mesh.scheduling" . | trim }}
+      {{- . | nindent 6 }}
+      {{- end }}
+      {{- with include "agent-mesh.topologySpread" (dict "root" . "component" "console") }}
+      topologySpreadConstraints:
+        {{- . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: console
+          image: {{ printf "%s:%s" $c.image.repository ($c.image.tag | default .Chart.AppVersion | toString) }}
+          imagePullPolicy: {{ $c.image.pullPolicy }}
+          ports:
+            - {name: http, containerPort: 80}
+          livenessProbe:
+            httpGet: {path: /, port: http}
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: {path: /, port: http}
+            periodSeconds: 5
+          resources:
+            {{- toYaml $c.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            # nginx:stable-alpine starts as root to bind port 80, then drops to its workers.
+            capabilities:
+              drop: [ALL]
+              add: [CHOWN, SETUID, SETGID, NET_BIND_SERVICE]
+{{- if gt (int $c.replicas) 1 }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $fullname }}-console
+  labels:
+    {{- include "agent-mesh.labels" (dict "root" . "component" "console") | nindent 4 }}
+spec:
+  maxUnavailable: {{ $c.pdb.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "agent-mesh.selectorLabels" (dict "root" . "component" "console") | nindent 6 }}
+{{- end }}
+{{- end }}

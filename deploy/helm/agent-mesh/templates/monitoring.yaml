@@ -1,0 +1,94 @@
+{{- /*
+/metrics is served without sign-in on the internal port (server.internalPort) of every
+server pod. A headless Service lists them all for the ServiceMonitor; the NetworkPolicy
+lets only this release's server pods and the Prometheus namespace reach that port.
+*/ -}}
+{{- $fullname := include "agent-mesh.fullname" . }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-metrics
+  labels:
+    {{- include "agent-mesh.labels" (dict "root" . "component" "metrics") | nindent 4 }}
+spec:
+  clusterIP: None
+  ports:
+    - {name: internal, port: {{ .Values.server.internalPort }}, targetPort: internal}
+  selector:
+    {{- include "agent-mesh.serverPodSelector" . | nindent 4 }}
+{{- if .Values.monitoring.serviceMonitor.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "agent-mesh.labels" (dict "root" . "component" "metrics") | nindent 4 }}
+    {{- with .Values.monitoring.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "agent-mesh.selectorLabels" (dict "root" . "component" "metrics") | nindent 6 }}
+  namespaceSelector:
+    matchNames: [{{ .Release.Namespace }}]
+  endpoints:
+    - port: internal
+      path: /metrics
+      interval: {{ .Values.monitoring.serviceMonitor.interval }}
+      relabelings:
+        # Which Deployment (role) each series came from.
+        - sourceLabels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
+          targetLabel: role
+{{- end }}
+{{- if .Values.monitoring.prometheusRule.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "agent-mesh.labels" (dict "root" . "component" "metrics") | nindent 4 }}
+    {{- with .Values.monitoring.prometheusRule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: agent-mesh
+      rules:
+        - alert: AgentMeshServerDown
+          expr: 'up{namespace="{{ .Release.Namespace }}", service="{{ $fullname }}-metrics"} == 0'
+          for: 5m
+          labels: {severity: critical}
+          annotations:
+            summary: 'agent-server pod {{ "{{ $labels.pod }}" }} is not answering /metrics'
+        - alert: AgentMeshNoServerTargets
+          expr: 'absent(up{namespace="{{ .Release.Namespace }}", service="{{ $fullname }}-metrics"} == 1)'
+          for: 10m
+          labels: {severity: critical}
+          annotations:
+            summary: 'No agent-server pod of {{ .Release.Name }} is being scraped'
+        # Needs kube-state-metrics.
+        - alert: AgentMeshPodNotReady
+          expr: |
+            max by (pod) (kube_pod_status_ready{namespace="{{ .Release.Namespace }}", condition="false", pod=~"{{ $fullname }}-.*"}) == 1
+          for: 10m
+          labels: {severity: warning}
+          annotations:
+            summary: 'Pod {{ "{{ $labels.pod }}" }} has not been ready for 10 minutes'
+        - alert: AgentMeshPodRestarting
+          expr: |
+            increase(kube_pod_container_status_restarts_total{namespace="{{ .Release.Namespace }}", pod=~"{{ $fullname }}-.*"}[30m]) > 3
+          labels: {severity: warning}
+          annotations:
+            summary: 'Container {{ "{{ $labels.container }}" }} in {{ "{{ $labels.pod }}" }} restarted more than 3 times in 30 minutes'
+        # Placeholder until the audit service exports it (proposal §14): audit events waiting
+        # to be written. Producers fail open for user traffic, so a backlog is the signal.
+        - alert: AgentMeshAuditBacklog
+          expr: 'max(agent_server_audit_backlog{namespace="{{ .Release.Namespace }}"}) > {{ .Values.monitoring.prometheusRule.auditBacklogThreshold }}'
+          for: 15m
+          labels: {severity: warning}
+          annotations:
+            summary: 'Audit backlog has been over {{ .Values.monitoring.prometheusRule.auditBacklogThreshold }} events for 15 minutes'
+{{- end }}

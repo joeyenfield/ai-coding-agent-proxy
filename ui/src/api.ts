@@ -1056,6 +1056,167 @@ export interface StorageInfo {
   retention_days: number | null;
 }
 
+/** What a retention policy keeps, each for its own number of days. */
+export const RETENTION_KINDS = ["traces", "terminal", "records", "sessions", "audit"] as const;
+export type RetentionKind = (typeof RETENTION_KINDS)[number];
+/** Days each kind is kept; null is forever (in max: no bound, in min: no floor). */
+export type RetentionDays = Record<RetentionKind, number | null>;
+/** off: never recorded; opt_in: only sessions started with --trace; always: every session. */
+export type TraceCapture = "off" | "opt_in" | "always";
+export const TRACE_CAPTURES: TraceCapture[] = ["off", "opt_in", "always"];
+
+export interface CapturePolicy {
+  traces: TraceCapture;
+  /** Account agents' decrypted traffic in traces. */
+  intercept_bodies: boolean;
+  /** Shared terminals' output. */
+  terminal_output: boolean;
+}
+
+/** GET/PUT /api/config/retention: the server's policy, and the bounds organizations set theirs within (site admins). */
+export interface ServerRetention {
+  capture: CapturePolicy;
+  /** The trace modes organizations may choose. */
+  allowed_traces: TraceCapture[];
+  days: RetentionDays;
+  max: RetentionDays;
+  min: RetentionDays;
+}
+
+/** An organization's own overrides: only what it changes. */
+export interface OrgRetentionOwn {
+  capture?: Partial<CapturePolicy>;
+  days?: Partial<RetentionDays>;
+}
+
+/** GET /api/orgs/{org}/retention: the policy its new sessions start under, its own part, and the server's bounds. */
+export interface OrgRetention {
+  capture: CapturePolicy;
+  days: RetentionDays;
+  own: OrgRetentionOwn;
+  /** The server's bounds, and its own capture and days (what "the server's" is for a setting left alone). */
+  server: Pick<ServerRetention, "allowed_traces" | "max" | "min" | "capture" | "days">;
+  /** How many legal holds the organization has (GET only). */
+  holds?: number;
+}
+
+export type HoldScope = "org" | "user" | "session";
+
+/** A legal hold: nothing it covers is deleted by any policy until it's lifted. */
+export interface LegalHold {
+  id: string;
+  tenant: string;
+  scope: HoldScope;
+  /** The organization's id, a username or a session id. */
+  target: string;
+  reason: string | null;
+  set_by: string | null;
+  /** Unix time. */
+  set_at: number;
+}
+
+export type AuditOutcome = "success" | "refused" | "failure";
+
+/** One audit event, a CloudEvent with its place in its organization's hash chain. */
+export interface AuditEvent {
+  id: string;
+  specversion?: string;
+  source?: string;
+  /** mesh.audit.<category>.<action> */
+  type: string;
+  tenant: string;
+  actor: string | null;
+  outcome: AuditOutcome;
+  /** ISO 8601. */
+  time: string;
+  time_epoch: number;
+  data: {
+    actor?: { user: string | null; via: string | null; ip: string | null; user_agent: string | null };
+    /** Such as "PUT /api/config/retention". */
+    action?: string;
+    target?: { kind?: string; id?: string; part?: string };
+    reason?: string | null;
+    status?: number | null;
+    changes?: { fields?: string[]; [key: string]: unknown };
+    [key: string]: unknown;
+  };
+  chain: { seq: number; prev: string; hash: string };
+}
+
+export interface AuditQuery {
+  /** Site admins only: one organization's events. */
+  org?: string;
+  /** A type prefix: "data", "configuration.update" or a full mesh.audit.… type. */
+  type?: string;
+  actor?: string;
+  outcome?: AuditOutcome | "";
+  /** Unix time. */
+  since?: number;
+  /** A time, or the cursor a page's next_before gave. */
+  before?: number | string;
+  limit?: number;
+}
+
+/** GET /api/audit: newest first; next_before pages back, null on the last page. */
+export interface AuditPage {
+  events: AuditEvent[];
+  /** The cursor for the next page (pass it as before), null on the last page. */
+  next_before: string | null;
+}
+
+/** GET /api/audit/verify: every chain recomputed and every checkpoint's signature checked. */
+export interface AuditVerify {
+  ok: boolean;
+  tenants: Record<string, { events: number; first: number | null; head: number | null }>;
+  checkpoints: number;
+  problems: string[];
+}
+
+/** POST /api/audit/checkpoint: the chains' heads signed now; null when nothing was recorded since the last one. */
+export interface AuditCheckpoint {
+  id: string;
+  time: number;
+  heads: Record<string, [number, string]>;
+  signature: string;
+  key_id: string;
+  location: string | null;
+}
+
+export type AuditExportKind = "otlp" | "syslog" | "webhook" | "blob";
+
+/** Somewhere the audit log is sent as it grows. token_env names an environment variable on the server, never a secret. */
+export interface AuditExport {
+  name: string;
+  kind: AuditExportKind;
+  url: string;
+  token_env: string | null;
+  /** Only these organizations' events; null or empty: every one. */
+  tenants: string[] | null;
+  enabled: boolean;
+  /** Where a blob export writes, in the server's blob storage. */
+  prefix: string;
+}
+
+/** GET /api/config/audit (site admins). PUT takes and answers {exports, checkpoint_minutes}. */
+export interface AuditConfig {
+  exports: AuditExport[];
+  checkpoint_minutes: number;
+  key_id?: string;
+  /** The checkpoints' Ed25519 public key, base64. */
+  public_key?: string;
+  /** Events the slowest export hasn't sent yet. */
+  backlog?: number;
+}
+
+const auditQuery = (query: AuditQuery, extra: Record<string, string> = {}) => {
+  const params = new URLSearchParams(extra);
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
+  }
+  const text = params.toString();
+  return text ? `?${text}` : "";
+};
+
 export interface ConfigResponse {
   config: NetworkConfig;
   restart_required: boolean;
@@ -1775,6 +1936,33 @@ export const api = {
   storage: () => request<StorageInfo>("/api/config/storage"),
   saveRetention: (days: number | null) =>
     request<StorageInfo>("/api/config/storage", { method: "PUT", body: JSON.stringify({ retention_days: days }) }),
+  // What's recorded and for how long (retention.py): the server's policy (site admins), each organization's, legal holds.
+  retentionPolicy: () => request<ServerRetention>("/api/config/retention"),
+  saveRetentionPolicy: (policy: ServerRetention) =>
+    request<ServerRetention>("/api/config/retention", { method: "PUT", body: JSON.stringify(policy) }),
+  orgRetention: (org: string) => request<OrgRetention>(`/api/orgs/${encodeURIComponent(org)}/retention`),
+  /** Replaces the organization's own overrides with these (only what it changes). */
+  saveOrgRetention: (org: string, own: OrgRetentionOwn) =>
+    request<OrgRetention>(`/api/orgs/${encodeURIComponent(org)}/retention`, { method: "PUT", body: JSON.stringify(own) }),
+  resetOrgRetention: (org: string) => request<OrgRetention>(`/api/orgs/${encodeURIComponent(org)}/retention`, { method: "DELETE" }),
+  /** Admins get their own organization's; site admins every one, or org's. */
+  holds: (org?: string) => request<{ holds: LegalHold[] }>(`/api/holds${org ? `?${new URLSearchParams({ org })}` : ""}`),
+  addHold: (hold: { scope: HoldScope; target: string; reason: string; org?: string }) =>
+    request<LegalHold>("/api/holds", { method: "POST", body: JSON.stringify(hold) }),
+  removeHold: (id: string) => request<{ removed: string }>(`/api/holds/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  // The audit log (audit.py): admins read their organization's, site admins everyone's.
+  audit: (query: AuditQuery = {}) => request<AuditPage>(`/api/audit${auditQuery(query)}`),
+  /** The same events as a file (up to 5000), with the server's filename. */
+  auditExport: async (query: AuditQuery, format: "csv" | "ndjson") => {
+    const response = await apiFetch(`/api/audit/export${auditQuery({ ...query, limit: undefined, before: undefined }, { format })}`);
+    if (!response.ok) throw await failure(response);
+    return { text: await response.text(), type: response.headers.get("content-type") ?? "text/plain", filename: `audit.${format}` };
+  },
+  auditVerify: (org?: string) => request<AuditVerify>(`/api/audit/verify${org ? `?${new URLSearchParams({ org })}` : ""}`),
+  auditCheckpoint: () => request<{ checkpoint: AuditCheckpoint | null }>("/api/audit/checkpoint", { method: "POST", body: "{}" }),
+  auditConfig: () => request<AuditConfig>("/api/config/audit"),
+  saveAuditConfig: (config: Pick<AuditConfig, "exports" | "checkpoint_minutes">) =>
+    request<AuditConfig>("/api/config/audit", { method: "PUT", body: JSON.stringify(config) }),
   importSettings: (yaml: string) =>
     request<{ changed: string[]; restart_required: boolean }>("/api/config/import", { method: "POST", body: yaml, headers: { "content-type": "application/yaml" } }),
   // LLM providers: everything goes through the machine that runs the model server.

@@ -197,6 +197,8 @@ class Settings:
     # in code write theirs into it instead, so a test says what it wants and the database follows.
     db: Database | None = field(default=None, repr=False, compare=False)
     from_database: bool = field(default=False, repr=False, compare=False)
+    # Told when a setting changes here (the runtime tells the server's other processes: config.changed).
+    listeners: list[Callable[[str], None]] = field(default_factory=list, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         issuer = urlparse(self.oidc_issuer)
@@ -261,7 +263,11 @@ class Settings:
         if self.db is not None and not self.db.writer.closed:
             return self.db
         self.db = Database(self.database_address)
-        migrate.migrate(self.db)
+        if os.getenv("AI_PROXY_MIGRATE", "1") == "0":
+            # Kubernetes: a Job migrates (agent-server db migrate) before the server's processes start; they wait for it.
+            migrate.wait_for(self.db)
+        else:
+            migrate.migrate(self.db)
         document: dict[str, Any] = {}
         models: dict[str, Any] = {}
         with self.db.write() as connection:
@@ -337,6 +343,22 @@ class Settings:
             ))
         kv.put_meta(connection, "config_seeded", True)
 
+    def changed(self, what: str) -> None:
+        """A setting changed here: tell the listeners (other processes reload theirs)."""
+        for listener in list(self.listeners):
+            try:
+                listener(what)
+            except Exception:  # noqa: BLE001 - a listener mustn't undo a saved change
+                pass
+
+    def reload(self) -> None:
+        """Read the stored settings again (another process changed them); the listen address waits for a restart."""
+        with self.open_database().read() as connection:
+            document, models = stored_config(connection)
+        host, port = self.host, self.port
+        self._configure(document, models)
+        self.host, self.port = host, port
+
     def models_document(self) -> dict[str, Any]:
         """Ollama model tuning as it's stored and edited: defaults, profiles (first match wins), aliases."""
         return {"defaults": self.model_defaults, "profiles": self.model_profiles, "aliases": self.models}
@@ -347,6 +369,7 @@ class Settings:
         with self.open_database().write() as connection:
             kv.put(connection, schema.settings, "models", normalized)
         self.model_defaults, self.model_profiles, self.models = normalized["defaults"], normalized["profiles"], normalized["aliases"]
+        self.changed("models")
         return self.models_document()
 
     @property
@@ -501,6 +524,7 @@ class Settings:
             name: Backend(name=name, **backend)
             for name, backend in normalized["backends"].items()
         }
+        self.changed("network")
         return self.network_config()
 
     def save_backend(self, name: str, value: dict[str, Any]) -> Backend:
@@ -512,6 +536,7 @@ class Settings:
                 position = (connection.execute(select(schema.backends.c.position).order_by(schema.backends.c.position.desc())).scalar() or 0) + 1
             kv.upsert(connection, schema.backends, {"name": name, "position": position, **_backend_row(backend)})
         self.backends = {**self.backends, name: backend}
+        self.changed("backends")
         return backend
 
     def remove_backend(self, name: str) -> None:
@@ -520,6 +545,7 @@ class Settings:
         with self.open_database().write() as connection:
             connection.execute(schema.backends.delete().where(schema.backends.c.name == name))
         self.backends = {key: value for key, value in self.backends.items() if key != name}
+        self.changed("backends")
 
     def _setting(self, key: str) -> Any:
         with self.open_database().read() as connection:
@@ -539,6 +565,7 @@ class Settings:
         with self.open_database().write() as connection:
             kv.put(connection, schema.settings, "retention_days", value)
         self.retention_days = value
+        self.changed("retention")
         return value
 
 

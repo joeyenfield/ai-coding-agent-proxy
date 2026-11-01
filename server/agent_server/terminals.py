@@ -6,6 +6,11 @@ memory, records it in the database (terminal_chunks, written a chunk at a time:
 every CHUNK bytes or FLUSH_SECONDS), and fans it out to viewers: each new viewer
 gets the history replayed, then live output. Input from a viewer goes back to the
 launcher, which types it into the agent.
+
+With several processes (cluster.py), a terminal lives with the process its launcher reached: that one
+says so in a shared key (terminal:<session>, refreshed every few seconds with its state), and a viewer
+reaching another process is passed on to it whole (internal.TerminalForward). With blob storage
+(blobs.py), the recorded chunks go there and their rows keep only where.
 """
 
 from __future__ import annotations
@@ -20,8 +25,13 @@ from typing import Any
 
 from sqlalchemy import func, select
 
+from . import blobs as blob_store
 from .db import kv, schema
 from .sessions import Session, SessionStore, utc_now
+
+
+# How long a terminal's host key lasts without its process refreshing it (flush_quiet, every 2 s).
+HOST_TTL = 15.0
 
 
 # Replayed to each new viewer; enough for a long agent session's scrollback.
@@ -105,6 +115,8 @@ class TerminalHub:
     def __init__(self, sessions: SessionStore):
         self.sessions = sessions
         self.terminals: dict[str, Terminal] = {}
+        # Whether a session's terminal output is recorded (retention.py's capture policy); None: always.
+        self.capture: Any = None
 
     def get(self, session: Session) -> Terminal | None:
         """The session's terminal, loaded from its log when it ran before the proxy started."""
@@ -119,15 +131,58 @@ class TerminalHub:
         """Every session with a shared terminal, newest first, without loading histories."""
         result = []
         stored = self._metas()
+        elsewhere = self._hosted_elsewhere()
         for session in self.sessions.list():
             terminal = self.terminals.get(session.session_id)
-            if terminal is not None:
+            if terminal is not None and (terminal.host is not None or session.session_id not in elsewhere):
                 result.append(terminal.public())
+                continue
+            if session.session_id in elsewhere:
+                result.append(elsewhere[session.session_id])
                 continue
             meta = stored.get(session.session_id)
             if meta is not None:
                 result.append({**_public_meta(session, meta), "connected": False, "viewers": 0})
         return result
+
+    # Several processes
+
+    @property
+    def cluster(self) -> Any:
+        return self.sessions.cluster
+
+    def host_of(self, session_id: str) -> str | None:
+        """The other process this session's terminal is hosted by (its launcher connected there), if any."""
+        if not self.cluster.scaled:
+            return None
+        terminal = self.terminals.get(session_id)
+        if terminal is not None and terminal.host is not None:
+            return None
+        value = self.cluster.get_json(f"terminal:{session_id}")
+        pod = value.get("pod") if isinstance(value, dict) else None
+        return pod if pod and pod != self.cluster.pod_id and self.cluster.alive(pod) else None
+
+    def _hosted_elsewhere(self) -> dict[str, dict[str, Any]]:
+        """Terminals other processes host now: session id -> their state as that process last said."""
+        if not self.cluster.scaled:
+            return {}
+        found = {}
+        for key in self.cluster.keys("terminal:"):
+            value = self.cluster.get_json(key)
+            if isinstance(value, dict) and value.get("pod") != self.cluster.pod_id and self.cluster.alive(value.get("pod")) and isinstance(value.get("terminal"), dict):
+                found[key[len("terminal:"):]] = value["terminal"]
+        return found
+
+    def _announce(self, terminal: Terminal) -> None:
+        if not self.cluster.scaled:
+            return
+        key = f"terminal:{terminal.session_id}"
+        if terminal.host is not None:
+            self.cluster.set_json(key, {"pod": self.cluster.pod_id, "terminal": terminal.public()}, HOST_TTL)
+        else:
+            value = self.cluster.get_json(key)
+            if isinstance(value, dict) and value.get("pod") == self.cluster.pod_id:
+                self.cluster.delete(key)
 
     def attach(self, session: Session, host: Any, hello: dict[str, Any]) -> Terminal:
         terminal = self.get(session) or Terminal(session.session_id)
@@ -141,6 +196,7 @@ class TerminalHub:
         terminal.exit_status = None
         self.terminals[session.session_id] = terminal
         self._save(terminal)
+        self._announce(terminal)
         self._broadcast(terminal, {"type": "state", "terminal": terminal.public()})
         return terminal
 
@@ -150,6 +206,7 @@ class TerminalHub:
         terminal.host = None
         self._flush(terminal)
         self._save(terminal)
+        self._announce(terminal)
         self._broadcast(terminal, {"type": "state", "terminal": terminal.public()})
 
     def output(self, terminal: Terminal, data: bytes) -> None:
@@ -274,6 +331,9 @@ class TerminalHub:
     def _append_log(self, terminal: Terminal, data: bytes) -> None:
         if terminal.log_full:
             return
+        if self.capture is not None and not self.capture(terminal.session_id):
+            # Not recorded by its organization's policy: viewers still get it live.
+            return
         if terminal.logged + len(data) > LOG_LIMIT:
             self._flush(terminal)
             terminal.log_full = True
@@ -290,15 +350,33 @@ class TerminalHub:
         for terminal in list(self.terminals.values()):
             if terminal.pending and now - terminal.flushed_at >= FLUSH_SECONDS:
                 self._flush(terminal)
+            if terminal.host is not None:
+                # Still here: the other processes keep sending this terminal's viewers to this one.
+                self._announce(terminal)
 
     def _flush(self, terminal: Terminal) -> None:
         """Record the output waiting in pending as one chunk."""
         terminal.flushed_at = time.monotonic()
         if not terminal.pending:
             return
-        row = {"session_id": terminal.session_id, "offset": terminal.logged - len(terminal.pending), "data": bytes(terminal.pending)}
+        offset, data = terminal.logged - len(terminal.pending), bytes(terminal.pending)
         terminal.pending.clear()
-        self.sessions.db.writer.submit(lambda connection: kv.upsert(connection, schema.terminal_chunks, row))
+        store, uploads = self.sessions.blobs, self.sessions._uploads
+        session = self.sessions.get(terminal.session_id)
+        if store is None or uploads is None or session is None:
+            row = {"session_id": terminal.session_id, "offset": offset, "data": data, "location": None}
+            self.sessions.db.writer.submit(lambda connection: kv.upsert(connection, schema.terminal_chunks, row))
+            return
+        # The chunk's length is in its key: the row keeps no data to measure.
+        location = f"{blob_store.session_prefix(session.tags.get('tenant'), session.session_id, session.started_at)}/terminal/{offset:012d}-{len(data)}"
+        writer = self.sessions.db.writer
+
+        def upload() -> None:
+            store.put(location, data)
+            row = {"session_id": terminal.session_id, "offset": offset, "data": b"", "location": location}
+            writer.submit(lambda connection: kv.upsert(connection, schema.terminal_chunks, row))
+
+        self.sessions._track(uploads.submit(upload))
 
     def _save(self, terminal: Terminal) -> None:
         row = {"session_id": terminal.session_id, "meta": terminal.meta()}
@@ -312,22 +390,26 @@ class TerminalHub:
 
     def _load(self, session: Session) -> Terminal | None:
         db = self.sessions.db
-        db.writer.flush()
+        self.sessions.flush()
         chunks = schema.terminal_chunks
         with db.read() as connection:
             meta = connection.execute(select(schema.terminals.c.meta).where(schema.terminals.c.session_id == session.session_id)).scalar()
             if not isinstance(meta, dict):
                 return None
             last = connection.execute(
-                select(chunks.c.offset, func.length(chunks.c.data)).where(chunks.c.session_id == session.session_id)
+                select(chunks.c.offset, func.length(chunks.c.data), chunks.c.location).where(chunks.c.session_id == session.session_id)
                 .order_by(chunks.c.offset.desc()).limit(1)
             ).first()
-            size = int(last[0]) + int(last[1]) if last else 0
+            size = int(last[0]) + (_stored_length(last[2]) if last and last[2] else int(last[1] or 0)) if last else 0
             # The chunks holding the last HISTORY_LIMIT bytes (a chunk is at most about CHUNK plus one frame).
             rows = connection.execute(
-                select(chunks.c.offset, chunks.c.data).where(chunks.c.session_id == session.session_id, chunks.c.offset >= size - HISTORY_LIMIT - 4 * CHUNK)
+                select(chunks.c.offset, chunks.c.data, chunks.c.location).where(chunks.c.session_id == session.session_id, chunks.c.offset >= size - HISTORY_LIMIT - 4 * CHUNK)
                 .order_by(chunks.c.offset)
             ).all()
+        store = self.sessions.blobs
+        if store is not None and any(location for _, _, location in rows):
+            fetched = blob_store.parallel([lambda location=location: store.get(location) if location else None for _, _, location in rows])
+            rows = [(offset, data if not location else (value if isinstance(value, bytes) else b""), location) for (offset, data, location), value in zip(rows, fetched)]
         terminal = Terminal(session.session_id)
         for key in ("cols", "rows", "command", "started_at", "last_output_at", "ended_at", "exit_status", "total", "skipped", "log_full", "bracketed_paste"):
             if key in meta:
@@ -335,7 +417,7 @@ class TerminalHub:
         if terminal.ended_at is None and session.ended_at:
             # The launcher closed the session but never reported the exit (proxy restarted meanwhile).
             terminal.ended_at, terminal.exit_status = session.ended_at, session.exit_status
-        history = b"".join(bytes(data) for _, data in rows)
+        history = b"".join(bytes(data) for _, data, _ in rows)
         terminal.history = bytearray(history[-HISTORY_LIMIT:])
         terminal.logged = size
         if not terminal.log_full:
@@ -345,6 +427,14 @@ class TerminalHub:
         # and only output from here on is resumable.
         terminal.contiguous_from = terminal.total
         return terminal
+
+
+def _stored_length(location: str) -> int:
+    """A chunk in blob storage has its length at the end of its key (.../terminal/<offset>-<length>)."""
+    try:
+        return int(location.rsplit("-", 1)[1])
+    except (IndexError, ValueError):
+        return 0
 
 
 def input_parts(message: dict[str, Any], bracketed_paste: bool) -> list[str]:

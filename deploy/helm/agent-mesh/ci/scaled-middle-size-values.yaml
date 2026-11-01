@@ -1,0 +1,43 @@
+# Two role groups instead of a Deployment per role (the proposal's middle size), an issuer
+# run elsewhere, a separate MCP regex route through Ingress and Gateway API both.
+mode: scaled
+server:
+  host: api.ci.example
+auth:
+  issuer: {enabled: false}
+  oidc: {issuer: https://auth.elsewhere.example}
+postgresql:
+  external: {existingSecret: ci-postgres}
+redis:
+  external: {existingSecret: ci-redis}
+roles:
+  api: {enabled: false}
+  gateway: {enabled: false}
+  intercept: {enabled: false}
+  mcp: {enabled: false}
+  fleet: {enabled: false}
+  realtime: {enabled: false}
+  worker: {enabled: false}
+  control:
+    enabled: true
+    serves: [api, realtime, worker]
+    replicas: 2
+    autoscaling: {enabled: false}
+  edge:
+    enabled: true
+    serves: [gateway, intercept, fleet]
+    replicas: 3
+    terminationGracePeriodSeconds: 300
+    autoscaling: {enabled: true, min: 3, max: 10, metric: cpu, target: 70}
+  relay:
+    enabled: true
+    serves: [mcp]
+    replicas: 1
+routing:
+  gatewayAPI:
+    enabled: true
+    gatewayRef: {name: gw}
+  ingress:
+    enabled: true
+networkPolicy:
+  enabled: false

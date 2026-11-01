@@ -134,8 +134,8 @@ export function useClipboard() {
   );
 }
 
-export function download(content: string, filename: string) {
-  const url = URL.createObjectURL(new Blob([content], { type: "application/json;charset=utf-8" }));
+export function download(content: string, filename: string, type = "application/json;charset=utf-8") {
+  const url = URL.createObjectURL(new Blob([content], { type }));
   const link = document.createElement("a");
   link.href = url;
   link.download = filename;

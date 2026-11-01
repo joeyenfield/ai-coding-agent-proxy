@@ -83,6 +83,17 @@ sessions = Table(
     Column("id", String(128), primary_key=True),
     Column("started_at", String(40), nullable=False),
     Column("data", JSON, nullable=False),
+    # Counters kept apart from the document (API step 6), so processes counting requests never
+    # write back a session's tags or sharing as they last saw them: each only ever raises these.
+    Column("request_sequence", BigInteger),
+    Column("request_count", BigInteger),
+    Column("last_activity_at", String(40)),
+    Column("input_tokens", BigInteger),
+    Column("output_tokens", BigInteger),
+    # When retention next has something of this session's to delete (retention.py); None: not looked at yet.
+    Column("retention_next", String(40)),
+    Index("sessions_last_activity", "last_activity_at"),
+    Index("sessions_retention_next", "retention_next"),
 )
 
 requests = Table(
@@ -104,8 +115,10 @@ traces = Table(
     Column("session_id", String(128), primary_key=True),
     Column("request_id", String(40), primary_key=True),
     Column("size", BigInteger, nullable=False),
-    # gzipped JSON (db.pack)
+    # gzipped JSON (db.pack); empty when the trace is in blob storage (location).
     Column("body", LargeBinary, nullable=False),
+    # Its key in blob storage (blobs.py, AI_PROXY_BLOB_URL), or None when it's in body (API step 6).
+    Column("location", Text),
 )
 
 chat_index = Table("chat_index", api, Column("session_id", String(128), primary_key=True), Column("data", JSON, nullable=False))
@@ -118,6 +131,8 @@ terminal_chunks = Table(
     # The chunk's first byte's place in the terminal's recorded output.
     Column("offset", BigInteger, primary_key=True, autoincrement=False),
     Column("data", LargeBinary, nullable=False),
+    # As traces': the chunk's key in blob storage, with data empty (API step 6).
+    Column("location", Text),
 )
 
 # Provider accounts (provider_accounts.py): people's own AI subscriptions (Claude, ChatGPT/Codex,
@@ -215,6 +230,67 @@ usage_limits = Table(
     Column("set_by", String(100)),
     Column("set_at", Float),
 )
+
+# How long an organization keeps what's recorded, within the server's bounds (retention.py), API step 6.
+retention_policies = Table(
+    "retention_policies", api,
+    Column("tenant", String(40), primary_key=True),
+    Column("policy", JSON, nullable=False),
+    Column("set_by", String(100)),
+    Column("set_at", Float),
+)
+
+# Legal holds: an organization, a person or a session whose recordings no retention deletes (retention.py).
+legal_holds = Table(
+    "legal_holds", api,
+    Column("id", String(32), primary_key=True),
+    Column("tenant", String(40), nullable=False),
+    # org, user or session; target is the organization, the user's name or the session id.
+    Column("scope", String(10), nullable=False),
+    Column("target", String(200), nullable=False),
+    Column("reason", Text),
+    Column("set_by", String(100)),
+    Column("set_at", Float, nullable=False),
+    Index("legal_holds_target", "scope", "target"),
+)
+
+# The audit log (audit.py): append only, a hash chain per tenant. audit_chains holds each chain's
+# head, which a new event locks to take the next seq; audit_checkpoints the signed hourly heads.
+audit_events = Table(
+    "audit_events", api,
+    Column("tenant", String(40), primary_key=True),
+    Column("seq", BigInteger, primary_key=True, autoincrement=False),
+    Column("id", String(36), nullable=False, unique=True),
+    Column("time", Float, nullable=False),
+    Column("type", String(80), nullable=False),
+    Column("actor", String(100)),
+    Column("outcome", String(20), nullable=False),
+    Column("event", JSON, nullable=False),
+    Column("prev", String(64), nullable=False),
+    Column("hash", String(64), nullable=False),
+    Index("audit_events_time", "time"),
+)
+audit_chains = Table(
+    "audit_chains", api,
+    Column("tenant", String(40), primary_key=True),
+    Column("seq", BigInteger, nullable=False),
+    Column("head", String(64), nullable=False),
+)
+audit_checkpoints = Table(
+    "audit_checkpoints", api,
+    Column("id", String(32), primary_key=True),
+    Column("time", Float, nullable=False),
+    # {tenant: [seq, head]} at the time, and the server's signature over them (Ed25519).
+    Column("heads", JSON, nullable=False),
+    Column("signature", Text, nullable=False),
+    Column("key_id", String(64), nullable=False),
+    Column("location", Text),
+    Index("audit_checkpoints_time", "time"),
+)
+# One row: whether this transaction may delete audit events (the database's triggers check it; retention sets it).
+audit_guard = Table("audit_guard", api, Column("id", Integer, primary_key=True), Column("allow", Integer, nullable=False, default=0))
+
+SCALING_TABLES = (retention_policies, legal_holds, audit_events, audit_chains, audit_checkpoints, audit_guard)
 
 PROVIDER_ACCOUNT_TABLES = (provider_accounts, provider_account_assignments, provider_account_usage, provider_account_events, provider_credentials)
 

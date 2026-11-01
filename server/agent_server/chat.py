@@ -143,6 +143,10 @@ class Chats:
     def forget(self, session: Session) -> None:
         self.forget_id(session.session_id)
 
+    def forget_all(self) -> None:
+        """Drop every cached thread (retention deleted recordings)."""
+        self._cache.clear()
+
     def forget_id(self, session_id: str) -> None:
         self._indexes.pop(session_id, None)
         for key in [key for key in self._cache if key[0] == session_id]:

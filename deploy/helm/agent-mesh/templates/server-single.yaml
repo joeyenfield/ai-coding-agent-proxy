@@ -1,0 +1,92 @@
+{{- /*
+mode single: one pod running every role (AI_PROXY_ROLES=all), replicas 1 and strategy
+Recreate so two never overlap. With SQLite, agent-auth runs in the same pod and shares its
+volume (it reads the API's database file for accounts).
+*/ -}}
+{{- if eq .Values.mode "single" }}
+{{- $fullname := include "agent-mesh.fullname" . }}
+{{- $persist := .Values.persistence.enabled }}
+{{- $sidecar := include "agent-mesh.issuerSidecar" . }}
+{{- if and $persist (not .Values.persistence.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $fullname }}-data
+  labels:
+    {{- include "agent-mesh.labels" (dict "root" . "component" "server") | nindent 4 }}
+  annotations:
+    # Keep the SQLite database when the release is uninstalled.
+    helm.sh/resource-policy: keep
+    {{- with .Values.persistence.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  accessModes:
+    {{- toYaml .Values.persistence.accessModes | nindent 4 }}
+  {{- with .Values.persistence.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size }}
+---
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "agent-mesh.labels" (dict "root" . "component" "server") | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - {name: http, port: {{ .Values.server.port }}, targetPort: http}
+  selector:
+    {{- include "agent-mesh.selectorLabels" (dict "root" . "component" "server") | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "agent-mesh.labels" (dict "root" . "component" "server") | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "agent-mesh.selectorLabels" (dict "root" . "component" "server") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "agent-mesh.labels" (dict "root" . "component" "server") | nindent 8 }}
+        agent-mesh.io/server: "true"
+        {{- if $sidecar }}
+        agent-mesh.io/issuer: "true"
+        {{- end }}
+        {{- with .Values.single.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/env: {{ include "agent-mesh.serverEnv" (dict "root" . "roles" "all" "workers" .Values.single.workers "direct" true) | sha256sum }}
+        {{- with .Values.single.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "agent-mesh.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken }}
+      terminationGracePeriodSeconds: {{ .Values.single.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- include "agent-mesh.podSecurityContext" . | nindent 8 }}
+      {{- with include "agent-mesh.scheduling" . | trim }}
+      {{- . | nindent 6 }}
+      {{- end }}
+      containers:
+        {{- include "agent-mesh.serverContainer" (dict "root" . "roles" "all" "workers" .Values.single.workers "direct" true "resources" .Values.single.resources "persist" $persist "grace" .Values.single.terminationGracePeriodSeconds) | nindent 8 }}
+        {{- if $sidecar }}
+        {{- include "agent-mesh.issuerContainer" (dict "root" . "persist" $persist) | nindent 8 }}
+        {{- end }}
+      volumes:
+        {{- include "agent-mesh.stateVolumes" (dict "root" . "persist" $persist) | trim | nindent 8 }}
+{{- end }}

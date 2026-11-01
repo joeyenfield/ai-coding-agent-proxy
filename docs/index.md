@@ -86,8 +86,11 @@ Everyone signs in through OIDC, including on loopback. Sessions are private unti
 | [Accounts and sharing](accounts.md) | Users, organizations and teams, session sharing, phones and the Android app. |
 | [Providers and usage limits](usage-limits.md) | Every provider as one list (model servers on machines, hosted APIs, subscriptions), each person's usage of each, and the token limits an organization's admins set: what's counted, setting limits, what a blocked person sees. |
 | [Subscriptions](subscriptions.md) | Your own Claude, ChatGPT (Codex) and Copilot plans: enrolling machines (`agent accounts`), starting agents with them, usage and estimated remaining balance, choosing one automatically, the vault for Copilot tokens, who may do what. |
+| [Retention](retention.md) | What's recorded and for how long: the server's policy, organizations' own within its bounds, capture modes, legal holds, where recordings are kept. |
+| [The audit log](audit.md) | Who did what: what's recorded, the hash chains and signed checkpoints, `agent-server audit verify`, reading it, and exporting it to a SIEM (OTLP, syslog, webhooks, files). |
 | [Configuration](configuration.md) | The database, the stored settings (providers, agents, model tuning, retention), `agent-server config export` and `import`, every environment variable, secrets, the `agent-server` and `agent-benchmark` commands. |
 | [API](api.md) | Every HTTP endpoint and WebSocket, who may call it, and what it takes and returns. |
+| [Running several server processes](scaling.md) | Single-node and scaled mode, the server's roles, what the processes share (Redis), the internal port, routing, blob storage for recordings, health, readiness and metrics, the Helm chart for Kubernetes, sizing. |
 | [Deployment](deployment.md) | Docker, PostgreSQL and backups, HTTPS, what the server hands out, one-line installers, packages and services, versions and updates, ports. |
 | [Development](development.md) | Building and testing every component, the demo and screenshots, distributions, benchmarks, checklists. |
 
@@ -132,7 +135,11 @@ Everyone signs in through OIDC, including on loopback. Sessions are private unti
 | Share a session | `--share`, `--team` | A session's sharing | [Accounts](accounts.md#session-sharing) |
 | Server settings and restart | `agent-server config export`, `import` | Server settings | [Configuration](configuration.md) |
 | The database: which one, migrations, upgrading from files | `agent-server db info`, `migrate`, `import` | Server settings › Storage | [Configuration](configuration.md#the-database) |
-| How long recordings are kept | | Server settings › Storage | [Configuration](configuration.md#how-long-recordings-are-kept) |
+| How long recordings are kept, and what's captured | `AI_PROXY_RETENTION_SEED` | Server settings › Storage; Organizations › Data | [Retention](retention.md) |
+| Legal holds | | Organizations › Data › Legal holds | [Retention](retention.md#legal-holds) |
+| The audit log, its exports and checking it | `agent-server audit verify\|checkpoint\|key` | Audit log; Server settings › Audit | [The audit log](audit.md) |
+| Several server processes, Kubernetes and the Helm chart | `AI_PROXY_ROLES`, `AI_PROXY_REDIS_URL`, `helm install` | | [Running several server processes](scaling.md) |
+| Recordings in S3 (or compatible) storage | `AI_PROXY_BLOB_URL` | | [Running several server processes](scaling.md#blob-storage) |
 | The server computer's CPU, memory and disks | | Server stats | [Console](console.md#server-stats) |
 | Every request the server received, failed ones too, its stats and each machine's fleet connections (why a machine shows offline) | | Access log | [Console](console.md#access-log) |
 | Downloads and installers | `/install.sh`, `/install.ps1` | Downloads | [Deployment](deployment.md) |

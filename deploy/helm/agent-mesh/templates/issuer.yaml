@@ -1,0 +1,116 @@
+{{- /*
+agent-auth, the OIDC issuer (same image, command agent-auth). It migrates its own schema
+(mesh_auth) at start. With SQLite it runs inside the server's pod instead (server-single.yaml),
+and this Service selects that pod.
+*/ -}}
+{{- if .Values.auth.issuer.enabled }}
+{{- $fullname := include "agent-mesh.fullname" . }}
+{{- $sidecar := include "agent-mesh.issuerSidecar" . }}
+{{- $i := .Values.auth.issuer }}
+{{- $replicas := ternary 1 (int $i.replicas) (eq .Values.mode "single") }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-auth
+  labels:
+    {{- include "agent-mesh.labels" (dict "root" . "component" "auth") | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - {name: auth, port: {{ $i.port }}, targetPort: auth}
+  selector:
+    {{- if $sidecar }}
+    {{- include "agent-mesh.selectorLabels" (dict "root" . "component" "server") | nindent 4 }}
+    {{- else }}
+    {{- include "agent-mesh.selectorLabels" (dict "root" . "component" "auth") | nindent 4 }}
+    {{- end }}
+{{- if not $sidecar }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}-auth
+  labels:
+    {{- include "agent-mesh.labels" (dict "root" . "component" "auth") | nindent 4 }}
+spec:
+  {{- if not (and (eq .Values.mode "scaled") $i.autoscaling.enabled) }}
+  replicas: {{ $replicas }}
+  {{- end }}
+  {{- if eq .Values.mode "single" }}
+  strategy:
+    # Without Redis its sign-in rate limits are per process: keep it to one.
+    type: Recreate
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "agent-mesh.selectorLabels" (dict "root" . "component" "auth") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "agent-mesh.labels" (dict "root" . "component" "auth") | nindent 8 }}
+        agent-mesh.io/issuer: "true"
+      annotations:
+        checksum/env: {{ include "agent-mesh.issuerEnv" . | sha256sum }}
+        {{- with $i.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ $i.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- include "agent-mesh.podSecurityContext" . | nindent 8 }}
+      {{- with include "agent-mesh.scheduling" . | trim }}
+      {{- . | nindent 6 }}
+      {{- end }}
+      {{- with include "agent-mesh.topologySpread" (dict "root" . "component" "auth") }}
+      topologySpreadConstraints:
+        {{- . | nindent 8 }}
+      {{- end }}
+      containers:
+        {{- include "agent-mesh.issuerContainer" (dict "root" . "persist" false) | nindent 8 }}
+      volumes:
+        - name: logs
+          emptyDir: {sizeLimit: 256Mi}
+        - name: certs
+          emptyDir: {sizeLimit: 16Mi}
+        - name: auth-state
+          emptyDir: {sizeLimit: 64Mi}
+        - name: tmp
+          emptyDir: {sizeLimit: 256Mi}
+{{- if and (eq .Values.mode "scaled") $i.autoscaling.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ $fullname }}-auth
+  labels:
+    {{- include "agent-mesh.labels" (dict "root" . "component" "auth") | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ $fullname }}-auth
+  minReplicas: {{ $i.autoscaling.min }}
+  maxReplicas: {{ $i.autoscaling.max }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: {type: Utilization, averageUtilization: {{ $i.autoscaling.target }}}
+{{- end }}
+{{- if gt $replicas 1 }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $fullname }}-auth
+  labels:
+    {{- include "agent-mesh.labels" (dict "root" . "component" "auth") | nindent 4 }}
+spec:
+  maxUnavailable: {{ $i.pdb.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "agent-mesh.selectorLabels" (dict "root" . "component" "auth") | nindent 6 }}
+{{- end }}
+{{- end }}
+{{- end }}

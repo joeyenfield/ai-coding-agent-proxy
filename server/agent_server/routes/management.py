@@ -9,7 +9,7 @@ import shlex
 import time
 from datetime import datetime
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import PlainTextResponse, StreamingResponse
@@ -349,7 +349,11 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             # Replies still being read for a client that went (the console's chat) end with it.
             runtime.stop_finishing(session.session_id)
         if "trace" in data:
-            runtime.sessions.set_trace(session, bool(data["trace"]))
+            try:
+                runtime.sessions.set_trace(session, bool(data["trace"]))
+            except ValueError as exc:
+                # Its organization's policy records every session, or none (retention.py).
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
         return described(session, request)
 
     @app.post("/api/sessions/{session_id}/stop")
@@ -450,7 +454,18 @@ def register(app: FastAPI, runtime: Runtime) -> None:
     async def live_details(session_id: str, request_id: str, request: Request) -> dict[str, Any]:
         """Payloads and the latest raw chunks for one live or recently finished request."""
         viewable(session_id, request)
-        details = runtime.live.details(f"{session_id}:{request_id}")
+        key = f"{session_id}:{request_id}"
+        pod = runtime.live.elsewhere(key)
+        details = None
+        if pod:
+            # It runs on another process, which holds its payloads.
+            try:
+                answer = await runtime.cluster.call(pod, "GET", f"/internal/live?key={quote(key)}", timeout=10)
+                details = answer.json() if answer.status_code == 200 else None
+            except Exception:  # noqa: BLE001 - that process went: the request is gone from the live view
+                details = None
+        else:
+            details = runtime.live.details(key)
         if details is None:
             raise HTTPException(status_code=404, detail="This request is no longer in the live view. Find it in the request history.")
         return details

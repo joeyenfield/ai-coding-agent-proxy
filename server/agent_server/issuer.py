@@ -32,6 +32,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
+from joserfc import jwt as jose_jwt
 from joserfc.jwk import RSAKey
 from sqlalchemy import select, text
 
@@ -328,13 +329,19 @@ class RefreshGrant(RefreshTokenGrant):
             else:
                 family["revoked"] = True
                 service.state.put("family", data["family"], family)
+                # A reused refresh token: the family's access tokens stop working everywhere at once.
+                service.revoked("family", data["family"])
                 return None
         if not service.bound_user(data["user"], data["version"]):
             return None
         return Credential(key=key, **data)
 
     def authenticate_user(self, token):
-        return self.server.service.bound_user(token.user, token.version)
+        user = self.server.service.bound_user(token.user, token.version)
+        if user is not None:
+            # The new access token stays in the old one's family (a JWT names it: fam).
+            user.family = token.family
+        return user
 
     def revoke_old_credential(self, token):
         data = vars(token).copy()
@@ -457,8 +464,15 @@ class Server(AuthorizationServer):
 
     def issue(self, grant_type, client, user=None, scope=None, expires_in=None, include_refresh_token=True):
         scope = client.get_allowed_scope(scope)
-        token = {"access_token": secrets.token_urlsafe(32), "token_type": "Bearer",
-                 "expires_in": ACCESS_TTL, "scope": scope}
+        service = self.service
+        family = getattr(user, "family", None) or secrets.token_urlsafe(24)
+        access = secrets.token_urlsafe(32)
+        if service.jwt:
+            account = user or service.bound_user(client.user, client.version)
+            if account is not None:
+                access = service.access_jwt(client, account, scope, family)
+        token = {"access_token": access, "token_type": "Bearer",
+                 "expires_in": ACCESS_TTL, "scope": scope, "_family": family}
         if include_refresh_token and client.check_grant_type("refresh_token") and "offline_access" in scope.split():
             token["refresh_token"] = secrets.token_urlsafe(48)
         return token
@@ -472,7 +486,9 @@ class Server(AuthorizationServer):
         if not user:
             raise InvalidGrantError()
         old = request.refresh_token
-        family_id = old.family if old else secrets.token_urlsafe(24)
+        # The family issue() chose (and signed into a JWT); never part of the answer.
+        chosen = token.pop("_family", None)
+        family_id = old.family if old else chosen or secrets.token_urlsafe(24)
         family = service.state.get("family", family_id)
         if not family:
             family = {"exp": time.time() + FAMILY_TTL, "revoked": False}
@@ -519,6 +535,14 @@ class Issuer:
         self.auth = Auth(UserStore(self.accounts, readonly=True))
         self.server = Server(self)
         self.attempts = defaultdict(deque)
+        # Signed JWT access tokens (RFC 9068), which the API checks itself (auth.Auth), instead of opaque ones
+        # it introspects here every time. Revocations are published to the API's processes (revoked).
+        self.jwt = os.getenv("AI_PROXY_AUTH_JWT_ACCESS_TOKENS") == "1"
+        self.cluster = None
+        if os.getenv("AI_PROXY_REDIS_URL"):
+            from .cluster import RedisCluster
+
+            self.cluster = RedisCluster(os.environ["AI_PROXY_REDIS_URL"], "agent-auth", "")
         # Authlib's grant debug statements include complete issued token dictionaries.
         for name in ("authorization_code", "refresh_token", "client_credentials"):
             logging.getLogger("authlib.oauth2.rfc6749.grants." + name).disabled = True
@@ -555,8 +579,41 @@ class Issuer:
                                           "version": account.version, "scopes": scope})
         return secret
 
+    def access_jwt(self, client, user, scope, family):
+        """A signed access token the API checks without asking here (RFC 9068's profile)."""
+        now = int(time.time())
+        claims = {
+            "iss": self.issuer, "aud": self.settings.oidc_audience, "sub": user.sub, "username": user.name,
+            "client_id": client.client_id, "scope": scope, "iat": now, "nbf": now, "exp": now + ACCESS_TTL,
+            "jti": secrets.token_urlsafe(16), "acct": user.version, "fam": family,
+        }
+        header = {"alg": "RS256", "kid": self.state.signing_key.kid, "typ": "at+jwt"}
+        return jose_jwt.encode(header, claims, self.state.signing_key)
+
+    def revoked(self, kind, key):
+        """Tell the API's processes a family's (or a service client's) tokens stopped working, now."""
+        if self.cluster is None:
+            return
+        now = time.time()
+        try:
+            self.cluster.set(f"revoked:{kind}:{key}", str(now), ACCESS_TTL + 120)
+            self.cluster.publish("auth.revoked", {"kind": kind, "id": key, "at": now})
+        except Exception as exc:  # noqa: BLE001 - the API then stops trusting its local checks (auth.Revocations.fresh)
+            logging.getLogger(__name__).warning("couldn't publish a revocation: %s", exc)
+
     def rate(self, key, limit=30, window=600):
         now = time.time()
+        if self.cluster is not None:
+            # Every issuer process counts the same attempts (a fixed window per key).
+            name = "rate:" + digest(json.dumps(key, default=str)) + ":" + str(int(now // window))
+            try:
+                if self.cluster.incr(name, 1, window) > limit:
+                    raise IssuerError("rate_limit_exceeded", 429)
+                return
+            except IssuerError:
+                raise
+            except Exception:  # noqa: BLE001 - Redis down: count here instead
+                pass
         attempts = self.attempts[key]
         while attempts and attempts[0] < now - window:
             attempts.popleft()
@@ -930,6 +987,7 @@ def create_auth_app(settings: Settings | None = None) -> FastAPI:
                 family = service.state.get("family", record["family"])
                 family["revoked"] = True
                 service.state.put("family", record["family"], family)
+                service.revoked("family", record["family"])
             return {}
 
     @app.api_route("/userinfo", methods=["GET", "POST"])
@@ -969,6 +1027,7 @@ def main():
                 print(secret)
             else:
                 service.state.delete("client", args.client_id)
+                service.revoked("client", args.client_id)
         return
     import uvicorn
     uvicorn.run(create_auth_app(settings), host=os.getenv("AI_PROXY_AUTH_HOST", "127.0.0.1"),

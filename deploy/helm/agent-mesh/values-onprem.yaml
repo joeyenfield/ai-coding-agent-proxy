@@ -1,0 +1,54 @@
+# On-prem: CloudNativePG (its operator installed first) with a PgBouncer Pooler, the bundled
+# Valkey, an S3-compatible store (MinIO, Ceph RGW, SeaweedFS) for traces, ingress-nginx.
+mode: scaled
+
+server:
+  host: api.mesh.corp.example
+auth:
+  host: auth.mesh.corp.example
+
+postgresql:
+  cloudnativepg:
+    enabled: true
+    instances: 3
+    storage: {size: 100Gi, storageClass: fast-ssd}
+    # Back it up: CloudNativePG's barman object store, to the same S3-compatible store.
+    # backup:
+    #   barmanObjectStore:
+    #     destinationPath: s3://mesh-pg-backups/
+    #     endpointURL: https://s3.corp.example
+    #     s3Credentials:
+    #       accessKeyId: {name: mesh-s3, key: AWS_ACCESS_KEY_ID}
+    #       secretAccessKey: {name: mesh-s3, key: AWS_SECRET_ACCESS_KEY}
+    #   retentionPolicy: 30d
+
+pgbouncer:
+  enabled: true
+  instances: 2
+
+redis:
+  bundled:
+    enabled: true
+    persistence: {enabled: true, size: 8Gi, storageClass: fast-ssd}
+
+objectStorage:
+  url: s3://mesh-traces/agent-mesh
+  endpoint: https://s3.corp.example
+  region: us-east-1
+  # A Secret with AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.
+  existingSecret: mesh-s3
+
+secrets:
+  existingSecret: mesh-app
+
+routing:
+  ingress:
+    enabled: true
+    className: nginx
+    tls:
+      serverSecretName: mesh-tls
+      authSecretName: mesh-tls
+
+networkPolicy:
+  publicFrom:
+    - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: ingress-nginx}}

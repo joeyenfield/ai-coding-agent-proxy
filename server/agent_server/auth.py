@@ -523,8 +523,60 @@ def _checked_password(password: str) -> str:
 INTROSPECTION_CACHE_SECONDS = 10.0
 
 
+# Signed access tokens (the issuer's AI_PROXY_AUTH_JWT_ACCESS_TOKENS=1) are checked here, without asking the issuer,
+# only while the revocations the issuer publishes are known to be current (Revocations.fresh); else they're introspected.
+JWT_SKEW = 30
+JWKS_REFRESH_SECONDS = 60.0
+REVOCATIONS_REFRESH_SECONDS = 5.0
+REVOCATIONS_STALE_SECONDS = 30.0
+
+
+class Revocations:
+    """What the issuer said stopped working: token families (sign-out, a reused refresh token) and service
+    clients, each with when. Kept from the shared store (cluster.py) and its messages; current or not."""
+
+    def __init__(self, cluster: Any):
+        self.cluster = cluster
+        self.revoked: dict[tuple[str, str], float] = {}
+        self.refreshed = 0.0
+        self._lock = threading.Lock()
+        cluster.on("auth.revoked", self._heard)
+
+    def _heard(self, data: dict[str, Any], _: str) -> None:
+        kind, key = str(data.get("kind") or ""), str(data.get("id") or "")
+        if kind and key:
+            with self._lock:
+                self.revoked[(kind, key)] = float(data.get("at") or time.time())
+
+    def refresh(self) -> None:
+        if time.monotonic() - self.refreshed < REVOCATIONS_REFRESH_SECONDS:
+            return
+        try:
+            found = {}
+            for name in self.cluster.keys("revoked:"):
+                parts = name.split(":", 2)
+                value = self.cluster.get(name)
+                if len(parts) == 3 and value:
+                    found[(parts[1], parts[2])] = float(value)
+        except Exception:  # noqa: BLE001 - not current any more: tokens are introspected until it is again
+            return
+        with self._lock:
+            self.revoked = {**found, **{key: at for key, at in self.revoked.items() if key not in found and time.time() - at < 600}}
+            self.refreshed = time.monotonic()
+
+    def fresh(self) -> bool:
+        self.refresh()
+        return time.monotonic() - self.refreshed < REVOCATIONS_STALE_SECONDS
+
+    def stopped(self, kind: str, key: str, issued_at: float) -> bool:
+        with self._lock:
+            at = self.revoked.get((kind, key))
+        return at is not None and issued_at <= at + 1
+
+
 class Auth:
-    """Who a request comes from: OAuth access tokens introspected at the issuer, mapped to current accounts."""
+    """Who a request comes from: OAuth access tokens introspected at the issuer (or, signed ones, checked here),
+    mapped to current accounts."""
 
     def __init__(self, store: UserStore, settings: Any = None):
         self.store = store
@@ -532,6 +584,64 @@ class Auth:
         self.client = httpx.Client(timeout=5, trust_env=False, follow_redirects=False)
         # Tokens the issuer confirmed: digest -> (when it said so, whose it is, when it expires).
         self._confirmed: dict[str, tuple[float, str, float]] = {}
+        # Set with several processes (the runtime): signed tokens are then checked here (verify_jwt).
+        self.revocations: Revocations | None = None
+        self._jwks: tuple[float, Any] | None = None
+        self._jwks_lock = threading.Lock()
+
+    def _keys(self, kid: str | None) -> Any:
+        """The issuer's signing keys (its JWKS), fetched again (at most once a minute) for a key not seen yet."""
+        from joserfc.jwk import KeySet
+
+        with self._jwks_lock:
+            cached = self._jwks
+            known = cached is not None and any(key.get("kid") == kid for key in cached[1].as_dict()["keys"])
+            if cached is None or (not known and time.monotonic() - cached[0] > JWKS_REFRESH_SECONDS):
+                response = self.client.get(self.settings.oidc_issuer + "/.well-known/jwks.json")
+                response.raise_for_status()
+                self._jwks = (time.monotonic(), KeySet.import_key_set(response.json()))
+            return self._jwks[1]
+
+    def verify_jwt(self, token: str) -> tuple[bool, str | None]:
+        """(decided, username): a signed access token checked here. decided False: couldn't tell (introspect it)."""
+        from joserfc import jwt as jose_jwt
+        from joserfc.errors import JoseError
+
+        if self.revocations is None or token.count(".") != 2 or not self.revocations.fresh():
+            return False, None
+        try:
+            header = json.loads(base64.urlsafe_b64decode(token.split(".", 1)[0] + "=="))
+        except (ValueError, UnicodeDecodeError):
+            return True, None
+        if not isinstance(header, dict) or header.get("alg") != "RS256" or header.get("typ") != "at+jwt":
+            return True, None
+        try:
+            keys = self._keys(header.get("kid"))
+        except (httpx.HTTPError, ValueError):
+            return False, None
+        try:
+            claims = jose_jwt.decode(token, keys, algorithms=["RS256"]).claims
+        except (JoseError, ValueError):
+            return True, None
+        now = time.time()
+        audiences = claims.get("aud") if isinstance(claims.get("aud"), list) else [claims.get("aud")]
+        user = claims.get("username")
+        issued = claims.get("iat")
+        if (
+            claims.get("iss") != self.settings.oidc_issuer or self.settings.oidc_audience not in audiences
+            or not isinstance(claims.get("exp"), (int, float)) or claims["exp"] + JWT_SKEW < now
+            or (isinstance(claims.get("nbf"), (int, float)) and claims["nbf"] - JWT_SKEW > now)
+            or not isinstance(issued, (int, float)) or "mesh-api" not in str(claims.get("scope", "")).split()
+            or not isinstance(user, str) or not isinstance(claims.get("acct"), str)
+        ):
+            return True, None
+        if self.revocations.stopped("family", str(claims.get("fam") or ""), issued) or self.revocations.stopped("client", str(claims.get("client_id") or ""), issued):
+            return True, None
+        # Bound to the account as it was: a new password (or a removed account) ends every token at once.
+        current = self.account_version(user)
+        if not current or not hmac.compare_digest(current, claims["acct"]):
+            return True, None
+        return True, user
 
     @property
     def environment_user(self) -> tuple[str, str] | None:
@@ -608,6 +718,10 @@ class Auth:
             return None
         if not self.settings or not self.settings.oidc_introspection_secret:
             raise AuthUnavailable("OIDC introspection credentials are not configured")
+        decided, user = self.verify_jwt(token)
+        if decided:
+            # Signed, checked here; permissions are still read fresh (identity_for), as for introspected ones.
+            return self.identity_for(user, via) if user else None
         key = _digest(token)
         now = time.time()
         confirmed = self._confirmed.get(key)
@@ -686,6 +800,8 @@ SITE_ADMIN_ONLY = [
     (re.compile(r"GET"), re.compile(r"/api/server/access-log(/.*)?")),
     (re.compile(r"POST"), re.compile(r"/api/orgs")),
     (re.compile(r"DELETE"), re.compile(r"/api/orgs/[^/]+")),
+    # Signing the audit log's chains now.
+    (re.compile(r"POST"), re.compile(r"/api/audit/checkpoint")),
 ]
 # Changes inside an organization: its admins (and site admins, for the users and teams of any).
 # The routes check which organization: these only need an admin of some organization.
@@ -696,6 +812,8 @@ ADMIN_ONLY = [
     (re.compile(r"POST"), re.compile(r"/api/machines/[^/]+/providers/adopt")),
     (re.compile(r"POST|PUT|DELETE"), re.compile(r"/api/orgs(/.*)?")),
     (re.compile(r"POST|PUT|DELETE"), re.compile(r"/api/users(/.*)?")),
+    # Legal holds (retention.py): the routes check which organization.
+    (re.compile(r"POST|DELETE"), re.compile(r"/api/holds(/.*)?")),
 ]
 
 
@@ -738,6 +856,8 @@ class AuthMiddleware:
         if identity is None:
             await _deny(scope, receive, send, 401, "Sign in first.")
             return
+        # Known from here, refused or not: the audit log (outside this middleware) records who was refused.
+        scope.setdefault("state", {})["identity"] = identity
         if scope["type"] == "http" and site_admin_only(method, path) and not identity.site_admin:
             await _deny(scope, receive, send, 403, "Only a site admin can do this.")
             return

@@ -1,0 +1,46 @@
+{{- $fullname := include "agent-mesh.fullname" . -}}
+{{- $db := include "agent-mesh.dbMode" . -}}
+{{- $redis := include "agent-mesh.redisMode" . -}}
+AI Control Mesh {{ .Chart.AppVersion }} is {{ if .Release.IsInstall }}installed{{ else }}upgraded{{ end }} in namespace {{ .Release.Namespace }} (mode {{ .Values.mode }}).
+
+  API          {{ include "agent-mesh.serverUrl" . }}
+  Sign-in      {{ include "agent-mesh.oidcIssuer" . }}{{ if not .Values.auth.issuer.enabled }} (external issuer){{ end }}
+  Console      {{ if .Values.console.enabled }}{{ include "agent-mesh.consoleOrigin" . }}{{ else }}{{ include "agent-mesh.serverUrl" . }} (served by agent-server){{ end }}
+  Database     {{ if eq $db "sqlite" }}SQLite on {{ if .Values.persistence.enabled }}the {{ .Values.persistence.existingClaim | default (printf "%s-data" $fullname) }} volume{{ else }}an emptyDir: LOST when the pod goes. Set persistence.enabled=true{{ end }}{{ else if eq $db "cnpg" }}CloudNativePG cluster {{ include "agent-mesh.cnpgClusterName" . }}{{ if .Values.pgbouncer.enabled }} behind PgBouncer ({{ .Values.pgbouncer.poolMode }} pooling){{ end }}{{ else }}external PostgreSQL (Secret {{ .Values.postgresql.external.existingSecret }}){{ end }}
+  Redis        {{ if eq $redis "bundled" }}bundled Valkey {{ $fullname }}-valkey (one instance){{ else if eq $redis "external" }}external (Secret {{ .Values.redis.external.existingSecret }}){{ else }}none: in-process presence and pub/sub, one pod only{{ end }}
+  Traces       {{ .Values.objectStorage.url | default "database" }}
+{{- if eq .Values.mode "scaled" }}
+
+Role Deployments:
+{{- range $name := splitList "," (include "agent-mesh.enabledRoles" .) }}
+  {{ $fullname }}-{{ $name }}  AI_PROXY_ROLES={{ include "agent-mesh.roleServes" (dict "root" $ "name" $name) }}
+{{- end }}
+{{- end }}
+{{- if not (or .Values.routing.gatewayAPI.enabled .Values.routing.ingress.enabled) }}
+
+No routing is enabled (routing.gatewayAPI or routing.ingress). To try it from here:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ if eq .Values.mode "single" }}{{ $fullname }}{{ else }}{{ include "agent-mesh.serviceFor" (dict "root" . "fn" "api") }}{{ end }} 9999:{{ .Values.server.port }}
+The console and sign-in need their public HTTPS hosts, though: OIDC redirects go to them.
+{{- end }}
+{{- if ne $db "sqlite" }}
+
+Migrations: Job {{ include "agent-mesh.migrateJobName" . }} runs `agent-server db migrate`; server pods
+become ready once the schema matches:
+  kubectl -n {{ .Release.Namespace }} logs job/{{ include "agent-mesh.migrateJobName" . }}
+{{- end }}
+{{- if and .Release.IsInstall (not .Values.auth.bootstrapAdmin.existingSecret) }}
+
+First sign-in: on its first start against an empty database the server creates `admin` with a
+random password and prints it in its log:
+  kubectl -n {{ .Release.Namespace }} logs -l app.kubernetes.io/instance={{ .Release.Name }},agent-mesh.io/server=true -c agent-server --tail=-1 | grep -i password
+Change it once signed in (agent-server user passwd admin).
+{{- end }}
+
+Sign machines in with:
+  agent login {{ include "agent-mesh.serverUrl" . }}
+  agent-machine login {{ include "agent-mesh.serverUrl" . }}
+{{- if and (not .Values.secrets.existingSecret) (not .Values.secrets.externalSecrets.enabled) (not .Values.secrets.vaultKeys) }}
+
+No vault keys are set (secrets.vaultKeys / secrets.existingSecret): subscriptions' managed
+tokens can't be stored until they are.
+{{- end }}

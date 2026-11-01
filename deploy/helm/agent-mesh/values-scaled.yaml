@@ -1,0 +1,63 @@
+# A Deployment per role, with PostgreSQL and Redis you already run, the standalone console,
+# and Gateway API routing. Create the Secrets first (README.md, "Secrets"):
+#   mesh-postgres  url, auth-url, migration-url (a direct, unpooled URL)
+#   mesh-redis     url
+#   mesh-app       internal-token, oidc-introspection-secret, vault-keys
+mode: scaled
+
+server:
+  host: api.mesh.example.com
+auth:
+  host: auth.mesh.example.com
+  issuer:
+    replicas: 2
+    autoscaling: {enabled: true, min: 2, max: 4, target: 70}
+
+postgresql:
+  external:
+    existingSecret: mesh-postgres
+    urlKey: url
+    authUrlKey: auth-url
+    migrationUrlKey: migration-url
+
+redis:
+  external:
+    existingSecret: mesh-redis
+
+secrets:
+  existingSecret: mesh-app
+
+console:
+  enabled: true
+  host: console.mesh.example.com
+  image:
+    # docker build -f ui/Dockerfile --build-arg VITE_API_URL=https://api.mesh.example.com \
+    #   -t registry.example.com/mesh/console:2.1.19 .
+    repository: registry.example.com/mesh/console
+
+roles:
+  gateway:
+    workers: 2
+    # With the Prometheus adapter serving agent_server_open_streams:
+    # autoscaling: {enabled: true, min: 3, max: 20, metric: open_streams, target: 500}
+  # fleet:
+  #   autoscaling: {enabled: true, min: 3, max: 8, metric: fleet_sockets, target: 1000}
+
+routing:
+  gatewayAPI:
+    enabled: true
+    gatewayRef:
+      name: public
+      namespace: gateway-system
+      sectionName: https
+
+monitoring:
+  serviceMonitor: {enabled: true}
+  prometheusRule: {enabled: true}
+
+# Seeds the retention policy on the first install only.
+retention:
+  traces_days: 30
+  terminal_days: 30
+  sessions_days: 400
+  audit_days: 365

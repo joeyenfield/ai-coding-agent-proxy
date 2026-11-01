@@ -33,6 +33,9 @@ TAGS = [
     ("Providers and usage", "agent_server.routes.providers",
      "Providers as people use them (backends on machines, hosted APIs, kinds of subscription), each person's usage of "
      "each, and the token limits an organization's admins set (`/api/providers`, `/api/orgs/{org}/usage`, `/api/orgs/{org}/limits`)."),
+    ("Retention and audit", "agent_server.routes.governance",
+     "What's recorded and for how long (the server's policy, organizations' own, legal holds), and the audit log: "
+     "its events, exports, checkpoints and verification (`/api/config/retention`, `/api/orgs/{org}/retention`, `/api/holds`, `/api/audit`)."),
     ("Containers", "agent_server.routes.containers", "Strata and Ollama containers that machines run for the server."),
     ("Terminals", "agent_server.routes.terminals", "Shared agent terminals. OAuth authentication and session permissions required."),
     ("Downloads", "agent_server.app", "The builds of agent, agent-machine and the Android app this server hands out, and the documentation the console shows (`/help-files/...`); public, like /health."),

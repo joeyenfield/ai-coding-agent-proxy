@@ -1,0 +1,32 @@
+# mode single on PostgreSQL and Redis, with the console, object storage, Ingress, monitoring.
+mode: single
+server:
+  host: api.ci.example
+auth:
+  host: auth.ci.example
+postgresql:
+  external: {existingSecret: ci-postgres}
+redis:
+  external: {existingSecret: ci-redis}
+single:
+  workers: 2
+persistence:
+  enabled: false
+objectStorage:
+  url: s3://ci-bucket/mesh
+  endpoint: http://minio.minio.svc:9000
+  existingSecret: ci-s3
+console:
+  enabled: true
+  host: console.ci.example
+  image: {repository: registry.ci.example/console, tag: "2.1.19"}
+routing:
+  ingress:
+    enabled: true
+    className: nginx
+    tls: {serverSecretName: api-tls, authSecretName: auth-tls, consoleSecretName: console-tls}
+retention:
+  traces_days: 7
+monitoring:
+  serviceMonitor: {enabled: true}
+  prometheusRule: {enabled: true}

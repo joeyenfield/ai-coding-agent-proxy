@@ -1,0 +1,112 @@
+{{- /*
+redis.bundled: one Valkey with AOF persistence, reachable only from this release's server
+and agent-auth pods (networkPolicy). Not Sentinel: AI_PROXY_REDIS_URL is a plain redis://
+URL. For high availability use a managed Redis or an operator's, through redis.external.
+*/ -}}
+{{- if .Values.redis.bundled.enabled }}
+{{- $r := .Values.redis.bundled }}
+{{- $name := printf "%s-valkey" (include "agent-mesh.fullname" .) }}
+{{- if not $r.existingSecret }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "agent-mesh.valkeySecret" . }}
+  labels:
+    {{- include "agent-mesh.labels" (dict "root" . "component" "valkey") | nindent 4 }}
+type: Opaque
+data:
+  password: {{ include "agent-mesh.keepSecret" (dict "root" . "name" (include "agent-mesh.valkeySecret" .) "key" "password" "value" "") | b64enc | quote }}
+---
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "agent-mesh.labels" (dict "root" . "component" "valkey") | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - {name: redis, port: 6379, targetPort: redis}
+  selector:
+    {{- include "agent-mesh.selectorLabels" (dict "root" . "component" "valkey") | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "agent-mesh.labels" (dict "root" . "component" "valkey") | nindent 4 }}
+spec:
+  serviceName: {{ $name }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "agent-mesh.selectorLabels" (dict "root" . "component" "valkey") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "agent-mesh.labels" (dict "root" . "component" "valkey") | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile: {type: RuntimeDefault}
+      {{- with include "agent-mesh.scheduling" . | trim }}
+      {{- . | nindent 6 }}
+      {{- end }}
+      containers:
+        - name: valkey
+          image: {{ $r.image }}
+          command: ["sh", "-c"]
+          args:
+            - >-
+              exec valkey-server --port 6379 --dir /data
+              --requirepass "$VALKEY_PASSWORD"
+              --appendonly {{ ternary "yes" "no" $r.persistence.enabled }}
+              --maxmemory {{ $r.maxmemory }} --maxmemory-policy noeviction
+          env:
+            - name: VALKEY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "agent-mesh.valkeySecret" . }}
+                  key: password
+          ports:
+            - {name: redis, containerPort: 6379}
+          livenessProbe:
+            tcpSocket: {port: redis}
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", 'valkey-cli -a "$VALKEY_PASSWORD" --no-auth-warning ping | grep -q PONG']
+            periodSeconds: 5
+          resources:
+            {{- toYaml $r.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+      {{- if not $r.persistence.enabled }}
+      volumes:
+        - name: data
+          emptyDir: {}
+      {{- end }}
+  {{- if $r.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        {{- with $r.persistence.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ $r.persistence.size }}
+  {{- end }}
+{{- end }}

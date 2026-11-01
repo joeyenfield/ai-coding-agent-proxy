@@ -147,8 +147,27 @@ Mutations and WebSocket connections with an `Origin` header require the API's or
 | `AI_PROXY_AUTH_DATABASE_URL` | The issuer's database, such as `postgresql+psycopg://mesh_auth:<password>@host:5432/mesh`. Default: the API's PostgreSQL URL, else a SQLite file in the state folder. |
 | `AI_PROXY_OIDC_STATE_DIR` | The issuer's state folder: its SQLite file without PostgreSQL, and where an older install's `issuer.sqlite3` and `signing-key.pem` are imported from. Defaults to `oidc/` in the account-state folder (`certs/` normally). |
 | `AI_PROXY_AUTH_HOST`, `AI_PROXY_AUTH_PORT` | Issuer listen address (`127.0.0.1:10000`). |
+| `AI_PROXY_AUTH_JWT_ACCESS_TOKENS=1` | Issue signed JWT access tokens (see [Signed access tokens](#signed-access-tokens)). |
+| `AI_PROXY_REDIS_URL` | Share sign-in rate limits between agent-auth's processes, and publish revocations to the server's. |
 
 Back up the issuer's state securely: its sign-ins, grants and signing key are in the database (`mesh_auth`), so a backup of the database covers them (see [Deployment](deployment.md)). An older install's `issuer.sqlite3` and `signing-key.pem` are imported on the issuer's first start against an empty database, so existing sign-ins keep working. Authorization, device and refresh state is transactional; secrets are hashed at rest. Access tokens last 5 minutes, authorization codes 2 minutes, and device codes and sign-in pages 10 minutes. Refresh tokens rotate and their family lasts at most 30 days; replay revokes the family, except one retry within 60 seconds of its first use (`REFRESH_REUSE_GRACE`), for a client that never got the answer (a dropped mobile connection, a process killed before it saved the new tokens). Password attempts are limited to 10 per address in 10 minutes. Password reset and account removal invalidate issued credentials. Roles and memberships are resolved from the current account on API requests.
+
+## Signed access tokens
+
+With `AI_PROXY_AUTH_JWT_ACCESS_TOKENS=1` on agent-auth, its access tokens are signed JWTs (RFC 9068: `typ: at+jwt`, RS256, with the key published at `/.well-known/jwks.json`), and the server checks them itself instead of asking agent-auth about every request. Clients don't change: they send whatever token they were given.
+
+The server checks a signed token itself only while it's sure it knows every revocation, which needs `AI_PROXY_REDIS_URL` on both agent-auth and the server (see [Running several server processes](scaling.md)). Otherwise, and whenever the revocations it knows are more than 30 seconds old (Redis unreachable), it introspects the token as it does opaque ones.
+
+A valid signature is never enough. A token is accepted only when:
+
+1. its signature checks with one of agent-auth's keys (an unknown key id fetches the JWKS again, at most once a minute), its algorithm is RS256 and its type `at+jwt`;
+2. `iss` is `AI_PROXY_OIDC_ISSUER`, `aud` holds `AI_PROXY_OIDC_AUDIENCE`, `exp` and `nbf` hold (30 seconds of clock skew), and `scope` has `mesh-api`;
+3. its token family (`fam`) wasn't revoked: sign-out (`/revoke`) and a reused refresh token publish the family to every server process at once (`auth.revoked`, and a shared key lasting longer than any access token);
+4. its service client (`client_id`) wasn't removed since it was issued (`agent-auth client remove` publishes that too);
+5. its account version (`acct`) is the account's now: a new password, or a removed account, ends every token at once;
+6. the account exists: its role, organization and teams are read fresh for every request, as for introspected tokens.
+
+agent-auth still keeps every access token's record, so introspection, `/userinfo` and `/revoke` work for signed tokens as before. Its sign-in rate limits are shared between its processes when it has `AI_PROXY_REDIS_URL`.
 
 ## Migration from protocol 1
 

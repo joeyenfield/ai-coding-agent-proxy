@@ -1,0 +1,39 @@
+# mode scaled on CloudNativePG with PgBouncer, bundled Valkey, an S3-compatible endpoint,
+# External Secrets, Ingress.
+mode: scaled
+server:
+  host: api.ci.example
+auth:
+  host: auth.ci.example
+postgresql:
+  cloudnativepg: {enabled: true, instances: 3}
+redis:
+  bundled: {enabled: true}
+objectStorage:
+  url: s3://ci/mesh
+  endpoint: https://s3.ci.example
+  existingSecret: ci-s3
+routing:
+  ingress:
+    enabled: true
+    className: nginx
+    tls: {serverSecretName: ci-tls, authSecretName: ci-tls}
+secrets:
+  externalSecrets:
+    enabled: true
+    store: {name: vault}
+    app:
+      internal-token: {key: mesh/app, property: internal-token}
+      oidc-introspection-secret: {key: mesh/app, property: introspection}
+      vault-keys: {key: mesh/app, property: vault}
+    extra:
+      - name: ci-s3
+        data:
+          - {secretKey: AWS_ACCESS_KEY_ID, remoteRef: {key: mesh/s3, property: id}}
+          - {secretKey: AWS_SECRET_ACCESS_KEY, remoteRef: {key: mesh/s3, property: secret}}
+monitoring:
+  serviceMonitor: {enabled: true}
+  prometheusRule: {enabled: true}
+networkPolicy:
+  publicFrom:
+    - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: ingress-nginx}}

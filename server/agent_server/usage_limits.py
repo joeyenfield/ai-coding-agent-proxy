@@ -102,19 +102,41 @@ def next_month(now: float) -> float:
     return (start.replace(year=start.year + 1, month=1) if start.month == 12 else start.replace(month=start.month + 1)).timestamp()
 
 
+# With several processes: how long a process reuses the shared counts it read, and how long they're kept.
+SHARED_CACHE_SECONDS = 2.0
+SHARED_TTL = 33 * 86400
+
+
 class UsageLimits:
-    def __init__(self, db: Database, clock: Callable[[], float] = time.time):
+    """Counting and limits. With several processes (cluster.py) every call is also counted in a shared hourly
+    counter per (tenant, user, provider), which the checks read (seeded once from the database, taking the
+    larger count of each hour, so nothing is counted twice), and a changed limit is announced (usage.limits)."""
+
+    def __init__(self, db: Database, clock: Callable[[], float] = time.time, cluster: Any = None):
         self.db = db
         self.clock = clock
+        self.cluster = cluster
         self.lock = threading.Lock()
         self.limits: dict[tuple[str, str, str, str], Limit] = {}
+        self._shared: dict[tuple[str, str, str], tuple[float, dict[int, int]]] = {}
+        if cluster is not None:
+            cluster.on("usage.limits", lambda data, _: self.reload_limits())
         # Recent hourly token counts, for checking limits without the database: only for the
         # (tenant, user, provider) a limit applies to, loaded the first time one is checked.
         self._recent: dict[tuple[str, str, str], dict[int, int]] = {}
-        with db.read() as connection:
+        self.reload_limits()
+
+    @property
+    def scaled(self) -> bool:
+        return bool(self.cluster is not None and self.cluster.scaled)
+
+    def reload_limits(self) -> None:
+        limits = {}
+        with self.db.read() as connection:
             for row in connection.execute(select(schema.usage_limits)).mappings():
                 limit = Limit(row["tenant"], row["user"], row["provider"], row["window"], int(row["tokens"]), row["set_by"], row["set_at"])
-                self.limits[(limit.tenant, limit.user, limit.provider, limit.window)] = limit
+                limits[(limit.tenant, limit.user, limit.provider, limit.window)] = limit
+        self.limits = limits
 
     # Counting
 
@@ -135,12 +157,55 @@ class UsageLimits:
         keys = {"tenant": tenant, "user": user, "provider": provider, "bucket": bucket}
         amounts = {"requests": 1, "input_tokens": input_tokens, "output_tokens": output_tokens}
         self.db.writer.submit(lambda connection: kv.increment(connection, schema.provider_usage, keys, amounts))
+        if self.scaled and input_tokens + output_tokens:
+            try:
+                self.cluster.hincrby(f"usage:{tenant}:{user}:{provider}", str(bucket), input_tokens + output_tokens, SHARED_TTL)
+            except Exception:  # noqa: BLE001 - counted in the database either way; the next seed catches up
+                pass
+            self._shared.pop((tenant, user, provider), None)
         with self.lock:
             recent = self._recent.get((tenant, user, provider))
             if recent is not None:
                 recent[bucket] = recent.get(bucket, 0) + input_tokens + output_tokens
 
     def _tokens(self, tenant: str, user: str, provider: str) -> dict[int, int]:
+        if self.scaled:
+            return self._shared_tokens(tenant, user, provider)
+        return self._local_tokens(tenant, user, provider)
+
+    def _from_database(self, tenant: str, user: str, provider: str) -> dict[int, int]:
+        self.db.writer.flush()
+        table = schema.provider_usage
+        since = int(self.clock() - LOOKBACK)
+        with self.db.read() as connection:
+            rows = connection.execute(
+                select(table.c.bucket, table.c.input_tokens, table.c.output_tokens)
+                .where((table.c.tenant == tenant) & (table.c.user == user) & (table.c.provider == provider) & (table.c.bucket >= since))
+            ).all()
+        return {int(bucket): int(a) + int(b) for bucket, a, b in rows}
+
+    def _shared_tokens(self, tenant: str, user: str, provider: str) -> dict[int, int]:
+        """Every process's count, from the shared counters (seeded from the database the first time)."""
+        key = (tenant, user, provider)
+        cached = self._shared.get(key)
+        now = self.clock()
+        if cached and time.monotonic() - cached[0] < SHARED_CACHE_SECONDS:
+            return dict(cached[1])
+        name = f"usage:{tenant}:{user}:{provider}"
+        found = self.cluster.hgetall(name)
+        if "seeded" not in found:
+            # Calls before the counter existed are only in the database; calls since, in both. The larger
+            # count of each hour is the right one (the database's lags by the writers' queues).
+            stored = self._from_database(tenant, user, provider)
+            merged = {str(bucket): str(max(tokens, int(found.get(str(bucket)) or 0))) for bucket, tokens in stored.items()}
+            self.cluster.hset(name, {**merged, "seeded": "1"}, SHARED_TTL)
+            found = self.cluster.hgetall(name)
+        cutoff = now - LOOKBACK
+        buckets = {int(bucket): int(value) for bucket, value in found.items() if bucket.isdigit() and int(bucket) >= cutoff}
+        self._shared[key] = (time.monotonic(), buckets)
+        return dict(buckets)
+
+    def _local_tokens(self, tenant: str, user: str, provider: str) -> dict[int, int]:
         key = (tenant, user, provider)
         with self.lock:
             recent = self._recent.get(key)
@@ -234,6 +299,8 @@ class UsageLimits:
         with self.db.write() as connection:
             kv.upsert(connection, schema.usage_limits, values)
         self.limits[(tenant, user, provider, window)] = limit
+        if self.cluster is not None:
+            self.cluster.publish("usage.limits", {"tenant": tenant})
         return limit
 
     def remove_limit(self, tenant: str, user: str, provider: str, window: str) -> bool:
@@ -242,7 +309,10 @@ class UsageLimits:
             connection.execute(table.delete().where(
                 (table.c.tenant == tenant) & (table.c.user == user) & (table.c.provider == provider) & (table.c.window == window)
             ))
-        return self.limits.pop((tenant, user, provider, window), None) is not None
+        removed = self.limits.pop((tenant, user, provider, window), None) is not None
+        if self.cluster is not None:
+            self.cluster.publish("usage.limits", {"tenant": tenant})
+        return removed
 
     def tenant_limits(self, tenant: str) -> list[Limit]:
         return sorted((limit for limit in self.limits.values() if limit.tenant == tenant), key=lambda item: (item.provider, item.user != EVERYONE, item.user, list(WINDOWS).index(item.window)))

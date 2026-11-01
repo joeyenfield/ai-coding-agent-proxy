@@ -1,0 +1,37 @@
+# mode scaled on external services, custom-metric HPAs, a separate MCP Deployment, Gateway API.
+mode: scaled
+server:
+  host: api.ci.example
+auth:
+  host: auth.ci.example
+  issuer:
+    autoscaling: {enabled: true, min: 2, max: 4, target: 70}
+  bootstrapAdmin:
+    existingSecret: ci-admin
+postgresql:
+  external: {existingSecret: ci-postgres, migrationUrlKey: migration-url}
+redis:
+  external: {existingSecret: ci-redis}
+objectStorage:
+  url: s3://ci-bucket/mesh
+  serviceAccountAnnotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/ci
+roles:
+  gateway:
+    workers: 2
+    autoscaling: {enabled: true, min: 3, max: 20, metric: open_streams, target: 500}
+  fleet:
+    autoscaling: {enabled: true, min: 3, max: 8, metric: fleet_sockets, target: 1000}
+  mcp:
+    enabled: true
+downloads:
+  existingClaim: ci-dist
+routing:
+  gatewayAPI:
+    enabled: true
+    gatewayRef: {name: ci-gateway, namespace: gateway, sectionName: https}
+monitoring:
+  serviceMonitor: {enabled: true}
+  prometheusRule: {enabled: true}
+retention:
+  traces_days: 30

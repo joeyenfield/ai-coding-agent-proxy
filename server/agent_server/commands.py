@@ -21,6 +21,12 @@ def main(kind: str, argv: list[str]) -> int:
         key.add_argument("--version", type=int, default=0, help="Its version (default: one above the newest configured)")
         commands.add_parser("status", help="Which key versions are configured, and how many tokens each encrypts")
         commands.add_parser("rotate", help="Re-encrypt every stored token with the newest configured key")
+    elif kind == "audit":
+        parser.description = "The audit log: check its hash chains and signed checkpoints, sign one now, or print the key that signs them."
+        verify = commands.add_parser("verify", help="Recompute every organization's chain and check the checkpoints (exit 1 on any problem)")
+        verify.add_argument("--org", help="Only this organization's chain")
+        commands.add_parser("checkpoint", help="Sign every chain's head now")
+        commands.add_parser("key", help="Print the public key checkpoints are signed with (to check them elsewhere)")
     elif kind == "config":
         parser.description = "The server's settings (network, backends, model tuning, agents) as one YAML document."
         export = commands.add_parser("export", help="Write every setting as YAML (to a file, or to standard output)")
@@ -38,6 +44,8 @@ def main(kind: str, argv: list[str]) -> int:
     try:
         if kind == "vault":
             return _vault(args)
+        if kind == "audit":
+            return _audit(args)
         if kind == "config" and args.action == "export":
             text = config_io.dump(config_io.export(Settings.load()))
             if args.file:
@@ -64,7 +72,16 @@ def main(kind: str, argv: list[str]) -> int:
             from .db import Database
 
             db = Database(settings.database_address)
-            print(f"{redacted(db.url)} is at version {migrate.migrate(db)}.")
+            version = migrate.migrate(db)
+            db.close()
+            # Then everything a first start does once (seeding, the shipped agents, an older install's import), so
+            # the server's processes, started with AI_PROXY_MIGRATE=0, find it done and never race to do it.
+            settings = Settings.load()
+            from . import retention
+
+            seeded = retention.seed_from_environment(settings)
+            settings.open_database().close()
+            print(f"{redacted(db.url)} is at version {version}." + (" Seeded the retention policy." if seeded else ""))
         else:
             settings = Settings.load()
             db = settings.open_database()
@@ -77,6 +94,32 @@ def main(kind: str, argv: list[str]) -> int:
         print(str(exc), file=sys.stderr)
         return 1
     return 0
+
+
+def _audit(args: argparse.Namespace) -> int:
+    """agent-server audit verify|checkpoint|key."""
+    import json
+
+    from . import blobs
+    from .audit import Audit
+
+    audit = Audit(Settings.load().open_database(), blobs=blobs.from_environment())
+    if args.action == "key":
+        key_id, public_key = audit.public_key()
+        print(json.dumps({"key_id": key_id, "algorithm": "Ed25519", "public_key": public_key}))
+        return 0
+    if args.action == "checkpoint":
+        record = audit.checkpoint()
+        print("Signed a checkpoint of " + ", ".join(f"{tenant} at {seq}" for tenant, (seq, _) in record["heads"].items()) if record else "Nothing recorded since the last checkpoint.")
+        return 0
+    report = audit.verify(args.org)
+    for tenant, chain in sorted(report["tenants"].items()):
+        print(f"{tenant}: {chain['events']} events" + (f", from {chain['first']} to {chain['head']}" if chain["events"] else ""))
+    print(f"Checkpoints: {report['checkpoints']}")
+    for problem in report["problems"]:
+        print(f"PROBLEM: {problem}", file=sys.stderr)
+    print("The audit log is intact." if report["ok"] else "The audit log has problems (above).")
+    return 0 if report["ok"] else 1
 
 
 def _vault(args: argparse.Namespace) -> int:

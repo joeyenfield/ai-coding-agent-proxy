@@ -1,0 +1,8 @@
+.git/
+*.swp
+*.bak
+*.tmp
+*.orig
+.DS_Store
+.idea/
+.vscode/

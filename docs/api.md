@@ -61,6 +61,8 @@ its in-flight entry and records `client_closed`.
 | Method | Path | Who | What it does |
 |---|---|---|---|
 | GET | `/health` | Public | `status`, the running instance's id, the server's `version`, `protocol` and `min_protocol`. |
+| GET | `/ready` | Public | Whether to send this process traffic: `ready`, `pod`, `roles` and `checks` (`database`, `cluster`, `blobs`, each `ok` and `detail`). `503` when one fails or the process is shutting down. See [Running several server processes](scaling.md#health-readiness-and-metrics). |
+| GET | `/metrics` | The internal port only (`AI_PROXY_INTERNAL_PORT`), no token | Prometheus metrics of this process. Every other path on the internal port needs `AI_PROXY_INTERNAL_TOKEN`; the public port answers `/internal/*` with `404`. |
 | GET | `/api/status` | Signed in | Totals, requests in flight, recent requests, intercept state, `default_backend`, whether a restart is needed for the listen address, and each machine backend's `provider`. Only sessions you can see (their token totals too), and only the backends your organization's agents may use. |
 | GET | `/api/config` | Site admin | The editable network settings (`proxy.listen_host`, `listen_port`, `url`, `public_url`, `default_backend`, `backends`) and `restart_required`. |
 | PUT | `/api/config` | Site admin | Stores them. Can remove local backends and add or edit hosted ones; refuses new or moved local ones. Without `backends`, leaves them alone; without `proxy.public_url`, leaves it as it is (`null` clears it). See [Configuration](configuration.md). |
@@ -88,7 +90,7 @@ its in-flight entry and records `client_closed`.
 | GET | `/api/sessions` | Signed in | The sessions you can see, each with its `machine` and what `you` may do. |
 | DELETE | `/api/sessions` | Signed in | Deletes all saved traffic. Ended sessions and open ones idle for 15 minutes are deleted; recently active ones keep running but lose their data; ones with requests in flight are skipped. Only your own (and your organization's admins: its sessions without an owner). |
 | GET | `/api/sessions/{session_id}` | Signed in, can view | One session. |
-| PATCH | `/api/sessions/{session_id}` | Signed in, can control | Ends it (`ended`, `exit_status`), switches capture (`trace`), or for its owner changes its sharing (`visibility`, `team`, `org`, `access`). Narrowing the sharing drops terminal viewers who lose access. A shell can't be shared. |
+| PATCH | `/api/sessions/{session_id}` | Signed in, can control | Ends it (`ended`, `exit_status`), switches capture (`trace`; `409` when its organization's [retention policy](retention.md) records every session, or none), or for its owner changes its sharing (`visibility`, `team`, `org`, `access`). Narrowing the sharing drops terminal viewers who lose access. A shell can't be shared. |
 | POST | `/api/sessions/{session_id}/stop` | Signed in, can control | Stops the session's replies the server is still reading for a client that dropped (Ask a model's **Stop**): `{"stopped": <count>}`. Ending the session does it too. |
 | DELETE | `/api/sessions/{session_id}` | Signed in, can control | Deletes it. `409` while requests are in flight. |
 | DELETE | `/api/sessions/{session_id}/data` | Signed in, can control | Clears its saved requests and traces, keeping the session. |
@@ -190,6 +192,27 @@ Each person's usage of each provider (a backend, or a kind of subscription) and 
 | DELETE | `/api/orgs/{org}/limits?user=&provider=&window=` | Admin of that organization, site admins | Removes one limit. |
 
 A person who has reached a limit gets `429` with `error.code: "usage_limit"` and `Retry-After` from the agent APIs (`/v1`, `/anthropic`, `/api` model calls, and account agents' calls to the subscription's hosts), and `429` from `POST /api/agents/{agent_id}/sessions` and `POST /api/machines/{id}/launch` for that provider.
+
+## Retention and the audit log
+
+What's recorded and for how long, legal holds, and the audit log. See [Retention](retention.md) and [The audit log](audit.md).
+
+| Method | Path | Who | What |
+| --- | --- | --- | --- |
+| GET | `/api/config/retention` | Site admin | The server's policy: `capture` (`traces`: `off`, `opt_in` or `always`; `intercept_bodies`; `terminal_output`), `allowed_traces`, and `days`, `max` and `min` for `traces`, `terminal`, `records`, `sessions` and `audit` (days, or `null` for forever). |
+| PUT | `/api/config/retention` | Site admin | Stores it (the whole policy). `400` with the reason when it isn't consistent. Every session's next deletion is worked out again. |
+| GET | `/api/orgs/{org}/retention` | Its members, its admins, site admins | The policy its sessions start under (`capture`, `days`), what it sets itself (`own`), the server's policy and bounds (`server`: `capture`, `days`, `allowed_traces`, `max`, `min`) and how many `holds` it has. |
+| PUT | `/api/orgs/{org}/retention` | Admin of that organization, site admins | Its own policy: `capture` and `days`, only what it changes. `400` outside the server's bounds. |
+| DELETE | `/api/orgs/{org}/retention` | Admin of that organization, site admins | Back to the server's policy. |
+| GET | `/api/holds` | Admins (their organization's), site admins (all, or `?org=`) | Legal holds: `id`, `tenant`, `scope` (`org`, `user`, `session`), `target`, `reason`, `set_by`, `set_at`. |
+| POST | `/api/holds` | Admin of the organization, site admins | Places one: `scope`, `target`, `reason`, and `org` (default: yours). Nothing it covers is deleted until it's lifted. |
+| DELETE | `/api/holds/{id}` | Admin of its organization, site admins | Lifts it. |
+| GET | `/api/audit` | Admins (their organization's), site admins (everyone's, or `?org=`) | Events, newest first: `type` (a prefix such as `machines` or `mesh.audit.data.viewed`), `actor`, `outcome`, `since`, `before` (seconds since the epoch), `limit` (up to 1000). Answers `events` and `next_before`, a cursor to pass as `before` for the next page (`null` on the last). Members get `403`. |
+| GET | `/api/audit/export` | The same | The same events (up to 5000) as `?format=ndjson` (default) or `csv`, as a download. |
+| GET | `/api/audit/verify` | The same | Each chain recomputed and checked against the checkpoints: `ok`, `tenants` (`events`, `first`, `head`), `checkpoints`, `problems`. |
+| POST | `/api/audit/checkpoint` | Site admin | Signs every chain's head now; `checkpoint` is `null` when nothing was recorded since the last one. |
+| GET | `/api/config/audit` | Site admin | `exports` (`name`, `kind`: `otlp`, `syslog`, `webhook` or `blob`, `url`, `token_env`, `tenants`, `enabled`, `prefix`), `checkpoint_minutes`, the audit key's `key_id` and `public_key`, and the `backlog`. |
+| PUT | `/api/config/audit` | Site admin | Stores `exports` and `checkpoint_minutes` (5 to 1440). |
 
 ## Containers
 

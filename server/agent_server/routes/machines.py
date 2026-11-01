@@ -77,6 +77,16 @@ def register(app: FastAPI, runtime: Runtime) -> None:
                 if backend and backend.machine == machine.id:
                     runtime.settings.save_backend(name, {**backend.public(), "url": url})
 
+    def machine_audit(websocket: WebSocket, kind: str, target: dict[str, Any], outcome: str = "success", reason: str | None = None) -> None:
+        """A machine's connection in the audit log (WebSockets aren't the middleware's)."""
+        identity = auth.request_identity(websocket)
+        client = websocket.client.host if websocket.client else None
+        runtime.audit.record(runtime.audit.event(
+            kind, tenant=getattr(identity, "tenant", None), actor=getattr(identity, "user", None), via=getattr(identity, "via", None),
+            ip=client, user_agent=websocket.headers.get("user-agent"), action="WS /api/machines/connect", target=target,
+            outcome=outcome, reason=reason, machine_id=target.get("id") or None,
+        ))
+
     @app.websocket("/api/machines/connect")
     async def connect(websocket: WebSocket) -> None:
         """One machine's agent-machine, for as long as it runs: its hello and updates in, launches out."""
@@ -89,6 +99,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             hello = json.loads(await websocket.receive_text())
             machine = fleet.connect(websocket, auth.request_identity(websocket), client_host, hello if isinstance(hello, dict) else {})
         except FleetError as exc:
+            machine_audit(websocket, "machines.refused", {"kind": "machines", "id": str((hello or {}).get("id") or "") if isinstance(hello, dict) else ""}, "refused", exc.detail)
             await websocket.close(code=exc.status, reason=exc.detail[:120])
             return
         except (WebSocketDisconnect, ValueError):
@@ -96,6 +107,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         # For the access log (outermost, same scope): which machine this connection is, by its hello.
         websocket.scope.setdefault("state", {})["machine"] = {"id": machine.id, "name": machine.name}
         await claim(machine)
+        machine_audit(websocket, "machines.connected", {"kind": "machines", "id": machine.id, "name": machine.name})
         await websocket.send_text(json.dumps({"type": "welcome", "machine": machine.id}))
         try:
             while True:
@@ -114,6 +126,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             pass
         finally:
             fleet.disconnect(machine.id, websocket)
+            machine_audit(websocket, "machines.disconnected", {"kind": "machines", "id": machine.id, "name": machine.name})
 
     async def renew(websocket: WebSocket, token: Any) -> bool:
         return await auth.renew_socket(runtime, websocket, token)
@@ -225,7 +238,8 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             target.access = checked_access(identity, (data or {}).get("access") if isinstance(data, dict) else None, runtime.auth.store, target.tenant)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        fleet._save()
+        fleet._save(target)
+        fleet._announce(target)
         return described(target, request)
 
     @app.post("/api/machines/{machine_id}/update")

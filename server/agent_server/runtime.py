@@ -15,9 +15,12 @@ import httpx
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
+from . import blobs as blob_store
+from . import cluster as cluster_module
+from . import roles as roles_module
 from .access_log import AccessLog
 from .agents import AgentDefinition, load_agents
-from .auth import Auth, UserStore
+from .auth import Auth, Revocations, UserStore
 from .certs import CertificateAuthority
 from .chat import Chats
 from .config import LOCAL_INTERCEPT_PORT, Settings
@@ -27,6 +30,8 @@ from .live import LiveHub
 from .provider_accounts import ProviderAccounts, Vault
 from .usage_limits import REFUSED, UsageLimits, provider_label, refusal
 from .remote import RemoteAccess
+from .audit import Audit
+from .retention import Retention
 from .sessions import Session, SessionStore
 from .telemetry import RequestTelemetry, stream_deltas
 from .fleet import Fleet, provider_id
@@ -47,30 +52,47 @@ def upstream_client(**options: Any) -> httpx.AsyncClient:
 class Runtime:
     """Process-wide proxy state shared by the management and compatibility routes."""
 
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, cluster: cluster_module.Cluster | None = None):
         self.settings = settings
+        # The other processes of this server, if any (cluster.py): what they share and how to reach them.
+        self.cluster = cluster or cluster_module.from_environment()
+        # Traces and terminal output in blob storage (AI_PROXY_BLOB_URL), or None for the database.
+        self.blobs = blob_store.from_environment()
         self.bound_host = settings.host
         self.bound_port = settings.port
         self.proxy_instance_id = str(uuid.uuid4())
         # Everything the server keeps: settings, accounts, the fleet, sessions and their records.
         self.db = settings.open_database()
-        self.sessions = SessionStore(self.db)
+        self.sessions = SessionStore(self.db, self.cluster, self.blobs)
         self.chats = Chats(self.sessions)
         self.terminals = TerminalHub(self.sessions)
+        # What's recorded and for how long (retention.py): new sessions take their organization's policy.
+        self.retention = Retention(self.db, settings, self.sessions, self.cluster)
+        self.sessions.stamp = self.retention.stamp
+        self.sessions.trace_check = self.retention.check_trace
+        self.terminals.capture = lambda session_id: self.retention.captures(self.sessions.get(session_id), "terminal_output")
+        # Who did what (audit.py): pruned by each organization's audit days, never while it's held.
+        self.audit = Audit(self.db, settings, self.blobs, self.cluster)
+        self.audit.held = self.retention.tenant_held
+        self.retention.extra.append(self.audit.prune)
         # Machines signed in to this server: their agents, model servers and launches.
-        self.fleet = Fleet(self.db, self.sessions)
+        self.fleet = Fleet(self.db, self.sessions, self.cluster)
         # Strata traffic is sent with the key its machine reported.
         strata.fleet = self.fleet
         # Agents' requests to machines the server can't reach go through the machines themselves.
         self.tunnels = TunnelHub(self.fleet)
         self.remote = RemoteAccess()
         self.auth = Auth(UserStore(self.db), settings)
+        if self.cluster.scaled:
+            # Signed access tokens are checked here while the issuer's revocations are current (auth.Revocations).
+            self.auth.revocations = Revocations(self.cluster)
         # Containers the machines run for the server, asked for over the fleet's connections.
-        self.containers = ContainerManager(settings, KeyStore(self.db), self.fleet)
+        self.container_keys = KeyStore(self.db)
+        self.containers = ContainerManager(settings, self.container_keys, self.fleet)
         # People's own subscriptions (Claude, Codex, Copilot), where they run, and what they used.
-        self.provider_accounts = ProviderAccounts(self.db, self.fleet, Vault.from_environment())
+        self.provider_accounts = ProviderAccounts(self.db, self.fleet, Vault.from_environment(), cluster=self.cluster)
         # Everyone's usage of each provider, and their organizations' limits on it.
-        self.usage = UsageLimits(self.db)
+        self.usage = UsageLimits(self.db, cluster=self.cluster)
         self.client: httpx.AsyncClient | None = None
         self.intercept_client: httpx.AsyncClient | None = None
         # Every HTTP request and WebSocket received, and how it ended (memory only, site admins).
@@ -79,7 +101,7 @@ class Runtime:
         self.active: dict[str, dict[str, Any]] = {}
         self.config_lock = asyncio.Lock()
         # Set AI_PROXY_LIVE=0 to stop streaming request text to the UI (counts still stream).
-        self.live = LiveHub(enabled=os.getenv("AI_PROXY_LIVE", "1") != "0")
+        self.live = LiveHub(enabled=os.getenv("AI_PROXY_LIVE", "1") != "0", cluster=self.cluster)
         # Input and output tokens recorded, by session.
         self.tokens: dict[str, list[int]] = {}
         # Set by the app's lifespan when the intercept proxy is enabled.
@@ -89,10 +111,33 @@ class Runtime:
         # The listen address came from --host/--port, which a restart keeps.
         self.address_pinned = False
         self.restarting = False
+        # Set once the process is shutting down: /ready says no, so no new traffic comes here.
+        self.draining = False
         self.started_at = time.time()
         # Replies read to the end whether or not their client is still there (finish_later), by session.
         self.finishing: dict[str, set[asyncio.Task[Any]]] = {}
+        # What this process serves (roles.py); every one with AI_PROXY_ROLES unset.
+        self.roles = roles_module.from_environment()
+        self._share_changes()
         self.reload_history()
+
+    def _share_changes(self) -> None:
+        """Keep this process in step with the server's others: settings and container keys they change are
+        read again here, and terminal viewers who may no longer see a session whose sharing narrowed elsewhere go."""
+        def changed(what: str) -> None:
+            self.cluster.publish("config.changed", {"what": what})
+
+        self.settings.listeners.append(changed)
+        self.container_keys.listeners.append(changed)
+
+        def reload(data: dict[str, Any], _: str) -> None:
+            self.settings.reload()
+            self.container_keys.reload()
+
+        self.cluster.on("config.changed", reload)
+        from . import access
+
+        self.sessions.listeners.append(lambda session: self.terminals.drop_viewers(session.session_id, lambda viewer: access.can_view(viewer, session)))
 
     @cached_property
     def ca(self) -> CertificateAuthority:
@@ -134,25 +179,49 @@ class Runtime:
         self.usage.prune()
         # Saved access log entries go even when recordings are kept forever (after access_log.SAVED_DAYS).
         self.access_log.prune()
-        days = self.settings.retention_days
-        if not days:
-            return 0
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-        pruned = self.sessions.prune(cutoff)
-        if pruned:
-            for session_id in [item.session_id for item in self.sessions.list() if (item.last_activity_at or item.started_at) < cutoff]:
-                self.chats.forget_id(session_id)
-            LOGGER.info("deleted the recordings of %s sessions older than %s days", pruned, days)
+        # Each session by its organization's policy (retention.py): traces, terminal output, records, the session itself.
+        done = self.retention.run()
+        pruned = done["traces"]
+        if any(done.values()):
+            self.chats.forget_all()
+            LOGGER.info("retention deleted: %s", ", ".join(f"{count} sessions' {kind}" for kind, count in done.items() if count))
         return pruned
 
     async def prune_daily(self) -> None:
-        """The retention setting, applied once an hour (a change applies within the hour)."""
+        """The retention setting, applied once an hour (a change applies within the hour), by one process at a time."""
         while True:
             try:
-                await asyncio.to_thread(self.prune)
+                if self.cluster.leader("retention", ttl=3700):
+                    await asyncio.to_thread(self.prune)
             except Exception:  # noqa: BLE001 - try again next time
                 LOGGER.exception("deleting old recordings failed")
             await asyncio.sleep(3600)
+
+    def jobs(self) -> list[asyncio.Task[Any]]:
+        """The worker role's other jobs (each takes a lease, so one process runs it at a time)."""
+        return [asyncio.ensure_future(self._audit_checkpoints()), asyncio.ensure_future(self._audit_exports())]
+
+    async def _audit_checkpoints(self) -> None:
+        """Sign the audit log's chains every checkpoint_minutes (Server settings -> Audit)."""
+        while True:
+            minutes = 60
+            try:
+                minutes = int((await asyncio.to_thread(self.audit.config)).get("checkpoint_minutes") or 60)
+                if self.cluster.leader("audit-checkpoint", ttl=minutes * 60 + 60):
+                    await asyncio.to_thread(self.audit.checkpoint)
+            except Exception:  # noqa: BLE001 - tried again next time
+                LOGGER.exception("signing the audit log's checkpoint failed")
+            await asyncio.sleep(minutes * 60)
+
+    async def _audit_exports(self) -> None:
+        """Send the audit log to its exports, every few seconds, by one process at a time."""
+        while True:
+            try:
+                if self.cluster.leader("audit-export", ttl=60):
+                    await asyncio.to_thread(self.audit.export_once)
+            except Exception:  # noqa: BLE001
+                LOGGER.exception("exporting the audit log failed")
+            await asyncio.sleep(10)
 
     @property
     def total_input_tokens(self) -> int:
@@ -350,7 +419,8 @@ class Runtime:
             self.provider_accounts.observe(session, record, http)
         # Its person's usage of the provider, which their organization's limits count.
         self.usage.observe(session, record)
-        if session.trace:
+        intercepted = record.get("kind") in ("intercept", "upgrade", "tunnel")
+        if session.trace and (not intercepted or self.retention.captures(session, "intercept_bodies")):
             trace = {
                 "metadata": {"proxy_instance_id": self.proxy_instance_id, **record},
                 "request": request_payload, "response": response_payload,

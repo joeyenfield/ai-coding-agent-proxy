@@ -1,0 +1,127 @@
+{{- /*
+Ingress rules only (egress stays open: the gateway reaches hosted model APIs and the
+intercept role any public HTTPS host).
+  server pods   the main port from anyone (or networkPolicy.publicFrom); the internal port
+                only from this release's server pods and the Prometheus namespace. The
+                internal port's routes other than /metrics need AI_PROXY_INTERNAL_TOKEN too.
+  agent-auth    its port from anyone (or publicFrom).
+  console       port 80 from anyone (or publicFrom).
+  valkey        only from this release's server and agent-auth pods.
+*/ -}}
+{{- if .Values.networkPolicy.enabled }}
+{{- $fullname := include "agent-mesh.fullname" . }}
+{{- $np := .Values.networkPolicy }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-server
+  labels:
+    {{- include "agent-mesh.labels" (dict "root" . "component" "server") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "agent-mesh.serverPodSelector" . | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - {protocol: TCP, port: {{ .Values.server.port }}}
+        {{- if include "agent-mesh.issuerSidecar" . }}
+        - {protocol: TCP, port: {{ .Values.auth.issuer.port }}}
+        {{- end }}
+      {{- with $np.publicFrom }}
+      from:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    - ports:
+        - {protocol: TCP, port: {{ .Values.server.internalPort }}}
+      from:
+        - podSelector:
+            matchLabels:
+              {{- include "agent-mesh.serverPodSelector" . | nindent 14 }}
+        {{- with $np.prometheusNamespace }}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . }}
+        {{- end }}
+    {{- if include "agent-mesh.multiWorker" . }}
+    # With AI_PROXY_WORKERS > 1 each worker takes an ephemeral internal port, so server pods
+    # may reach each other on any TCP port.
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "agent-mesh.serverPodSelector" . | nindent 14 }}
+      ports:
+        - {protocol: TCP, port: 1, endPort: 65535}
+    {{- end }}
+{{- if and .Values.auth.issuer.enabled (not (include "agent-mesh.issuerSidecar" .)) }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-auth
+  labels:
+    {{- include "agent-mesh.labels" (dict "root" . "component" "auth") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "agent-mesh.selectorLabels" (dict "root" . "component" "auth") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - {protocol: TCP, port: {{ .Values.auth.issuer.port }}}
+      {{- with $np.publicFrom }}
+      from:
+        {{- toYaml . | nindent 8 }}
+        # The API introspects tokens and relays console device approvals.
+        - podSelector:
+            matchLabels:
+              {{- include "agent-mesh.serverPodSelector" $ | nindent 14 }}
+      {{- end }}
+{{- end }}
+{{- if .Values.console.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-console
+  labels:
+    {{- include "agent-mesh.labels" (dict "root" . "component" "console") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "agent-mesh.selectorLabels" (dict "root" . "component" "console") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - {protocol: TCP, port: 80}
+      {{- with $np.publicFrom }}
+      from:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+{{- if .Values.redis.bundled.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-valkey
+  labels:
+    {{- include "agent-mesh.labels" (dict "root" . "component" "valkey") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "agent-mesh.selectorLabels" (dict "root" . "component" "valkey") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - {protocol: TCP, port: 6379}
+      from:
+        - podSelector:
+            matchLabels:
+              {{- include "agent-mesh.serverPodSelector" . | nindent 14 }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ .Release.Name }}
+              agent-mesh.io/issuer: "true"
+{{- end }}
+{{- end }}

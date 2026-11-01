@@ -119,6 +119,7 @@ def reload(settings: Settings, document: dict[str, Any], models: dict[str, Any])
     host, port = settings.host, settings.port
     settings._configure(document, models)
     settings.host, settings.port = host, port
+    settings.changed("import")
 
 
 def replace_agents(connection: Any, agents: dict[str, Any]) -> None:

@@ -1,0 +1,35 @@
+# A small install: one pod with every role, SQLite on a 20 GiB volume, the console served by
+# agent-server itself, behind ingress-nginx with cert-manager.
+#   helm install mesh ./deploy/helm/agent-mesh -n mesh --create-namespace \
+#     -f deploy/helm/agent-mesh/values-single.yaml
+mode: single
+
+server:
+  host: api.mesh.example.com
+auth:
+  host: auth.mesh.example.com
+
+persistence:
+  enabled: true
+  size: 20Gi
+
+single:
+  resources:
+    requests: {cpu: 500m, memory: 1Gi}
+    limits: {memory: 4Gi}
+
+routing:
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt
+    tls:
+      serverSecretName: mesh-api-tls
+      authSecretName: mesh-auth-tls
+
+# Subscriptions' managed tokens need vault keys. Keep them in a Secret of your own (keys
+# internal-token, oidc-introspection-secret, vault-keys) and name it here; or leave it out
+# and the chart generates the first two, with the vault off.
+# secrets:
+#   existingSecret: mesh-app

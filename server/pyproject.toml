@@ -24,12 +24,14 @@ dependencies = [
   # Everything the server keeps (db/): PostgreSQL through psycopg, or SQLite from the standard library.
   "SQLAlchemy>=2.0,<3",
   "psycopg[binary]>=3.2",
+  # Several processes as one server (cluster.py): AI_PROXY_REDIS_URL, Redis or Valkey.
+  "redis>=5",
 ]
 
 [project.optional-dependencies]
 # websockets: the tests' and the screenshot demo's stand-in launcher. pywinpty: playing a
 # real console for the Go client's --control on Windows.
-dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "websockets>=15", "pywinpty>=3; sys_platform == 'win32'"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "websockets>=15", "fakeredis>=2.26", "pywinpty>=3; sys_platform == 'win32'"]
 
 # The agent machine's programs (agent, agent-proxy) are the Go client in ../client.
 [project.scripts]

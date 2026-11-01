@@ -1,0 +1,144 @@
+{{- /*
+CloudNativePG: database mesh with the two roles and schemas of server/docker/postgres-init.sh.
+  mesh_api   owns database mesh and schema mesh (initdb's owner).
+  mesh_auth  owns schema mesh_auth; may only read the account tables in mesh (agent-server
+             grants that itself when it migrates: migrate.grant_issuer).
+postInitApplicationSQL runs once, at bootstrap, before the operator reconciles
+spec.managed.roles, so it creates mesh_auth without a password and the managed role then
+gives it LOGIN and its password.
+*/ -}}
+{{- if .Values.postgresql.cloudnativepg.enabled }}
+{{- $cnpg := .Values.postgresql.cloudnativepg }}
+{{- $cluster := include "agent-mesh.cnpgClusterName" . }}
+{{- if not $cnpg.existingApiSecret }}
+{{- $name := include "agent-mesh.cnpgApiSecret" . }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "agent-mesh.labels" (dict "root" . "component" "postgresql") | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+type: kubernetes.io/basic-auth
+data:
+  username: {{ "mesh_api" | b64enc | quote }}
+  password: {{ include "agent-mesh.keepSecret" (dict "root" . "name" $name "key" "password" "value" "") | b64enc | quote }}
+---
+{{- end }}
+{{- if not $cnpg.existingAuthSecret }}
+{{- $name := include "agent-mesh.cnpgAuthSecret" . }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "agent-mesh.labels" (dict "root" . "component" "postgresql") | nindent 4 }}
+    # Lets CloudNativePG watch it for password changes of the managed role.
+    cnpg.io/reload: "true"
+  annotations:
+    helm.sh/resource-policy: keep
+type: kubernetes.io/basic-auth
+data:
+  username: {{ "mesh_auth" | b64enc | quote }}
+  password: {{ include "agent-mesh.keepSecret" (dict "root" . "name" $name "key" "password" "value" "") | b64enc | quote }}
+---
+{{- end }}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ $cluster }}
+  labels:
+    {{- include "agent-mesh.labels" (dict "root" . "component" "postgresql") | nindent 4 }}
+  annotations:
+    # Never delete the database with the release.
+    helm.sh/resource-policy: keep
+spec:
+  instances: {{ $cnpg.instances }}
+  {{- with $cnpg.imageName }}
+  imageName: {{ . }}
+  {{- end }}
+  storage:
+    size: {{ $cnpg.storage.size }}
+    {{- with $cnpg.storage.storageClass }}
+    storageClass: {{ . }}
+    {{- end }}
+  {{- if $cnpg.walStorage.enabled }}
+  walStorage:
+    size: {{ $cnpg.walStorage.size }}
+    {{- with $cnpg.walStorage.storageClass }}
+    storageClass: {{ . }}
+    {{- end }}
+  {{- end }}
+  {{- with $cnpg.parameters }}
+  postgresql:
+    parameters:
+      {{- toYaml . | nindent 6 }}
+  {{- end }}
+  {{- with $cnpg.resources }}
+  resources:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with $cnpg.affinity }}
+  affinity:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  bootstrap:
+    initdb:
+      database: mesh
+      owner: mesh_api
+      secret:
+        name: {{ include "agent-mesh.cnpgApiSecret" . }}
+      postInitApplicationSQL:
+        - >-
+          DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'mesh_auth')
+          THEN CREATE ROLE mesh_auth NOLOGIN; END IF; END $$
+        - CREATE SCHEMA IF NOT EXISTS mesh AUTHORIZATION mesh_api
+        - CREATE SCHEMA IF NOT EXISTS mesh_auth AUTHORIZATION mesh_auth
+        - REVOKE ALL ON SCHEMA public FROM PUBLIC
+        - REVOKE ALL ON DATABASE mesh FROM PUBLIC
+        - GRANT CONNECT ON DATABASE mesh TO mesh_api, mesh_auth
+  managed:
+    roles:
+      - name: mesh_auth
+        ensure: present
+        login: true
+        inherit: true
+        passwordSecret:
+          name: {{ include "agent-mesh.cnpgAuthSecret" . }}
+  {{- if .Values.monitoring.serviceMonitor.enabled }}
+  monitoring:
+    enablePodMonitor: true
+  {{- end }}
+  {{- with $cnpg.backup }}
+  backup:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with $cnpg.extraSpec }}
+  {{- toYaml . | nindent 2 }}
+  {{- end }}
+{{- if .Values.pgbouncer.enabled }}
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Pooler
+metadata:
+  name: {{ $cluster }}-pooler-rw
+  labels:
+    {{- include "agent-mesh.labels" (dict "root" . "component" "pgbouncer") | nindent 4 }}
+spec:
+  cluster:
+    name: {{ $cluster }}
+  instances: {{ .Values.pgbouncer.instances }}
+  type: rw
+  pgbouncer:
+    poolMode: {{ .Values.pgbouncer.poolMode }}
+    {{- with .Values.pgbouncer.parameters }}
+    parameters:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+  {{- if .Values.monitoring.serviceMonitor.enabled }}
+  monitoring:
+    enablePodMonitor: true
+  {{- end }}
+{{- end }}
+{{- end }}

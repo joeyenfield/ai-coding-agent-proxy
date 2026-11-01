@@ -1,0 +1,101 @@
+{{- /*
+Gateway API routes. server.host carries §5's path table (agent-mesh.routeTable): in mode
+scaled each function's paths go to the Service of the Deployment that serves it; in mode
+single everything goes to the one Service. auth.host goes to agent-auth, console.host to the
+console. The internal port is never a backend here.
+*/ -}}
+{{- if .Values.routing.gatewayAPI.enabled }}
+{{- $root := . }}
+{{- $fullname := include "agent-mesh.fullname" . }}
+{{- $g := .Values.routing.gatewayAPI }}
+{{- $port := .Values.server.port }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ $fullname }}-server
+  labels:
+    {{- include "agent-mesh.labels" (dict "root" . "component" "server") | nindent 4 }}
+  {{- with $g.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  parentRefs:
+    - {{ include "agent-mesh.gatewayRef" . | nindent 6 | trim }}
+  hostnames: [{{ .Values.server.host | quote }}]
+  rules:
+  {{- if eq .Values.mode "single" }}
+    - matches:
+        - path: {type: PathPrefix, value: /}
+      backendRefs:
+        - {name: {{ $fullname }}, port: {{ $port }}}
+      {{- with $g.streamingTimeouts }}
+      timeouts:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- else }}
+  {{- $table := fromYamlArray (include "agent-mesh.routeTable" .) }}
+  {{- range $fn := list "gateway" "mcp" "intercept" "fleet" "realtime" "api" }}
+  {{- $matches := list }}
+  {{- range $r := $table }}{{ if eq $r.fn $fn }}{{ $matches = append $matches $r }}{{ end }}{{ end }}
+  {{- if $matches }}
+    - matches:
+        {{- range $r := $matches }}
+        - path: {type: {{ $r.type }}, value: {{ $r.path | quote }}}
+        {{- end }}
+      backendRefs:
+        - {name: {{ include "agent-mesh.serviceFor" (dict "root" $root "fn" $fn) }}, port: {{ $port }}}
+      {{- if ne $fn "api" }}
+      {{- with $g.streamingTimeouts }}
+      timeouts:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- end }}
+  {{- end }}
+  {{- end }}
+  {{- end }}
+{{- if .Values.auth.issuer.enabled }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ $fullname }}-auth
+  labels:
+    {{- include "agent-mesh.labels" (dict "root" . "component" "auth") | nindent 4 }}
+  {{- with $g.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  parentRefs:
+    - {{ include "agent-mesh.gatewayRef" . | nindent 6 | trim }}
+  hostnames: [{{ .Values.auth.host | quote }}]
+  rules:
+    - matches:
+        - path: {type: PathPrefix, value: /}
+      backendRefs:
+        - {name: {{ $fullname }}-auth, port: {{ .Values.auth.issuer.port }}}
+{{- end }}
+{{- if .Values.console.enabled }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ $fullname }}-console
+  labels:
+    {{- include "agent-mesh.labels" (dict "root" . "component" "console") | nindent 4 }}
+  {{- with $g.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  parentRefs:
+    - {{ include "agent-mesh.gatewayRef" . | nindent 6 | trim }}
+  hostnames: [{{ .Values.console.host | quote }}]
+  rules:
+    - matches:
+        - path: {type: PathPrefix, value: /}
+      backendRefs:
+        - {name: {{ $fullname }}-console, port: 80}
+{{- end }}
+{{- end }}

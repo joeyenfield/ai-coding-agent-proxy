@@ -305,6 +305,10 @@ The server hands out its own build: the `dist/<version>/` folder of its version,
 
 Running agents keep going. Their terminals and the machines reconnect by themselves. A restart reloads configuration, not Python code: code changes need `agent-server` itself restarted. With `--reload` there's no supervisor, and the button is off.
 
+## Several processes
+
+The server can also run as several processes (pods in Kubernetes), each with some of its roles (`api`, `gateway`, `mcp`, `intercept`, `fleet`, `realtime`, `worker`), sharing PostgreSQL and Redis. Sessions are found in the database by every process. A machine's connection, a shared terminal's launcher and a tunnel's dial-back each stay with the process they reached, and the others reach them through that process's internal port. Changes (to a session's sharing, a machine, the settings, a usage limit) are announced to every process. There, restarts are rollouts, and settings apply in every process as they change. See [Running several server processes](scaling.md).
+
 ## Security model
 
 The proxy sees every prompt and can type into agents' terminals, so each entry point is narrow.

@@ -68,8 +68,9 @@ class Database:
             options["connect_args"] = {"check_same_thread": False, "timeout": 30}
         else:
             options["pool_pre_ping"] = True
-            options["pool_size"] = 5
-            options["max_overflow"] = 10
+            # Several processes share one PostgreSQL (behind PgBouncer when there are many): AI_PROXY_DB_POOL_SIZE each.
+            options["pool_size"] = _env_int("AI_PROXY_DB_POOL_SIZE", 5)
+            options["max_overflow"] = _env_int("AI_PROXY_DB_MAX_OVERFLOW", 10)
         engine = create_engine(parsed, **options)
         # SQLite has no schemas: both sets of tables live in the file's main schema.
         translate = {API_SCHEMA: None, AUTH_SCHEMA: None} if self.sqlite else {API_SCHEMA: API_SCHEMA, AUTH_SCHEMA: AUTH_SCHEMA}
@@ -77,6 +78,8 @@ class Database:
         if self.sqlite:
             _sqlite_events(engine, readonly)
         self.writer = Writer(self)
+        # A session-level lock held for the process's lifetime (hold_lock), on a connection of its own.
+        self._held: Any = None
 
     # Transactions
 
@@ -105,9 +108,53 @@ class Database:
         except Exception:  # noqa: BLE001 - stats are best effort
             return None
 
+    def ping(self) -> tuple[bool, str]:
+        """Whether the database answers (for /ready)."""
+        try:
+            with self.read() as connection:
+                connection.execute(text("SELECT 1"))
+        except Exception as exc:  # noqa: BLE001
+            return False, f"database: {type(exc).__name__}"
+        return True, "sqlite" if self.sqlite else "postgresql"
+
+    def hold_lock(self, lock_id: int) -> bool:
+        """Take a PostgreSQL advisory lock for as long as this process runs (True on SQLite, which is one file
+        on one computer anyway). False when another process holds it."""
+        if self.sqlite:
+            return True
+        if self._held is not None:
+            return True
+        connection = self.engine.connect()
+        try:
+            taken = bool(connection.execute(text("SELECT pg_try_advisory_lock(:id)"), {"id": lock_id}).scalar())
+            connection.commit()
+        except Exception:
+            connection.close()
+            raise
+        if not taken:
+            connection.close()
+            return False
+        self._held = connection
+        return True
+
     def close(self) -> None:
         self.writer.close()
+        if self._held is not None:
+            try:
+                self._held.close()
+            except Exception:  # noqa: BLE001 - the lock goes with the connection either way
+                pass
+            self._held = None
         self.engine.dispose()
+
+
+def _env_int(name: str, default: int) -> int:
+    import os
+
+    try:
+        return max(0, int(os.getenv(name) or default))
+    except ValueError:
+        return default
 
 
 def _sqlite_events(engine: Engine, readonly: bool) -> None:

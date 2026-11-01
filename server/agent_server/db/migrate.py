@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from sqlalchemy import MetaData, Table, inspect, select, text
+from sqlalchemy import MetaData, Table, func, inspect, select, text
 from sqlalchemy.engine import Connection
 
 from . import API_SCHEMA, AUTH_SCHEMA, Database
@@ -101,7 +101,60 @@ def _usage_limits(connection: Connection) -> None:
     schema.usage_limits.create(connection, checkfirst=True)
 
 
-API_STEPS: list[Step] = [_create(schema.api), _tenants, _provider_accounts, _access_log, _usage_limits]
+def _scaling(connection: Connection) -> None:
+    """Step 6: what several processes need to share one database, retention policies and the audit log.
+
+    Sessions get their counters as columns (filled in from their documents and request records), so
+    processes counting requests only ever raise them and never write a session's document back as they
+    last saw it. Traces and terminal output get a location in blob storage. The audit log's events can't
+    be changed or deleted except by retention (the triggers check audit_guard).
+    """
+    sqlite = connection.dialect.name == "sqlite"
+    for column, kind in (("request_sequence", "BIGINT"), ("request_count", "BIGINT"), ("last_activity_at", "VARCHAR(40)"), ("input_tokens", "BIGINT"), ("output_tokens", "BIGINT"), ("retention_next", "VARCHAR(40)")):
+        _add_column(connection, schema.sessions, column, kind)
+    _add_column(connection, schema.traces, "location", "TEXT")
+    _add_column(connection, schema.terminal_chunks, "location", "TEXT")
+    for index in schema.sessions.indexes:
+        index.create(connection, checkfirst=True)
+    for table in schema.SCALING_TABLES:
+        table.create(connection, checkfirst=True)
+    if connection.execute(select(schema.audit_guard.c.id)).first() is None:
+        connection.execute(schema.audit_guard.insert().values(id=1, allow=0))
+    # The counters from the documents, and the tokens from the request records.
+    sessions, requests = schema.sessions, schema.requests
+    for row in connection.execute(select(sessions.c.id, sessions.c.data)).mappings().all():
+        data = row["data"] if isinstance(row["data"], dict) else {}
+        connection.execute(sessions.update().where(sessions.c.id == row["id"]).values(
+            request_sequence=int(data.get("request_sequence") or 0), request_count=int(data.get("request_count") or 0),
+            last_activity_at=data.get("last_activity_at"),
+        ))
+    for name, column in (("input_tokens", requests.c.input_tokens), ("output_tokens", requests.c.output_tokens)):
+        total = select(func.coalesce(func.sum(column), 0)).where(requests.c.session_id == sessions.c.id).scalar_subquery()
+        connection.execute(sessions.update().values(**{name: total}))
+    if sqlite:
+        for action in ("UPDATE", "DELETE"):
+            connection.execute(text(
+                f'CREATE TRIGGER IF NOT EXISTS "audit_events_no_{action.lower()}" BEFORE {action} ON "audit_events" '
+                f"WHEN (SELECT allow FROM audit_guard WHERE id = 1) = 0 OR {'1' if action == 'UPDATE' else '0'} "
+                "BEGIN SELECT RAISE(ABORT, 'audit events are append-only'); END"
+            ))
+    else:
+        connection.execute(text(f'''
+            CREATE OR REPLACE FUNCTION "{API_SCHEMA}".audit_events_guard() RETURNS trigger AS $$
+            BEGIN
+              IF TG_OP = 'UPDATE' OR (SELECT allow FROM "{API_SCHEMA}".audit_guard WHERE id = 1) = 0 THEN
+                RAISE EXCEPTION 'audit events are append-only';
+              END IF;
+              RETURN OLD;
+            END $$ LANGUAGE plpgsql'''))
+        connection.execute(text(f'DROP TRIGGER IF EXISTS audit_events_append_only ON "{API_SCHEMA}"."audit_events"'))
+        connection.execute(text(
+            f'CREATE TRIGGER audit_events_append_only BEFORE UPDATE OR DELETE ON "{API_SCHEMA}"."audit_events" '
+            f'FOR EACH ROW EXECUTE FUNCTION "{API_SCHEMA}".audit_events_guard()'
+        ))
+
+
+API_STEPS: list[Step] = [_create(schema.api), _tenants, _provider_accounts, _access_log, _usage_limits, _scaling]
 AUTH_STEPS: list[Step] = [_create(schema.auth)]
 
 # One lock id per component, so two processes starting at once don't both migrate.
@@ -161,3 +214,21 @@ def version(db: Database, component: str = "api") -> int:
 
 def latest(component: str = "api") -> int:
     return len(API_STEPS if component == "api" else AUTH_STEPS)
+
+
+def wait_for(db: Database, component: str = "api", timeout: float = 600.0) -> int:
+    """Wait for another process (the migration Job) to bring the database to this version; never migrate here.
+    A database newer than this program is fine (a rolling upgrade's old processes); an older one past timeout isn't."""
+    import logging
+    import time
+
+    deadline = time.monotonic() + timeout
+    while True:
+        current = version(db, component)
+        if current >= latest(component):
+            return current
+        if time.monotonic() > deadline:
+            raise RuntimeError(f"The database is at version {current}, this agent-server needs {latest(component)}: run agent-server db migrate")
+        logging.getLogger("agent-proxy").warning("waiting for the database to reach version %s (it is at %s): agent-server db migrate", latest(component), current)
+        time.sleep(5)
+

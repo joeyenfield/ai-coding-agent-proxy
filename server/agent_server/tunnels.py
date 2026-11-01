@@ -107,30 +107,56 @@ class TunnelHub:
         """Asks the machine for a tunnel and waits for it to dial back: None if it didn't, False if the
         machine isn't connected (and didn't come back in time)."""
         machine = self.fleet.machines.get(machine_id)
-        socket = await self.fleet.wait_socket(machine) if machine else None
-        if socket is None:
-            return False
+        cluster = getattr(self.fleet, "cluster", None)
+        scaled = bool(cluster is not None and cluster.scaled)
+        socket = None
+        if scaled:
+            if machine is None or not (self.fleet.connected(machine_id) or self.fleet.reconnecting(machine)):
+                return False
+        else:
+            socket = await self.fleet.wait_socket(machine) if machine else None
+            if socket is None:
+                return False
         tunnel_id = secrets.token_urlsafe(16)
         future: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
         self._pending[tunnel_id] = (machine_id, future)
+        if scaled:
+            # The machine dials back to whichever process the load balancer picks: it hands the tunnel here.
+            cluster.set(f"tunnel:{tunnel_id}", cluster.pod_id, OPEN_TIMEOUT + 5)
         try:
-            try:
-                await socket.send_text(json.dumps({"type": "tunnel", "tunnel": tunnel_id, "port": port}))
-            except Exception:
-                # A connection that can't be written to is gone: the next try waits for the new one.
-                self.fleet.disconnect(machine_id, socket)
-                raise
+            if scaled:
+                try:
+                    # Over its connection, wherever that's held (Fleet.send_tunnel asks that process).
+                    await self.fleet.send_tunnel(machine, tunnel_id, port)
+                except ConnectionError:
+                    if not self.fleet.connected(machine_id):
+                        return False
+                    raise
+            else:
+                try:
+                    await socket.send_text(json.dumps({"type": "tunnel", "tunnel": tunnel_id, "port": port}))
+                except Exception:
+                    # A connection that can't be written to is gone: the next try waits for the new one.
+                    self.fleet.disconnect(machine_id, socket)
+                    raise
             return await asyncio.wait_for(future, OPEN_TIMEOUT)
         except Exception as exc:  # noqa: BLE001 - the fleet connection went, or the machine didn't dial back
             LOGGER.warning("tunnel to %s port %s didn't open: %s", machine_id, port, exc or type(exc).__name__)
             return None
         finally:
             self._pending.pop(tunnel_id, None)
+            if scaled:
+                cluster.delete(f"tunnel:{tunnel_id}")
 
     async def attach(self, tunnel_id: str, websocket: Any, identity: Any) -> bool:
-        """A machine dialled back for a tunnel: hand its WebSocket over, and hold it until the pipe ends."""
+        """A machine dialled back for a tunnel: hand its WebSocket over, and hold it until the pipe ends.
+        A tunnel another process asked for is relayed to it (relay)."""
         entry = self._pending.pop(tunnel_id, None)
         if entry is None:
+            cluster = getattr(self.fleet, "cluster", None)
+            pod = cluster.get(f"tunnel:{tunnel_id}") if cluster is not None and cluster.scaled and len(tunnel_id) <= 64 else None
+            if pod and pod != cluster.pod_id and cluster.alive(pod):
+                return await self.relay(pod, tunnel_id, websocket, identity)
             return False
         machine_id, future = entry
         machine = self.fleet.machines.get(machine_id)
@@ -146,6 +172,58 @@ class TunnelHub:
             await done.wait()
         finally:
             self._sockets.discard(websocket)
+        return True
+
+    async def relay(self, pod: str, tunnel_id: str, websocket: Any, identity: Any) -> bool:
+        """Pass a machine's tunnel on to the process that asked for it: its bytes both ways. This process
+        keeps the machine's own WebSocket, so the machine's renewed tokens are taken here."""
+        import websockets
+
+        cluster = self.fleet.cluster
+        url = cluster.url_of(pod).replace("http://", "ws://", 1).replace("https://", "wss://", 1) + f"/internal/tunnels/{tunnel_id}"
+        headers = {
+            "x-ai-proxy-internal": cluster.internal_token,
+            "x-ai-proxy-user": getattr(identity, "user", "") or "", "x-ai-proxy-tenant": getattr(identity, "tenant", "") or "",
+        }
+        try:
+            onward = await websockets.connect(url, additional_headers=headers, max_size=None, open_timeout=OPEN_TIMEOUT, proxy=None)
+        except Exception as exc:  # noqa: BLE001 - the other process went
+            LOGGER.warning("couldn't pass tunnel %s on to %s: %s", tunnel_id, pod, exc or type(exc).__name__)
+            return False
+        self._sockets.add(websocket)
+
+        async def outward() -> None:
+            while True:
+                message = await websocket.receive()
+                if message["type"] == "websocket.disconnect":
+                    return
+                if message.get("bytes"):
+                    await onward.send(message["bytes"])
+                elif message.get("text") and self.renew is not None:
+                    try:
+                        control = json.loads(message["text"])
+                    except ValueError:
+                        continue
+                    if isinstance(control, dict) and control.get("type") == "token":
+                        await self.renew(websocket, control.get("token"))
+
+        async def inward() -> None:
+            async for data in onward:
+                if isinstance(data, bytes):
+                    await websocket.send_bytes(data)
+
+        tasks = [asyncio.ensure_future(outward()), asyncio.ensure_future(inward())]
+        try:
+            await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            for task in tasks:
+                task.cancel()
+            self._sockets.discard(websocket)
+            await onward.close()
+            try:
+                await websocket.close()
+            except Exception:  # noqa: BLE001 - already closed
+                pass
         return True
 
     async def close_all(self) -> None:

@@ -80,6 +80,8 @@ Then open the console, add its model server with **Add as a provider**, and star
 | [Configuration](docs/configuration.md) | The database and stored settings, environment variables, server commands |
 | [API](docs/api.md) | Every endpoint and WebSocket |
 | [Deployment](docs/deployment.md) | Docker, HTTPS, installers, packages, updates |
+| [Running several server processes](docs/scaling.md) | Kubernetes, the Helm chart, roles, Redis, blob storage |
+| [Retention](docs/retention.md) and [the audit log](docs/audit.md) | What's kept and for how long, legal holds, who did what, exports to a SIEM |
 | [Development](docs/development.md) | Building, testing, releasing |
 
 ## The parts

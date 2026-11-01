@@ -1,0 +1,80 @@
+{{- /*
+`agent-server db migrate`, so server pods (AI_PROXY_MIGRATE=0) don't migrate and wait for
+the schema instead. Always a pre-upgrade hook on upgrades. On install:
+  hook  a pre-install hook: runs before anything else, so it may use only what exists
+        already (an external database's Secret).
+  job   a plain Job: created with the release, so it can wait for a CloudNativePG cluster
+        or an ExternalSecret the release creates. Helm deletes it on the next upgrade.
+agent-auth migrates its own schema at start. With SQLite the server migrates itself.
+*/ -}}
+{{- $db := include "agent-mesh.dbMode" . }}
+{{- if ne $db "sqlite" }}
+{{- $m := .Values.migrations }}
+{{- $asHook := include "agent-mesh.migrateAsHook" . }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "agent-mesh.migrateJobName" . }}
+  labels:
+    {{- include "agent-mesh.labels" (dict "root" . "component" "migrate") | nindent 4 }}
+  {{- if $asHook }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+  {{- end }}
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: {{ $m.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        {{- include "agent-mesh.labels" (dict "root" . "component" "migrate") | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      # No ServiceAccount: as a pre-install hook it runs before the chart's own exists, and
+      # migrating needs no Kubernetes or cloud API.
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "agent-mesh.podSecurityContext" . | nindent 8 }}
+      {{- with include "agent-mesh.scheduling" . | trim }}
+      {{- . | nindent 6 }}
+      {{- end }}
+      containers:
+        - name: migrate
+          image: {{ include "agent-mesh.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["sh", "-c"]
+          # Retries while the database comes up (a new CloudNativePG cluster takes minutes).
+          args:
+            - |
+              i=0
+              until agent-server db migrate; do
+                i=$((i+1))
+                if [ "$i" -ge {{ $m.attempts }} ]; then echo "migration failed $i times" >&2; exit 1; fi
+                echo "migration not done (attempt $i), retrying in 10s" >&2
+                sleep 10
+              done
+          env:
+            {{- include "agent-mesh.logEnv" . | nindent 12 }}
+            {{- include "agent-mesh.dbEnv" (dict "root" . "user" "api" "direct" true) | nindent 12 }}
+            {{- with .Values.retention }}
+            - name: AI_PROXY_RETENTION_SEED
+              value: {{ toJson . | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml $m.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            - {name: logs, mountPath: /app/logs}
+            - {name: certs, mountPath: /app/certs}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: logs
+          emptyDir: {sizeLimit: 256Mi}
+        - name: certs
+          emptyDir: {sizeLimit: 16Mi}
+        - name: tmp
+          emptyDir: {sizeLimit: 256Mi}
+{{- end }}

@@ -200,3 +200,5 @@ Plain HTTP between computers isn't blocked outright everywhere: a LAN-only insta
 5. Keep model servers on loopback and add them from their machines, so their traffic goes through the fleet's tunnels.
 6. Change the first admin's password, then delete `certs/first-user-password`.
 7. Back up the database privately: it holds the capture CA's key, the issuer's signing key and every recording ([Backups](deployment.md#backups)).
+8. With several server processes: a strong `AI_PROXY_INTERNAL_TOKEN`, the internal port (9100) reachable only from the server's own processes (and Prometheus for `/metrics`), and Redis on a private network with a password (`rediss://` across hosts). See [Running several server processes](scaling.md).
+9. Set a [retention policy](retention.md) that matches what your organization may keep, and send the [audit log](audit.md) to your SIEM; run `agent-server audit verify` from time to time, or after any incident.

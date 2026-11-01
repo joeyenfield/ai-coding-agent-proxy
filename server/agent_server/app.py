@@ -15,16 +15,17 @@ import httpx
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import installer, openapi, remote, version
+from . import installer, internal, openapi, remote, roles, version
 from .access_log import AccessLogMiddleware
 from .auth import ROOT_TENANT, AuthMiddleware, UserStore
 from .config import Settings
 from .downloads import Downloads
 from .intercept import InterceptProxy, InterceptTransport
-from .routes import auth, compat, containers, machines, management, mcp, provider_accounts, providers, proxy, terminals
+from .audit import AuditMiddleware
+from .routes import auth, compat, containers, governance, machines, management, mcp, provider_accounts, providers, proxy, terminals
 from .runtime import LOGGER, Runtime, upstream_client
 from .ui_build import ensure_built
 
@@ -38,17 +39,32 @@ code{background:#eef2f1;padding:2px 6px;border-radius:4px}</style></head><body>
 <p>The API is available at <a href="/docs">/docs</a>.</p></body></html>"""
 
 
-def create_app(settings: Settings | None = None, restart: Any = None, address_pinned: bool = False) -> FastAPI:
-    """The proxy's app. restart, from the supervisor, lets the console restart it with fresh settings."""
+def create_app(
+    settings: Settings | None = None, restart: Any = None, address_pinned: bool = False,
+    cluster: Any = None, internal_port: int | None = None,
+) -> FastAPI:
+    """The proxy's app. restart, from the supervisor, lets the console restart it with fresh settings.
+
+    cluster and internal_port are for tests running several processes' apps in one (cluster.py, internal.py);
+    otherwise they come from AI_PROXY_REDIS_URL and AI_PROXY_INTERNAL_PORT.
+    """
     settings = settings or Settings.load()
-    runtime = Runtime(settings)
+    runtime = Runtime(settings, cluster)
+    roles.check(runtime.roles, roles.workers_from_environment(), runtime.cluster.scaled)
     runtime.restart_hook = restart
     runtime.address_pinned = address_pinned
+    if internal_port is None and os.getenv("AI_PROXY_INTERNAL_PORT"):
+        internal_port = int(os.environ["AI_PROXY_INTERNAL_PORT"])
+    if roles.workers_from_environment() > 1 and internal_port is not None:
+        # Several workers in one pod can't share one internal port: each takes one of its own and says which.
+        internal_port = 0
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         settings.log_dir.joinpath("proxy").mkdir(parents=True, exist_ok=True)
         _configure_logging(settings.log_dir / "proxy" / "proxy.log")
+        listener = await _start_internal(app, runtime, internal_port) if internal_port is not None else None
+        await runtime.cluster.start()
         # A long reply may be silent for minutes (a model loading), but a full pool shouldn't make requests
         # queue silently for that long. Connections are kept 30 s, so an agent's next call after a tool
         # runs reuses its tunnel through the machine instead of asking for a new one.
@@ -61,14 +77,18 @@ def create_app(settings: Settings | None = None, restart: Any = None, address_pi
                 timeout=httpx.Timeout(600, connect=10), transport=InterceptTransport(), trust_env=False,
             )
         LOGGER.info("proxy started instance=%s", runtime.proxy_instance_id)
-        if settings.intercept.enabled:
+        if settings.intercept.enabled and "intercept" in runtime.roles:
             runtime.intercept = InterceptProxy(runtime)
             await runtime.intercept.start()
-        pruning = asyncio.ensure_future(runtime.prune_daily())
-        flushing = asyncio.ensure_future(_flush_terminals(runtime))
+        tasks = [asyncio.ensure_future(_flush_terminals(runtime)), asyncio.ensure_future(runtime.live.run())]
+        if "worker" in runtime.roles:
+            # Jobs one process runs at a time (each takes a lease first): retention, audit checkpoints and exports.
+            tasks.append(asyncio.ensure_future(runtime.prune_daily()))
+            tasks += runtime.jobs()
         yield
-        pruning.cancel()
-        flushing.cancel()
+        runtime.draining = True
+        for task in tasks:
+            task.cancel()
         if runtime.intercept:
             await runtime.intercept.stop()
         assert runtime.client
@@ -76,6 +96,11 @@ def create_app(settings: Settings | None = None, restart: Any = None, address_pi
         if runtime.intercept_client:
             await runtime.intercept_client.aclose()
         runtime.auth.client.close()
+        runtime.audit.close()
+        await runtime.cluster.close()
+        if listener is not None:
+            await listener.stop()
+        runtime.sessions.close()
         # Writes still queued (the last requests' records) go out before the database closes.
         runtime.db.close()
         LOGGER.info("proxy stopped instance=%s", runtime.proxy_instance_id)
@@ -87,6 +112,14 @@ def create_app(settings: Settings | None = None, restart: Any = None, address_pi
     )
     openapi.install(app, version.current())
     app.state.runtime = runtime
+    # Which routes each register() added, so the roles this process doesn't serve can be dropped (roles.py).
+    modules: list[tuple[str, int, int]] = []
+
+    def registered(name: str, register: Any, *args: Any) -> None:
+        start = len(app.router.routes)
+        register(app, *args)
+        modules.append((name, start, len(app.router.routes)))
+
     # Sign-in, once accounts exist. Added first so CORS (added next) runs outside it.
     app.add_middleware(AuthMiddleware, runtime=runtime)
     # Before sign-in: an agent or agent-machine too old (or new) for this server hears how to update.
@@ -98,25 +131,78 @@ def create_app(settings: Settings | None = None, restart: Any = None, address_pi
         # Ask a model follows a reply whose connection dropped by its request's id.
         expose_headers=["X-Request-ID", "X-Session-ID"],
     )
-    auth.register(app, runtime)
+    registered("auth", auth.register, runtime)
+    registered("internal", internal.register, runtime)
+    _register_ready(app, runtime)
     # Every console route before compat: its /api/{path} catch-all forwards agents' native Ollama calls.
     # Before management: /api/sessions/{id}/provider-credential sits beside its session routes.
-    provider_accounts.register(app, runtime)
-    providers.register(app, runtime)
-    management.register(app, runtime)
-    terminals.register(app, runtime)
-    proxy.register(app, runtime)
-    containers.register(app, runtime)
-    machines.register(app, runtime)
-    mcp.register(app, runtime)
-    compat.register(app, runtime)
+    registered("provider_accounts", provider_accounts.register, runtime)
+    registered("providers", providers.register, runtime)
+    registered("governance", governance.register, runtime)
+    registered("management", management.register, runtime)
+    registered("terminals", terminals.register, runtime)
+    registered("proxy", proxy.register, runtime)
+    registered("containers", containers.register, runtime)
+    registered("machines", machines.register, runtime)
+    registered("mcp", mcp.register, runtime)
+    registered("compat", compat.register, runtime)
     _register_downloads(app, Downloads(settings.dist_dir))
     _register_help(app, settings.docs_dir)
-    if settings.serve_ui:
+    if settings.serve_ui and "api" in runtime.roles:
         _register_ui(app, settings.ui_dir)
+    roles.filter_routes(app, modules, runtime.roles)
+    # A viewer of a terminal another process hosts goes to that process (before sign-in: it signs in there).
+    app.add_middleware(internal.TerminalForward, runtime=runtime)
+    # What requests did that the audit log keeps (audit.py): outside sign-in, so it sees who and what was refused.
+    app.add_middleware(AuditMiddleware, runtime=runtime)
+    # /internal/* only through the internal port.
+    app.add_middleware(internal.InternalGate)
     # Added last, so outermost (outside the SessionMiddleware auth.register adds): it records what every layer answered.
     app.add_middleware(AccessLogMiddleware, log=runtime.access_log)
     return app
+
+
+def _register_ready(app: FastAPI, runtime: Runtime) -> None:
+    @app.get("/ready", include_in_schema=False)
+    async def ready() -> Any:
+        """Whether this process should be sent traffic: its database, shared store and blob storage answer,
+        and it isn't shutting down. /health only says it runs."""
+        checks = {"database": await asyncio.to_thread(runtime.db.ping), "cluster": runtime.cluster.ready()}
+        if runtime.blobs is not None:
+            checks["blobs"] = await asyncio.to_thread(runtime.blobs.ready)
+        ok = all(item[0] for item in checks.values()) and not getattr(runtime, "draining", False)
+        body = {"ready": ok, "pod": runtime.cluster.pod_id, "roles": sorted(runtime.roles), "checks": {name: {"ok": item[0], "detail": item[1]} for name, item in checks.items()}}
+        return JSONResponse(body, status_code=200 if ok else 503)
+
+
+class _Listener:
+    """The internal port's server, run beside the public one in the same event loop."""
+
+    def __init__(self, server: Any, task: Any):
+        self.server = server
+        self.task = task
+
+    async def stop(self) -> None:
+        self.server.should_exit = True
+        try:
+            await asyncio.wait_for(self.task, 10)
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            self.task.cancel()
+        await self.server.shutdown()
+
+
+async def _start_internal(app: FastAPI, runtime: Runtime, port: int) -> _Listener:
+    """Listen on the internal port (internal.py) and tell the other processes where (its heartbeat)."""
+    host = os.getenv("AI_PROXY_INTERNAL_HOST") or "0.0.0.0"
+    config = uvicorn.Config(internal.InternalEntry(app, runtime), host=host, port=port, lifespan="off", access_log=False, log_level="warning")
+    config.load()
+    server = uvicorn.Server(config)
+    server.lifespan = config.lifespan_class(config)
+    await server.startup()
+    bound = server.servers[0].sockets[0].getsockname()[1] if server.servers else port
+    address = os.getenv("AI_PROXY_POD_IP") or ("127.0.0.1" if host in ("0.0.0.0", "127.0.0.1", "::") else host)
+    runtime.cluster.internal_url = f"http://{address}:{bound}"
+    return _Listener(server, asyncio.ensure_future(server.main_loop()))
 
 
 async def _flush_terminals(runtime: Runtime) -> None:
@@ -221,19 +307,43 @@ def _register_ui(app: FastAPI, ui_dir: Path) -> None:
         return FileResponse(index, headers=NO_CACHE)
 
 
+class _JsonFormatter(logging.Formatter):
+    """One JSON object a line (AI_PROXY_LOG_FORMAT=json), for log collectors."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        import json
+
+        entry = {
+            "time": _utc(record.created),
+            "level": record.levelname.lower(), "logger": record.name, "message": record.getMessage(),
+            "pod": os.getenv("AI_PROXY_POD_ID") or None,
+        }
+        if record.exc_info:
+            entry["error"] = self.formatException(record.exc_info)
+        return json.dumps(entry, ensure_ascii=False)
+
+
+def _utc(seconds: float) -> str:
+    from datetime import datetime, timezone
+
+    return datetime.fromtimestamp(seconds, timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
 def _configure_logging(path: Path) -> None:
+    """The server's log: logs/proxy/proxy.log, or standard output (AI_PROXY_LOG_STDOUT=1, as in containers);
+    plain lines, or JSON ones (AI_PROXY_LOG_FORMAT=json)."""
     if LOGGER.handlers:
         return
     LOGGER.setLevel(logging.INFO)
-    handler = logging.FileHandler(path, encoding="utf-8")
-    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    handler: logging.Handler = logging.StreamHandler(sys.stdout) if os.getenv("AI_PROXY_LOG_STDOUT") == "1" else logging.FileHandler(path, encoding="utf-8")
+    handler.setFormatter(_JsonFormatter() if os.getenv("AI_PROXY_LOG_FORMAT") == "json" else logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
     LOGGER.addHandler(handler)
 
 
 def main() -> None:
     if sys.argv[1:2] and sys.argv[1] in {"user", "team", "org"}:
         raise SystemExit(account_command(sys.argv[1], sys.argv[2:]))
-    if sys.argv[1:2] and sys.argv[1] in {"config", "db", "vault"}:
+    if sys.argv[1:2] and sys.argv[1] in {"config", "db", "vault", "audit"}:
         from . import commands
 
         raise SystemExit(commands.main(sys.argv[1], sys.argv[2:]))
@@ -244,6 +354,20 @@ def main() -> None:
     parser.add_argument("--no-build", action="store_true", help="Serve ui/dist as is, without rebuilding it when the UI sources changed")
     args = parser.parse_args()
     build = not args.no_build and os.getenv("AI_PROXY_UI_BUILD", "1") != "0"
+    workers = roles.workers_from_environment()
+    if workers > 1 and not args.reload:
+        # Several worker processes (AI_PROXY_WORKERS, with AI_PROXY_REDIS_URL): each builds its own app. No
+        # console restarts: settings apply in every process as they change, and a new listen address needs a rollout.
+        settings = Settings.load()
+        roles.check(roles.from_environment(), workers, bool(os.getenv("AI_PROXY_REDIS_URL")))
+        if "worker" in roles.from_environment():
+            ensure_first_user(settings)
+        settings.db.close()
+        uvicorn.run(
+            "agent_server.app:create_app", factory=True, host=args.host or settings.host, port=args.port or settings.port,
+            workers=workers, access_log=False, timeout_graceful_shutdown=_graceful(), **_tls(settings),
+        )
+        return
     if args.reload:
         # Development: uvicorn restarts on code changes, so the console's restart is off.
         settings = Settings.load()
@@ -260,6 +384,30 @@ def main() -> None:
 
 
 FIRST_USER = "admin"
+# The lock a single-node server on PostgreSQL holds while it runs (db.Database.hold_lock): a second one refuses to start.
+SINGLE_NODE_LOCK = 7_406_100
+
+
+def single_node(settings: Settings) -> None:
+    """Without AI_PROXY_REDIS_URL, state is kept in this process alone: refuse to be the second such process on
+    one PostgreSQL database (SQLite is one file on one computer anyway)."""
+    if os.getenv("AI_PROXY_REDIS_URL"):
+        return
+    db = settings.open_database()
+    if not db.hold_lock(SINGLE_NODE_LOCK):
+        raise SystemExit(
+            "agent-server: another agent-server is running on this database without AI_PROXY_REDIS_URL.\n"
+            "  One process keeps its sessions, machines and terminals in memory, so a second one would serve them wrong.\n"
+            "  To run several, give every one the same AI_PROXY_REDIS_URL and AI_PROXY_INTERNAL_TOKEN (docs/scaling.md)."
+        )
+
+
+def _graceful() -> int:
+    """How long open connections (streaming replies, machines' sockets) get to finish on shutdown, in seconds."""
+    try:
+        return max(1, int(os.getenv("AI_PROXY_GRACEFUL_SECONDS") or 5))
+    except ValueError:
+        return 5
 
 
 def ensure_first_user(settings: Settings) -> Path | None:
@@ -327,11 +475,14 @@ class Supervisor:
                 ensure_built(settings.ui_dir)
             settings.host = host or settings.host
             settings.port = port or settings.port
-            # Bootstrap is independent of the listen address; authentication is always required.
-            ensure_first_user(settings)
+            single_node(settings)
+            # Bootstrap is independent of the listen address; authentication is always required. With roles, the
+            # worker does it (one of the processes, whichever starts first: it's done once).
+            if "worker" in roles.from_environment():
+                ensure_first_user(settings)
             app = create_app(settings, restart=self.restart, address_pinned=bool(host or port))
             # Connections still open after this long are closed, so a restart can't hang.
-            config = uvicorn.Config(app, host=settings.host, port=settings.port, access_log=False, timeout_graceful_shutdown=5, **_tls(settings))
+            config = uvicorn.Config(app, host=settings.host, port=settings.port, access_log=False, timeout_graceful_shutdown=_graceful(), **_tls(settings))
             self.server = uvicorn.Server(config)
             self.restart_requested = False
             self.server.run()

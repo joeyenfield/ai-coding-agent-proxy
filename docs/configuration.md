@@ -37,6 +37,8 @@ Three things stay files:
 
 By default, everything is kept until you delete sessions. To keep payloads and terminal output for a number of days, set it on **Server settings** → **Storage**, or with `PUT /api/config/storage`. Once an hour the server deletes the payloads, chat indexes and terminal output of sessions whose last request is older than that. Their request records and token counts stay, so totals and **Request history** still show them.
 
+That one setting is the traces and terminal days of the full **retention policy**: what's captured, how long each kind of recording, request records, sessions and the audit log are kept, the bounds organizations set their own within, and legal holds. See [Retention](retention.md).
+
 ### Upgrading from files
 
 Versions before the database kept their settings in `config/backends.yaml`, `config/models.yaml` and `config/agents.yaml`, accounts in `certs/users.json`, and recordings under `logs/`. The first start against an empty database imports all of it:
@@ -227,6 +229,10 @@ See [Agents](agents.md) for the format and how to add one, and [MCP](mcp.md) for
 | `AI_PROXY_NEW_PASSWORD` | The password for `agent-server user add` and `user passwd`, instead of asking. For scripts. |
 | `STRATA_API_KEY` | The key sent with agents' traffic to Strata backends, ahead of the one their machine reports. A container's own key still wins. |
 | `AI_PROXY_VAULT_KEYS` | The vault's master keys for subscriptions' managed tokens: `<version>:<32 bytes, base64>`, comma-separated; the newest encrypts, all decrypt. Without it, storing a token is refused. `agent-server vault key` makes one. See [Subscriptions](subscriptions.md#the-vault). |
+| `AI_PROXY_REDIS_URL`, `AI_PROXY_INTERNAL_TOKEN`, `AI_PROXY_INTERNAL_PORT`, `AI_PROXY_ROLES`, `AI_PROXY_POD_ID`, `AI_PROXY_POD_IP`, `AI_PROXY_WORKERS`, `AI_PROXY_MIGRATE`, `AI_PROXY_GRACEFUL_SECONDS`, `AI_PROXY_SESSION_LIST_DAYS`, `AI_PROXY_DB_POOL_SIZE`, `AI_PROXY_DB_MAX_OVERFLOW` | Several server processes as one: see [Running several server processes](scaling.md#settings-for-several-processes). |
+| `AI_PROXY_BLOB_URL`, `AI_PROXY_BLOB_ENDPOINT`, `AI_PROXY_BLOB_REGION`, `AI_PROXY_BLOB_THREADS` | Traces and terminal output in blob storage (S3 or compatible, or a folder) instead of the database: see [Blob storage](scaling.md#blob-storage). |
+| `AI_PROXY_LOG_STDOUT=1`, `AI_PROXY_LOG_FORMAT=json` | The server's log on standard output instead of `logs/proxy/proxy.log`, and one JSON object a line. |
+| `AI_PROXY_RETENTION_SEED` | A retention policy (JSON) `agent-server db migrate` stores on a new install. See [Retention](retention.md). |
 | `AI_PROXY_VAULT_KEYS_FILE` | A file holding the same, for container secrets, when `AI_PROXY_VAULT_KEYS` isn't set. |
 
 ## How the server finds its install folder
@@ -271,7 +277,10 @@ On the first start, when accounts were never set up in the database and there's 
 | `config export [FILE]` | Writes every setting as YAML, to the file or to standard output. |
 | `config import FILE [--replace]` | Stores a YAML (or JSON) settings document, `-` for standard input. Only the parts it has, unless `--replace`. |
 | `db info` | Which database, its version, size and number of sessions, and how long recordings are kept. |
-| `db migrate` | Brings the tables up to this version. The server does it on start too. |
+| `db migrate` | Brings the tables up to this version, then does what a first start does once (seeding settings and the shipped agents, importing an older install, storing `AI_PROXY_RETENTION_SEED`). The server does it on start too, unless `AI_PROXY_MIGRATE=0`. |
+| `audit verify [--org ORG]` | Recomputes the audit log's chains and checks them against the signed checkpoints; exits 1 and lists the problems if anything doesn't match. See [The audit log](audit.md#integrity). |
+| `audit checkpoint` | Signs every chain's head now. |
+| `audit key` | Prints the public key checkpoints are signed with. |
 | `db import [--from FOLDER]` | Imports an older install's files (see [Upgrading from files](#upgrading-from-files)); `--from` names its folder, holding `config/`, `certs/` and `logs/`. |
 
 They use the same database as the server (`AI_PROXY_DATABASE_URL`, or the SQLite file in `logs/`), so run them with the server's environment.

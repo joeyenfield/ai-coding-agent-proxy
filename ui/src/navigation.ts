@@ -20,6 +20,8 @@ export interface NavLinkItem {
   end?: boolean;
   /** Only site admins can use it (the server's own settings and stats); hidden from everyone else. */
   siteAdmin?: boolean;
+  /** Only admins (of an organization, or site admins) can use it; hidden from members. */
+  admin?: boolean;
 }
 
 /** A provider with several pages, shown as a label with its pages indented beneath. */
@@ -72,6 +74,8 @@ export const PARTS: Part[] = [
       { to: "/server-stats", label: "Server stats", icon: "cpu", siteAdmin: true },
       // Every HTTP request and WebSocket, the refused ones too: why a machine shows offline.
       { to: "/access-log", label: "Access log", icon: "list", siteAdmin: true },
+      // Who changed what, chained by hash: admins read their organization's, site admins everyone's.
+      { to: "/audit", label: "Audit log", icon: "shield", admin: true },
       { to: "/settings", label: "Server settings", icon: "settings", siteAdmin: true },
       { to: "/organization", label: "Organizations", icon: "users" },
       // Not /downloads: the server serves the files themselves there.
@@ -94,13 +98,14 @@ export const PARTS: Part[] = [
 
 export const isGroup = (item: NavItem): item is NavGroupItem => "items" in item;
 
-/** The parts with only the pages this person can use: the server's own pages are for site admins. */
-export function visibleParts(siteAdmin: boolean): Part[] {
+/** The parts with only the pages this person can use: the server's own pages are for site admins, some for admins. */
+export function visibleParts(siteAdmin: boolean, admin = siteAdmin): Part[] {
   if (siteAdmin) return PARTS;
-  const keep = (item: NavItem) => isGroup(item) || !item.siteAdmin;
+  const allowed = (link: NavLinkItem) => !link.siteAdmin && (admin || !link.admin);
+  const keep = (item: NavItem) => isGroup(item) || allowed(item);
   return PARTS.map((part) => ({
     ...part,
-    items: part.items.filter(keep).map((item) => (isGroup(item) ? { ...item, items: item.items.filter((link) => !link.siteAdmin) } : item)),
+    items: part.items.filter(keep).map((item) => (isGroup(item) ? { ...item, items: item.items.filter(allowed) } : item)),
   }));
 }
 

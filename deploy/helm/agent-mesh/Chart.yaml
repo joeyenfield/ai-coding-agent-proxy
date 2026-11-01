@@ -1,0 +1,16 @@
+apiVersion: v2
+name: agent-mesh
+description: >-
+  AI Control Mesh: agent-server (the API, model gateway, HTTPS capture, fleet and
+  terminals), its OIDC issuer agent-auth, and optionally the standalone console, on
+  Kubernetes. One pod with every role (mode single) or a Deployment per role (mode scaled).
+type: application
+# The chart's own version. appVersion follows the repository's VERSION file: the image tag
+# used when image.tag is empty.
+version: 0.1.0
+appVersion: "2.1.19"
+kubeVersion: ">=1.25.0-0"
+home: https://github.com/joeyenfield/ai-coding-agent-proxy
+sources:
+  - https://github.com/joeyenfield/ai-coding-agent-proxy
+keywords: [ai, coding-agents, proxy, llm, gateway]

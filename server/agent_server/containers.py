@@ -113,6 +113,18 @@ class KeyStore:
         self.db = db
         self._keys: dict[str, str] | None = None
         self._lock = threading.Lock()
+        # Told when a key is made or dropped here (other processes reload theirs: config.changed).
+        self.listeners: list[Any] = []
+
+    def reload(self) -> None:
+        """Read the keys again: another process made or dropped one."""
+        with self._lock:
+            self._keys = None
+            self._load()
+
+    def _changed(self) -> None:
+        for listener in list(self.listeners):
+            listener("container-keys")
 
     def all(self) -> dict[str, str]:
         with self._lock:
@@ -126,6 +138,7 @@ class KeyStore:
                 with self.db.write() as connection:
                     kv.put(connection, schema.secrets, self.PREFIX + name, keys[name].encode())
                 self._publish(keys)
+                self._changed()
             return keys.get(name)
 
     def drop(self, name: str) -> None:
@@ -135,6 +148,7 @@ class KeyStore:
                 with self.db.write() as connection:
                     kv.remove(connection, schema.secrets, self.PREFIX + name)
                 self._publish(keys)
+                self._changed()
 
     def _load(self) -> dict[str, str]:
         if self._keys is None:

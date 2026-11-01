@@ -50,6 +50,7 @@ from sqlalchemy import select
 
 from . import access, strata, version
 from .auth import ROOT_TENANT, Identity, same_tenant
+from .cluster import Cluster, ClusterError, LocalCluster
 from .config import MACHINE_TYPES
 from .provider_accounts import reported_clis
 from .db import Database, kv, schema
@@ -259,13 +260,23 @@ def within_roots(project: str, roots: list[str]) -> bool:
 
 
 class Fleet:
-    """The machines: those connected now, and the rest from the database (machines table)."""
+    """The machines: those connected now, and the rest from the database (machines table).
 
-    def __init__(self, db: Database, sessions: SessionStore | None = None):
+    With several processes (cluster.py) a machine's connection is held by the one it reached. That one
+    announces the machine's state to the others whenever it changes (fleet.machine), its Strata and MCP
+    keys sealed with the internal token, so every process knows every machine. Requests to a machine
+    (ask, launch, shell, tunnel) whose connection another process holds are made by that process, through
+    its internal port (internal.py), and answered as if they'd been made here.
+    """
+
+    def __init__(self, db: Database, sessions: SessionStore | None = None, cluster: Cluster | None = None):
         self.db = db
         self.sessions = sessions
+        self.cluster = cluster or LocalCluster()
         self.machines: dict[str, Machine] = {}
         self.sockets: dict[str, Any] = {}
+        # Machines whose connection another process holds: id -> that process.
+        self.owners: dict[str, str] = {}
         self._waiting: dict[str, asyncio.Future[dict[str, Any]]] = {}
         # Which machine each waiting request went to, so its answer fails when the machine goes.
         self._asked: dict[str, str] = {}
@@ -276,6 +287,8 @@ class Fleet:
         # Machines removed from the server, by id: refused when they connect until allowed back.
         self.removed: dict[str, dict[str, Any]] = {}
         self._load()
+        self.cluster.on("fleet.machine", self._remote_state)
+        self.cluster.on("fleet.removed", self._remote_removed)
 
     # Storage
 
@@ -291,18 +304,143 @@ class Fleet:
             self.machines[machine.id] = machine
         self.removed = {str(key): value for key, value in removed.items() if isinstance(value, dict)}
 
-    def _save(self) -> None:
-        """Write every machine as it is now, behind the request (machines send updates every minute)."""
-        machines = {machine.id: machine.stored() for machine in self.machines.values()}
-        removed = {key: dict(value) for key, value in self.removed.items()}
+    def _save(self, *machines: Machine) -> None:
+        """Write these machines as they are now, behind the request (machines send updates every minute).
+        Only the ones that changed: another process may hold newer copies of the rest."""
+        rows = {machine.id: machine.stored() for machine in machines}
 
         def write(connection: Any) -> None:
-            for table, rows in ((schema.machines, machines), (schema.machines_removed, removed)):
-                connection.execute(table.delete().where(table.c.id.not_in(list(rows))) if rows else table.delete())
-                for key, data in rows.items():
-                    kv.upsert(connection, table, {"id": key, "data": data})
+            for key, data in rows.items():
+                kv.upsert(connection, schema.machines, {"id": key, "data": data})
+
+        if rows:
+            self.db.writer.submit(write)
+
+    def _save_removed(self, machine_id: str, record: dict[str, Any] | None) -> None:
+        """A machine taken out (record) or allowed back (None)."""
+        def write(connection: Any) -> None:
+            if record is None:
+                connection.execute(schema.machines_removed.delete().where(schema.machines_removed.c.id == machine_id))
+            else:
+                connection.execute(schema.machines.delete().where(schema.machines.c.id == machine_id))
+                kv.upsert(connection, schema.machines_removed, {"id": machine_id, "data": dict(record)})
 
         self.db.writer.submit(write)
+
+    # Several processes
+
+    def _announce(self, machine: Machine) -> None:
+        """Tell the other processes how this machine is now (its connection is here, or just went)."""
+        if not self.cluster.scaled:
+            return
+        self.cluster.publish("fleet.machine", {
+            "machine": machine.stored(), "connected": machine.id in self.sockets,
+            "keys": self.cluster.seal({"keys": {str(port): key for port, key in machine.keys.items()}, "mcp_key": machine.mcp_key}),
+        })
+
+    def _remote_state(self, data: dict[str, Any], sender: str) -> None:
+        """Another process said how a machine is: the copy here follows, in place (code here may hold it)."""
+        stored = data.get("machine")
+        if not isinstance(stored, dict) or not stored.get("id"):
+            return
+        machine_id = str(stored["id"])
+        if machine_id in self.removed:
+            return
+        try:
+            fresh = Machine(**{key: value for key, value in stored.items() if key in Machine.__dataclass_fields__})
+        except TypeError:
+            return
+        sealed = self.cluster.unseal(data.get("keys")) or {}
+        fresh.keys = {int(port): str(key) for port, key in (sealed.get("keys") or {}).items() if str(port).isdigit()}
+        fresh.mcp_key = sealed.get("mcp_key") or None
+        known = self.machines.get(machine_id)
+        if known is None:
+            self.machines[machine_id] = fresh
+        else:
+            for name in Machine.__dataclass_fields__:
+                setattr(known, name, getattr(fresh, name))
+        if data.get("connected"):
+            self.owners[machine_id] = sender
+            old = self.sockets.pop(machine_id, None)
+            if old is not None:
+                # It connected to another process since: what was asked over the old connection here won't be answered.
+                self._fail_sent(old)
+                asyncio.ensure_future(_close_quietly(old))
+        elif self.owners.get(machine_id) == sender:
+            self.owners.pop(machine_id, None)
+
+    def _remote_removed(self, data: dict[str, Any], sender: str) -> None:
+        machine_id = str(data.get("id") or "")
+        record = data.get("record")
+        if not machine_id:
+            return
+        if isinstance(record, dict):
+            self.removed[machine_id] = record
+            self.machines.pop(machine_id, None)
+            self.owners.pop(machine_id, None)
+            socket = self.sockets.pop(machine_id, None)
+            if socket is not None:
+                asyncio.ensure_future(_close_quietly(socket, 4403, "This machine was removed from the server"))
+        else:
+            self.removed.pop(machine_id, None)
+
+    def owner_of(self, machine_id: str) -> str | None:
+        """The other process holding this machine's connection, if one does and is still running."""
+        pod = self.owners.get(machine_id)
+        if pod and pod != self.cluster.pod_id and self.cluster.alive(pod):
+            return pod
+        return None
+
+    async def _where(self, machine: Machine) -> str | None:
+        """Where the machine's connection is: "" for here, another process's id, or None. One that just
+        dropped gets a few seconds to come back, to this process or another."""
+        deadline = time.monotonic() + RECONNECT_WAIT
+        while True:
+            if machine.id in self.sockets:
+                return ""
+            pod = self.owner_of(machine.id)
+            if pod:
+                return pod
+            if not self.reconnecting(machine) or time.monotonic() >= deadline or machine.id not in self.machines:
+                return None
+            await asyncio.sleep(0.25)
+
+    async def _remote(self, pod: str, machine: Machine, action: str, body: dict[str, Any], timeout: float | None) -> dict[str, Any]:
+        """One request to the process holding the machine's connection; its FleetError comes back as one here."""
+        try:
+            response = await self.cluster.call(
+                pod, "POST", f"/internal/fleet/{machine.id}/{action}", json_body=body, timeout=None if timeout is None else timeout + 15,
+            )
+        except ClusterError as exc:
+            raise MachineGone(502, f"lost the connection to {machine.name} ({exc})") from exc
+        try:
+            answer = response.json()
+        except ValueError:
+            answer = {}
+        if response.status_code >= 400:
+            error = (answer.get("error") if isinstance(answer, dict) else None) or {}
+            status = int(error.get("status") or response.status_code)
+            detail = str(error.get("detail") or f"{machine.name}: {response.status_code}")
+            raise (MachineGone if error.get("gone") else FleetError)(status, detail)
+        return answer
+
+    async def send_tunnel(self, machine: Machine, tunnel_id: str, port: int) -> None:
+        """Ask the machine to dial back for a tunnel, over its connection wherever that is held."""
+        where = await self._where(machine)
+        if where is None:
+            raise ConnectionError(f"{machine.name} isn't connected")
+        if where:
+            await self._remote(where, machine, "tunnel", {"tunnel": tunnel_id, "port": port}, 15)
+            return
+        socket = self.sockets.get(machine.id)
+        if socket is None:
+            raise ConnectionError(f"{machine.name} isn't connected")
+        try:
+            await socket.send_text(json.dumps({"type": "tunnel", "tunnel": tunnel_id, "port": port}))
+        except Exception:
+            # A connection that can't be written to is gone: the next try waits for the new one.
+            self.disconnect(machine.id, socket)
+            raise
 
     # Connections
 
@@ -325,8 +463,10 @@ class Fleet:
         self._update(machine, hello, client_host)
         old = self.sockets.get(machine_id)
         self.sockets[machine_id] = socket
+        self.owners.pop(machine_id, None)
         self.machines[machine_id] = machine
-        self._save()
+        self._save(machine)
+        self._announce(machine)
         if old is not None and old is not socket:
             # The machine reconnected before the old connection was noticed as gone: what was asked over
             # it will never be answered (reads are asked again over this one).
@@ -345,7 +485,8 @@ class Fleet:
                 # Its Strata and MCP keys stay while it's likely to be back (requests wait for it); its
                 # next hello replaces them.
                 machine.last_seen = time.time()
-                self._save()
+                self._save(machine)
+                self._announce(machine)
 
     def _fail_sent(self, socket: Any) -> None:
         """Ends the requests waiting for an answer over a connection that's gone."""
@@ -358,7 +499,8 @@ class Fleet:
         kind = data.get("type")
         if kind == "update":
             self._update(machine, data, client_host)
-            self._save()
+            self._save(machine)
+            self._announce(machine)
         elif kind in {"launched", "launch_failed"}:
             launch_id = str(data.get("launch") or "")
             if self._asked.get(launch_id) != machine.id:
@@ -370,6 +512,7 @@ class Fleet:
             if kind == "server_result" and isinstance(data.get("servers"), dict):
                 # Every answer carries the servers' state, refused ones too.
                 machine.servers = _servers(data["servers"])
+                self._announce(machine)
             request_id = str(data.get("request") or "")
             if self._asked.get(request_id) != machine.id:
                 return  # not a request to this machine
@@ -426,11 +569,11 @@ class Fleet:
         machine.last_seen = time.time()
 
     def connected(self, machine_id: str) -> bool:
-        return machine_id in self.sockets
+        return machine_id in self.sockets or self.owner_of(machine_id) is not None
 
     def reconnecting(self, machine: Machine) -> bool:
         """Whether a machine that isn't connected was a moment ago, so it's probably on its way back."""
-        return machine.id not in self.sockets and time.time() - machine.last_seen <= RECONNECT_WINDOW
+        return not self.connected(machine.id) and time.time() - machine.last_seen <= RECONNECT_WINDOW
 
     async def wait_socket(self, machine: Machine) -> Any:
         """The machine's connection; one that just dropped gets a few seconds to come back first."""
@@ -455,11 +598,47 @@ class Fleet:
     ) -> dict[str, Any]:
         """One request to the machine and its answer (see _ask); a read cut off by the machine dropping is asked again."""
         try:
-            return await self._ask(machine, op, timeout, channel, progress, **fields)
+            return await self._routed(machine, op, timeout, channel, progress, fields)
         except MachineGone:
             if (channel, op) not in READ_ONLY:
                 raise
+            return await self._routed(machine, op, timeout, channel, progress, fields)
+
+    async def _routed(self, machine: Machine, op: str, timeout: float | None, channel: str, progress: Any, fields: dict[str, Any]) -> dict[str, Any]:
+        """_ask here, or through the process that holds the machine's connection."""
+        if machine.id in self.sockets or not self.cluster.scaled:
             return await self._ask(machine, op, timeout, channel, progress, **fields)
+        where = await self._where(machine)
+        if not where:
+            return await self._ask(machine, op, timeout, channel, progress, **fields)
+        body = {"op": op, "timeout": timeout, "channel": channel, "fields": fields}
+        if progress is None:
+            return (await self._remote(where, machine, "ask", body, timeout))["answer"]
+        return await self._remote_with_progress(where, machine, body, progress)
+
+    async def _remote_with_progress(self, pod: str, machine: Machine, body: dict[str, Any], progress: Any) -> dict[str, Any]:
+        """A streamed request (a pull) through another process: its progress lines, then the answer."""
+        try:
+            async with self.cluster.stream(pod, "POST", f"/internal/fleet/{machine.id}/ask?progress=1", json_body=body) as response:
+                async for line in response.aiter_lines():
+                    if not line.strip():
+                        continue
+                    try:
+                        item = json.loads(line)
+                    except ValueError:
+                        continue
+                    if "progress" in item:
+                        progress.put_nowait(item["progress"])
+                    elif "answer" in item:
+                        return item["answer"]
+                    elif "error" in item:
+                        error = item["error"] or {}
+                        raise (MachineGone if error.get("gone") else FleetError)(int(error.get("status") or 502), str(error.get("detail") or "failed"))
+        except FleetError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - the other process or the network went
+            raise MachineGone(502, f"lost the connection to {machine.name} ({exc})") from exc
+        raise MachineGone(502, f"lost the connection to {machine.name}")
 
     async def _ask(
         self, machine: Machine, op: str, timeout: float | None = 30.0, channel: str = "container",
@@ -576,9 +755,13 @@ class Fleet:
         machine = self.machines.pop(machine_id, None)
         if machine is None:
             raise FleetError(404, "No such machine")
-        self.removed[machine_id] = {"name": machine.name, "owner": machine.owner, "tenant": machine.tenant, "at": time.time(), "by": identity.user if identity else None}
+        record = {"name": machine.name, "owner": machine.owner, "tenant": machine.tenant, "at": time.time(), "by": identity.user if identity else None}
+        self.removed[machine_id] = record
+        self.owners.pop(machine_id, None)
         socket = self.sockets.pop(machine_id, None)
-        self._save()
+        self._save_removed(machine_id, record)
+        # The process holding its connection (if another) closes it, and every one refuses it from now on.
+        self.cluster.publish("fleet.removed", {"id": machine_id, "record": record})
         if socket is not None:
             await _close_quietly(socket, 4403, "This machine was removed from the server")
 
@@ -586,7 +769,8 @@ class Fleet:
         """Lets a removed machine join again; it comes back as new, with its owner the one it signs in as."""
         if self.removed.pop(machine_id, None) is None:
             raise FleetError(404, "That machine wasn't removed")
-        self._save()
+        self._save_removed(machine_id, None)
+        self.cluster.publish("fleet.removed", {"id": machine_id, "record": None})
 
     def removed_for(self, identity: Identity | None) -> list[dict[str, Any]]:
         """The removed machines someone may allow back: of their own tenant, their own, and every one for its admins."""
@@ -679,6 +863,10 @@ class Fleet:
         whoever asked (provider_accounts.for_launch), with launch_id the grant it made for it."""
         if not can_launch(identity, machine):
             raise FleetError(403, "Only the machine's owner, or the teams it lets, can start agents on it.")
+        where = await self._where(machine) if self.cluster.scaled else ""
+        if where:
+            body = {"user": identity.user if identity else None, "request": request, "launch": launch_id}
+            return await self._remote(where, machine, "launch", body, LAUNCH_TIMEOUT)
         socket = await self.wait_socket(machine)
         if socket is None:
             raise FleetError(409, f"{machine.name} isn't connected: agent-machine isn't running there, or isn't signed in here (agent-machine login, then agent-machine start).")
@@ -712,6 +900,9 @@ class Fleet:
         the machine allows it (agent-machine commands on), and the machine checks that again."""
         if not allowed(identity, machine, "terminal"):
             raise FleetError(403, "Only the machine's owner, or the teams it lets, can open a terminal on it.")
+        where = await self._where(machine) if self.cluster.scaled else ""
+        if where:
+            return await self._remote(where, machine, "shell", {"user": identity.user if identity else None, "request": request}, LAUNCH_TIMEOUT)
         socket = await self.wait_socket(machine)
         if socket is None:
             raise FleetError(409, f"{machine.name} isn't connected: agent-machine isn't running there, or isn't signed in here (agent-machine login, then agent-machine start).")
@@ -761,7 +952,8 @@ class Fleet:
                     self.sessions.update_tags(session, {"launched_by": identity.user})
         else:
             record["error"] = str(answer.get("error") or "the launch failed")
-        self._save()
+        self._save(machine)
+        self._announce(machine)
         if record["error"]:
             raise FleetError(502, record["error"])
         return record

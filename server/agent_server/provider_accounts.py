@@ -273,17 +273,76 @@ class Grant:
     delivered: bool = False
 
 
+class Grants:
+    """Launch grants, kept where every process of the server finds them (cluster.py's shared keys), until they
+    expire. Delivering a grant's token is claimed once (claim), so it's handed over once whichever process asks."""
+
+    def __init__(self, cluster: Any, clock: Callable[[], float]):
+        self.cluster = cluster
+        self.clock = clock
+
+    def _key(self, launch_id: str) -> str:
+        return f"grant:{launch_id}"
+
+    def __setitem__(self, launch_id: str, grant: Grant) -> None:
+        ttl = max(1.0, grant.expires - self.clock())
+        self.cluster.set_json(self._key(launch_id), asdict(grant), ttl)
+
+    def get(self, launch_id: str) -> Grant | None:
+        if not launch_id:
+            return None
+        data = self.cluster.get_json(self._key(launch_id))
+        if not isinstance(data, dict):
+            return None
+        try:
+            grant = Grant(**{key: value for key, value in data.items() if key in Grant.__dataclass_fields__})
+        except TypeError:
+            return None
+        grant.delivered = self.cluster.get(self._key(launch_id) + ":delivered") is not None
+        return grant
+
+    def pop(self, launch_id: str, default: Any = None) -> Any:
+        grant = self.get(launch_id)
+        self.cluster.delete(self._key(launch_id), self._key(launch_id) + ":delivered")
+        return grant if grant is not None else default
+
+    def __delitem__(self, launch_id: str) -> None:
+        self.pop(launch_id)
+
+    def items(self) -> list[tuple[str, Grant]]:
+        found = []
+        for key in self.cluster.keys("grant:"):
+            if key.endswith(":delivered"):
+                continue
+            launch_id = key[len("grant:"):]
+            grant = self.get(launch_id)
+            if grant is not None:
+                found.append((launch_id, grant))
+        return found
+
+    def claim(self, grant: Grant) -> bool:
+        """Mark the grant's token handed over; False if it already was (by any process)."""
+        ttl = max(1.0, grant.expires - self.clock())
+        return self.cluster.set(self._key(grant.launch_id) + ":delivered", "1", ttl, nx=True)
+
+
 class ProviderAccounts:
     """Every provider account, its assignments and its launch grants; usage and events read from the database."""
 
-    def __init__(self, db: Database, fleet: Any, vault: Vault | None = None, clock: Callable[[], float] = time.time):
+    def __init__(self, db: Database, fleet: Any, vault: Vault | None = None, clock: Callable[[], float] = time.time, cluster: Any = None):
+        from .cluster import LocalCluster
+
         self.db = db
         self.fleet = fleet
         self.vault = vault or Vault()
         self.clock = clock
+        self.cluster = cluster or getattr(fleet, "cluster", None) or LocalCluster()
         self.accounts: dict[str, ProviderAccount] = {}
         self.assignments: dict[tuple[str, str], Assignment] = {}
-        self.grants: dict[str, Grant] = {}
+        # In the shared store, so a launch's grant is found by whichever process the agent's session reaches.
+        self.grants = Grants(self.cluster, clock)
+        # Other processes' changes, applied here as they're announced (they carry the stored rows, never a credential).
+        self.cluster.on("provider_accounts.changed", self._remote_change)
         self._lock = threading.Lock()
         self._saved_success: dict[str, float] = {}
         self._load()
@@ -306,10 +365,36 @@ class ProviderAccounts:
     def _save(self, account: ProviderAccount) -> None:
         values = {"id": account.id, "tenant": account.tenant, "owner": account.owner, "provider": account.provider, "data": account.stored()}
         self.db.writer.submit(lambda connection: kv.upsert(connection, schema.provider_accounts, values))
+        self.cluster.publish("provider_accounts.changed", {"account": values})
 
     def _save_assignment(self, assignment: Assignment) -> None:
         values = {"account_id": assignment.account_id, "machine_id": assignment.machine_id, "data": assignment.stored()}
         self.db.writer.submit(lambda connection: kv.upsert(connection, schema.provider_account_assignments, values))
+        self.cluster.publish("provider_accounts.changed", {"assignment": values})
+
+    def _remote_change(self, data: dict[str, Any], _: str) -> None:
+        """An account or assignment another process changed: its stored row, applied here."""
+        row = data.get("account")
+        if isinstance(row, dict) and row.get("id"):
+            stored = row["data"] if isinstance(row.get("data"), dict) else {}
+            known = {key: value for key, value in stored.items() if key in ProviderAccount.__dataclass_fields__ and key not in ("id", "tenant", "owner", "provider")}
+            with self._lock:
+                self.accounts[row["id"]] = ProviderAccount(id=row["id"], tenant=row["tenant"], owner=row["owner"], provider=row["provider"], **known)
+        row = data.get("assignment")
+        if isinstance(row, dict) and row.get("account_id"):
+            stored = row["data"] if isinstance(row.get("data"), dict) else {}
+            known = {key: value for key, value in stored.items() if key in Assignment.__dataclass_fields__ and key not in ("account_id", "machine_id")}
+            with self._lock:
+                self.assignments[(row["account_id"], row["machine_id"])] = Assignment(account_id=row["account_id"], machine_id=row["machine_id"], **known)
+        if data.get("deleted"):
+            with self._lock:
+                self.accounts.pop(str(data["deleted"]), None)
+                for key in [key for key in self.assignments if key[0] == data["deleted"]]:
+                    del self.assignments[key]
+        unassigned = data.get("unassigned")
+        if isinstance(unassigned, list) and len(unassigned) == 2:
+            with self._lock:
+                self.assignments.pop((str(unassigned[0]), str(unassigned[1])), None)
 
     def event(self, account: ProviderAccount, kind: str, identity: Identity | None = None, **detail: Any) -> None:
         """The audit trail: what happened to an account, by whom. Callers never pass secrets."""
@@ -452,6 +537,7 @@ class ProviderAccounts:
                 if grant.account_id == account.id:
                     del self.grants[launch]
         self.event(account, "deleted", identity)
+        self.cluster.publish("provider_accounts.changed", {"deleted": account.id})
 
         def write(connection: Any) -> None:
             for table in (schema.provider_accounts, schema.provider_credentials):
@@ -559,6 +645,7 @@ class ProviderAccounts:
         table = schema.provider_account_assignments
         self.db.writer.submit(lambda connection: connection.execute(table.delete().where((table.c.account_id == account.id) & (table.c.machine_id == machine_id))))
         self.event(account, "unassigned", identity, machine=machine_id)
+        self.cluster.publish("provider_accounts.changed", {"unassigned": [account.id, machine_id]})
 
     def assigned(self, account: ProviderAccount) -> list[Assignment]:
         return [item for key, item in sorted(self.assignments.items()) if key[0] == account.id]
@@ -870,9 +957,10 @@ class ProviderAccounts:
                 or grant.expires < self.clock() or grant.delivered
                 or assignment is None or not assignment.enabled or not assignment.provisioning_allowed
                 or account.status != "active"
+                # Once, whichever of the server's processes is asked.
+                or not self.grants.claim(grant)
             ):
                 raise AccountError(403, "This session's launch can't receive the token (already handed over, expired, or not assigned)")
-            grant.delivered = True
         token = self._credential(account)
         self.event(account, "provisioned", identity, machine=grant.machine_id, session=session.session_id, launch=grant.launch_id, requested_by=grant.requested_by)
         return {PROVIDERS[account.provider]["credential_env"]: token}

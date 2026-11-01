@@ -1,0 +1,143 @@
+{{- /*
+mode scaled: a Deployment, Service, HorizontalPodAutoscaler and PodDisruptionBudget per
+enabled entry under `roles`. AI_PROXY_ROLES is the entry's `serves` list (or its name).
+*/ -}}
+{{- if eq .Values.mode "scaled" }}
+{{- $root := . }}
+{{- $fullname := include "agent-mesh.fullname" . }}
+{{- range $name := splitList "," (include "agent-mesh.enabledRoles" .) }}
+{{- if $name }}
+{{- $cfg := index $root.Values.roles $name }}
+{{- $serves := include "agent-mesh.roleServes" (dict "root" $root "name" $name) }}
+{{- $direct := false }}
+{{- range $fn := splitList "," $serves }}
+{{- if has $fn $root.Values.pgbouncer.directRoles }}{{ $direct = true }}{{ end }}
+{{- end }}
+{{- $as := $cfg.autoscaling | default dict }}
+{{- $replicas := int ($cfg.replicas | default 1) }}
+{{- $min := int ($as.min | default $replicas) }}
+{{- $workers := $cfg.workers | default 1 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-{{ $name }}
+  labels:
+    {{- include "agent-mesh.labels" (dict "root" $root "component" $name) | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - {name: http, port: {{ $root.Values.server.port }}, targetPort: http}
+  selector:
+    {{- include "agent-mesh.selectorLabels" (dict "root" $root "component" $name) | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}-{{ $name }}
+  labels:
+    {{- include "agent-mesh.labels" (dict "root" $root "component" $name) | nindent 4 }}
+  annotations:
+    agent-mesh.io/roles: {{ $serves | quote }}
+spec:
+  {{- if not $as.enabled }}
+  replicas: {{ $replicas }}
+  {{- end }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 25%, maxUnavailable: 0}
+  selector:
+    matchLabels:
+      {{- include "agent-mesh.selectorLabels" (dict "root" $root "component" $name) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "agent-mesh.labels" (dict "root" $root "component" $name) | nindent 8 }}
+        agent-mesh.io/server: "true"
+        {{- with $cfg.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/env: {{ include "agent-mesh.serverEnv" (dict "root" $root "roles" $serves "workers" $workers "direct" $direct) | sha256sum }}
+        {{- with $cfg.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "agent-mesh.serviceAccountName" $root }}
+      automountServiceAccountToken: {{ $root.Values.serviceAccount.automountServiceAccountToken }}
+      terminationGracePeriodSeconds: {{ $cfg.terminationGracePeriodSeconds | default 30 }}
+      securityContext:
+        {{- include "agent-mesh.podSecurityContext" $root | nindent 8 }}
+      {{- with include "agent-mesh.scheduling" $root | trim }}
+      {{- . | nindent 6 }}
+      {{- end }}
+      {{- with include "agent-mesh.topologySpread" (dict "root" $root "component" $name) }}
+      topologySpreadConstraints:
+        {{- . | nindent 8 }}
+      {{- end }}
+      containers:
+        {{- include "agent-mesh.serverContainer" (dict "root" $root "roles" $serves "workers" $workers "direct" $direct "resources" ($cfg.resources | default dict) "persist" false "grace" ($cfg.terminationGracePeriodSeconds | default 30)) | nindent 8 }}
+      volumes:
+        {{- include "agent-mesh.stateVolumes" (dict "root" $root "persist" false) | trim | nindent 8 }}
+{{- if $as.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ $fullname }}-{{ $name }}
+  labels:
+    {{- include "agent-mesh.labels" (dict "root" $root "component" $name) | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ $fullname }}-{{ $name }}
+  minReplicas: {{ $min }}
+  maxReplicas: {{ max (int ($as.max | default $min)) $min }}
+  metrics:
+    {{- $metric := $as.metric | default "cpu" }}
+    {{- if has $metric (list "cpu" "memory") }}
+    - type: Resource
+      resource:
+        name: {{ $metric }}
+        target:
+          type: Utilization
+          averageUtilization: {{ $as.target | default 70 }}
+    {{- else }}
+    - type: Pods
+      pods:
+        metric:
+          name: {{ get $root.Values.autoscaling.metricNames $metric | default (printf "agent_server_%s" $metric) }}
+        target:
+          type: AverageValue
+          averageValue: {{ required (printf "roles.%s.autoscaling.target is required" $name) $as.target | quote }}
+    {{- end }}
+  behavior:
+    {{- if $as.behavior }}
+    {{- toYaml $as.behavior | nindent 4 }}
+    {{- else }}
+    # Long-lived connections: scale in slowly; a draining pod sends its machines, tunnels
+    # and viewers to reconnect elsewhere.
+    scaleDown:
+      stabilizationWindowSeconds: 600
+      policies:
+        - {type: Pods, value: 1, periodSeconds: 120}
+    {{- end }}
+{{- end }}
+{{- if or (gt $min 1) (gt $replicas 1) }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $fullname }}-{{ $name }}
+  labels:
+    {{- include "agent-mesh.labels" (dict "root" $root "component" $name) | nindent 4 }}
+spec:
+  maxUnavailable: {{ ($cfg.pdb | default dict).maxUnavailable | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "agent-mesh.selectorLabels" (dict "root" $root "component" $name) | nindent 6 }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

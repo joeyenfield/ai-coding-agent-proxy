@@ -1,0 +1,68 @@
+# Managed cloud, here AWS: RDS PostgreSQL behind RDS Proxy, ElastiCache with TLS, S3 for
+# traces through IRSA (no access keys), and every secret from AWS Secrets Manager through the
+# External Secrets Operator.
+#   GKE:   iam.gke.io/gcp-service-account on the ServiceAccount, Cloud SQL, Memorystore.
+#   Azure: azure.workload.identity/client-id (and the pod label azure.workload.identity/use),
+#          Azure Database for PostgreSQL Flexible Server, Azure Cache for Redis.
+mode: scaled
+
+server:
+  host: api.mesh.example.com
+auth:
+  host: auth.mesh.example.com
+
+postgresql:
+  external:
+    # Made by the ExternalSecret below.
+    existingSecret: mesh-postgres
+    urlKey: url                       # through RDS Proxy
+    authUrlKey: auth-url
+    migrationUrlKey: migration-url    # the instance itself: the migration holds a lock
+
+redis:
+  external:
+    # rediss://:<auth token>@master.mesh.xxxxxx.euw1.cache.amazonaws.com:6379/0
+    existingSecret: mesh-redis
+
+objectStorage:
+  url: s3://mesh-traces-prod/agent-mesh
+  region: eu-west-1
+  serviceAccountAnnotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/agent-mesh-traces
+
+secrets:
+  externalSecrets:
+    enabled: true
+    store: {name: aws-secrets-manager, kind: ClusterSecretStore}
+    app:
+      internal-token: {key: prod/agent-mesh/app, property: internal-token}
+      oidc-introspection-secret: {key: prod/agent-mesh/app, property: oidc-introspection-secret}
+      vault-keys: {key: prod/agent-mesh/app, property: vault-keys}
+    extra:
+      - name: mesh-postgres
+        data:
+          - {secretKey: url, remoteRef: {key: prod/agent-mesh/postgres, property: url}}
+          - {secretKey: auth-url, remoteRef: {key: prod/agent-mesh/postgres, property: auth-url}}
+          - {secretKey: migration-url, remoteRef: {key: prod/agent-mesh/postgres, property: migration-url}}
+      - name: mesh-redis
+        data:
+          - {secretKey: url, remoteRef: {key: prod/agent-mesh/redis, property: url}}
+
+console:
+  enabled: true
+  host: console.mesh.example.com
+  image:
+    repository: 123456789012.dkr.ecr.eu-west-1.amazonaws.com/agent-mesh-console
+
+roles:
+  gateway:
+    workers: 2
+
+routing:
+  gatewayAPI:
+    enabled: true
+    gatewayRef: {name: public, namespace: gateway-system}
+
+monitoring:
+  serviceMonitor: {enabled: true}
+  prometheusRule: {enabled: true}

@@ -34,6 +34,10 @@ flowchart LR
 - **Machines** supply every local provider. Hosted APIs are the only providers not on a machine.
 - **Auth issuer** (`agent-auth`, `server/agent_server/issuer.py`, a separate process at `auth.aicontrolmesh.com`) issues OAuth access tokens through Authlib: device codes for `agent login` and `agent-machine login`, PKCE for the console, client credentials for provisioned service clients. It reads the server's accounts (read-only, through its own database role on PostgreSQL) but never changes them. The server introspects every token there and has no unauthenticated mode: all API traffic, including loopback and agent sessions, needs a token. Pairing and the access key are gone. See `auth.md`.
 
+## One server, one process or many
+
+The server is one program. Small installs run it as one process, which keeps its live state in memory. Large ones run several, each with some of its roles (`api`, `gateway`, `mcp`, `intercept`, `fleet`, `realtime`, `worker`), sharing PostgreSQL and Redis and reaching each other on an internal port (`server.md`, Several processes; `docs/scaling.md`; `deploy/helm/agent-mesh/`). Clients and machines can't tell the difference: they still talk to one address.
+
 ## Design principles (apply to every component)
 
 1. **Components talk only over HTTP and WebSockets, never by importing each other.** Each folder is its own build (Python package, Go modules, npm project, Gradle project).
@@ -85,11 +89,14 @@ The console starts agents on a machine the same way: `POST /api/machines/{id}/la
 | Agent computer | `credentials.json` (+ `agent-proxy.log`), `~/.cache/agent-proxy/` (CA copy, per-session files) |
 | Server database, provider accounts | `provider_accounts` and their assignments, hourly usage and events; `provider_credentials` (Copilot tokens, AES-GCM under `AI_PROXY_VAULT_KEYS`, which never enters the database) |
 | Server database, usage limits | `provider_usage` (hourly tokens and calls per organization, person and provider), `usage_limits` (an organization's token limits per person or everyone, provider and window) |
+| Server database, retention and audit | `retention_policies`, `legal_holds`; `audit_events` (append-only hash chains per tenant), `audit_chains`, `audit_checkpoints` (signed with the secret `audit-signing-key`) |
+| Blob storage (`AI_PROXY_BLOB_URL`, optional) | traces (messages once per session, by hash) and terminal chunks under `tenant/<org>/<yyyy>/<mm>/<session>/`; audit checkpoints and exports under `audit/` |
+| Redis (`AI_PROXY_REDIS_URL`, several processes only) | which process holds each machine, terminal and tunnel; heartbeats; request and usage counters; leases; launch grants; revocations; messages between processes. Machines' keys only sealed. |
 | Machine | its folder: `credentials.json`, `machine.json`, `status.json`, `mcp.json`, `servers.json`, `ollama.json`, `llamacpp.json`, `llamacpp-install.json`, `llamacpp/` (installed builds), logs |
 
 ## Ports
 
-9999 server · 10000 agent-auth (its default, loopback) · 8184 agent-proxy (loopback) · 8183 agent-proxy HTTPS proxy (loopback) · 5173 Vite · 11434 Ollama · 18500 Strata · 9931 llama.cpp's llama-server (loopback on its machine) · 12434 Docker Model Runner. Never test on 8183/8184/9999 on the dev machine.
+9999 server · 9100 the server's internal port in Kubernetes (`AI_PROXY_INTERNAL_PORT`) · 10000 agent-auth (its default, loopback) · 8184 agent-proxy (loopback) · 8183 agent-proxy HTTPS proxy (loopback) · 5173 Vite · 11434 Ollama · 18500 Strata · 9931 llama.cpp's llama-server (loopback on its machine) · 12434 Docker Model Runner. Never test on 8183/8184/9999 on the dev machine.
 
 ## Cross-component changes
 

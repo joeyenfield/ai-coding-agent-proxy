@@ -4,6 +4,8 @@
 
 How to run the server for other machines and people, put HTTPS in front of it, and get `agent` and `agent-machine` onto the computers that use it.
 
+For Kubernetes, and for running several server processes behind a load balancer (high availability, or hundreds of engineers), see [Running several server processes](scaling.md) and the Helm chart in `deploy/helm/agent-mesh/`.
+
 ## Local container quickstart
 
 For a local demo, the checkout's `quickstart/` folder contains a separate Compose project

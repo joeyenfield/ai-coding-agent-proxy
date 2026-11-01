@@ -1,10 +1,28 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, ApiError, type StoredAgent } from "../api";
+import {
+  api,
+  ApiError,
+  RETENTION_KINDS,
+  TRACE_CAPTURES,
+  type AuditExport,
+  type AuditExportKind,
+  type CapturePolicy,
+  type RetentionDays,
+  type RetentionKind,
+  type ServerRetention,
+  type StoredAgent,
+  type TraceCapture,
+} from "../api";
+import { CodeLine } from "../components/CodeLine";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-import { formatBytes } from "../format";
+import { Icon } from "../components/Icon";
+import { formatBytes, formatNumber } from "../format";
+import { useClipboard } from "../hooks";
+import { daysText, KIND_LABELS, parseDays, TRACE_LABELS } from "../retention";
 
-/** The Server settings page's sections for what used to be config files: storage, agents and model tuning (site admins). */
+/** The Server settings page's sections for what used to be config files: storage, the audit log, agents and model tuning (site admins). */
 
 const NEW_AGENT = `name: My agent
 executable: my-agent
@@ -19,25 +37,61 @@ function forbidden(error: unknown): boolean {
   return error instanceof ApiError && error.status === 403;
 }
 
-/** Where everything is kept, and how many days sessions' payloads and terminals stay. */
+type DaysDraft = Record<RetentionKind, string>;
+interface PolicyDraft {
+  capture: CapturePolicy;
+  allowed: TraceCapture[];
+  days: DaysDraft;
+  max: DaysDraft;
+  min: DaysDraft;
+}
+
+const toDraft = (policy: ServerRetention): PolicyDraft => {
+  const texts = (days: RetentionDays) => Object.fromEntries(RETENTION_KINDS.map((kind) => [kind, daysText(days[kind])])) as DaysDraft;
+  return { capture: { ...policy.capture }, allowed: [...policy.allowed_traces], days: texts(policy.days), max: texts(policy.max), min: texts(policy.min) };
+};
+
+/** The draft as the server takes it, or the first field that isn't a number of days. */
+function fromDraft(draft: PolicyDraft): ServerRetention | string {
+  const parts = { days: {}, max: {}, min: {} } as Record<"days" | "max" | "min", RetentionDays>;
+  for (const part of ["days", "max", "min"] as const) {
+    for (const kind of RETENTION_KINDS) {
+      const value = parseDays(draft[part][kind]);
+      if (value === undefined) return `${KIND_LABELS[kind].label}: a whole number of days, or empty.`;
+      parts[part][kind] = value;
+    }
+  }
+  return { capture: draft.capture, allowed_traces: TRACE_CAPTURES.filter((mode) => draft.allowed.includes(mode)), ...parts };
+}
+
+/** Where everything is kept, what's recorded, and how long each kind of recording stays (site admins). */
 export function StorageSettings() {
   const storage = useQuery({ queryKey: ["storage"], queryFn: api.storage });
+  const policy = useQuery({ queryKey: ["retention"], queryFn: api.retentionPolicy });
   const client = useQueryClient();
-  const [days, setDays] = useState("");
+  const [draft, setDraft] = useState<PolicyDraft | null>(null);
   const [message, setMessage] = useState<{ text: string; tone: "good" | "bad" } | null>(null);
   useEffect(() => {
-    if (storage.data) setDays(storage.data.retention_days ? String(storage.data.retention_days) : "");
-  }, [storage.data]);
+    if (policy.data) setDraft(toDraft(policy.data));
+  }, [policy.data]);
   const save = useMutation({
-    mutationFn: () => api.saveRetention(days.trim() ? Number(days) : null),
+    mutationFn: (value: ServerRetention) => api.saveRetentionPolicy(value),
     onSuccess: (result) => {
-      client.setQueryData(["storage"], result);
-      setMessage({ text: result.retention_days ? `Kept for ${result.retention_days} days.` : "Kept until you delete them.", tone: "good" });
+      client.setQueryData(["retention"], result);
+      // The older single setting follows the traces' days; organizations' effective policies follow the server's.
+      void client.invalidateQueries({ queryKey: ["storage"] });
+      void client.invalidateQueries({ queryKey: ["org-retention"] });
+      setMessage({ text: "Saved. Sessions started from now on use it; each one keeps the policy it started under.", tone: "good" });
     },
     onError: (error) => setMessage({ text: error.message, tone: "bad" }),
   });
-  if (forbidden(storage.error)) return null;
+  if (forbidden(storage.error) || forbidden(policy.error)) return null;
   const database = storage.data?.database;
+  const setDays = (part: "days" | "max" | "min", kind: RetentionKind, text: string) =>
+    setDraft((current) => (current ? { ...current, [part]: { ...current[part], [kind]: text } } : current));
+  const setCapture = (patch: Partial<CapturePolicy>) => setDraft((current) => (current ? { ...current, capture: { ...current.capture, ...patch } } : current));
+  const toggleAllowed = (mode: TraceCapture) =>
+    setDraft((current) => (current ? { ...current, allowed: current.allowed.includes(mode) ? current.allowed.filter((item) => item !== mode) : [...current.allowed, mode] } : current));
   return (
     <section className="section" aria-labelledby="storage-heading">
       <div className="section-head">
@@ -52,34 +106,294 @@ export function StorageSettings() {
             {database.size != null && <>, {formatBytes(database.size)}</>}.
           </p>
         )}
+      </div>
+      {policy.isError && <p className="bad">{policy.error.message}</p>}
+      {draft && (
         <form
-          className="form-grid"
+          className="panel retention-form"
           onSubmit={(event) => {
             event.preventDefault();
             setMessage(null);
-            save.mutate();
+            const value = fromDraft(draft);
+            if (typeof value === "string") setMessage({ text: value, tone: "bad" });
+            else save.mutate(value);
           }}
         >
-          <label className="field">
-            Keep payloads and terminals for
-            <input type="number" min={1} max={36500} placeholder="Forever" value={days} onChange={(event) => setDays(event.target.value)} />
-            <small>Days since a session's last request. Its requests and token counts stay; empty keeps everything.</small>
-          </label>
-          <div className="field">
-            <span aria-hidden="true">&nbsp;</span>
-            <div className="row wrap">
-              <button type="submit" disabled={save.isPending || !storage.data}>
-                {save.isPending ? "Saving…" : "Save"}
-              </button>
-              {message && (
-                <span className={message.tone} role="status">
-                  {message.text}
-                </span>
-              )}
+          <div className="panel-head">
+            <h3>What's recorded</h3>
+            <p className="subtle">What isn't recorded is never written, so there's nothing to delete later. Organizations may change these within what you allow.</p>
+          </div>
+          <div className="form-grid">
+            <label className="field">
+              Record traces
+              <select value={draft.capture.traces} onChange={(event) => setCapture({ traces: event.target.value as TraceCapture })}>
+                {TRACE_CAPTURES.filter((mode) => draft.allowed.includes(mode)).map((mode) => (
+                  <option key={mode} value={mode}>{TRACE_LABELS[mode]}</option>
+                ))}
+              </select>
+              <small>Unless an organization chooses otherwise.</small>
+            </label>
+            <fieldset className="field">
+              <legend>Organizations may choose</legend>
+              <span className="row wrap">
+                {TRACE_CAPTURES.map((mode) => (
+                  <label key={mode} className="check">
+                    <input type="checkbox" checked={draft.allowed.includes(mode)} onChange={() => toggleAllowed(mode)} />
+                    {TRACE_LABELS[mode]}
+                  </label>
+                ))}
+              </span>
+            </fieldset>
+            <label className="check span-2">
+              <input type="checkbox" checked={draft.capture.intercept_bodies} onChange={(event) => setCapture({ intercept_bodies: event.target.checked })} />
+              Put account agents' traffic in their traces
+            </label>
+            <label className="check span-2">
+              <input type="checkbox" checked={draft.capture.terminal_output} onChange={(event) => setCapture({ terminal_output: event.target.checked })} />
+              Record shared terminals' output
+            </label>
+          </div>
+          <div className="panel-head">
+            <h3>How long it's kept</h3>
+            <p className="subtle">
+              Days since a session's last activity; empty is forever. The bounds are what organizations' admins may set their own within (empty: no
+              bound). Deleting runs every hour, and a legal hold stops it for what the hold covers.
+            </p>
+          </div>
+          <div className="retention-kinds" role="table" aria-label="Days each kind is kept">
+            <div className="retention-kind retention-kind-head" role="row">
+              <span role="columnheader">Kind</span>
+              <span role="columnheader">Keep for</span>
+              <span role="columnheader">Organizations at least</span>
+              <span role="columnheader">Organizations at most</span>
             </div>
+            {RETENTION_KINDS.map((kind) => (
+              <div key={kind} className="retention-kind" role="row">
+                <span role="rowheader">
+                  <strong>{KIND_LABELS[kind].label}</strong>
+                  <small className="subtle">{KIND_LABELS[kind].hint}</small>
+                </span>
+                {(["days", "min", "max"] as const).map((part) => (
+                  <label key={part} className="field" role="cell">
+                    <span className="retention-cell-label">{part === "days" ? "Keep for" : part === "min" ? "At least" : "At most"}</span>
+                    <input
+                      inputMode="numeric"
+                      value={draft[part][kind]}
+                      placeholder={part === "days" ? "Forever" : "No bound"}
+                      aria-label={`${KIND_LABELS[kind].label}: ${part === "days" ? "keep for, days" : part === "min" ? "organizations at least, days" : "organizations at most, days"}`}
+                      aria-invalid={parseDays(draft[part][kind]) === undefined}
+                      onChange={(event) => setDays(part, kind, event.target.value)}
+                    />
+                  </label>
+                ))}
+              </div>
+            ))}
+          </div>
+          <div className="row wrap">
+            <button className="primary" type="submit" disabled={save.isPending}>
+              {save.isPending ? "Saving…" : "Save policy"}
+            </button>
+            <button type="button" disabled={save.isPending || !policy.data} onClick={() => policy.data && (setDraft(toDraft(policy.data)), setMessage(null))}>
+              Undo changes
+            </button>
+            {message && (
+              <span className={message.tone} role="status">
+                {message.text}
+              </span>
+            )}
           </div>
         </form>
+      )}
+    </section>
+  );
+}
+
+const EXPORT_KINDS: { id: AuditExportKind; label: string; placeholder: string }[] = [
+  { id: "otlp", label: "OpenTelemetry (OTLP/HTTP)", placeholder: "https://collector.example.com:4318" },
+  { id: "syslog", label: "Syslog (RFC 5424)", placeholder: "syslog+tls://siem.example.com:6514" },
+  { id: "webhook", label: "Webhook", placeholder: "https://hooks.example.com/audit" },
+  { id: "blob", label: "Blob storage", placeholder: "" },
+];
+
+interface ExportRow extends Omit<AuditExport, "tenants" | "token_env"> {
+  key: number;
+  token_env: string;
+  /** Organizations, comma-separated; empty is every one. */
+  tenants: string;
+}
+
+let nextExport = 0;
+const toRow = (item: AuditExport): ExportRow => ({ ...item, key: nextExport++, token_env: item.token_env ?? "", tenants: (item.tenants ?? []).join(", ") });
+const fromRow = (row: ExportRow): AuditExport => {
+  const tenants = row.tenants.split(",").map((item) => item.trim()).filter(Boolean);
+  return {
+    name: row.name.trim(), kind: row.kind, url: row.url.trim(), token_env: row.token_env.trim() || null,
+    tenants: tenants.length ? tenants : null, enabled: row.enabled, prefix: row.prefix,
+  };
+};
+
+/** The audit log: where it's sent as it grows, how often its chains are signed, and the key that signs them (site admins). */
+export function AuditSettings() {
+  const config = useQuery({ queryKey: ["audit-config"], queryFn: api.auditConfig });
+  const client = useQueryClient();
+  const copy = useClipboard();
+  const [rows, setRows] = useState<ExportRow[]>([]);
+  const [minutes, setMinutes] = useState("60");
+  const [removing, setRemoving] = useState<ExportRow | null>(null);
+  const [message, setMessage] = useState<{ text: string; tone: "good" | "bad" } | null>(null);
+  useEffect(() => {
+    if (!config.data) return;
+    setRows(config.data.exports.map(toRow));
+    setMinutes(String(config.data.checkpoint_minutes));
+  }, [config.data]);
+  const save = useMutation({
+    mutationFn: () => api.saveAuditConfig({ exports: rows.map(fromRow), checkpoint_minutes: Number(minutes) }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["audit-config"] });
+      setMessage({ text: "Saved.", tone: "good" });
+    },
+    onError: (error) => setMessage({ text: error.message, tone: "bad" }),
+  });
+  if (forbidden(config.error)) return null;
+  const update = (key: number, patch: Partial<ExportRow>) => setRows((current) => current.map((row) => (row.key === key ? { ...row, ...patch } : row)));
+  const data = config.data;
+  return (
+    <section className="section" aria-labelledby="audit-heading">
+      <div className="section-head">
+        <h2 id="audit-heading">Audit log</h2>
+        <Link to="/audit">Open the audit log</Link>
       </div>
+      <p className="subtle">
+        Every change to the server, its organizations and machines is recorded, chained by hash for each organization, and the chains' heads are
+        signed with the server's own key. Exports send the events elsewhere (a SIEM, a log store) as they're recorded.
+      </p>
+      {config.isError && <p className="bad">{config.error.message}</p>}
+      {data && (
+        <div className="panel">
+          <dl className="fact-list">
+            <div>
+              <dt>Signing key id</dt>
+              <dd className="mono">{data.key_id ?? "–"}</dd>
+            </div>
+            <div>
+              <dt>Not exported yet</dt>
+              <dd className={data.backlog ? "warn" : undefined}>{data.backlog == null ? "–" : `${formatNumber(data.backlog)} events`}</dd>
+            </div>
+          </dl>
+          {data.public_key && (
+            <>
+              <h3>Public key (Ed25519, base64)</h3>
+              <p className="subtle">To check the signed checkpoints anywhere else.</p>
+              <CodeLine text={data.public_key} onCopy={() => copy(data.public_key ?? "", "Public key copied")} />
+            </>
+          )}
+        </div>
+      )}
+      {data && (
+        <form
+          className="stack"
+          onSubmit={(event) => {
+            event.preventDefault();
+            setMessage(null);
+            const names = rows.map((row) => row.name.trim());
+            if (new Set(names).size !== names.length) setMessage({ text: "Each export needs a different name.", tone: "bad" });
+            else save.mutate();
+          }}
+        >
+          <div className="section-head">
+            <h3>Exports</h3>
+            <button type="button" onClick={() => setRows((current) => [...current, { key: nextExport++, name: "", kind: "otlp", url: "", token_env: "", tenants: "", enabled: true, prefix: "audit/export" }])}>
+              <Icon name="plus" size={16} />
+              Add export
+            </button>
+          </div>
+          {!rows.length && <p className="subtle">No exports: the audit log stays in the server's database only.</p>}
+          <ul className="backend-cards">
+            {rows.map((row) => {
+              const kind = EXPORT_KINDS.find((item) => item.id === row.kind) ?? EXPORT_KINDS[0];
+              return (
+                <li key={row.key} className="backend-card">
+                  <div className="form-grid">
+                    <label className="field">
+                      Name
+                      <input value={row.name} onChange={(event) => update(row.key, { name: event.target.value })} required maxLength={40} pattern="[A-Za-z0-9_\-]+" placeholder="siem" />
+                    </label>
+                    <label className="field">
+                      Kind
+                      <select value={row.kind} onChange={(event) => update(row.key, { kind: event.target.value as AuditExportKind })}>
+                        {EXPORT_KINDS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+                      </select>
+                    </label>
+                    {row.kind === "blob" ? (
+                      <label className="field span-2">
+                        Folder in blob storage
+                        <input value={row.prefix} onChange={(event) => update(row.key, { prefix: event.target.value })} placeholder="audit/export" maxLength={200} />
+                        <small>Written as NDJSON files to the server's blob storage (AI_PROXY_BLOB_URL).</small>
+                      </label>
+                    ) : (
+                      <label className="field span-2">
+                        URL
+                        <input value={row.url} onChange={(event) => update(row.key, { url: event.target.value })} placeholder={kind.placeholder} required />
+                      </label>
+                    )}
+                    {row.kind !== "blob" && row.kind !== "syslog" && (
+                      <label className="field">
+                        Token's environment variable
+                        <input value={row.token_env} onChange={(event) => update(row.key, { token_env: event.target.value })} placeholder="AUDIT_EXPORT_TOKEN" pattern="[A-Za-z0-9_]+" autoCapitalize="none" />
+                        <small>{row.kind === "webhook" ? "Its value signs each delivery (x-mesh-signature)." : "Its value is sent as the bearer token."} Set it on the server; the secret never goes in the settings.</small>
+                      </label>
+                    )}
+                    <label className="field">
+                      Organizations
+                      <input value={row.tenants} onChange={(event) => update(row.key, { tenants: event.target.value })} placeholder="Every organization" autoCapitalize="none" />
+                      <small>Ids, separated by commas.</small>
+                    </label>
+                  </div>
+                  <div className="backend-card-foot">
+                    <label className="check">
+                      <input type="checkbox" checked={row.enabled} onChange={(event) => update(row.key, { enabled: event.target.checked })} />
+                      Sending
+                    </label>
+                    <span className="spacer" />
+                    <button type="button" className="icon-button danger" title="Remove" aria-label={`Remove ${row.name || "this export"}`} onClick={() => setRemoving(row)}>
+                      <Icon name="trash" />
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+          <div className="form-grid">
+            <label className="field">
+              Sign the chains every
+              <input type="number" min={5} max={1440} value={minutes} onChange={(event) => setMinutes(event.target.value)} required />
+              <small>Minutes, from 5 to 1440. Only when something was recorded since the last checkpoint.</small>
+            </label>
+          </div>
+          <div className="row wrap">
+            <button className="primary" type="submit" disabled={save.isPending}>
+              {save.isPending ? "Saving…" : "Save audit settings"}
+            </button>
+            {message && (
+              <span className={message.tone} role="status">
+                {message.text}
+              </span>
+            )}
+          </div>
+        </form>
+      )}
+      <ConfirmDialog
+        open={removing !== null}
+        title={`Remove ${removing?.name || "this export"}?`}
+        confirmLabel="Remove"
+        onConfirm={() => {
+          if (removing) setRows((current) => current.filter((row) => row.key !== removing.key));
+          setRemoving(null);
+        }}
+        onCancel={() => setRemoving(null)}
+      >
+        It stops getting events once you save. What it already received stays there.
+      </ConfirmDialog>
     </section>
   );
 }

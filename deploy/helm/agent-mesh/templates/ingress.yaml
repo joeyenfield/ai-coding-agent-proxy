@@ -1,0 +1,187 @@
+{{- /*
+Ingress fallback for clusters without Gateway API. server.host is split over Ingresses so
+the long-lived paths (model streams, the MCP relay, HTTPS-capture tunnels, the fleet's
+sockets, terminals and live SSE) get routing.ingress.streamingAnnotations and the rest of
+the API gets apiAnnotations. The annotations shipped suit ingress-nginx (which merges
+Ingresses of one host); WebSockets work there without anything extra.
+In mode single the whole host is one Ingress with the streaming annotations.
+*/ -}}
+{{- if .Values.routing.ingress.enabled }}
+{{- $root := . }}
+{{- $fullname := include "agent-mesh.fullname" . }}
+{{- $in := .Values.routing.ingress }}
+{{- $port := .Values.server.port }}
+{{- $host := .Values.server.host }}
+{{- if eq .Values.mode "single" }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullname }}-server
+  labels:
+    {{- include "agent-mesh.labels" (dict "root" . "component" "server") | nindent 4 }}
+  {{- with merge (dict) ($in.streamingAnnotations | default dict) ($in.annotations | default dict) }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with $in.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with $in.tls.serverSecretName }}
+  tls:
+    - {hosts: [{{ $host | quote }}], secretName: {{ . }}}
+  {{- end }}
+  rules:
+    - host: {{ $host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: {name: {{ $fullname }}, port: {number: {{ $port }}}}
+{{- else }}
+{{- $table := fromYamlArray (include "agent-mesh.routeTable" .) }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullname }}-streams
+  labels:
+    {{- include "agent-mesh.labels" (dict "root" . "component" "server") | nindent 4 }}
+  {{- with merge (dict) ($in.streamingAnnotations | default dict) ($in.annotations | default dict) }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with $in.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with $in.tls.serverSecretName }}
+  tls:
+    - {hosts: [{{ $host | quote }}], secretName: {{ . }}}
+  {{- end }}
+  rules:
+    - host: {{ $host | quote }}
+      http:
+        paths:
+          {{- range $r := $table }}
+          {{- if and (ne $r.fn "api") (ne $r.type "RegularExpression") }}
+          - path: {{ $r.path }}
+            pathType: {{ ternary "Exact" "Prefix" (eq $r.type "Exact") }}
+            backend:
+              service: {name: {{ include "agent-mesh.serviceFor" (dict "root" $root "fn" $r.fn) }}, port: {number: {{ $port }}}}
+          {{- end }}
+          {{- end }}
+{{- range $r := $table }}
+{{- if eq $r.type "RegularExpression" }}
+---
+# A separate MCP Deployment: /session/<id>/mcp/... needs a regular expression. With
+# ingress-nginx, use-regex makes every path of this host a regular expression; its longest-
+# first ordering keeps this one ahead of /session.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullname }}-mcp
+  labels:
+    {{- include "agent-mesh.labels" (dict "root" $root "component" "server") | nindent 4 }}
+  annotations:
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    {{- with merge (dict) ($in.streamingAnnotations | default dict) ($in.annotations | default dict) }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- with $in.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  rules:
+    - host: {{ $host | quote }}
+      http:
+        paths:
+          - path: {{ $r.ingressPath | quote }}
+            pathType: ImplementationSpecific
+            backend:
+              service: {name: {{ include "agent-mesh.serviceFor" (dict "root" $root "fn" $r.fn) }}, port: {number: {{ $port }}}}
+{{- end }}
+{{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullname }}-api
+  labels:
+    {{- include "agent-mesh.labels" (dict "root" . "component" "api") | nindent 4 }}
+  {{- with merge (dict) ($in.apiAnnotations | default dict) ($in.annotations | default dict) }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with $in.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  rules:
+    - host: {{ $host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: {name: {{ include "agent-mesh.serviceFor" (dict "root" . "fn" "api") }}, port: {number: {{ $port }}}}
+{{- end }}
+{{- if .Values.auth.issuer.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullname }}-auth
+  labels:
+    {{- include "agent-mesh.labels" (dict "root" . "component" "auth") | nindent 4 }}
+  {{- with merge (dict) ($in.apiAnnotations | default dict) ($in.annotations | default dict) }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with $in.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with $in.tls.authSecretName }}
+  tls:
+    - {hosts: [{{ $.Values.auth.host | quote }}], secretName: {{ . }}}
+  {{- end }}
+  rules:
+    - host: {{ .Values.auth.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: {name: {{ $fullname }}-auth, port: {number: {{ .Values.auth.issuer.port }}}}
+{{- end }}
+{{- if .Values.console.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullname }}-console
+  labels:
+    {{- include "agent-mesh.labels" (dict "root" . "component" "console") | nindent 4 }}
+  {{- with merge (dict) ($in.apiAnnotations | default dict) ($in.annotations | default dict) }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with $in.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with $in.tls.consoleSecretName }}
+  tls:
+    - {hosts: [{{ $.Values.console.host | quote }}], secretName: {{ . }}}
+  {{- end }}
+  rules:
+    - host: {{ .Values.console.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: {name: {{ $fullname }}-console, port: {number: 80}}
+{{- end }}
+{{- end }}

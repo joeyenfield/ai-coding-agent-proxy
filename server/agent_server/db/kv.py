@@ -21,6 +21,13 @@ def upsert(connection: Connection, table: Table, values: dict[str, Any]) -> None
     connection.execute(statement)
 
 
+def upsert_absent(connection: Connection, table: Table, values: dict[str, Any]) -> None:
+    """Insert the row unless one with the same primary key is there (then leave it as it is)."""
+    keys = [column.name for column in table.primary_key.columns]
+    dialect = sqlite if connection.dialect.name == "sqlite" else postgresql
+    connection.execute(dialect.insert(table).values(**values).on_conflict_do_nothing(index_elements=keys))
+
+
 def increment(connection: Connection, table: Table, keys: dict[str, Any], amounts: dict[str, int]) -> None:
     """Add amounts to the row with these keys' counters, making it (from zero) if it isn't there."""
     dialect = sqlite if connection.dialect.name == "sqlite" else postgresql

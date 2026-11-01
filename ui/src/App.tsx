@@ -19,6 +19,7 @@ import { SubscriptionsPage } from "./pages/Subscriptions";
 import { ProvidersPage } from "./pages/Providers";
 import { ServerStatsPage } from "./pages/ServerStats";
 import { AccessLogPage } from "./pages/AccessLog";
+import { AuditLogPage } from "./pages/AuditLog";
 import { SettingsPage } from "./pages/Settings";
 import { TerminalsPage } from "./pages/Terminals";
 import { PairPage } from "./pages/Pair";
@@ -76,7 +77,7 @@ function Shell({ identity }: { identity: Identity | null }) {
     setMenuOpen(true);
   };
   const closeMenu = () => (window.history.state?.menu ? window.history.back() : setMenuOpen(false));
-  const parts = visibleParts(Boolean(identity?.site_admin));
+  const parts = visibleParts(Boolean(identity?.site_admin), identity?.role === "admin");
   const inFlight = status.data?.current_requests.length ?? 0;
   // After an error (a lapsed sign-in, a dropped network) these keep asking, more slowly, so the
   // counts come back by themselves; only a 403 stops them.
@@ -238,6 +239,7 @@ function Shell({ identity }: { identity: Identity | null }) {
           ))}
           <Route path="/server-stats" element={<ServerStatsPage />} />
           <Route path="/access-log" element={<AccessLogPage />} />
+          <Route path="/audit" element={<AuditLogPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/organization" element={<OrganizationPage />} />
           <Route path="/get" element={<DownloadsPage />} />

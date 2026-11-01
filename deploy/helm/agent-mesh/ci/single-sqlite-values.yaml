@@ -1,0 +1,5 @@
+# The defaults: mode single, SQLite on a volume, agent-auth in the server's pod, no routing.
+server:
+  host: api.ci.example
+auth:
+  host: auth.ci.example
