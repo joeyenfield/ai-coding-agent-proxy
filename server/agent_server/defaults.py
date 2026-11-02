@@ -156,6 +156,11 @@ agents:
         model:
           generationConfig:
             contextWindowSize: "{context_window}"
+            # Qwen Code drops a stream after 240 s without a data chunk, and the proxy's keep-alives are
+            # SSE comments it doesn't count. A local model reading a long prompt (or queued behind the
+            # agent's own sub-agents) is silent for longer than that, so every retry fails the same way.
+            # 0 turns the check off; the server still ends a reply after 600 s without any data.
+            streamIdleTimeoutMs: 0
         mcpServers: "{mcp_servers}"
     mcp:
       entry: {httpUrl: "{mcp_url}"}
