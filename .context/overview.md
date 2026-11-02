@@ -79,6 +79,8 @@ sequenceDiagram
 
 The console starts agents on a machine the same way: `POST /api/machines/{id}/launch` → the machine runs `agent ... --headless` → the same flow.
 
+The agent gets URLs on its agent-proxy that carry the session id, rendered by the server from the agent's stored templates: `{openai_url}` = `http://127.0.0.1:8184/session/<id>/v1`, `{anthropic_url}` = `…/session/<id>/anthropic`, `{ollama_url}` = `…/session/<id>` (native `/api/...`). Account agents get `HTTPS_PROXY=http://<id>:agent-proxy@127.0.0.1:8183` and the server's CA. Bare `/v1` and `/anthropic` also work with `X-AI-Proxy-Session` and `X-AI-Proxy-Backend`; bare `/api` is kept for the agent-proxy's `LauncherAPI`, so agents use `/session/<id>/api/...`. Everything is recorded through the server's write queue: `sessions`, `requests`, gzipped `traces`, `chat_index`, and a shared terminal's `terminal_chunks`. The server's own log stays a file (`logs/proxy/proxy.log`) so it works when the database doesn't.
+
 ## Where state lives
 
 | Where | What |
@@ -101,7 +103,7 @@ The console starts agents on a machine the same way: `POST /api/machines/{id}/la
 ## Cross-component changes
 
 - **API between client/machine and server**: change the server, Go, *and* `python/`, and cover it in `server/tests/test_client.py`.
-- **New provider type**: server config and compat, agent-machine providers, console view, docs, the demo. Follow the checklist in `AGENTS.md`.
+- **New provider type**: server config and compat, agent-machine providers, console view, docs, the demo. Follow the checklist in `server.md` (Extending).
 - **New fleet message**: `Fleet` on the server, `presence` in Go and Python.
 - **Incompatible protocol change**: raise `PROTOCOL` everywhere.
 - **Sign-in or credentials**: the issuer and `auth.py` on the server, `agent login` and `agent-machine login` in Go and `python/`, the console and the Android app. Read `auth.md` first.

@@ -1,6 +1,6 @@
 # Development
 
-A guide for changing this repository. [`AGENTS.md`](../AGENTS.md) at the root is the detailed map of the code and its rules; read it before a change that crosses components. [Architecture](architecture.md) explains how the parts fit together.
+A guide for changing this repository. [`AGENTS.md`](../AGENTS.md) at the root has the commands and the rules every change follows, and points to `.context/`, which holds the design of each component; read both before a change. [Architecture](architecture.md) explains how the parts fit together.
 
 ## Layout
 
@@ -169,7 +169,7 @@ A build replaces its version's folder and leaves the others alone. `build-client
 
 The Linux packages (`.deb`, `.rpm`, `.apk`, Arch) are written in Go by `tools/dist`, so they come out the same from any build machine. `.msi` needs [WiX](https://wixtoolset.org) 4 or later on `PATH`, and macOS `.pkg` needs `pkgbuild` (a Mac); a missing tool skips its format with a note. Package versions are the build's `X.Y.Z`, with the commits since the tag as the release. None are signed.
 
-To test installers and packages, use a throwaway user in a separate WSL distribution, not your own user: a test service would join the real fleet. `AGENTS.md` has the details.
+To test installers and packages, use a throwaway user in a separate WSL distribution, not your own user: a test service would join the real fleet. `.context/build-and-deploy.md` has the details.
 
 ## Checklists
 

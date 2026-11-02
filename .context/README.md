@@ -1,6 +1,6 @@
 # Project context
 
-Design references for coding agents working on this repository: one file per component, written to be read **before** changing that component. They describe how each part is built and which rules it must keep. The user documentation is `docs/`; the working rules (commands, conventions, checklists) are `AGENTS.md`.
+Design references for coding agents working on this repository: one file per component, written to be read **before** changing that component. They describe how each part is built and which rules it must keep. The user documentation is `docs/`; `AGENTS.md` is the short entry point (commands, the rules every change follows, the dev machine) and sends readers here for everything component-specific, including the checklists (`server.md`, Extending).
 
 | File | Component | Read it when you touch |
 | --- | --- | --- |

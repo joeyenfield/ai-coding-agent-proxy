@@ -37,7 +37,7 @@ flowchart LR
 - **One-liners** `/install.sh` and `/install.ps1` (`installer.py`, templates in `server/agent_server/install/`): the server fills in its address (checked against `SAFE_URL`) and the archive table. They download, check hashes, and run the archive's own installer with `AI_PROXY_ONE_LINER=1`, then sign in from `/dev/tty`.
 - **Archive installers** (`tools/dist/install/`): `install.sh` (to `/usr/local/bin` or `~/.local/bin`; `--service` sets up systemd, launchd or rc.d; `--uninstall`) and `install.ps1` (to `%LOCALAPPDATA%\Programs\agent-proxy`, user PATH, `-Service` as an at-logon task).
 - **Uninstallers** (`server/agent_server/install/uninstall.sh`, `uninstall.ps1`): one file each, not templates. The server serves them as they are (`/uninstall.sh`, `/uninstall.ps1`, `installer.uninstaller`, no build needed) and `tools/dist` copies them into every archive (`writeUninstaller`, LF for `.sh`), where `install.sh --uninstall` and `install.ps1 -Uninstall` hand over to them. They undo `--service`, stop agent-machine and this install's agent-proxy, remove the `servers service` sudoers rule as root, and with `--purge` log out (one server per `logout`, looped) and delete the default settings folders. The service names and paths in them must match `install.sh`/`install.ps1`. `AI_PROXY_SCHEDULED_TASK` renames the Windows task for tests (the dev computer has a real one).
-- Test installers and services as a throwaway user in another WSL distro, never as the Ubuntu user (it runs a real agent-machine).
+- Test installers and services as a throwaway user in another WSL distro, never as the Ubuntu user (it runs a real agent-machine, and `install.sh --service` would stop it and join the test service to the real fleet). WSL has Ubuntu, `FedoraLinux-44` and `archlinux`; for Alpine, `wsl --import` its minirootfs. `wsl -d <distro> -u root` is root without a password: install the built packages with each distro's tool (`dpkg -i`, `dnf install`, `apk add --allow-untrusted`, `pacman -U`) and remove them again. For services, `useradd -m aptest`, then `SUDO_USER=aptest ./install.sh --service` as root. Use `wsl --exec sh -c '...'`: plain `wsl -- ...` runs the line through another shell first, which expands `$?` too early. The same goes for the one-liners (`/install.sh`, `/install.ps1`).
 
 ## Containers
 
@@ -72,5 +72,7 @@ flowchart LR
 ## Rules
 
 - Keep `go.mod` at Go 1.24 and build with `GOTOOLCHAIN=local`.
+- Every build in `dist/<version>/` is ~450 MB and nothing prunes them: delete old `dist/<version>+<commit>/` folders by hand.
+- Podman on the dev computer (`podman-machine-default`, WSL-based, no localhost forwarding) builds and runs `server/Dockerfile`: pass `--http-proxy=false` to `podman build`, and reach a published port at the VM's address (`ip -4 addr` inside `wsl -d podman-machine-default`).
 - Don't commit `dist/`, `ui/dist`, `logs/`, `certs/` or the `bin/` folders.
 - Linux package versions are `X.Y.Z-<release>`. `PackageRelease` makes the release the commits since `vX.Y.Z` plus one, so each untagged build upgrades the one before. Keep the release rising if the version scheme changes.

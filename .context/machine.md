@@ -90,7 +90,8 @@ sequenceDiagram
 
 ## Extending and testing
 
-- **Provider kind**: a case in `providers.handle` (status, model operations, log), a probe in presence, Go tests, then the server and console sides (see the checklist in `AGENTS.md`).
+- **Provider kind**: a case in `providers.handle` (status, model operations, log), a probe in presence, Go tests, then the server and console sides (the checklist in `server.md`, Extending).
 - **Message type**: a branch in `presence.session` answering `<type>_result` with its own toggle check; a new toggle goes into `settings.Machine`, `configure`, `show` and `describe`. Mirror it in `python/agent_py/machine/presence.py` and the server's `Fleet`.
 - `go test ./...`, and vet for Windows and Linux (the `process_*.go` files differ). End to end: `server/tests/test_client.py::fleet_machine` with `fake_docker.py`, `fake_strata.py`, `fake_llamacpp.py`, `fake_mcp.py`. The installer's tests play GitHub with `httptest` (`AI_PROXY_LLAMACPP_RELEASES`) and Termux's apt-get with a script (`AI_PROXY_LLAMACPP_APT`).
 - Don't test as the Ubuntu WSL user: it runs a real agent-machine in the real fleet.
+- For a real container runtime, Podman works as the machine's CLI (`agent-machine containers cli podman`). On the dev computer that's `podman-machine-default`, normally stopped: start it, test, then clean up and stop it again. Docker isn't installed there, so Docker Model Runner support is tested against mocks and the demo's fake only.

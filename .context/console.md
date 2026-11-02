@@ -91,7 +91,17 @@ The design rule: **everything about a model server is on its machine's page**, o
 
 - **Page**: `pages/X.tsx` with `<PartTag />` above its `<h1>`, a `<Route>` in `App.tsx`, an item in `PARTS`, calls in `api.ts`, and docs in `docs/console.md`.
 - **Provider view**: `MACHINE_TYPES`, `PROVIDERS`, the Settings `<option>` and `URL_PLACEHOLDERS`, a `<Kind>Provider` taking the props above, and its case in `ProviderView`. No global provider pages.
-- Check with `npm run typecheck` and `npm run build`; for visual checks, `python scripts/screenshots/demo.py`.
+- Check with `npm run typecheck` and `npm run build`; for visual checks, the demo below.
+
+## Checking changes visually
+
+`python scripts/screenshots/demo.py` runs a self-contained demo on :8199 (a direct intercept listener on :18199; no agent-proxy), in a temporary home with its own SQLite database seeded with `config_io.apply`, so the real `logs/` and database aren't touched. It has three made-up shared terminals fed through `FakeLauncher` (Claude Code at a permission prompt, OpenCode working, Codex finished; typing echoes back), three made-up machines over the fleet socket (`ai-desktop`, `ai-laptop`, `build-box`) whose provider requests `FakeProviders` answers and whose containers `FakeContainers` keeps in memory (`strata-iq3` ready, `strata-coder` waiting to switch in, `ollama-cpu`), fake backends (Ollama on :18434 and :18435, Anthropic on :18436, Docker Model Runner on :18437), seeded account sessions and live traffic. Stop it with Ctrl+C.
+
+`node scripts/screenshots/capture.mjs http://127.0.0.1:8199 docs/screenshots [name,...]` regenerates the screenshots in `docs/` (README and `docs/console.md`). It needs `playwright-core` and a browser; without Playwright's Chromium, pass one with `chromium.launch({ executablePath })` (on the dev computer, Edge at `C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe`). Keep throwaway screenshot scripts outside the repo. Update a screenshot when the page it shows changed visibly.
+
+## Documentation pages (`docs/`)
+
+The Docs page (`/help`) renders `docs/*.md`. A new page goes into `DOC_SECTIONS` in `pages/Docs.tsx` (`test_help.py` checks every page is listed), the same section of `docs/index.md` (Start here, Use it, People and data, Run a server, How it works, Contribute) and `README.md`'s table. Diagrams are Mermaid (`sequenceDiagram` for flows, `flowchart` for structure), never ASCII art. Headings: one H1, a handful of H2s, H3s only for genuinely separate parts, no H4s, no Contents lists; small topics are a paragraph with a bold lead-in, a list item or a table row. Plain short sentences, sentence case, saying what something does for the user.
 
 ## Gotchas
 

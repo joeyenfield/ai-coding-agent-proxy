@@ -95,7 +95,10 @@ With `--account`, the session request names the provider account; when the answe
 - **A new server call from the launcher**: add it to the server's API, to `LauncherAPI` here **and** `LAUNCHER_API` in `python/agent_py/client/localproxy.py`, and a test in `server/tests/test_client.py`.
 - Go tests: `go test ./...`; `go vet ./...` and `GOOS=linux go vet ./...` for both pty paths.
 - The contract: `server/tests/test_client.py` builds `./cmd/agent` and runs it against a real server on free ports.
-- Never test on 8183, 8184 or 9999 on the dev machine. Set `AI_PROXY_LOCAL_PORT`, `AI_PROXY_LOCAL_INTERCEPT_PORT`, `AI_PROXY_URL`, `AI_PROXY_CREDENTIALS`.
+- Never test on 8183, 8184 or 9999 on the dev machine: a coding agent working here may itself run through that agent-proxy and server. Set `AI_PROXY_LOCAL_PORT`, `AI_PROXY_LOCAL_INTERCEPT_PORT`, `AI_PROXY_URL`, `AI_PROXY_CREDENTIALS` (as a Windows path when set from Git Bash).
+- Fake servers in Go tests need the same care as `readHead`: read the hello before closing, or Windows resets the socket.
+- Style: `gofmt`, `go vet` clean for Windows and Linux, the standard library first, comments that explain why. Never import `machine/` or `tools/`.
+- **Testing terminal hosting for real**: `terminal.Run` needs a real console. On Windows, run the built `agent.exe ... --control` inside a `winpty.PTY` (pywinpty, in the server's dev extras) against a server and `agent proxy` on free ports: write keys to it, read its screen, and type from a viewer WebSocket on the server. For the POSIX path use WSL Ubuntu: build with `GOOS=linux CGO_ENABLED=0` and drive the binary with Python's `pty.fork()`. Its `/mnt` drives aren't visible from the sandbox, so pipe files in with `tar cf - . | wsl.exe -d Ubuntu -- sh -c 'cd /tmp/x && tar xf -'` and set `MSYS_NO_PATHCONV=1`; the server's packages aren't installed there, so play the server with a stdlib `http.server`.
 
 ## Gotchas
 
