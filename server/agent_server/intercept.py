@@ -262,7 +262,7 @@ class InterceptProxy:
             self._connections.discard(task)
             writer.close()
 
-    def _refused(self, identity: Any, session_id: str | None, target: str, status: int, reason: str) -> None:
+    def _refused(self, identity: Any, session_id: str | None, target: str, status: int, reason: str, ip: str | None = None) -> None:
         """A refused interception, in the audit log: who, which session, where to."""
         audit = getattr(self.runtime, "audit", None)
         if audit is None:
@@ -270,7 +270,7 @@ class InterceptProxy:
         audit.record(audit.event(
             "interception.refused", tenant=getattr(identity, "tenant", None), actor=getattr(identity, "user", None),
             via=getattr(identity, "via", None), action="CONNECT", target={"kind": "destination", "id": target[:200]},
-            outcome="refused", reason=reason, session_id=session_id, status=status,
+            outcome="refused", reason=reason, session_id=session_id, status=status, ip=ip,
         ))
 
     async def _connection(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter, connection: HTTPConnection | None = None) -> None:
@@ -291,9 +291,11 @@ class InterceptProxy:
                 await writer.drain()
                 return
         session_id = _proxy_user(headers.get("proxy-authorization"))
+        peer = connection.client if connection is not None else writer.get_extra_info("peername")
+        source_ip = str(peer[0]) if peer else None
         session = self.runtime.sessions.get(session_id) if session_id else None
         if identity is None or session is None or session.ended_at is not None or not access.can_control(identity, session):
-            self._refused(identity, session_id, target, 407, "no open session this caller may control")
+            self._refused(identity, session_id, target, 407, "no open session this caller may control", source_ip)
             writer.write(
                 b"HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"ai-proxy\"\r\n"
                 b"Content-Length: 0\r\nConnection: close\r\n\r\n"
@@ -308,7 +310,7 @@ class InterceptProxy:
         try:
             addresses = await _public_addresses(host, port, DESTINATION_LOOKUP_TIMEOUT)
         except DestinationDenied:
-            self._refused(identity, session.session_id, target, 403, "a private or reserved destination")
+            self._refused(identity, session.session_id, target, 403, "a private or reserved destination", source_ip)
             writer.write(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
             await writer.drain()
             return

@@ -167,7 +167,7 @@ A valid signature is never enough. A token is accepted only when:
 5. its account version (`acct`) is the account's now: a new password, or a removed account, ends every token at once;
 6. the account exists: its role, organization and teams are read fresh for every request, as for introspected tokens.
 
-agent-auth still keeps every access token's record, so introspection, `/userinfo` and `/revoke` work for signed tokens as before. Its sign-in rate limits are shared between its processes when it has `AI_PROXY_REDIS_URL`.
+agent-auth still keeps every access token's record, so introspection, `/userinfo` and `/revoke` work for signed tokens as before. Its sign-in rate limits are shared between its processes when it has `AI_PROXY_REDIS_URL`. Password attempts are limited to ten per source address and thirty per normalized account name in ten minutes, across browser and device sign-in. Account counters use a hash of the name and apply to unknown accounts too.
 
 ## Migration from protocol 1
 

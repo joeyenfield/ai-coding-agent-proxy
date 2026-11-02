@@ -160,6 +160,8 @@ async def test_connect_to_private_destination_is_refused_before_tls(intercept):
     await writer.drain()
     response = await reader.readuntil(b"\r\n\r\n")
     assert response.startswith(b"HTTP/1.1 403 ")
+    [event] = runtime.audit.query(kind="interception.refused")
+    assert event["data"]["actor"]["ip"] == "127.0.0.1"
     writer.close()
 
 

@@ -51,6 +51,10 @@ def test_the_console_and_docs_are_checked_again_and_the_assets_kept(tmp_path):
         for path in ("/", "/help/networking", "/index.html", "/help-files/index.md"):
             answer = client.get(path)
             assert answer.status_code == 200 and answer.headers["cache-control"] == "no-cache", path
+            if not path.startswith("/help-files/"):
+                assert "frame-ancestors 'none'" in answer.headers["content-security-policy"]
+                assert answer.headers["x-frame-options"] == "DENY"
+                assert answer.headers["x-content-type-options"] == "nosniff"
         asset = client.get("/assets/index-abc123.js")
         assert asset.status_code == 200 and "immutable" in asset.headers["cache-control"]
 

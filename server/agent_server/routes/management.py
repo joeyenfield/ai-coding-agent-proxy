@@ -18,7 +18,7 @@ from .. import access, auth, config_io, mcp, remote, strata, version
 from ..agents import stored_agents
 from ..db import redacted
 from ..config import DIRECT_BACKEND, LOCAL_PROXY_URL, ModelProfile, serves
-from ..fleet import PROVIDER_TYPES, SHELL_CLIENT, FleetError, parse_provider, provider_id, provider_request
+from ..fleet import PROVIDER_TYPES, SHELL_CLIENT, FleetError, can_see, parse_provider, provider_id, provider_request
 from ..provider_accounts import AccountError
 from ..runtime import Runtime
 from ..sessions import Session
@@ -76,7 +76,15 @@ def register(app: FastAPI, runtime: Runtime) -> None:
 
     @app.get("/api/status")
     async def status(request: Request) -> dict[str, Any]:
-        return runtime.status(visible_ids(request), usable(request))
+        result = runtime.status(visible_ids(request), usable(request))
+        identity = auth.request_identity(request)
+        if not identity.site_admin:
+            result["proxy_url"] = str(request.base_url).rstrip("/")
+            result["listen_address"] = request.url.netloc
+            result["configured_listen_address"] = request.url.netloc
+            for backend in result["backends"].values():
+                backend.pop("url", None)
+        return result
 
     @app.get("/api/server/stats")
     async def server_stats() -> dict[str, Any]:
@@ -619,6 +627,14 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             raise HTTPException(status_code=404, detail="No such backend")
         names = [backend] if backend else [name for name, item in settings.backends.items() if mine(item)]
         results = await asyncio.gather(*(_backend_models(runtime, name) for name in names))
+        identity = auth.request_identity(request)
+        for name, result in zip(names, results):
+            machine = runtime.fleet.machines.get(settings.backends[name].machine or "")
+            if not identity.site_admin and (machine is None or not can_see(identity, machine)):
+                result.pop("url", None)
+                result.pop("version", None)
+                result.pop("error", None)
+                result["models"] = [{key: model[key] for key in ("name", "profile") if key in model} for model in result.get("models", [])]
         return {
             "backends": dict(zip(names, results)),
             "aliases": {name: settings.profile(name).public() for name in settings.models},

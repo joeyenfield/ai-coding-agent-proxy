@@ -86,6 +86,19 @@ def refresh(client, service, token, client_id=None):
                                       "refresh_token": token})
 
 
+def test_password_limit_follows_account_across_source_addresses(issuer):
+    client, service, store = issuer
+    params, verifier = auth_params(service)
+    tx = transaction(client.get("/authorize", params=params))
+    for attempt in range(31):
+        with TestClient(client.app, base_url=service.issuer, client=(f"198.51.100.{attempt + 1}", 50000)) as visitor:
+            visitor.cookies.update(client.cookies)
+            response = visitor.post("/authorize", data={
+                "transaction": tx, "username": " ALICE ", "password": "wrong", "approve": "yes",
+            }, headers={"Origin": service.issuer})
+            assert response.status_code == (401 if attempt < 30 else 429)
+
+
 def test_browser_pkce_discovery_jwks_and_no_secret_storage(issuer, caplog):
     client, service, store = issuer
     before = stored_rows(store.db, schema.users)

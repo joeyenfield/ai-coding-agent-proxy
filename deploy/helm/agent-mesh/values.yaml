@@ -51,9 +51,10 @@ server:
   # and unauthenticated /metrics for Prometheus. Never routed by the ingress; the
   # NetworkPolicy lets only this release's server pods (and Prometheus) reach it.
   internalPort: 9100
-  # uvicorn trusts X-Forwarded-For / -Proto from these addresses. Pods are reached only
-  # through the ingress or gateway (enforced by networkPolicy), so "*" is the usual value.
-  forwardedAllowIps: "*"
+  # uvicorn trusts forwarded headers only from these proxy addresses or CIDRs.
+  # Set this to your ingress/gateway ranges. Use "*" only with networkPolicy.publicFrom
+  # restricted to trusted proxies; the default publicFrom permits direct pod access.
+  forwardedAllowIps: "127.0.0.1"
   # AI_PROXY_DEFAULT_BACKEND, if set.
   defaultBackend: ""
   # Sleep before SIGTERM, so endpoints are removed before the server starts draining.

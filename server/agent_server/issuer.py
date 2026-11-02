@@ -850,6 +850,7 @@ def create_auth_app(settings: Settings | None = None) -> FastAPI:
                 raise IssuerError("invalid_request")
             service.rate(("password", request.client.host), 10)
             name = data.get("username", "").strip().lower()
+            service.rate(("password_account", digest(name)), 30)
             if not service.auth.check_password(name, data.get("password", "")):
                 # The same form again (its transaction still stands), so they can just retype.
                 return pages.sign_in(data["transaction"], username=name, error="Wrong username or password.", status=401)
@@ -903,6 +904,7 @@ def create_auth_app(settings: Settings | None = None) -> FastAPI:
             if not credential or credential["used"] or service.state.get("approval", code_hash):
                 raise IssuerError("invalid_user_code")
             service.rate(("password", request.client.host), 10)
+            service.rate(("password_account", digest(name)), 30)
             if not service.auth.check_password(name, data.get("password", "")):
                 return pages.device(data["transaction"], **again, error="Wrong username or password.", status=401)
             user = service.bound_user(name)

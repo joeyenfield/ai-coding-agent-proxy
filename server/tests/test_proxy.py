@@ -17,6 +17,88 @@ from agent_server.app import create_app
 from agent_server.fleet import Machine
 
 
+def test_native_session_header_requires_control(tmp_path):
+    from test_auth import org_settings, signed_in
+
+    app = create_app(org_settings(tmp_path))
+    owner, viewer, outsider = (signed_in(app, name) for name in ("alice", "bob", "frank"))
+    with owner, viewer, outsider:
+        session_id = owner.post("/api/sessions", json={"client": "probe", "backend": "test", "visibility": "org"}).json()["session_id"]
+        headers = {"X-AI-Proxy-Session": session_id}
+        for caller in (viewer, outsider):
+            assert caller.get("/api/tags", headers=headers).status_code == 404
+            assert caller.post("/api/chat", headers=headers, json={"model": "m", "stream": False}).status_code == 404
+        assert app.state.runtime.require_session(session_id).request_count == 0
+        app.state.runtime.sessions.end(app.state.runtime.require_session(session_id), 0)
+        assert owner.get("/api/tags", headers=headers).status_code == 404
+
+
+@pytest.mark.parametrize("minimum", [0, 30])
+def test_native_reads_do_not_create_implicit_sessions(tmp_path, minimum):
+    app, client, old = make_app(tmp_path, lambda request: httpx.Response(200, json={"models": []}))
+    try:
+        if minimum:
+            app.state.runtime.retention.set_server({"min": {"sessions": minimum}}, "test-admin")
+        before = len(app.state.runtime.sessions.list())
+        for path in ("/api/tags", "/api/ps", "/api/version", "/v1/models"):
+            assert client.get(path).status_code == 200
+        assert client.post("/api/show", json={"model": "m"}).status_code == 200
+        assert len(app.state.runtime.sessions.list()) == before
+        assert client.post("/api/chat", json={"model": "m", "stream": False, "messages": []}).status_code == 200
+        [session] = app.state.runtime.sessions.list()
+        assert session.tags["retention"]["days"]["sessions"] == max(7, minimum)
+    finally:
+        close_app(app, client, old)
+
+
+def test_model_list_does_not_synthesize_success_from_upstream_failure(tmp_path):
+    app, client, old = make_app(tmp_path, lambda request: httpx.Response(503, json={"error": "offline"}))
+    try:
+        response = client.get("/v1/models")
+        assert response.status_code == 502
+        assert "data" not in response.json()
+    finally:
+        close_app(app, client, old)
+
+
+def test_hidden_machine_metadata_is_not_returned(tmp_path, monkeypatch):
+    from test_auth import org_settings, signed_in
+
+    app = create_app(org_settings(tmp_path))
+
+    async def models(runtime, name):
+        return {"type": "ollama", "url": "http://private.test", "version": "secret", "online": True,
+                "models": [{"name": "m", "loaded": True, "context_length": 1234}]}
+
+    monkeypatch.setattr("agent_server.routes.management._backend_models", models)
+    with signed_in(app, "alice") as client:
+        status = client.get("/api/status").json()
+        assert status["listen_address"] == "127.0.0.1:8181"
+        assert status["proxy_url"] == "http://127.0.0.1:8181"
+        assert "url" not in status["backends"]["test"]
+        backend = client.get("/api/models").json()["backends"]["test"]
+        assert "url" not in backend and "version" not in backend
+        assert backend["models"] == [{"name": "m"}]
+
+
+@pytest.mark.parametrize("backend_type", ["strata", "anthropic"])
+def test_protocol_rejections_do_not_create_implicit_sessions(tmp_path, backend_type):
+    def unexpected(request):
+        raise AssertionError("An incompatible native request must not reach the backend")
+
+    app, client, old = make_app(tmp_path, unexpected)
+    try:
+        app.state.runtime.settings.backends["test"] = Backend("test", "http://backend.test", backend_type)
+        assert client.get("/api/tags").status_code == 400
+        assert client.post("/api/chat", json={"model": "m"}).status_code == 400
+        assert app.state.runtime.sessions.list() == []
+        if backend_type == "anthropic":
+            response = client.get("/v1/models")
+            assert response.status_code == 200 and response.json()["object"] == "list"
+    finally:
+        close_app(app, client, old)
+
+
 def make_app(tmp_path: Path, handler, **settings_args):
     settings = Settings(log_dir=tmp_path, default_backend="test", backends={"test": Backend("test", "http://ollama.test")}, **settings_args)
     app = create_app(settings)

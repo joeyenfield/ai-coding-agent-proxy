@@ -288,12 +288,14 @@ class _Assets(StaticFiles):
 
 def _register_ui(app: FastAPI, ui_dir: Path) -> None:
     index = ui_dir / "index.html"
+    headers = {**NO_CACHE, "Content-Security-Policy": "frame-ancestors 'none'; object-src 'none'; base-uri 'self'",
+               "X-Frame-Options": "DENY", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "same-origin"}
     if (ui_dir / "assets").is_dir():
         app.mount("/assets", _Assets(directory=ui_dir / "assets"), name="assets")
 
     @app.get("/", include_in_schema=False)
     async def ui_root() -> Any:
-        return FileResponse(index, headers=NO_CACHE) if index.exists() else HTMLResponse(UI_MISSING)
+        return FileResponse(index, headers=headers) if index.exists() else HTMLResponse(UI_MISSING, headers=headers)
 
     # Registered last so API and compatibility routes take precedence; anything
     # else is a client-side route in the single-page app.
@@ -301,10 +303,10 @@ def _register_ui(app: FastAPI, ui_dir: Path) -> None:
     async def ui_fallback(path: str) -> Any:
         candidate = (ui_dir / path).resolve()
         if candidate.is_file() and candidate.is_relative_to(ui_dir.resolve()):
-            return FileResponse(candidate, headers=NO_CACHE)
+            return FileResponse(candidate, headers=headers)
         if path.startswith(("api/", "v1/", "session/", "anthropic/", "downloads/", "help-files/")) or not index.exists():
             raise HTTPException(status_code=404, detail="Not found")
-        return FileResponse(index, headers=NO_CACHE)
+        return FileResponse(index, headers=headers)
 
 
 class _JsonFormatter(logging.Formatter):

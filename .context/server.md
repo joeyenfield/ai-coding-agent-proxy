@@ -8,6 +8,8 @@ Every agent request arrives at one ASGI app. `routes/compat.py` finds the sessio
 
 ## Must never
 
+Agent session resolution checks control permission and ended state. Unscoped forwarded GETs do not create recordings; protocol validation precedes implicit session creation. New implicit sessions receive seven-day session retention when otherwise unlimited, respecting the policy minimum. Non-site-admin status responses use the request's public origin/address and omit backend URLs; model discovery hides machine runtime details from callers without machine view permission. The built-in SPA sends framing, object, base-URL, sniffing and referrer headers. Refused intercept audit events include the trusted HTTP connection address or direct socket peer.
+
 - Call a model server for anything but agents' traffic. Listing, pulling, status, logs, metrics, Ollama settings and start/stop are fleet requests to the machine. Native `/api/*` passthrough only allows `compat.NATIVE_AGENT_PATHS`.
 - Run `docker`, or add a local backend (`MACHINE_TYPES`: ollama, llamacpp, strata, docker) by URL. `Settings.update_network_config` refuses new or moved ones; only `anthropic` is added by URL.
 - Import client, machine or Python-port code, or assume anything about them beyond the API.

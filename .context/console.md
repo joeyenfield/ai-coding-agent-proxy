@@ -8,6 +8,8 @@ Every byte the console shows comes from the server over HTTP, server-sent events
 
 ## Boundaries
 
+The standalone nginx image and server-hosted SPA send `frame-ancestors 'none'`, `X-Frame-Options: DENY`, `nosniff`, `same-origin` referrer policy, and object/base-URL restrictions. These do not change page layout. nginx location caching must preserve the server-level security headers.
+
 - Only the server's API. No imports from other components, and no logic the server owns (backend choice, agent templates).
 - The server's SPA fallback returns `index.html` for unknown paths but 404 under `api/`, `v1/`, `session/`, `anthropic/`, `downloads/`, `help-files/`. So the SPA must not use `/downloads/`, `/android` (files) or `/docs` (OpenAPI). That's why Downloads is `/get` and docs are `/help`.
 - Every build replaces the lazy chunks (`mermaid.js`, the terminal, containers). So the server sends `index.html` and the docs with `Cache-Control: no-cache` and `/assets/` as immutable, `main.tsx` reloads the page once on `vite:preloadError` (a console from before an update), and the Docs page says so on each diagram if `mermaid.js` still won't load, trying again next time.

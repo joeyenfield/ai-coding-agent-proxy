@@ -1,5 +1,7 @@
 # Retention: what's recorded, and for how long
 
+Implicit sessions created by unscoped agent writes use seven-day session retention when the organization's policy would keep sessions forever. A longer minimum retention still applies. Explicit sessions keep the configured policy. Read-only agent calls do not create implicit sessions. This applies to new sessions; existing recordings keep their stamped policy.
+
 The server records every agent's model calls (who called which model, tokens, timings), and with tracing their full requests and replies, and shared terminals' output. How much of that is kept, and for how long, is a **retention policy**: the server's, set by site admins, and each organization's own, set by its admins within the server's bounds. A **legal hold** pauses scheduled retention deletion for what it covers. Manual session deletion and clearing do not currently check holds; this is an incomplete legal-preservation control.
 
 ## What a policy says

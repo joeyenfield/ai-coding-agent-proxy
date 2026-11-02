@@ -350,7 +350,12 @@ class Runtime:
 
     def resolve_session(self, session_id: str | None, payload: dict[str, Any], backend: str | None, identity: Any = None) -> Session:
         if session_id:
-            return self.require_session(session_id)
+            from .access import can_control
+
+            session = self.require_session(session_id)
+            if session.ended_at is not None or identity is None or not can_control(identity, session):
+                raise HTTPException(status_code=404, detail="No open session with that id")
+            return session
         tags: dict[str, Any] = {"implicit": True}
         if identity is not None:
             # A signed-in user's request without a session: theirs, private, in their tenant.

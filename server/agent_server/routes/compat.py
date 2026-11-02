@@ -329,13 +329,32 @@ async def _forward(
     body = await request.body()
     payload = _json(body)
     original_payload = json.loads(json.dumps(payload))
-    session = runtime.resolve_session(session_id, payload, backend_override, auth.request_identity(request))
-    backend = _backend(runtime, request, backend_override or session.backend)
+    identity = auth.request_identity(request)
+    session = runtime.resolve_session(session_id, payload, backend_override, identity) if session_id else None
+    backend = _backend(runtime, request, backend_override or (session.backend if session else None))
     if backend.type == "anthropic" and "/anthropic/" not in request.url.path:
         raise HTTPException(status_code=400, detail="Anthropic backends are only reachable through the /anthropic endpoints")
     if backend.type in {"strata", "llamacpp"} and upstream_path.startswith("/api/"):
         name = "Strata" if backend.type == "strata" else "llama.cpp"
         raise HTTPException(status_code=400, detail=f"{name} speaks the OpenAI and Anthropic APIs, not Ollama's native /api. Point the agent at /v1 or /anthropic.")
+    if session is None and (request.method == "GET" or (request.method == "POST" and upstream_path == "/api/show")):
+        assert runtime.client
+        target = model_runner.upstream_path(upstream_path) if backend.type == "docker" else upstream_path
+        headers = _upstream_headers(request.headers)
+        if backend.type == "strata":
+            headers = strata.with_key(backend, headers)
+        elif backend.type == "llamacpp":
+            headers = strata.with_container_key(backend, headers)
+        try:
+            upstream = await runtime.client.request(
+                request.method, await runtime.tunnels.base_url(backend) + target,
+                headers=headers, params=request.query_params, content=body or None,
+            )
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail="Backend unavailable") from exc
+        return Response(upstream.content, status_code=upstream.status_code, media_type=upstream.headers.get("content-type"))
+    if session is None:
+        session = runtime.resolve_session(None, payload, backend.name, identity)
     request_id = await runtime.sessions.next_request_id(session)
     model = payload.get("model") or session.model or ""
     if model and request.method == "POST" and backend.type == "ollama":
@@ -483,6 +502,11 @@ async def _stream_upstream(
 
 async def _list_models(runtime: Runtime, request: Request, backend_name: str | None) -> JSONResponse:
     backend = _backend(runtime, request, backend_name)
+    if backend.type == "anthropic":
+        return JSONResponse({"object": "list", "data": [
+            {"id": alias, "object": "model", "owned_by": "agent-proxy"}
+            for alias in runtime.settings.models
+        ]})
     assert runtime.client
     if backend.type in {"strata", "docker", "llamacpp"}:
         path = model_runner.upstream_path("/v1/models") if backend.type == "docker" else "/v1/models"
@@ -494,6 +518,7 @@ async def _list_models(runtime: Runtime, request: Request, backend_name: str | N
             raise HTTPException(status_code=502, detail=f"Backend unavailable: {exc}") from exc
     try:
         response = await runtime.client.get(await runtime.tunnels.base_url(backend) + "/api/tags")
+        response.raise_for_status()
         data = response.json()
     except (httpx.HTTPError, ValueError) as exc:
         raise HTTPException(status_code=502, detail=f"Backend unavailable: {exc}") from exc
@@ -503,7 +528,7 @@ async def _list_models(runtime: Runtime, request: Request, backend_name: str | N
         {"id": alias, "object": "model", "owned_by": "agent-proxy"}
         for alias in runtime.settings.models if alias not in known
     ]
-    return JSONResponse({"object": "list", "data": models}, status_code=response.status_code)
+    return JSONResponse({"object": "list", "data": models})
 
 
 def _over_limit(runtime: Runtime, request: Request, session: Session, telemetry: RequestTelemetry, payload: Any, backend: Any) -> JSONResponse | None:

@@ -71,6 +71,8 @@ flowchart LR
 
 ## Rules
 
+The standalone console and brochure nginx images hide version strings and send framing, object/base-URL, sniffing and referrer protection headers. Keep nginx header inheritance intact when changing location-specific caching. Helm trusts forwarded headers from loopback by default: operators must set ingress/gateway CIDRs, or restrict `networkPolicy.publicFrom` before trusting `*`.
+
 - Keep `go.mod` at Go 1.24 and build with `GOTOOLCHAIN=local`.
 - Every build in `dist/<version>/` is ~450 MB and nothing prunes them: delete old `dist/<version>+<commit>/` folders by hand.
 - Podman on the dev computer (`podman-machine-default`, WSL-based, no localhost forwarding) builds and runs `server/Dockerfile`: pass `--http-proxy=false` to `podman build`, and reach a published port at the VM's address (`ip -4 addr` inside `wsl -d podman-machine-default`).

@@ -72,6 +72,8 @@ Every organization is a **tenant**, under the one **root** organization (`auth.R
 
 ## Authorization invariants
 
+`Runtime.resolve_session` enforces open-session control permission for every explicit agent session, including unscoped native `/api/*` headers. Do not rely only on middleware prefixes. Unscoped GET forwarding does not allocate a session. Issuer password checks share a normalized-account counter (hashed name, 30/600 seconds) across browser and device forms, in addition to the source-address counter (10/600 seconds).
+
 - Nothing crosses tenants except for site admins, who see and control every tenant's sessions, machines and providers. Every new route that returns or changes a session, machine, backend or container checks the tenant (through the helpers above), and lists filter by it.
 - Private sessions remain private from organization admins (not site admins); owners and `launched_by` control their sessions. Shared viewers control only with explicit control access.
 - Clients cannot set server-owned tags. Narrowing sharing disconnects viewers. Shell sessions stay private.

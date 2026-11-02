@@ -268,6 +268,8 @@ class Retention:
         """A new session's data with its organization's policy (tags.retention) and its trace capture applied."""
         tags = dict(data.get("tags") or {})
         policy = self.effective(tags.get("tenant"))
+        if tags.get("implicit") and policy["days"]["sessions"] is None:
+            policy["days"] = {**policy["days"], "sessions": max(7, policy["server"]["min"]["sessions"] or 0)}
         tags["retention"] = {"days": policy["days"], "capture": policy["capture"]}
         data = {**data, "tags": tags}
         mode = policy["capture"]["traces"]

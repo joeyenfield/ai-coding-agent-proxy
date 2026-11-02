@@ -36,7 +36,9 @@ Everything belongs to one organization (tenant): users, machines, providers, ses
 
 ## Agent-facing APIs
 
-Agents call these paths on their loopback agent-proxy, which authenticates all upstream traffic with `X-AI-Proxy-Token` while preserving vendor Authorization. Session paths require an open session and control permission. Unscoped authenticated traffic can create a private implicit session.
+Agents call these paths on their loopback agent-proxy, which authenticates all upstream traffic with `X-AI-Proxy-Token` while preserving vendor Authorization. Both session paths and `X-AI-Proxy-Session` require an open session and control permission, including native `/api/*` calls. Unscoped authenticated writes can create a private implicit session. Unscoped reads do not create sessions. Backend protocol errors are rejected before creating a session. Implicit sessions default to seven days when the organization's session retention is unlimited, subject to its minimum retention.
+
+For non-site-admins, `/api/status` reports the public request origin and address instead of the server's configured bind address, and omits backend URLs. `/api/models` still lists usable models, but omits backend URLs, versions, errors and model runtime details unless the caller can view the machine (site admins can see all). `/v1/models` returns `502` when Ollama model discovery fails; hosted Anthropic backends list configured aliases without querying Ollama endpoints. Refused interception audit events include the trusted HTTP connection address, or the direct socket peer for native connections.
 
 | Method | Path | What it does |
 |---|---|---|

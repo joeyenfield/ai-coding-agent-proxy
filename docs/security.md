@@ -4,6 +4,10 @@ How each device pairs with the server, how computers sign in without passwords, 
 
 ## Pairing: how each device joins
 
+The built-in console server and standalone nginx images send framing protection (`frame-ancestors 'none'` and `X-Frame-Options: DENY`), `nosniff` and a `same-origin` referrer policy. They disable object embedding and restrict base URLs to the same origin. Standalone nginx images hide their version. Rebuild and redeploy those images to apply the headers; changing the API alone does not update a separately hosted console.
+
+The Helm chart trusts forwarded headers from loopback by default. Set `server.forwardedAllowIps` to the trusted ingress or gateway addresses or CIDRs. Only use `*` when `networkPolicy.publicFrom` and external firewall rules restrict direct access to trusted proxies. An unrestricted public pod port does not make arbitrary forwarded headers trustworthy.
+
 There is no separate pairing step any more. Every device pairs with the server by signing in through the issuer (agent-auth), as a person, and the server then decides what that person may do. What differs is how each kind of device signs in:
 
 | Device | How it pairs | What it gets | What it's tied to |
