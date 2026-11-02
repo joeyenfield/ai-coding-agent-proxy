@@ -30,7 +30,7 @@ VERSION          The project's one hand-written version
 
 ## Setup and running
 
-You need Python 3.11 or later (development uses 3.13), Node with npm, and Go (the modules stay at Go 1.24; build with `GOTOOLCHAIN=local` so Go doesn't download another toolchain).
+You need Python 3.13 or later, Node with npm, and Go (the modules stay at Go 1.24; build with `GOTOOLCHAIN=local` so Go doesn't download another toolchain).
 
 ```bash
 cd server && pip install -e ".[dev]"    # agent-server and agent-benchmark, plus pytest and friends

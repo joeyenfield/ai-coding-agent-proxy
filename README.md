@@ -33,7 +33,7 @@ For Podman, replace `docker compose` with `podman compose`. This starts the serv
 
 **Local demo only:** known credentials, loopback ports 19999/20000, and no model downloaded automatically. For a real install, configure your own credentials, HTTPS and OIDC using [Deployment](docs/deployment.md) and [Security](docs/security.md). The public website's existing console link requires an account for that deployment; it is not the local quickstart.
 
-On the server's computer, from this checkout (Python 3.11+, Node 20+), or with `docker compose up -d`:
+On the server's computer, from this checkout (Python 3.13+, Node 20+), or with `docker compose up -d`:
 
 First configure the separate **`agent-auth`** service at your own issuer URL, HTTPS, callbacks and the shared introspection secret: [OIDC authentication](docs/oidc.md). API access requires OAuth access tokens, including on loopback. Replace `api.example.com` below with your server's HTTPS address.
 

@@ -20,7 +20,7 @@ The server is `agent-server`, a Python program. It holds the API, the web consol
 
 ### From a checkout
 
-You need Python 3.11 or later, and Node.js with npm to build the console.
+You need Python 3.13 or later, and Node.js with npm to build the console.
 
 ```bash
 git clone <this repository> ai-coding-agent-proxy
