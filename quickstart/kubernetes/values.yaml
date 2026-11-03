@@ -8,6 +8,11 @@ mode: single
 # Plain HTTP: the issuer accepts it on localhost only, which is all a port-forward needs.
 publicScheme: http
 
+# The newest build of master, like the Compose quickstart; pulled again on every pod start.
+image:
+  tag: latest
+  pullPolicy: Always
+
 server:
   host: localhost
   publicUrl: http://localhost:19999

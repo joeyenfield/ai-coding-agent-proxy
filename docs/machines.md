@@ -440,7 +440,7 @@ docker run -d --name agent-sandbox --network agent-models --restart unless-stopp
   -e AI_PROXY_SERVER=https://api.aicontrolmesh.com \
   -e AGENT_OLLAMA=ollama -e AGENT_LLAMACPP=llamacpp:8080 \
   -v agent-sandbox-home:/home/agent -v agent-sandbox-workspace:/workspace \
-  ghcr.io/joeyenfield/agent-sandbox:<version>
+  ghcr.io/joeyenfield/agent-sandbox:latest
 ```
 
 Pulling, deleting, loading and unloading models on the relayed Ollama work from the console, with servers on (`AGENT_SERVERS=on`). A relayed llama-server serves what its own container was started with, and the sandbox can't start, stop or configure either one: they're other containers.

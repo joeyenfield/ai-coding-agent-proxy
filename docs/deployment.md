@@ -62,7 +62,9 @@ GitHub Actions (`.github/workflows/images.yml`) builds the images and pushes the
 | Pushed | Tags |
 |---|---|
 | A tag `v2.0.1` | `2.0.1`, `2.0`, `latest` |
-| `master` | `master`, `sha-<commit>` |
+| `master` | `master`, `sha-<commit>`, `latest` |
+
+`latest` is whichever was built last, a tag or `master`: the newest build. Pin a release or commit tag for a server you want to stay put.
 
 Each image's version (what `/health` reports) is the build's, `2.0.1` on its tag or `2.0.1+<commit>` otherwise, the same as a build on your computer. The standalone console (`ui/Dockerfile`) isn't published: it's built with its API's address (`VITE_API_URL`), so each deployment builds its own. **Run workflow** on the workflow's Actions page builds a branch or tag by hand.
 
@@ -74,7 +76,7 @@ docker pull ghcr.io/joeyenfield/agent-server:2.0.1
 
 | Variable | What it does |
 |---|---|
-| `AI_PROXY_IMAGE_TAG` | The tag to run (default `latest`): `2.0.1`, `2.0`, `master` or `sha-<commit>`. |
+| `AI_PROXY_IMAGE_TAG` | The tag to run (default `latest`, the newest build): `2.0.1`, `2.0`, `master` or `sha-<commit>`. |
 | `AI_PROXY_IMAGES` | Where the images are (default `ghcr.io/joeyenfield`): set it to your own registry or fork's owner, such as `ghcr.io/<you>`. |
 
 The server still hands out the agent and agent-machine builds from its `dist/` folder, which the image doesn't contain: mount it as before (`/app/dist`), built from the same commit as the image.

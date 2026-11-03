@@ -51,7 +51,7 @@ kubectl -n mesh apply -f quickstart/kubernetes/machine.yaml
 kubectl -n mesh get pods -w        # wait until both pods are Running (the first pull takes a few minutes)
 ```
 
-Keep the release name `mesh`: the machine's relays name its Services. The images are the chart's version; `--set image.tag=<tag>` picks another, as `AI_PROXY_IMAGE_TAG` does in the Compose quickstart.
+Keep the release name `mesh`: the machine's relays name its Services. The images are `latest`, the newest build of master, as in the Compose quickstart; `--set image.tag=<tag>` picks another (a release, `2.0.1`, or a commit, `sha-<commit>`), as `AI_PROXY_IMAGE_TAG` does there.
 
 Then, in a terminal of its own that you leave open, forward the two ports:
 
@@ -78,7 +78,7 @@ On Windows PowerShell, run the two `port-forward` commands in two windows instea
    ```
 
    For each code, open **Machines › Approve a device** in the console, type the code and approve it. Within a minute **k8s-machine** shows as connected on **Machines**.
-3. **Check the console can manage its Ollama.** `machine.yaml` sets `AGENT_SERVERS=on`, so the machine lets the console pull models. A sandbox image from before that setting (an older `AI_PROXY_IMAGE_TAG`) ignores it: turn it on there once by hand:
+3. **Check the console can manage its Ollama.** `machine.yaml` sets `AGENT_SERVERS=on`, so the machine lets the console pull models. A sandbox image pulled before that setting existed ignores it: `kubectl -n mesh rollout restart deploy/quickstart-machine` pulls the newest, or turn it on there once by hand:
 
    ```bash
    kubectl -n mesh exec deploy/quickstart-machine -c machine -- agent-machine servers on
