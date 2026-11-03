@@ -5,7 +5,7 @@ import { api, machineProviders, type FleetMachine, type RemovedMachine } from ".
 import { CodeLine } from "../components/CodeLine";
 import { PartTag } from "../components/PartTag";
 import { StateDot } from "../components/ProviderState";
-import { useClipboard, useMachines, useStatus, useToast, useVersion } from "../hooks";
+import { useClipboard, useMachines, useStatus, useToast } from "../hooks";
 import { formatDate, formatRelative } from "../format";
 import { OS_LABELS, machinePath } from "./Machine";
 import { browserPlatform, installLine, serverAddress } from "./Downloads";
@@ -524,22 +524,13 @@ function useRemembered<T extends string>(key: string, options: readonly { id: T 
   ];
 }
 
-// Where .github/workflows/images.yml publishes the images.
-const SANDBOX_IMAGE = "ghcr.io/joeyenfield/agent-sandbox";
-
-/** The published image's tag for a server version: X.Y.Z on its release, sha-<commit> for a commit of master, else latest. */
-export function imageTag(version: string | null | undefined): string {
-  if (!version) return "latest";
-  const [release, build] = version.split("+");
-  if (!build) return /^\d+\.\d+\.\d+$/.test(release) ? release : "latest";
-  // A dirty or unknown build was never published.
-  return /^[0-9a-f]{7}$/.test(build) ? `sha-${build}` : "latest";
-}
+// Where .github/workflows/images.yml publishes the images. latest is the newest build of master
+// or a release: sandboxes follow it rather than the server's own version.
+const SANDBOX_IMAGE = "ghcr.io/joeyenfield/agent-sandbox:latest";
 
 /** A machine of its own in a container (sandbox/Dockerfile): agents started on it can only touch its /workspace. */
 function SandboxSteps({ server }: { server: string }) {
   const copy = useClipboard();
-  const version = useVersion();
   const [runtime, setRuntime] = useRemembered<Runtime>(RUNTIME_KEY, RUNTIMES, "docker");
   // The shell the commands are typed in, on the computer that runs the container: it decides how lines continue.
   const [shell, setShell] = useRemembered<Shell>(SHELL_KEY, SHELLS, browserPlatform().startsWith("windows") ? "powershell" : "bash");
@@ -557,8 +548,7 @@ function SandboxSteps({ server }: { server: string }) {
   } catch {
     // Not a URL: use it as it is.
   }
-  // The image of the server's own version, so the container's agent and agent-machine speak to it.
-  const image = `${SANDBOX_IMAGE}:${imageTag(version.data?.version)}`;
+  const image = SANDBOX_IMAGE;
   const run = [
     `${runtime} run -d --name agent-sandbox --restart unless-stopped`,
     ...(hostGateway ? ["  --add-host=host.docker.internal:host-gateway"] : []),
@@ -580,7 +570,7 @@ function SandboxSteps({ server }: { server: string }) {
       <ol className="steps">
         <li>
           <p>
-            Run it. {runtime === "podman" ? "Podman" : "Docker"} downloads the image of this server's version from the GitHub Container
+            Run it. {runtime === "podman" ? "Podman" : "Docker"} downloads the newest image from the GitHub Container
             Registry (<code>{image}</code>) the first time. On its first start it prints two sign-in codes
             (<code>{runtime} logs agent-sandbox</code>): approve both on <Link to="/approve-device">Approve a device</Link>. It shows up
             here as <strong>agent-sandbox</strong>, and its sign-in is kept in the agent-sandbox-home volume.

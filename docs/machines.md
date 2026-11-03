@@ -391,10 +391,10 @@ Agents you start on it run inside the container, so they can't touch the compute
 docker run -d --name agent-sandbox --restart unless-stopped \
   -e AI_PROXY_SERVER=https://api.aicontrolmesh.com \
   -v agent-sandbox-home:/home/agent -v agent-sandbox-workspace:/workspace \
-  ghcr.io/joeyenfield/agent-sandbox:2.0.1
+  ghcr.io/joeyenfield/agent-sandbox:latest
 ```
 
-Use the image tag of your server's version (`2.0.1`; `sha-<commit>` for a server running a commit of master; `latest` for a server on the newest build of master), so its `agent` and `agent-machine` match the server. The console's **Add a machine** (System: **Docker container**) shows the command with the right tag. To run changes of your own, build the image from a copy of this repository and run `agent-sandbox` instead:
+`latest` is the newest build of master or a release, and it's what the console's **Add a machine** (System: **Docker container**) shows. `docker pull` and a new container move a sandbox to a newer one. To pin it, use a release's tag (`2.0.1`) or a commit of master's (`sha-<commit>`) instead. A server that is too old for the sandbox's protocol refuses it, and the sandbox's log says so: use the tag of the server's own version then. To run changes of your own, build the image from a copy of this repository and run `agent-sandbox` instead:
 
 ```bash
 docker build -f sandbox/Dockerfile -t agent-sandbox .     # from the repository root
