@@ -7,6 +7,14 @@
 #   AI_PROXY_MACHINE_NAME    the name the console shows (default: the container's hostname)
 #   AGENT_WORKSPACE          where agents may start (default /workspace)
 #
+# Local model servers, which agent-machine only looks for on its own loopback:
+#   AGENT_OLLAMA             an Ollama in another container, host[:port] (default port 11434),
+#                            relayed to 127.0.0.1:11434
+#   AGENT_LLAMACPP           a llama-server in another container, host[:port] (default port
+#                            8080), relayed to 127.0.0.1:$AI_PROXY_LLAMACPP_PORT (default 9931)
+#   AGENT_SERVERS=on         let the console install llama.cpp here and start, stop and
+#                            configure the model servers in this container (default off)
+#
 # Git, for agents that clone, pull and push:
 #   /ssh (a read-only mount)  SSH keys (id_ed25519, ...) and optionally config and known_hosts,
 #                            copied into ~/.ssh on every start with the permissions ssh wants
@@ -89,12 +97,45 @@ for repo in ${AGENT_REPOS:-}; do
     fi
 done
 
+# relay HOST[:PORT] DEFAULT_PORT LOCAL_PORT NAME keeps 127.0.0.1:LOCAL_PORT forwarded to a
+# model server in another container, where agent-machine finds it and tunnels to it.
+relay() {
+    target=$1
+    target=${target#*://}
+    target=${target%%/*}
+    case "$target" in
+        "") echo "agent-sandbox: $4 is empty" >&2; exit 2 ;;
+        *:*) ;;
+        *) target="$target:$2" ;;
+    esac
+    host=${target%:*}
+    port=${target##*:}
+    case "$port" in ''|*[!0-9]*) echo "agent-sandbox: $4=$1 has no valid port" >&2; exit 2 ;; esac
+    echo "$4: relaying 127.0.0.1:$3 to $host:$port"
+    # socat forks one child per connection; the loop brings the listener back if it ever exits.
+    (while :; do
+        socat "TCP-LISTEN:$3,bind=127.0.0.1,reuseaddr,fork" "TCP:$host:$port" || true
+        sleep 2
+    done) &
+}
+llamacpp_port=${AI_PROXY_LLAMACPP_PORT:-9931}
+if [ -n "${AGENT_OLLAMA:-}" ]; then relay "$AGENT_OLLAMA" 11434 11434 AGENT_OLLAMA; fi
+if [ -n "${AGENT_LLAMACPP:-}" ]; then relay "$AGENT_LLAMACPP" 8080 "$llamacpp_port" AGENT_LLAMACPP; fi
+
 if [ -n "${AI_PROXY_MACHINE_NAME:-}" ]; then agent-machine name "$AI_PROXY_MACHINE_NAME" >/dev/null; fi
 agent-machine launches on >/dev/null
 agent-machine roots add "$workspace" >/dev/null
-# The sandbox only runs agents: no containers or model servers of its own.
+# docker run is root on the computer the sandbox runs on: never from inside it.
 agent-machine containers off >/dev/null
-agent-machine servers off >/dev/null
+case "${AGENT_SERVERS:-off}" in
+    on|1|true|yes)
+        if [ -n "${AGENT_LLAMACPP:-}" ]; then
+            echo "agent-sandbox: AGENT_LLAMACPP holds 127.0.0.1:$llamacpp_port, so a llama.cpp started here from the console can't listen there" >&2
+        fi
+        agent-machine servers on >/dev/null ;;
+    off|0|false|no|"") agent-machine servers off >/dev/null ;;
+    *) echo "agent-sandbox: AGENT_SERVERS must be on or off, not $AGENT_SERVERS" >&2; exit 2 ;;
+esac
 
 # Agents started here inherit this environment: keep the secrets out of it.
 unset AI_PROXY_PASSWORD AI_PROXY_PASSWORD_FILE AI_PROXY_KEY

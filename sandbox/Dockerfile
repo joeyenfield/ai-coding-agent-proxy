@@ -34,9 +34,13 @@ FROM docker.io/library/node:22-bookworm-slim
 ARG AGENTS="@anthropic-ai/claude-code @openai/codex opencode-ai @qwen-code/qwen-code @github/copilot"
 # What coding agents expect to find: git, a shell, Python, search tools. tini reaps the
 # processes agents leave behind, as agent-machine is the container's main process.
+# socat relays model servers in other containers (AGENT_OLLAMA, AGENT_LLAMACPP) to the
+# loopback ports agent-machine looks on; libgomp1 is what llama.cpp's Linux builds, which
+# the console installs here with AGENT_SERVERS=on, need beyond the base image.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates curl git openssh-client less procps jq unzip ripgrep python3 python3-venv tini \
+        socat libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 RUN if [ -n "$AGENTS" ]; then npm install -g --no-audit --no-fund $AGENTS && npm cache clean --force; fi
 COPY --from=build /out/ /usr/local/bin/

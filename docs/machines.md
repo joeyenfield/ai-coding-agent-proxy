@@ -381,8 +381,9 @@ The `agent-machine` deb, rpm and Arch packages include a systemd user unit, not 
 1. waits up to two minutes for the server's `/health`;
 2. signs both agent-machine and agent in to the server, unless their credentials already name it;
 3. copies SSH keys from `/ssh`, sets git's user, and clones `AGENT_REPOS`;
-4. sets the machine's name, turns launches on with the workspace as its only root, and turns containers and servers off;
-5. runs `agent-machine run` with rotating OAuth credentials.
+4. relays the model servers named by `AGENT_OLLAMA` and `AGENT_LLAMACPP` to its own loopback (see [Model servers for a sandbox](#model-servers-for-a-sandbox));
+5. sets the machine's name, turns launches on with the workspace as its only root, turns containers off, and turns servers on only with `AGENT_SERVERS=on`;
+6. runs `agent-machine run` with rotating OAuth credentials.
 
 Agents you start on it run inside the container, so they can't touch the computer it runs on beyond `/workspace`.
 
@@ -414,12 +415,37 @@ docker compose logs -f agent-sandbox
 | `-v <folder>:/ssh:ro` | SSH keys for git (and optionally `config` and `known_hosts`), copied into `~/.ssh` on every start |
 | `GIT_USER_NAME`, `GIT_USER_EMAIL` | Who the agents' commits are by |
 | `AGENT_REPOS` | Git URLs to clone into the workspace on start, space-separated. Ones already there are left alone. |
+| `AGENT_OLLAMA` | An Ollama in another container, `host[:port]` (default port 11434), relayed to the sandbox's `127.0.0.1:11434` |
+| `AGENT_LLAMACPP` | A llama-server in another container, `host[:port]` (default port 8080), relayed to the sandbox's `127.0.0.1:9931` (`AI_PROXY_LLAMACPP_PORT`) |
+| `AGENT_SERVERS` | `on` lets the console install llama.cpp in the sandbox and start, stop and configure its model servers (default `off`) |
 | `--build-arg AGENTS="..."` | The npm packages of the agents to install, when you build the image yourself |
 
 - **Sign-ins.** On first start, open the verification URL printed in the logs and approve each of the two device codes. Credentials and the machine id persist in `/home/agent`; subsequent starts renew automatically. Password/key environment bootstrap is removed.
 - **Git over SSH.** The keys are copied rather than used in place, because a mount from Windows or macOS usually has permissions ssh refuses. Without your own `config`, a host's key is trusted the first time it's seen, so a clone doesn't stop at a question nobody can answer. Agents in the sandbox can read the key: use a deploy key or one made for the sandbox.
 - **Account agents.** Their sign-ins (Claude, Copilot, ChatGPT) also live in `/home/agent`. Sign in once from the agent's terminal in the console.
 - **Podman** takes the same commands. A server on the same computer is reached at `host.docker.internal` (Docker, with `--add-host=host.docker.internal:host-gateway`) or `host.containers.internal` (Podman).
+
+### Model servers for a sandbox
+
+agent-machine only looks for model servers on its own loopback (`127.0.0.1`), and a container has a loopback of its own. So an Ollama or llama.cpp container started next to the sandbox isn't found on its own, even on the same network. There are two ways to give a sandbox model servers.
+
+**Relay a model server container.** Run Ollama or llama.cpp's own image, and name it in `AGENT_OLLAMA` or `AGENT_LLAMACPP`. The sandbox relays it to the port agent-machine looks on, and it shows on the machine's page with **Add as a provider**. Agents' traffic reaches it through the machine's tunnel, so its port doesn't need publishing.
+
+```bash
+docker network create agent-models
+docker run -d --name ollama --network agent-models -v ollama-models:/root/.ollama ollama/ollama
+docker run -d --name llamacpp --network agent-models -v ./models:/models \
+  ghcr.io/ggml-org/llama.cpp:server -m /models/Llama-3.2-1B-Instruct-Q4_K_M.gguf --host 0.0.0.0 --port 8080
+docker run -d --name agent-sandbox --network agent-models --restart unless-stopped \
+  -e AI_PROXY_SERVER=https://api.aicontrolmesh.com \
+  -e AGENT_OLLAMA=ollama -e AGENT_LLAMACPP=llamacpp:8080 \
+  -v agent-sandbox-home:/home/agent -v agent-sandbox-workspace:/workspace \
+  ghcr.io/joeyenfield/agent-sandbox:<version>
+```
+
+Pulling, deleting, loading and unloading models on the relayed Ollama work from the console, with servers on (`AGENT_SERVERS=on`). A relayed llama-server serves what its own container was started with, and the sandbox can't start, stop or configure either one: they're other containers.
+
+**Run llama.cpp in the sandbox.** With `AGENT_SERVERS=on`, the machine's **llama.cpp** tab can install llama.cpp's own Linux build (CPU, or another variant) into the sandbox's home volume, download models from Hugging Face into its GGUF folder, and start llama-server there. It then shows as a model server like any other. Don't set `AGENT_LLAMACPP` too: both use port 9931. The image has no Ollama of its own; relay one instead.
 
 ## The Python agent-machine
 
