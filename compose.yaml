@@ -12,8 +12,8 @@
 # (letters and digits) in .env before the first start.
 #
 # The images come from the GitHub Container Registry, built by .github/workflows/images.yml:
-# AI_PROXY_IMAGE_TAG picks the version (default latest, the newest release; 2.0.1, or
-# sha-<commit> for a commit of master), AI_PROXY_IMAGES another registry or owner. To build
+# AI_PROXY_IMAGE_TAG picks the version (default latest, the newest build of master or a
+# release; 2.0.1 for a release, or sha-<commit> for a commit of master), AI_PROXY_IMAGES another registry or owner. To build
 # them from this checkout instead: docker compose -f compose.yaml -f compose.build.yaml up -d --build
 services:
   postgres:

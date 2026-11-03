@@ -2,7 +2,7 @@
 #
 # Its server and machines run the published images from the GitHub Container Registry
 # (.github/workflows/images.yml): AI_PROXY_IMAGE_TAG picks the version (default latest, the
-# newest release). To run this checkout's code instead, build them here:
+# newest build of master). To run this checkout's code instead, build them here:
 #   podman compose -f compose.yaml -f compose.build.yaml up -d --build
 name: ai-control-mesh-quickstart
 

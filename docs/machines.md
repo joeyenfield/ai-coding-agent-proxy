@@ -394,7 +394,7 @@ docker run -d --name agent-sandbox --restart unless-stopped \
   ghcr.io/joeyenfield/agent-sandbox:2.0.1
 ```
 
-Use the image tag of your server's version (`2.0.1`; `sha-<commit>` for a server running a commit of master; `latest` for the newest release), so its `agent` and `agent-machine` match the server. The console's **Add a machine** (System: **Docker container**) shows the command with the right tag. To run changes of your own, build the image from a copy of this repository and run `agent-sandbox` instead:
+Use the image tag of your server's version (`2.0.1`; `sha-<commit>` for a server running a commit of master; `latest` for a server on the newest build of master), so its `agent` and `agent-machine` match the server. The console's **Add a machine** (System: **Docker container**) shows the command with the right tag. To run changes of your own, build the image from a copy of this repository and run `agent-sandbox` instead:
 
 ```bash
 docker build -f sandbox/Dockerfile -t agent-sandbox .     # from the repository root

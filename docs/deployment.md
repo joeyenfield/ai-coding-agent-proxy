@@ -13,9 +13,9 @@ How to run the server for other machines and people, put HTTPS in front of it, a
 The server and its console are one image, `ghcr.io/joeyenfield/agent-server`; agent-auth runs from the same image. `compose.yaml` at the repository root runs them with PostgreSQL and the brochure site, pulling the published images ([Images on ghcr.io](#images-on-ghcrio)):
 
 ```bash
-docker compose up -d                                    # the newest release (latest)
-AI_PROXY_IMAGE_TAG=2.0.1 docker compose up -d           # or a version of your choice
-docker compose pull && docker compose up -d             # move to a newer release
+docker compose up -d                                    # the newest build of master (latest)
+AI_PROXY_IMAGE_TAG=2.0.1 docker compose up -d           # or a release of your choice
+docker compose pull && docker compose up -d             # move to the newest build
 ```
 
 Pick the tag to match the `dist/` build you hand out (below): the server offers the build of its own version. To build the images from your checkout instead, add `compose.build.yaml`:
