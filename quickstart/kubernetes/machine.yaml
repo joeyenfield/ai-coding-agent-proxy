@@ -43,6 +43,8 @@ spec:
           env:
             - {name: AI_PROXY_SERVER, value: "http://localhost:19999"}
             - {name: AI_PROXY_MACHINE_NAME, value: k8s-machine}
+            # Lets the console pull models into the pod's Ollama and change its settings.
+            - {name: AGENT_SERVERS, value: "on"}
           volumeMounts:
             - {name: home, mountPath: /home/agent}
             - {name: workspace, mountPath: /workspace}

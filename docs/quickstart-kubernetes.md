@@ -78,7 +78,7 @@ On Windows PowerShell, run the two `port-forward` commands in two windows instea
    ```
 
    For each code, open **Machines › Approve a device** in the console, type the code and approve it. Within a minute **k8s-machine** shows as connected on **Machines**.
-3. **Let the console manage its Ollama.** The sandbox image only runs agents unless told otherwise, so turn on model management once:
+3. **Check the console can manage its Ollama.** `machine.yaml` sets `AGENT_SERVERS=on`, so the machine lets the console pull models. A sandbox image older than 2.1.25 ignores that setting: turn it on there once by hand:
 
    ```bash
    kubectl -n mesh exec deploy/quickstart-machine -c machine -- agent-machine servers on
