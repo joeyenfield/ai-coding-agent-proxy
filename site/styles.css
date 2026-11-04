@@ -119,6 +119,23 @@ pre code { font-size: inherit; }
 .next-steps { padding-left: 22px; margin: 4px 0 20px; color: var(--muted); font-size: 14px; }
 .next-steps li { padding-left: 5px; margin-bottom: 10px; }
 .next-steps a { color: var(--mint); }
+/* quickstart.html: the numbered steps, each with its screenshots. */
+.qs-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 64px; max-width: 900px; }
+.qs-step h3 { display: flex; align-items: center; gap: 14px; font-size: 24px; margin-bottom: 14px; }
+.step-number { flex: none; width: 36px; height: 36px; display: inline-grid; place-items: center; border-radius: 50%; background: var(--mint); color: #111d1b; font: 700 15px var(--mono); }
+.qs-step > p { font-size: 15px; max-width: 760px; margin: 0 0 16px 50px; }
+.qs-step > p a, .qs-step > p strong { color: var(--text); }
+.qs-step > p a { color: var(--mint); }
+.qs-step figure { margin: 0 0 22px 50px; }
+.step-shot { display: block; border: 1px solid #4a566d; border-radius: 10px; overflow: hidden; background: #f6f7fa; box-shadow: 0 18px 50px #0005; }
+.step-shot:hover { border-color: var(--mint); }
+.step-shot-card { max-width: 540px; }
+.qs-steps-section { border-top: 1px solid var(--line); }
+/* The homepage's quickstart teaser: the copy, and a card to the steps. */
+.quickstart-teaser { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: center; }
+.quickstart-teaser .quickstart-copy > p:not(.eyebrow) { margin-top: 20px; }
+.teaser-card { margin: 0; padding: 26px 56px 26px 24px; }
+.teaser-card strong { font-size: 19px; line-height: 1.35; }
 /* The link to docs/quickstart.md's illustrated steps, under the short list. */
 .guide-link { position: relative; display: grid; gap: 4px; margin: 0 0 22px; padding: 18px 52px 18px 20px; border: 1px solid #4a566d; border-left: 3px solid var(--mint); border-radius: 8px; background: #141b29; color: var(--muted); text-decoration: none; font-size: 13px; }
 .guide-link:hover { border-color: var(--mint); }
@@ -366,6 +383,8 @@ th small { display: block; font-weight: 400; color: var(--muted); }
   .hero { grid-template-columns: 1fr; }
   .hero h1 { font-size: clamp(36px, 6.3vw, 58px); }
   .shots { gap: 56px; }
+  .quickstart-teaser { grid-template-columns: 1fr; gap: 28px; }
+  .qs-step > p, .qs-step figure { margin-left: 0; }
   .any-grid { grid-template-columns: 1fr; gap: 30px; }
   .shot, .shot:nth-child(even) { grid-template-columns: 1fr; gap: 22px; }
   .shot-phone .shot-frame { width: min(300px, 80%); }

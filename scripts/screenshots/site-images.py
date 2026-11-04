@@ -55,6 +55,14 @@ SHOTS = (
     Shot("machine-mcp", box=NO_SIDEBAR),
     Shot("terminal"),
     Shot("overview-dark", keep=0.35),
+    # quickstart.html's steps: the real quickstart, from quickstart-steps.mjs, whole (the sidebar
+    # shows where each page is).
+    # The two sign-in pages are a small card on an empty page: just the card.
+    Shot("quickstart-01-sign-in", box=(0.25, 0.15, 0.75, 0.85), widths=(540, 1080)),
+    Shot("quickstart-02-issuer", box=(0.25, 0.15, 0.75, 0.85), widths=(540, 1080)),
+    *(Shot(f"quickstart-{name}") for name in (
+        "03-machines", "04-model-servers", "05-add-provider", "06-search",
+        "07-results", "08-pulled", "09-start-agent", "10-agent-ready", "11-answer", "12-requests")),
 )
 
 

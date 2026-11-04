@@ -25,7 +25,7 @@
   <link rel="icon" href="/assets/icon-192.png" type="image/png" sizes="192x192">
   <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" sizes="180x180">
   <link rel="manifest" href="/site.webmanifest">
-  <link rel="stylesheet" href="/styles.css?v=2caf586ae0">
+  <link rel="stylesheet" href="/styles.css?v=c586fcab96">
   <script src="/site.js?v=68ef62e8cb" defer></script>
   <script type="application/ld+json">
   {
@@ -45,15 +45,16 @@
   <a class="skip-link" href="#main">Skip to content</a>
   <header class="site-header wrap">
     <a class="brand" href="/" aria-label="AIControlMesh home"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>AI Control Mesh</a>
-    <a class="button button-primary mobile-start" href="/#quickstart">Try locally</a>
+    <a class="button button-primary mobile-start" href="/quickstart.html">Try locally</a>
     <button aria-label="Menu" class="menu-toggle" type="button" aria-expanded="false" aria-controls="main-nav" hidden><span class="menu-word">Menu</span> <span aria-hidden="true">☰</span></button>
     <nav id="main-nav" aria-label="Main navigation">
       <a href="/#product">Product</a>
+      <a href="/quickstart.html">Quickstart</a>
       <a href="/teams.html">For teams</a>
       <a href="/security.html">Security</a>
       <a href="https://github.com/joeyenfield/ai-coding-agent-proxy/blob/master/docs/index.md">Docs</a>
       <a href="https://github.com/joeyenfield/ai-coding-agent-proxy">GitHub <span aria-hidden="true">↗</span></a>
-      <a class="button button-small button-outline" href="#quickstart">Try locally <span aria-hidden="true">→</span></a>
+      <a class="button button-small button-outline" href="/quickstart.html">Try locally <span aria-hidden="true">→</span></a>
     </nav>
   </header>
   <main id="main">
@@ -65,7 +66,7 @@
         <ul class="agent-chips" aria-label="Agents it runs"><li>Claude Code</li><li>Codex</li><li>Copilot CLI</li><li>OpenCode</li><li>Qwen Code</li><li>Aider</li><li>Goose</li></ul>
         <p class="hero-audience">For individual developers and engineering teams running agents on infrastructure they control.</p>
         <div class="actions">
-          <a class="button button-primary" href="#quickstart">Try locally <span aria-hidden="true">→</span></a>
+          <a class="button button-primary" href="/quickstart.html">Try locally <span aria-hidden="true">→</span></a>
           <a class="button button-outline" href="/teams.html">Explore team deployment <span aria-hidden="true">→</span></a>
         </div>
         <p class="hero-note">Start agents anywhere · watch them live · hear when they need you</p>
@@ -95,56 +96,14 @@
         <article class="android-card"><span class="run-kind">ANDROID APP</span><h3>Your agents in your pocket</h3><p>The Android app keeps a list of your servers and opens each one’s console full screen, on <strong>Running agents</strong>. Watch the terminals, type into them and answer their prompts from your phone. Every server hands out the app built with it, at <code>/android</code>.</p><a href="https://github.com/joeyenfield/ai-coding-agent-proxy/blob/master/docs/accounts.md#the-android-app">About the Android app →</a></article>
       </div>
     </section>
-    <section class="quickstart section wrap" id="quickstart" aria-labelledby="quickstart-title">
+    <section class="quickstart-teaser section wrap" id="quickstart" aria-labelledby="quickstart-title">
       <div class="quickstart-copy">
         <p class="eyebrow">02 / Run it locally</p>
         <h2 id="quickstart-title">Your first mesh,<br>on your computer.</h2>
-        <p>Start the server and console, OIDC sign-in, PostgreSQL, two fleet machines, and Ollama. The images are pulled from the project’s published container registry.</p>
-        <p class="prerequisites"><strong>Bring:</strong> Git, Docker with Compose or Podman with a Compose provider, several GB of disk, and free localhost ports 19999 and 20000. Allow at least 8 GB RAM for a small CPU-model trial; model size and context can need much more. On Windows/macOS, allocate that memory to the container VM. An NVIDIA GPU is optional and makes models much faster (choose <strong>NVIDIA GPU</strong> above the commands); on CPU, speed varies.</p>
-        <a class="text-link" href="https://github.com/joeyenfield/ai-coding-agent-proxy/blob/master/docs/quickstart.md">Read the full quickstart guide <span aria-hidden="true">→</span></a>
+        <p>Start the server and console, OIDC sign-in, PostgreSQL, two fleet machines, and Ollama with one command, on Docker, Podman or Kubernetes. Then add a provider, pull a model and start a coding agent.</p>
+        <div class="actions"><a class="button button-primary" href="/quickstart.html">Open the quickstart <span aria-hidden="true">→</span></a><a class="button button-outline" href="https://github.com/joeyenfield/ai-coding-agent-proxy/blob/master/docs/quickstart.md">Read the guide</a></div>
       </div>
-      <div class="quickstart-install">
-        <div class="code-window">
-          <div class="code-toolbar"><span class="mono">LOCAL DEMO / TERMINAL</span><button class="copy-button" type="button" data-copy-shown="qs-cmd" hidden>Copy commands</button></div>
-          <div class="qs-toggles">
-            <fieldset class="seg"><legend>Engine</legend><input type="radio" name="qs-engine" id="qs-docker" value="docker" checked><label for="qs-docker">Docker</label><input type="radio" name="qs-engine" id="qs-podman" value="podman"><label for="qs-podman">Podman</label><input type="radio" name="qs-engine" id="qs-helm" value="helm"><label for="qs-helm">Kubernetes (Helm)</label></fieldset>
-            <fieldset class="seg"><legend>Models run on</legend><input type="radio" name="qs-hw" id="qs-cpu" value="cpu" checked><label for="qs-cpu">CPU</label><input type="radio" name="qs-hw" id="qs-gpu" value="gpu"><label for="qs-gpu">NVIDIA GPU</label></fieldset>
-          </div>
-          <pre class="qs-cmd" data-v="docker-cpu" tabindex="0" aria-label="Docker quickstart commands"><code id="quickstart-command">git clone https://github.com/joeyenfield/ai-coding-agent-proxy.git
-cd ai-coding-agent-proxy
-docker compose -f quickstart/compose.yaml up -d</code></pre>
-          <pre class="qs-cmd" data-v="docker-gpu" tabindex="0" aria-label="Docker quickstart commands with an NVIDIA GPU"><code id="qs-docker-gpu">git clone https://github.com/joeyenfield/ai-coding-agent-proxy.git
-cd ai-coding-agent-proxy
-docker compose -f quickstart/compose.yaml -f quickstart/compose.gpu.yaml up -d</code></pre>
-          <pre class="qs-cmd" data-v="podman-cpu" tabindex="0" aria-label="Podman quickstart commands"><code id="qs-podman-cpu">git clone https://github.com/joeyenfield/ai-coding-agent-proxy.git
-cd ai-coding-agent-proxy
-podman compose -f quickstart/compose.yaml up -d</code></pre>
-          <pre class="qs-cmd" data-v="podman-gpu" tabindex="0" aria-label="Podman quickstart commands with an NVIDIA GPU"><code id="qs-podman-gpu">git clone https://github.com/joeyenfield/ai-coding-agent-proxy.git
-cd ai-coding-agent-proxy
-podman compose -f quickstart/compose.yaml -f quickstart/compose.gpu.yaml up -d</code></pre>
-          <pre class="qs-cmd" data-v="helm" tabindex="0" aria-label="Kubernetes quickstart commands with Helm"><code id="qs-helm-cmd">git clone https://github.com/joeyenfield/ai-coding-agent-proxy.git
-cd ai-coding-agent-proxy
-helm install mesh deploy/helm/agent-mesh -n mesh --create-namespace -f quickstart/kubernetes/values.yaml
-kubectl -n mesh apply -f quickstart/kubernetes/machine.yaml
-kubectl -n mesh get pods -w</code></pre>
-          <p class="qs-note qs-note-podman">Podman needs a Compose provider (<code>podman compose version</code>). On Windows and macOS, run <code>podman machine init</code> once, then <code>podman machine start</code>.</p>
-          <p class="qs-note qs-note-helm">For a cluster on your computer: kind, k3d, minikube, or the one in Docker, Rancher or Podman Desktop, with a default StorageClass, <code>kubectl</code> and Helm 3. Keep the release name <code>mesh</code>. It installs the chart in its smallest form (one pod: the server and its sign-in service, SQLite on a volume) and a fleet machine with the coding agents and Ollama. When both pods are running, forward the ports in a terminal you leave open:</p>
-          <pre class="qs-note qs-note-helm qs-note-cmd" tabindex="0" aria-label="Port-forward commands"><code>kubectl -n mesh port-forward svc/mesh-agent-mesh 19999:19999 &amp;
-kubectl -n mesh port-forward svc/mesh-agent-mesh-auth 20000:20000</code></pre>
-          <p class="qs-note qs-note-helm">Then open <a href="http://localhost:19999">localhost:19999</a>. The <code>admin</code> password is in the server’s log (<code>kubectl -n mesh logs deploy/mesh-agent-mesh -c agent-server | grep -i password</code>), and the machine signs in with two device codes from its log, approved on <strong>Machines › Approve a device</strong>. <a href="https://github.com/joeyenfield/ai-coding-agent-proxy/blob/master/docs/quickstart-kubernetes.md">Kubernetes quickstart →</a> For production (HTTPS host names, PostgreSQL, a Deployment per role): <a href="https://github.com/joeyenfield/ai-coding-agent-proxy/blob/master/deploy/helm/agent-mesh/README.md">the chart’s README →</a></p>
-          <p class="qs-note qs-note-helm-gpu">The Kubernetes quickstart runs Ollama on the CPU. To give it a GPU, add a <code>nvidia.com/gpu: 1</code> limit to the <code>ollama</code> container in <code>quickstart/kubernetes/machine.yaml</code>; the cluster needs the NVIDIA device plugin.</p>
-          <p class="qs-note qs-note-gpu">The GPU file gives Ollama your NVIDIA GPUs, so models answer much faster. Use it every time you start the stack; without it, Ollama runs on the CPU. Docker needs the NVIDIA Container Toolkit with CDI on. With Podman, check it sees the GPU first: <code>podman run --rm --device nvidia.com/gpu=all docker.io/library/ubuntu:24.04 nvidia-smi</code>. <a href="https://github.com/joeyenfield/ai-coding-agent-proxy/blob/master/quickstart/README.md#use-a-gpu">GPU setup →</a></p>
-        </div>
-        <p id="copy-status" class="copy-status" role="status" aria-live="polite"></p>
-        <ol class="next-steps">
-          <li>Open <a href="http://localhost:19999">localhost:19999</a> (use <code>localhost</code> exactly). Sign in with <code>admin</code> / <code>secret</code>.</li>
-          <li>In <strong>Machines → machine-1 → Providers</strong>, open Ollama and choose <strong>Add as a provider</strong>. Use <strong>Find and pull</strong> to download a small, tool-capable model. <strong>No model is downloaded automatically.</strong></li>
-          <li>Choose <strong>Start an agent</strong>, pick machine-1 and OpenCode or Qwen Code, provider <code>machine-1</code>, your downloaded model and folder <code>/workspace</code>. Enable <strong>Capture full request and response payloads</strong> for this trial, then start.</li>
-          <li>In the terminal, send “Write a Python script that prints the first ten primes.” Follow <strong>Requests</strong> for tokens and timings, then <strong>Sessions → Chat</strong> for the recorded conversation.</li>
-        </ol>
-        <a class="guide-link" href="https://github.com/joeyenfield/ai-coding-agent-proxy/blob/master/docs/quickstart.md#try-it-step-by-step"><span class="guide-link-kicker">Step-by-step guide</span><strong>Every step with a screenshot</strong><span>Sign in, add the provider, pull a model, start Qwen Code and ask it what model it is. The real quickstart, nothing staged.</span><span class="guide-link-go" aria-hidden="true">→</span></a>
-        <p class="demo-notice"><strong>Local demo only.</strong> Uses known credentials and ports bound to 127.0.0.1. Keep it on your computer; changing the admin password alone does not make it a production install. For a real deployment, configure your own secrets, HTTPS, and sign-in service. <a href="/teams.html#deployment">Team deployment path →</a></p>
-      </div>
+      <a class="guide-link teaser-card" href="/quickstart.html#steps"><span class="guide-link-kicker">Step by step, with screenshots</span><strong>Sign in → add a provider → pull a model → start Qwen Code</strong><span>Seven steps from a fresh start to an agent answering, about ten minutes. The real quickstart, nothing staged.</span><span class="guide-link-go" aria-hidden="true">→</span></a>
     </section>
     <section class="product-section section" id="product" aria-labelledby="product-title">
       <div class="wrap">
@@ -219,12 +178,12 @@ kubectl -n mesh port-forward svc/mesh-agent-mesh-auth 20000:20000</code></pre>
       </div>
       <div class="contribute" id="open-source"><p><strong>Built in the open.</strong> Source, team controls and deployment tooling in one project.</p><div><a href="https://github.com/joeyenfield/ai-coding-agent-proxy/blob/master/CONTRIBUTING.md">Contribute ↗</a><a href="https://github.com/joeyenfield/ai-coding-agent-proxy/issues">Issues ↗</a><a href="https://github.com/joeyenfield/ai-coding-agent-proxy/releases">Releases ↗</a><a href="https://github.com/joeyenfield/ai-coding-agent-proxy/tags">Version tags ↗</a><a href="https://github.com/joeyenfield/ai-coding-agent-proxy/blob/master/LICENSE">MIT license ↗</a></div></div>
     </section>
-    <section class="closing wrap" id="getting-started" aria-labelledby="closing-title"><p class="eyebrow">Start with your own machine</p><h2 id="closing-title">Bring your agents into view.</h2><p>Try the local stack. Connect a provider. Follow your first session.</p><a class="button button-primary" href="#quickstart">Try locally <span aria-hidden="true">→</span></a></section>
+    <section class="closing wrap" id="getting-started" aria-labelledby="closing-title"><p class="eyebrow">Start with your own machine</p><h2 id="closing-title">Bring your agents into view.</h2><p>Try the local stack. Connect a provider. Follow your first session.</p><a class="button button-primary" href="/quickstart.html">Try locally <span aria-hidden="true">→</span></a></section>
   </main>
   <footer class="site-footer wrap">
     <div><a class="brand" href="/"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>AI Control Mesh</a><p>Open source. On your infrastructure.</p></div>
     <nav aria-label="Footer navigation"><a href="https://github.com/joeyenfield/ai-coding-agent-proxy">Source code</a><a href="https://github.com/joeyenfield/ai-coding-agent-proxy/blob/master/docs/index.md">Documentation</a><a href="/security.html">Security &amp; data</a><a href="/teams.html">Team deployment</a></nav>
-    <div class="console-note"><a href="https://console.aicontrolmesh.com">Existing console <span aria-hidden="true">↗</span></a><p>Requires an account for that deployment.<br>For a local demo, use the quickstart above.</p></div>
+    <div class="console-note"><a href="https://console.aicontrolmesh.com">Existing console <span aria-hidden="true">↗</span></a><p>Requires an account for that deployment.<br>For a local demo, use the <a href="/quickstart.html">quickstart</a>.</p></div>
   </footer>
 </body>
 </html>

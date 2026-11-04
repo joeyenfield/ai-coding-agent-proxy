@@ -35,7 +35,7 @@ try {
   }
   console.log('PASS public assets');
   assert.equal((await fetch(`${url}/.env`)).status, 404);
-  const pagePaths = ['/', '/teams.html', '/security.html'];
+  const pagePaths = ['/', '/quickstart.html', '/teams.html', '/security.html'];
   const pageSources = await Promise.all(pagePaths.map(page => readFile(path.join(root, 'site', page === '/' ? 'index.html' : page.slice(1)), 'utf8')));
   const html = pageSources.join('\n');
   // Cloudflare keeps the stylesheet, script and images for hours: each link must carry its file's
@@ -71,8 +71,15 @@ try {
   for (const port of ['127.0.0.1:19999:9999', '127.0.0.1:20000:10000']) assert.ok(compose.includes(port));
   assert.ok(compose.includes('QUICKSTART_ADMIN_PASSWORD:-secret'));
   assert.ok(guide.includes('podman compose -f quickstart/compose.yaml up -d'));
-  assert.ok(pageSources[0].includes('docker compose -f quickstart/compose.yaml up -d'));
-  assert.ok(pageSources[0].includes('podman compose -f quickstart/compose.yaml up -d'));
+  // The commands and the step-by-step live on the quickstart page; the homepage links there.
+  const quickstartPage = pageSources[pagePaths.indexOf('/quickstart.html')];
+  assert.ok(quickstartPage.includes('docker compose -f quickstart/compose.yaml up -d'));
+  assert.ok(quickstartPage.includes('podman compose -f quickstart/compose.yaml up -d'));
+  assert.ok(pageSources[0].includes('href="/quickstart.html"'), 'The homepage links to the quickstart page');
+  // Every step's screenshot: the same quickstart-*.png the guide uses (scripts/screenshots/quickstart-steps.mjs).
+  const stepShots = [...quickstartPage.matchAll(/href="\/screenshots\/(quickstart-[0-9a-z-]+)\.png"/g)].map(match => match[1]);
+  assert.equal(stepShots.length, 12, 'The quickstart page shows the twelve step screenshots');
+  for (const name of stepShots) assert.ok(guide.includes(`screenshots/${name}.png`), `docs/quickstart.md shows ${name} too`);
   assert.ok((await readFile(path.join(root, 'quickstart/compose.gpu.yaml'), 'utf8')).includes('nvidia.com/gpu=all'));
   // The Helm commands' chart and files, and the Services the port-forwards name (release mesh).
   for (const file of ['deploy/helm/agent-mesh/Chart.yaml', 'quickstart/kubernetes/values.yaml', 'quickstart/kubernetes/machine.yaml']) await readFile(path.join(root, file));
@@ -146,12 +153,12 @@ try {
       assert.equal(await menu.evaluate(element => element === document.activeElement), true);
       if (pagePath === '/') {
         await menu.click();
-        await page.locator('#main-nav a[href="#quickstart"]').click();
+        await page.locator('#main-nav a[href="/#product"]').click();
         assert.equal(await menu.getAttribute('aria-expanded'), 'false');
-        assert.equal(await page.evaluate(() => document.activeElement.id), 'quickstart');
+        assert.equal(await page.evaluate(() => document.activeElement.id), 'product');
       }
     }
-    if (pagePath === '/') {
+    if (pagePath === '/quickstart.html') {
     // Verify both clipboard outcomes without depending on the OS clipboard.
     await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { window.copiedCommand = text; } } }));
     await page.getByRole('button', { name: 'Copy commands' }).click();
@@ -184,13 +191,16 @@ try {
       const shown = await page.evaluate(() => getSelection().toString().trim());
       assert.ok(shown.startsWith('git clone ') && shown.endsWith(last), `${engine}/${hardware}: ${shown}`);
     }
+    await page.evaluate(() => { getSelection().removeAllRanges(); document.activeElement.blur(); document.querySelector('#copy-status').textContent = ''; window.scrollTo(0, 0); });
+    }
+    if (pagePath === '/') {
     await page.locator('#compatibility summary').focus();
     await page.keyboard.press('Enter');
     assert.equal(await page.locator('#compatibility table').isVisible(), true);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'Expanded compatibility has no page overflow');
     await page.locator('#compatibility').screenshot({ path: path.join(output, `compatibility-${width}.png`) });
     await page.locator('#compatibility summary').click();
-    await page.evaluate(() => { getSelection().removeAllRanges(); document.activeElement.blur(); document.querySelector('#copy-status').textContent = ''; window.scrollTo(0, 0); });
+    await page.evaluate(() => { document.activeElement.blur(); window.scrollTo(0, 0); });
     }
     await page.evaluate(() => { document.activeElement.blur(); window.scrollTo(0, 0); });
     await page.screenshot({ path: path.join(output, `${pageName}-${width}.png`), fullPage: true });
@@ -198,7 +208,7 @@ try {
     if (pagePath === '/' && width !== 768) {
       for (const id of ['quickstart', 'product', 'how-it-works']) {
         // A sticky header should not cover a section in the review artifact.
-        await page.locator(`#${id}`).screenshot({ path: path.join(output, `${id}-${width}.png`), style: '.site-header { visibility: hidden; }' });
+        await page.locator(`#${id}`).screenshot({ path: path.join(output, `section-${id}-${width}.png`), style: '.site-header { visibility: hidden; }' });
       }
     }
     console.log(`PASS ${pageName} ${width}px: assets, overflow, contrast, touch targets, anchors, keyboard, reduced motion`);
@@ -210,16 +220,18 @@ try {
   const page = await noJS.newPage();
   await page.goto(url);
   assert.equal(await page.locator('#main-nav').isVisible(), true);
-  assert.equal(await page.locator('#quickstart-command').isVisible(), true);
-  assert.equal(await page.getByRole('button', { name: 'Copy commands' }).isVisible(), false);
   await page.locator('#compatibility summary').click();
   assert.equal(await page.locator('#compatibility table').isVisible(), true);
   await page.locator('#main-nav a[href="/teams.html"]').click();
   assert.equal(await page.locator('#evaluation').count(), 1);
   await page.locator('#main-nav a[href="/security.html"]').click();
   assert.equal(await page.locator('#recording').count(), 1);
-  await page.locator('#main-nav a[href="/#quickstart"]').click();
+  await page.locator('#main-nav a[href="/quickstart.html"]', { hasText: /^Quickstart$/ }).click();
+  // Without JavaScript the commands still show and the switches still work; only copying needs it.
   assert.equal(await page.locator('#quickstart-command').isVisible(), true);
+  assert.equal(await page.getByRole('button', { name: 'Copy commands' }).isVisible(), false);
+  await page.locator('label[for="qs-podman"]').click();
+  assert.equal(await page.locator('#qs-podman-cpu').isVisible(), true);
   await noJS.close();
   assert.deepEqual(errors, []);
   console.log('PASS no-JavaScript developer/team journeys, cross-page links, documentation files, quickstart inputs, SEO, no browser errors');
