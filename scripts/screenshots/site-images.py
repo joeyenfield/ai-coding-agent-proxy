@@ -2,7 +2,7 @@
 
 The captures in docs/screenshots are 2160 pixels wide (twice the 1080-pixel window they're taken
 in), several hundred KB each as PNG. The site shows them at most about 1200 CSS pixels wide, so it
-gets WebP copies at 800 and 1440 pixels (srcset picks one), with the full PNG behind a link.
+gets WebP copies at 800 and 1440 pixels (400 and 618 for the phone; srcset picks one), with the full PNG behind a link.
 Run it after capture.mjs changes one of the captures below:
 
     python scripts/screenshots/site-images.py
@@ -26,13 +26,25 @@ class Shot:
     # The share of the capture's height to keep from the top (1 = all of it): the dark overview is a
     # long page, and the site shows its first screen.
     keep: float = 1.0
+    # A part of the capture, as shares of its width and height (left, top, right, bottom): the hero
+    # leaves the console's sidebar out, so its cards read larger.
+    box: tuple[float, float, float, float] = (0.0, 0.0, 1.0, 1.0)
+    # The phone capture is narrow: it gets smaller copies, never wider than itself.
+    widths: tuple[int, ...] = WIDTHS
 
+
+# The console's sidebar is the first 17.5% of a desktop capture: the site leaves it out, so what
+# each capture is about reads larger.
+NO_SIDEBAR = (0.175, 0.0, 1.0, 1.0)
 
 SHOTS = (
-    Shot("session-chat"),
-    Shot("agents"),
-    Shot("machines"),
-    Shot("machine-mcp"),
+    Shot("terminals-dark", box=(0.18, 0.0, 1.0, 0.84)),
+    Shot("live-dark", box=(0.175, 0.0, 1.0, 0.95)),
+    Shot("terminal-phone", widths=(400, 618)),
+    Shot("session-chat", box=NO_SIDEBAR),
+    Shot("agents", box=NO_SIDEBAR),
+    Shot("machines", box=NO_SIDEBAR),
+    Shot("machine-mcp", box=NO_SIDEBAR),
     Shot("terminal"),
     Shot("overview-dark", keep=0.35),
 )
@@ -45,7 +57,10 @@ def main() -> None:
             image = image.convert("RGB")
             if shot.keep < 1:
                 image = image.crop((0, 0, image.width, round(image.height * shot.keep)))
-            for width in WIDTHS:
+            left, top, right, bottom = shot.box
+            if shot.box != (0.0, 0.0, 1.0, 1.0):
+                image = image.crop((round(image.width * left), round(image.height * top), round(image.width * right), round(image.height * bottom)))
+            for width in shot.widths:
                 height = round(image.height * width / image.width)
                 out = TARGET / f"{shot.name}-{width}.webp"
                 image.resize((width, height), Image.LANCZOS).save(out, "WEBP", quality=82, method=6)

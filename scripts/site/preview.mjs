@@ -6,9 +6,12 @@ import path from 'node:path';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const pages = ['index.html', 'teams.html', 'security.html', 'styles.css', 'site.js', 'robots.txt', 'sitemap.xml', 'site.webmanifest'];
-const captures = ['overview-dark', 'agents', 'machines', 'session-chat', 'machine-mcp', 'terminal'];
+const captures = ['terminals-dark', 'live-dark', 'terminal-phone', 'overview-dark', 'agents', 'machines', 'session-chat', 'machine-mcp', 'terminal'];
 // The web-sized copies the homepage shows (scripts/screenshots/site-images.py).
-const screens = ['overview-dark', 'agents', 'machines', 'session-chat', 'machine-mcp', 'terminal'].flatMap(name => [800, 1440].map(width => `screens/${name}-${width}.webp`));
+const screens = [
+  ...['terminals-dark', 'live-dark', 'overview-dark', 'agents', 'machines', 'session-chat', 'machine-mcp', 'terminal'].flatMap(name => [800, 1440].map(width => `screens/${name}-${width}.webp`)),
+  ...[400, 618].map(width => `screens/terminal-phone-${width}.webp`),
+];
 const assets = ['icon.svg', 'social.svg', 'social.png', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png', ...screens];
 export const publicFiles = new Map([
   ...pages.map(name => [`/${name}`, `site/${name}`]),

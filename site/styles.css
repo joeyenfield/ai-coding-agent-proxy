@@ -58,6 +58,9 @@ h1 { font-size: clamp(40px, 4.35vw, 64px); line-height: 1.08; }
 h1 span { color: var(--mint); }
 .hero-lede { font-size: 19px; line-height: 1.65; margin-top: 25px; max-width: 540px; }
 .hero-audience { font-size: 14px; margin-top: 15px; max-width: 440px; }
+/* The agents it runs, as a row of tags: names only, no vendor marks. */
+.agent-chips { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; margin: 20px 0 0; padding: 0; max-width: 600px; }
+.agent-chips li { padding: 4px 10px; border: 1px solid #4a566d; border-radius: 999px; background: #171e2d; font: 12px/1.4 var(--mono); color: var(--text); }
 .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; }
 .hero-note { font-size: 12px; margin-top: 20px; }
 .hero-note span { color: var(--lavender); padding-inline: 7px; }
@@ -108,6 +111,9 @@ pre code { font-size: inherit; }
 .shot-frame:hover { transform: translateY(-3px); border-color: var(--mint); }
 .shot-frame:focus-visible { outline: 2px solid var(--mint); outline-offset: 4px; }
 .shot figcaption { min-width: 0; }
+/* The phone capture stands at a phone's size, not stretched to the column. */
+.shot-phone .shot-frame { width: min(320px, 100%); justify-self: center; border-radius: 22px; border-width: 6px; border-color: #2a3346; background: #0d0f14; }
+.shot-phone .shot-frame:hover { border-color: var(--mint); }
 .figure-number { display: block; font: 12px var(--mono); color: var(--mint); letter-spacing: .06em; margin-bottom: 14px; }
 .shot h3 { font-size: 24px; line-height: 1.25; margin-bottom: 14px; }
 .shot p { font-size: 15px; }
@@ -309,6 +315,7 @@ th small { display: block; font-weight: 400; color: var(--muted); }
   .hero h1 { font-size: clamp(36px, 6.3vw, 58px); }
   .shots { gap: 56px; }
   .shot, .shot:nth-child(even) { grid-template-columns: 1fr; gap: 22px; }
+  .shot-phone .shot-frame { width: min(300px, 80%); }
   .shot:nth-child(even) .shot-frame { order: 0; }
   .detail-grid, .route-grid { grid-template-columns: 1fr; }
   .site-header.is-enhanced nav.is-open { max-height: 65vh; overflow: auto; }
