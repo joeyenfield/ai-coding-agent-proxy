@@ -14,7 +14,9 @@ import time
 from pathlib import Path
 from typing import List, Optional
 
-from .. import common, login
+import httpx
+
+from .. import common, login, oauth
 from .. import update as updates
 from . import containers, mcp, presence, providers, servers, settings
 
@@ -22,7 +24,9 @@ USAGE = """agent-machine puts this computer in an agent-server's fleet, so the s
 LLM providers it runs (Ollama, llama.cpp, Strata, Docker Model Runner, containers) and start agents on it.
 
 Usage: agent-machine                           this machine as the fleet sees it
-       agent-machine login [url]                 (OIDC device sign-in)
+       agent-machine login [url]               OIDC device sign-in, approved in a browser
+       agent-machine login [url] --code CODE   ...or with a setup code from the console's Machines page
+                     [--enable LIST]           then switch toggles on, for example launches,commands
        agent-machine logout [url]
        agent-machine start                     join the fleet in the background
        agent-machine stop
@@ -57,6 +61,9 @@ A terminal from the console (commands on) is a shell as this user: only you see 
 MCP servers run here, as this user, for the agents you choose and the teams you let use them
 (the machine's Access tab). Their commands, environments and URLs stay here.
 Settings changes reach the server within a minute.
+Without --code, login uses AI_PROXY_MACHINE_SETUP_CODE when it's set, and without --enable,
+AI_PROXY_MACHINE_ENABLE. start and run sign in with AI_PROXY_MACHINE_SETUP_CODE by themselves
+when there's no sign-in for their server yet (a container's first start); after that it's ignored.
 """
 
 STARTED_ENV = "AI_PROXY_MACHINE_STARTED"
@@ -77,7 +84,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     if command == "login":
         return login.login(args[1:], program="agent-machine", credentials_path=settings.credentials_path, default_server=settings.upstream().server(),
                            label="agent-machine", done="agent-machine supplies it",
-                           signed_in="agent-machine supplies this machine's providers there from now on (agent-machine logout to stop). Start it with: agent-machine start")
+                           signed_in="agent-machine supplies this machine's providers there from now on (agent-machine logout to stop). Start it with: agent-machine start",
+                           setup=login.Setup(list(settings.TOGGLES), settings.parse_toggles, enable))
     if command == "logout":
         return login.logout(args[1:], program="agent-machine", credentials_path=settings.credentials_path)
     if command == "run":
@@ -96,6 +104,50 @@ def main(argv: Optional[List[str]] = None) -> int:
 def fail(message: str) -> int:
     print(f"agent-machine: {message}\n\n{USAGE}", file=sys.stderr, end="")
     return 2
+
+
+def enable(names: List[str]) -> None:
+    """Switches toggles on, as `agent-machine <name> on` does for each, notes included (Go's login.Enable)."""
+    if not names:
+        return
+    machine = settings.Machine.load()
+    for name in names:
+        machine.set_toggle(name, True)
+    machine.save()
+    print(f"Switched on: {', '.join(names)}.")
+    for name in names:
+        for note in machine.toggle_notes(name):
+            print(note)
+
+
+def automatic(server: str) -> None:
+    """Signs in to server with the setup code in AI_PROXY_MACHINE_SETUP_CODE when there are no
+    credentials for it yet: a container's first start (agent-machine run or start). Later starts find
+    the credentials and leave the code alone, so a restarted container doesn't spend another use."""
+    code = os.environ.pop(oauth.SETUP_CODE_ENV, "").strip()  # Agents and terminals started here inherit this environment: keep the secret out of it.
+    if not code or os.environ.get("AI_PROXY_MACHINE_TOKEN"):
+        return
+    server = login.server_url(server)
+    entry = common.Credentials.load(settings.credentials_path()).servers.get(common.normalize(server))
+    if entry is not None and (entry.access_token or entry.refresh_token):
+        return
+    try:
+        names = settings.parse_toggles(os.environ.get(login.ENABLE_ENV, ""))
+    except ValueError as error:
+        raise ValueError(f"{login.ENABLE_ENV}: {error}") from error
+    print(f"Signing in to {server} with the setup code from {oauth.SETUP_CODE_ENV}.")
+    login.sign_in(server, code, program="agent-machine", credentials_path=settings.credentials_path)
+    enable(names)
+
+
+def sign_in_first(server: str) -> int:
+    """automatic, as an exit status: 0 to carry on."""
+    try:
+        automatic(server)
+    except (httpx.HTTPError, ValueError, OSError, RuntimeError) as error:
+        print(f"agent-machine: couldn't sign in with the setup code: {error}", file=sys.stderr)
+        return 1
+    return 0
 
 
 def mcp_command(args: List[str]) -> int:
@@ -212,14 +264,9 @@ def configure(args: List[str]) -> int:
         if len(args) != 2 or args[1] not in ("on", "off"):
             return fail("servers takes on, off, or service [off] (with sudo)" if command == "servers" else f"{command} takes on or off")
         setattr(machine, command, args[1] == "on")
-        if command == "launches" and machine.launches and not machine.roots:
-            print("Launches are on, but there's no folder to start agents in yet: agent-machine roots add <dir>")
-        if command == "updates" and machine.updates:
-            print("Updates are on: the machine's owner or an admin can update agent-machine and agent here to the server's build from the console.")
-        if command == "commands" and machine.commands:
-            print("Commands are on: signed in as this machine's owner, you can open a terminal here from the console, as this user.")
-            if not machine.roots:
-                print("Terminals start in a launch folder, and there's none yet: agent-machine roots add <dir>")
+        if args[1] == "on":
+            for note in machine.toggle_notes(command):
+                print(note)
     elif command == "roots":
         if len(args) != 3 or args[1] not in ("add", "remove"):
             return fail("roots takes add or remove, and a folder")
@@ -283,6 +330,9 @@ def run(args: List[str]) -> int:
     if other:
         print(f"agent-machine is already running (process {other.pid}, {other.state}). Stop it first: agent-machine stop", file=sys.stderr)
         return 1
+    code = sign_in_first(settings.upstream(options.server).server())
+    if code != 0:
+        return code
     open_log()
     upstream = settings.upstream(options.server)
     status = settings.Status(pid=os.getpid(), server=upstream.server(), state="connecting", started=started_by())
@@ -391,6 +441,13 @@ def start(args: List[str], cwd: Optional[str] = None) -> int:
     if other:
         print(f"agent-machine is already running (process {other.pid}): {other.state}")
         return 0
+    # Here rather than in the detached run, so a refused setup code is shown and fails start.
+    parser = argparse.ArgumentParser(prog="agent-machine start")
+    parser.add_argument("--server", default="")
+    options, _ = parser.parse_known_args(args)
+    code = sign_in_first(settings.upstream(options.server).server())
+    if code != 0:
+        return code
     if sys.platform == "win32":
         flags = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | getattr(subprocess, "DETACHED_PROCESS", 0x8) | getattr(subprocess, "CREATE_NO_WINDOW", 0)}
     else:

@@ -695,21 +695,57 @@ class Auth:
         except httpx.HTTPError as exc:
             raise AuthUnavailable("The authentication service is unavailable") from exc
 
+    def setup_codes(self, connection: HTTPConnection, form: dict[str, str]) -> httpx.Response:
+        """Create, list or revoke the signed-in person's setup codes at the issuer (its /setup-codes), as
+        device_decision does: their console access token, sent as the introspection client."""
+        token, _ = self.request_token(connection)
+        if not self.settings or not self.settings.oidc_introspection_secret:
+            raise AuthUnavailable("OIDC introspection credentials are not configured")
+        try:
+            return self.client.post(
+                self.settings.oidc_issuer + "/setup-codes", data={"token": token, **form},
+                auth=(self.settings.oidc_introspection_client, self.settings.oidc_introspection_secret),
+            )
+        except httpx.HTTPError as exc:
+            raise AuthUnavailable("The authentication service is unavailable") from exc
+
     def username_of(self, token: str) -> str | None:
         """Whose a valid access token is (the console's sign-ins name their accounts by it)."""
         identity = self.identify_token(token)
         return identity.user if identity else None
 
-    def identify_token(self, token: str) -> Identity | None:
+    def identify_token(self, token: str, cached: bool = False) -> Identity | None:
         """The identity of an access token given on its own, as identify reads one from a request."""
         class Carrier:
             headers = {HEADER: token}
             cookies: dict[str, str] = {}
 
-        return self.identify(Carrier())  # type: ignore[arg-type]
+        return self.identify(Carrier(), cached=cached)  # type: ignore[arg-type]
+
+    def expires_at(self, connection: HTTPConnection) -> float | None:
+        """When the access token a request carries expires, after identify accepted it: the issuer's answer,
+        else a signed token's own exp. Advisory only (clients time their renewal by it); never a check."""
+        token, _ = self.request_token(connection)
+        if not token:
+            return None
+        confirmed = self._confirmed.get(_digest(token))
+        if confirmed:
+            return confirmed[2]
+        if token.count(".") != 2:
+            return None
+        try:
+            claims = json.loads(base64.urlsafe_b64decode(token.split(".")[1] + "=="))
+        except (ValueError, UnicodeDecodeError):
+            return None
+        expires = claims.get("exp") if isinstance(claims, dict) else None
+        return float(expires) if isinstance(expires, (int, float)) and math.isfinite(expires) else None
 
     def recheck(self, connection: HTTPConnection) -> Identity | None:
-        """identify, for a connection already open: the issuer's answer may be up to INTROSPECTION_CACHE_SECONDS old."""
+        """identify, for a connection already open: the issuer's answer may be up to INTROSPECTION_CACHE_SECONDS old.
+        A socket that renewed its token over itself (renew_socket) is checked with the newest one."""
+        renewed = getattr(connection, "scope", {}).get("state", {}).get(RENEWED_TOKEN)
+        if renewed:
+            return self.identify_token(renewed, cached=True)
         return self.identify(connection, cached=True)
 
     def identify(self, connection: HTTPConnection, cached: bool = False) -> Identity | None:

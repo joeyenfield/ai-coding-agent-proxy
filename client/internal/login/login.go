@@ -13,8 +13,11 @@ import (
 
 func Login(args []string) int {
 	flags := flag.NewFlagSet("login", flag.ContinueOnError)
+	code := flags.String("code", "", "A setup code from the console's Machines page, used instead of approving in a browser (default: $"+settings.SetupCodeEnvironment+")")
 	flags.Usage = func() {
-		fmt.Fprintln(flags.Output(), "Usage: login [https://server]\n\nSign in using a browser and a device code. For automation inject an OAuth access token with "+settings.TokenEnvironment+". Passwords, --user and --key are no longer supported.")
+		fmt.Fprintln(flags.Output(), "Usage: login [https://server] [--code CODE]\n\nSign in using a browser and a device code, or with a setup code created on the console's Machines page. For automation inject an OAuth access token with "+settings.TokenEnvironment+". Passwords, --user and --key are no longer supported.")
+		fmt.Fprintln(flags.Output())
+		flags.PrintDefaults()
 	}
 	for _, arg := range args {
 		if arg == "-u" || strings.HasPrefix(arg, "--user") || strings.HasPrefix(arg, "--key") {
@@ -29,6 +32,12 @@ func Login(args []string) int {
 	if err != nil || len(positional) > 1 {
 		return 2
 	}
+	given := false
+	flags.Visit(func(f *flag.Flag) { given = given || f.Name == "code" })
+	setupCode := *code
+	if !given {
+		setupCode = os.Getenv(settings.SetupCodeEnvironment)
+	}
 	server := settings.DefaultServerURL()
 	if len(positional) == 1 {
 		server = positional[0]
@@ -37,7 +46,7 @@ func Login(args []string) int {
 	if !strings.Contains(server, "://") {
 		server = "https://" + server
 	}
-	entry, err := settings.DeviceLogin(server, os.Stdout)
+	entry, err := settings.DeviceLogin(server, strings.TrimSpace(setupCode), os.Stdout)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "login:", err)
 		return 1

@@ -231,7 +231,8 @@ export interface Status {
   total_input_tokens: number;
   total_output_tokens: number;
   current_requests: ActiveRequest[];
-  recent_requests: RequestRecord[];
+  /** Only when asked for (api.status(true)). */
+  recent_requests?: RequestRecord[];
 }
 
 export interface Session {
@@ -295,6 +296,10 @@ export interface AuthStatus {
   issuer: string;
   audience: string;
   client_id: string;
+  /** Seconds left on the access token this check carried (null: signed out, or an older server). */
+  expires_in?: number | null;
+  /** That access token, for renewing open sockets in place. */
+  access_token?: string | null;
 }
 
 export interface Team {
@@ -1619,6 +1624,16 @@ export type SignedInAccounts = {
   max: number;
 };
 
+/** A setup code as the server lists it: times are seconds since the epoch; uses is how many sign-ins it has left. */
+export interface SetupCode {
+  id: string;
+  label: string;
+  created: number;
+  exp: number;
+  uses: number;
+  max_uses: number;
+}
+
 export class ApiError extends Error {
   constructor(message: string, readonly status: number) {
     super(message);
@@ -1632,32 +1647,217 @@ export function apiUrl(path: string): string {
   return `${API_ORIGIN}${path}`;
 }
 
+// Access tokens last minutes. The console renews its access cookie this long before it runs out (or at
+// RENEW_AT of its lifetime, if sooner), so open streams and terminals reconnect onto a valid cookie and
+// requests don't meet a 401 first.
+const RENEW_AHEAD_MS = 60_000;
+const RENEW_AT = 0.8;
+// After a renewal that failed for want of the server (not a refused sign-in), try again this soon.
+const RENEW_RETRY_MS = 15_000;
+// Every tab's last renewal, so the others don't spend the refresh token again: { at, expiresAt } in ms.
+const RENEWED_KEY = "mesh-access-renewed";
+const LEASE_KEY = "mesh-access-renewing";
+
+type Renewal = { at: number; expiresAt: number };
+
+function lastRenewal(): Renewal | null {
+  try {
+    const value = JSON.parse(localStorage.getItem(RENEWED_KEY) ?? "null");
+    return value && typeof value.at === "number" && typeof value.expiresAt === "number" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function noteRenewal(expiresIn: number | null | undefined): number | null {
+  if (typeof expiresIn !== "number" || !Number.isFinite(expiresIn)) return null;
+  const now = Date.now();
+  const expiresAt = now + expiresIn * 1000;
+  try {
+    localStorage.setItem(RENEWED_KEY, JSON.stringify({ at: now, expiresAt }));
+  } catch {
+    // Private windows and blocked storage: tabs then each renew for themselves.
+  }
+  return expiresAt;
+}
+
+function forgetRenewal() {
+  scheduleRenewal(null);
+  try {
+    localStorage.removeItem(RENEWED_KEY);
+  } catch {
+    // Nothing kept.
+  }
+}
+
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Runs one renewal at a time across this browser's tabs. Web Locks need a secure context, so a console
+ * on plain HTTP (a LAN address) falls back to a lease in localStorage: without either, tabs renewing
+ * together would present one refresh token several times, and the issuer revokes the whole sign-in then.
+ */
+async function oneAtATime<T>(run: () => Promise<T>): Promise<T> {
+  if (typeof navigator !== "undefined" && navigator.locks) return navigator.locks.request("mesh-oidc-refresh", run);
+  const me = Math.random().toString(36).slice(2);
+  const owner = () => {
+    try {
+      return JSON.parse(localStorage.getItem(LEASE_KEY) ?? "null") as { owner: string; until: number } | null;
+    } catch {
+      return null;
+    }
+  };
+  let held = false;
+  for (const giveUp = Date.now() + 10_000; Date.now() < giveUp; ) {
+    const lease = owner();
+    if (!lease || lease.until < Date.now()) {
+      try {
+        localStorage.setItem(LEASE_KEY, JSON.stringify({ owner: me, until: Date.now() + 10_000 }));
+      } catch {
+        break;
+      }
+      // Two tabs can write at once; whoever reads its own name back afterwards has it.
+      await pause(40);
+      if (owner()?.owner === me) {
+        held = true;
+        break;
+      }
+    }
+    await pause(100 + Math.random() * 150);
+  }
+  try {
+    return await run();
+  } finally {
+    if (held && owner()?.owner === me) {
+      try {
+        localStorage.removeItem(LEASE_KEY);
+      } catch {
+        // Expires by itself.
+      }
+    }
+  }
+}
+
 let refreshing: Promise<Response> | null = null;
 
-async function refreshSignIn(): Promise<Response> {
+// Open connections that renew in place: terminal sockets send the new token ({"type":"token"}), live
+// streams switch to a new stream on the new cookie. Kept in memory only, never in storage.
+const renewedListeners = new Set<(token: string | null) => void>();
+
+/** Calls back after every renewal of this browser's access cookie (this tab's or, when it sees it, another's). */
+export function onRenewed(listener: (token: string | null) => void): () => void {
+  renewedListeners.add(listener);
+  return () => renewedListeners.delete(listener);
+}
+
+function announceRenewal(token: unknown) {
+  const value = typeof token === "string" && token ? token : null;
+  for (const listener of [...renewedListeners]) {
+    try {
+      listener(value);
+    } catch {
+      // One connection's trouble isn't the others'.
+    }
+  }
+}
+
+/** Another tab renewed the shared cookie: learn its token from the server, which reads it from the cookie. */
+async function adoptRenewal() {
+  try {
+    const response = await fetch(apiUrl("/api/auth/status"), { credentials: "include" });
+    if (response.ok) announceRenewal((await response.json())?.access_token);
+  } catch {
+    // The connections fall back to reconnecting when their token runs out.
+  }
+}
+
+/**
+ * Renews the active account's access cookie. since (ms): skip it if another tab renewed after then and
+ * the cookie has a while left, since the browser shares that cookie; 401 handlers pass when their request
+ * was sent. Every successful renewal schedules the next one.
+ */
+async function refreshSignIn(since = Date.now()): Promise<Response> {
   if (!refreshing) {
-    const renew = () => fetch(apiUrl("/api/auth/refresh"), { method: "POST", credentials: "include" });
-    refreshing = ("locks" in navigator ? navigator.locks.request("mesh-oidc-refresh", renew) : renew()).finally(() => { refreshing = null; });
+    const renew = async () => {
+      const last = lastRenewal();
+      if (last && last.at > since && last.expiresAt - Date.now() > RENEW_AHEAD_MS) {
+        scheduleRenewal(last.expiresAt);
+        void adoptRenewal();
+        return new Response(JSON.stringify({ refreshed: true }), { status: 200 });
+      }
+      const response = await fetch(apiUrl("/api/auth/refresh"), { method: "POST", credentials: "include" });
+      if (response.ok) {
+        const body = await response.clone().json().catch(() => ({}));
+        scheduleRenewal(noteRenewal(body?.expires_in));
+        announceRenewal(body?.access_token);
+      }
+      return response;
+    };
+    refreshing = oneAtATime(renew).finally(() => {
+      refreshing = null;
+    });
   }
   return refreshing;
 }
 
+let renewalTimer: ReturnType<typeof setTimeout> | undefined;
+let renewalDue: number | null = null;
+
+/** Renews ahead of expiresAt (ms since the epoch); null stops renewing (signed out, or not known). */
+export function scheduleRenewal(expiresAt: number | null) {
+  clearTimeout(renewalTimer);
+  renewalTimer = undefined;
+  renewalDue = null;
+  if (expiresAt == null) return;
+  const left = expiresAt - Date.now();
+  const delay = Math.max(1_000, Math.min(left - RENEW_AHEAD_MS, left * RENEW_AT));
+  renewalDue = Date.now() + delay;
+  renewalTimer = setTimeout(async () => {
+    renewalTimer = undefined;
+    renewalDue = null;
+    let response: Response | null = null;
+    try {
+      // A tab that renewed in the last moment did it for this one too.
+      response = await refreshSignIn(Date.now() - delay);
+    } catch {
+      // Unreachable server: below.
+    }
+    // A refused sign-in (401) stops here; the console's next status check shows sign-in.
+    if (!response || (!response.ok && response.status !== 401)) {
+      clearTimeout(renewalTimer);
+      renewalTimer = setTimeout(() => scheduleRenewal(Date.now()), RENEW_RETRY_MS);
+    }
+  }, delay);
+}
+
+// Background tabs' timers are throttled (to once a minute or less). Coming back, renew at once if it's due.
+if (typeof document !== "undefined") {
+  const due = () => {
+    if (document.visibilityState === "visible" && renewalDue != null && renewalDue <= Date.now()) scheduleRenewal(Date.now());
+  };
+  document.addEventListener("visibilitychange", due);
+  window.addEventListener("online", due);
+}
+
 /**
  * Renews the sign-in's access cookie, for connections that can't see a 401 themselves (EventSource,
- * WebSockets). Resolves true if it was renewed; false if it wasn't or the server couldn't be reached.
+ * WebSockets). since: when the connection that was refused opened, so a renewal another tab made after
+ * that counts. Resolves true if the cookie is fresh; false if it wasn't renewed or the server couldn't
+ * be reached.
  */
-export async function renewSignIn(): Promise<boolean> {
+export async function renewSignIn(since?: number): Promise<boolean> {
   try {
-    return (await refreshSignIn()).ok;
+    return (await refreshSignIn(since)).ok;
   } catch {
     return false;
   }
 }
 
 async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+  const sent = Date.now();
   const response = await fetch(apiUrl(path), { ...init, credentials: "include" });
   if (response.status !== 401 || path.startsWith("/api/auth/")) return response;
-  const refreshed = await refreshSignIn();
+  const refreshed = await refreshSignIn(sent);
   if (refreshed.ok) return fetch(apiUrl(path), { ...init, credentials: "include" });
   if (refreshed.status !== 401) throw new ApiError("The authentication service is unavailable", refreshed.status);
   return response;
@@ -1740,9 +1940,11 @@ export function followReply(
     let quiet: ReturnType<typeof setTimeout>;
     let retry: ReturnType<typeof setTimeout> | undefined;
     let source: EventSource;
+    let unrenewed = () => {};
     const finish = (error?: Error) => {
       if (finished) return;
       finished = true;
+      unrenewed();
       clearTimeout(quiet);
       clearTimeout(retry);
       source.close();
@@ -1761,10 +1963,19 @@ export function followReply(
     awake();
     type Entry = { key: string; content: string; reasoning: string };
     let attempt = 0;
+    let opened = 0;
     const open = () => {
+      opened = Date.now();
       source = new EventSource(apiUrl(`/api/live?session_id=${encodeURIComponent(sessionId)}`), { withCredentials: true });
       listen(source);
     };
+    // The server ends a stream when the token it opened with runs out. After a renewal, move to a new
+    // stream on the new cookie first: its snapshot carries the reply so far, so nothing is lost.
+    unrenewed = onRenewed(() => {
+      if (finished || source?.readyState === EventSource.CLOSED) return;
+      source.close();
+      open();
+    });
     // EventSource reconnects by itself after a dropped connection (each time with a new snapshot), but
     // gives up for good when a reconnect is refused (401 after the access token expired, 502 or 503
     // during a restart). Renew the sign-in and open a new one, a little later each time.
@@ -1772,7 +1983,7 @@ export function followReply(
       source.close();
       const delay = LIVE_RETRY_MS[Math.min(attempt, LIVE_RETRY_MS.length - 1)];
       attempt += 1;
-      await renewSignIn();
+      await renewSignIn(opened);
       if (finished) return;
       retry = setTimeout(() => {
         if (!finished) open();
@@ -1856,7 +2067,8 @@ const sessionUrl = (id: string) => `/api/sessions/${encodeURIComponent(id)}`;
 const accountUrl = (id: string) => `/api/provider-accounts/${encodeURIComponent(id)}`;
 
 export const api = {
-  status: () => request<Status>("/api/status"),
+  /** recent: also the last 100 request records (the Overview's); without, only counts and backends. */
+  status: (recent = false) => request<Status>(recent ? "/api/status" : "/api/status?recent=0"),
   /** The server computer's CPU, memory and disks (site admins only). */
   serverStats: () => request<ServerStats>("/api/server/stats"),
   /** Every HTTP request and WebSocket the server received, newest first (site admins only). */
@@ -1993,7 +2205,8 @@ export const api = {
   dockerHubTags: (machine: string, repo: string) =>
     searchCatalog<{ repo: string; tags: DockerHubTag[] }>(machine, "docker-hub-tags", { repo }),
   remote: () => request<RemoteStatus>("/api/remote"),
-  terminals: () => request<{ terminals: TerminalSummary[] }>("/api/terminals"),
+  /** open: only terminals still running (the header's count and alerts), not every ended one kept. */
+  terminals: (open = false) => request<{ terminals: TerminalSummary[] }>(open ? "/api/terminals?open=1" : "/api/terminals"),
   machines: () => request<{ machines: FleetMachine[]; removed?: RemovedMachine[]; features?: Record<MachineFeature, string> }>("/api/machines"),
   setMachineAccess: (machineId: string, access: MachineAccess) =>
     request<FleetMachine>(`/api/machines/${encodeURIComponent(machineId)}/access`, { method: "PUT", body: JSON.stringify({ access }) }),
@@ -2056,11 +2269,17 @@ export const api = {
       { method: "POST", body: "{}" },
     ),
   authStatus: async () => {
-    const status = await request<AuthStatus>("/api/auth/status");
-    if (status.identity) return status;
-    const refreshed = await refreshSignIn();
-    if (refreshed.ok) return request<AuthStatus>("/api/auth/status");
-    if (refreshed.status !== 401) throw new ApiError("The authentication service is unavailable", refreshed.status);
+    const sent = Date.now();
+    let status = await request<AuthStatus>("/api/auth/status");
+    if (!status.identity) {
+      const refreshed = await refreshSignIn(sent);
+      if (refreshed.status !== 401 && !refreshed.ok) throw new ApiError("The authentication service is unavailable", refreshed.status);
+      if (refreshed.ok) status = await request<AuthStatus>("/api/auth/status");
+    }
+    // The server says how long the cookie has left: renew a little before then (this follows renewals
+    // made by other tabs too, since they share the cookie).
+    if (status.identity && typeof status.expires_in === "number") scheduleRenewal(sent + status.expires_in * 1000);
+    else if (!status.identity) scheduleRenewal(null);
     return status;
   },
   login: () => window.location.assign(apiUrl(`/api/auth/login?return_to=${encodeURIComponent(window.location.origin)}`)),
@@ -2069,10 +2288,24 @@ export const api = {
   /** The accounts this browser is signed in to, and which is active. */
   accounts: () => request<SignedInAccounts>("/api/auth/accounts"),
   /** Make another of this browser's accounts the active one (no password: it's signed in already). */
-  switchAccount: (user: string) => request<SignedInAccounts>("/api/auth/switch", { method: "POST", body: JSON.stringify({ user }) }),
+  switchAccount: async (user: string) => {
+    const switched = await request<SignedInAccounts & { expires_in?: number }>("/api/auth/switch", { method: "POST", body: JSON.stringify({ user }) });
+    scheduleRenewal(noteRenewal(switched.expires_in));
+    return switched;
+  },
   /** Sign out of the active account, one named account, or every one ({ all: true }). The next one left becomes active. */
-  logout: (which: { user?: string; all?: boolean } = {}) =>
-    request<SignedInAccounts & { identity: null }>("/api/auth/logout", { method: "POST", body: JSON.stringify(which) }),
+  logout: async (which: { user?: string; all?: boolean } = {}) => {
+    const result = await request<SignedInAccounts & { identity: null }>("/api/auth/logout", { method: "POST", body: JSON.stringify(which) });
+    // The cookie it described may be gone; the next status check says what's left.
+    forgetRenewal();
+    return result;
+  },
+  /** Your open setup codes (never the codes themselves). */
+  setupCodes: () => request<{ codes: SetupCode[] }>("/api/auth/setup-codes"),
+  /** A setup code: machines that sign in with it are yours, without approving each. The answer holds the code, once. */
+  createSetupCode: (body: { lifetime: number; uses: number; label?: string }) =>
+    request<SetupCode & { code: string }>("/api/auth/setup-codes", { method: "POST", body: JSON.stringify(body) }),
+  revokeSetupCode: (id: string) => request<{ revoked: string }>(`/api/auth/setup-codes/${encodeURIComponent(id)}`, { method: "DELETE" }),
   /** What an `agent login`/`agent-machine login` code is (check), or decide it, as whoever is signed in. */
   checkDevice: (userCode: string) =>
     request<DeviceRequest>("/api/auth/device", { method: "POST", body: JSON.stringify({ user_code: userCode, action: "check" }) }),

@@ -36,6 +36,7 @@ Settings changes reach the server within a minute, with the machine's next updat
 |---|---|
 | `agent-machine` (or `agent-machine status`) | Shows the machine as the fleet sees it. See [Running it](#running-it). |
 | `agent-machine login [url]` | Signs the machine in using OIDC device authorization. |
+| `agent-machine login [url] --code CODE [--enable LIST]` | Signs it in with a setup code from the console instead of a browser, then turns the listed toggles on. See [Signing in with a setup code](#signing-in-with-a-setup-code). |
 | `agent-machine logout [url]` | Forgets a sign-in and revokes its token on the server. |
 | `agent-machine start` | Joins the fleet in the background. |
 | `agent-machine stop` | Stops the background run. The machine leaves the fleet. |
@@ -65,6 +66,20 @@ Open the printed OIDC verification URL in your browser, sign in and approve the 
 The machine belongs to whoever signed it in: that user is its **owner**. A machine id already registered to another user is refused, so one user can't take over another's machine.
 
 `agent-machine logout [url]` forgets the sign-in to that server (default: the last one) and revokes its token on the server when it can reach it. `agent-machine run` reads the credentials file each time it connects, so `login` and `logout` apply at once.
+
+### Signing in with a setup code
+
+Where nobody is at a browser (a container, a script, a computer you set up remotely), a setup code approves the sign-in for you. Create one in the console on **Machines**: **Add a machine**, then **Create a setup code**. A code starts with `msc_`, expires after a while and can be used a limited number of times. The machine it signs in belongs to you, as if you had approved the device code yourself. Treat it as a password: agent-machine never prints or logs it.
+
+```bash
+agent-machine login https://api.aicontrolmesh.com --code msc_... --enable launches,commands
+```
+
+- `--code CODE` uses the setup code instead of printing a device code to approve. Without `--code`, `login` uses `AI_PROXY_MACHINE_SETUP_CODE` when it's set; otherwise it's the browser sign-in.
+- `--enable LIST` turns toggles on once signed in, as `agent-machine <toggle> on` does: a comma-separated list of `launches`, `commands` (or `terminals`), `updates`, `servers` and `containers`. Without `--enable`, `login` uses `AI_PROXY_MACHINE_ENABLE`. It works with a browser sign-in too. An unknown name stops `login` (exit status 2) before it signs in.
+- A code that has expired, been used up, or whose account changed is refused with "The setup code isn't valid: it may have expired or been used up. Create a new one on the console's Machines page." Nothing is saved and no toggle changes.
+
+`agent-machine start` and `agent-machine run` sign in by themselves when `AI_PROXY_MACHINE_SETUP_CODE` is set and there's no sign-in for their server yet (`--server`, else the last one, else `http://127.0.0.1:9999`), and apply `AI_PROXY_MACHINE_ENABLE` too. That's a container's first start. Once credentials exist the code is ignored, so a restarted container doesn't spend another use. If the code is refused, they exit with the message and status 1. They remove the code from their environment either way, so agents and terminals started on the machine never see it. With `AI_PROXY_MACHINE_TOKEN` set no sign-in is needed, and the code is ignored.
 
 ### Running it
 
@@ -155,6 +170,8 @@ It reads these environment variables:
 | Variable | What it does |
 |---|---|
 | `AI_PROXY_MACHINE_HOME` | agent-machine's folder |
+| `AI_PROXY_MACHINE_SETUP_CODE` | A setup code for `login` without `--code`, and for `start` and `run` to sign in with when there's no sign-in yet ([Signing in with a setup code](#signing-in-with-a-setup-code)) |
+| `AI_PROXY_MACHINE_ENABLE` | Toggles to turn on after such a sign-in, comma-separated, for `login` without `--enable` |
 | `APPDATA`, `XDG_CONFIG_HOME` | Where the folder is by default |
 | `AI_PROXY_AGENT` | The `agent` program launches and terminals run, instead of `agent` from PATH |
 | `AI_PROXY_LOCAL_PORT` | The port of this computer's agent-proxy (default 8184), to check which server it carries traffic to |
@@ -411,6 +428,8 @@ docker compose logs -f agent-sandbox
 |---|---|
 | `AI_PROXY_SERVER` | The server to join (required) |
 | `AI_PROXY_MACHINE_NAME` | The name on **Machines** (default: the container's hostname) |
+| `AI_PROXY_MACHINE_SETUP_CODE` | A setup code from **Machines** › **Add a machine** › **Create a setup code**, so agent-machine signs in on first start without a browser ([Signing in with a setup code](#signing-in-with-a-setup-code)) |
+| `AI_PROXY_MACHINE_ENABLE` | Toggles to turn on with that sign-in, for example `commands`. The sandbox sets launches, containers and servers itself (step 5), so this matters for `commands` and `updates`. |
 | `AGENT_WORKSPACE` | Where agents may start (default `/workspace`) |
 | `-v <folder>:/ssh:ro` | SSH keys for git (and optionally `config` and `known_hosts`), copied into `~/.ssh` on every start |
 | `GIT_USER_NAME`, `GIT_USER_EMAIL` | Who the agents' commits are by |
@@ -420,7 +439,7 @@ docker compose logs -f agent-sandbox
 | `AGENT_SERVERS` | `on` lets the console install llama.cpp in the sandbox and start, stop and configure its model servers (default `off`) |
 | `--build-arg AGENTS="..."` | The npm packages of the agents to install, when you build the image yourself |
 
-- **Sign-ins.** On first start, open the verification URL printed in the logs and approve each of the two device codes. Credentials and the machine id persist in `/home/agent`; subsequent starts renew automatically. Password/key environment bootstrap is removed.
+- **Sign-ins.** On first start, open the verification URL printed in the logs and approve each of the two device codes. With `AI_PROXY_MACHINE_SETUP_CODE` set, agent-machine's is approved by the code instead, and the code is kept out of the agents' environment. Credentials and the machine id persist in `/home/agent`; subsequent starts renew automatically and don't use the code again. Password/key environment bootstrap is removed.
 - **Git over SSH.** The keys are copied rather than used in place, because a mount from Windows or macOS usually has permissions ssh refuses. Without your own `config`, a host's key is trusted the first time it's seen, so a clone doesn't stop at a question nobody can answer. Agents in the sandbox can read the key: use a deploy key or one made for the sandbox.
 - **Account agents.** Their sign-ins (Claude, Copilot, ChatGPT) also live in `/home/agent`. Sign in once from the agent's terminal in the console.
 - **Podman** takes the same commands. A server on the same computer is reached at `host.docker.internal` (Docker, with `--add-host=host.docker.internal:host-gateway`) or `host.containers.internal` (Podman).

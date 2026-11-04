@@ -218,6 +218,8 @@ def test_reconnecting_host_resumes_and_history_survives_a_restart(tmp_path):
     with local_client(tmp_path) as restarted:
         listed = restarted.get("/api/terminals").json()["terminals"]
         assert [(item["session_id"], item["connected"], item["exit_status"], item["bytes"]) for item in listed] == [(session_id, False, 0, 18)]
+        # The console's header polls only the running ones.
+        assert restarted.get("/api/terminals", params={"open": "1"}).json() == {"terminals": []}
         with ws_connect(restarted, f"/api/terminals/{session_id}/view") as viewer:
             state, replay = read_viewer_start(viewer)
             assert replay == b"first\r\nsecond\r\n"
@@ -296,3 +298,38 @@ def test_sessions_only_join_a_machine_of_their_own_owner(tmp_path):
     assert fleet.machine_for({"hostname": "desk", "owner": "sam"}).id == "theirs"
     assert fleet.machine_for({"hostname": "other"}) is None
     assert fleet.machine_for({}) is None
+
+
+def test_a_viewer_renews_its_token_over_its_socket_and_stays_open(tmp_path, monkeypatch):
+    from oidc_helpers import access_token, issuer
+
+    monkeypatch.setattr("agent_server.auth.CREDENTIAL_CHECK_INTERVAL", 0.05)
+    monkeypatch.setattr("agent_server.routes.terminals.IDENTITY_RECHECK_SECONDS", 0.0)
+    with local_client(tmp_path) as client:
+        session_id = new_session(client)
+        first = client.headers["x-ai-proxy-token"]
+        with open_host(client, session_id) as (host, _):
+            with ws_connect(client, f"/api/terminals/{session_id}/view") as viewer:
+                read_viewer_start(viewer)
+                # The console sends each renewed token; one for nobody, or nonsense, changes nothing.
+                viewer.send_text(json.dumps({"type": "token", "token": "not-a-token"}))
+                renewed = access_token(client.app)
+                viewer.send_text(json.dumps({"type": "token", "token": renewed}))
+                # The launcher renews its own socket the same way.
+                host.send_text(json.dumps({"type": "token", "token": access_token(client.app)}))
+                time.sleep(0.2)
+                # The token it opened with stops working: the viewer carries on with the renewed one.
+                issuer(client.app).revoke(first)
+                time.sleep(0.4)
+                host.send_bytes(b"still here\r\n")
+                assert viewer.receive_bytes() == b"still here\r\n"
+                issuer(client.app).revoke(renewed)
+                host.send_bytes(b"gone\r\n")
+                code = None
+                for _ in range(100):
+                    message = viewer.receive()
+                    if message["type"] == "websocket.close":
+                        code = message.get("code")
+                        break
+                    host.send_bytes(b".")
+                assert code == 4410

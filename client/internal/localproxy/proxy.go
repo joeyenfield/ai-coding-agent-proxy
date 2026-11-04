@@ -17,6 +17,7 @@ package localproxy
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -118,7 +119,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		token, err := p.Upstream.AccessToken(p.Upstream.Server())
 		if err != nil {
-			writeJSON(w, http.StatusUnauthorized, map[string]any{"detail": err.Error()})
+			writeJSON(w, tokenStatus(err), map[string]any{"detail": err.Error()})
 			return
 		}
 		r.Header.Set(settings.TokenHeader, token)
@@ -126,6 +127,15 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeJSON(w, http.StatusNotFound, map[string]any{"detail": "Not found"})
 	}
+}
+
+// tokenStatus answers a failed sign-in with 401 only when signing in again is the cure; a sign-in
+// service that's down or slow is 503, which agents retry, rather than telling the user to log in.
+func tokenStatus(err error) int {
+	if errors.Is(err, settings.ErrLoginRequired) {
+		return http.StatusUnauthorized
+	}
+	return http.StatusServiceUnavailable
 }
 
 // launcherAPI forwards the launcher's calls to the server, signed with this machine's sign-in.
@@ -155,7 +165,7 @@ func (p *Proxy) launcherAPI(w http.ResponseWriter, r *http.Request) {
 	request.Header.Del(settings.TokenHeader)
 	token, tokenErr := p.Upstream.AccessToken(server)
 	if tokenErr != nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]any{"detail": tokenErr.Error()})
+		writeJSON(w, tokenStatus(tokenErr), map[string]any{"detail": tokenErr.Error()})
 		return
 	}
 	request.Header.Set(settings.TokenHeader, token)

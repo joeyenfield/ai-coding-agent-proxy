@@ -796,7 +796,7 @@ function MachineSessions({ machine }: { machine: FleetMachine }) {
   const sessions = useSessions();
   const agents = useAgents();
   // The rail polls the same list; devices that can't watch terminals get a 401 and see sessions only.
-  const terminals = useQuery({ queryKey: ["terminals"], queryFn: api.terminals, retry: false, refetchInterval: pollEvery(3000) });
+  const terminals = useQuery({ queryKey: ["terminals"], queryFn: () => api.terminals(), retry: false, refetchInterval: pollEvery(3000) });
   const byId = new Map((terminals.data?.terminals ?? []).map((item) => [item.session_id, item]));
   const now = Date.now();
   const running = (sessions.data ?? [])

@@ -61,7 +61,7 @@ export function TerminalsPage() {
   // While it fails (offline, or the server restarting), keep asking so the page recovers by itself.
   const remote = useQuery({ queryKey: ["remote"], queryFn: api.remote, refetchInterval: (query) => (query.state.status === "error" ? 10000 : false) });
   const trusted = remote.data?.trusted === true;
-  const terminals = useQuery({ queryKey: ["terminals"], queryFn: api.terminals, refetchInterval: 3000, enabled: trusted });
+  const terminals = useQuery({ queryKey: ["terminals"], queryFn: () => api.terminals(), refetchInterval: 3000, enabled: trusted });
   const [showEnded, setShowEnded] = useState(false);
   // The terminals to delete, with their sessions: one card's, or every disconnected one.
   const [removing, setRemoving] = useState<TerminalSummary[] | null>(null);

@@ -73,10 +73,16 @@ def test_real_browser_login_refresh_and_logout(browser):
     assert any("ai_proxy_session=" in value and "HttpOnly" in value and "Secure" in value for value in cookies)
     assert any("mesh_accounts=" in value and "Path=/api/auth" in value and "HttpOnly" in value for value in cookies)
     assert all("Domain=" not in value for value in cookies)
-    assert api.get("/api/auth/status").json()["identity"]["user"] == "alice"
+    status = api.get("/api/auth/status").json()
+    assert status["identity"]["user"] == "alice"
+    # The console times its next renewal by this.
+    assert 0 < status["expires_in"] <= 300
     assert api.get("/api/status").status_code == 200
     old_refresh = api.cookies.get("mesh_accounts")
-    assert api.post("/api/auth/refresh", headers={"Origin": settings.oidc_browser_origins[0]}).status_code == 200
+    refreshed = api.post("/api/auth/refresh", headers={"Origin": settings.oidc_browser_origins[0]})
+    assert refreshed.status_code == 200
+    assert refreshed.json()["refreshed"] is True and 0 < refreshed.json()["expires_in"] <= 300
+    assert int(refreshed.headers["content-length"]) == len(refreshed.content)
     assert api.cookies.get("mesh_accounts") != old_refresh
     current_access = api.cookies.get(COOKIE)
     assert api.post("/api/auth/logout", headers={"Origin": settings.oidc_browser_origins[0]}).status_code == 200
@@ -200,3 +206,61 @@ def test_a_tampered_account_cookie_is_no_sign_in_and_an_older_one_is_carried_ove
     assert api.post("/api/auth/refresh", headers=origin).status_code == 200
     assert api.get("/api/auth/accounts").json()["accounts"] == [{"user": "alice", "active": True}]
     assert api.get("/api/auth/status").json()["identity"]["user"] == "alice"
+
+
+def test_a_setup_code_signs_machines_in_as_its_maker_a_limited_number_of_times(browser):
+    api, issuer, settings = browser
+    assert api.get(authorize(api, issuer, settings)).status_code == 307
+    created = api.post("/api/auth/setup-codes", json={"lifetime": 600, "uses": 2, "label": "rack 3"})
+    assert created.status_code == 201, created.text
+    code = created.json()["code"]
+    assert code.startswith("msc_") and created.json()["uses"] == 2 and created.json()["label"] == "rack 3"
+    # The list never shows the code itself.
+    listed = api.get("/api/auth/setup-codes").json()["codes"]
+    assert [item["id"] for item in listed] == [created.json()["id"]] and code not in str(listed)
+    service = issuer.app.state.issuer
+
+    def sign_in(setup_code: str):
+        asked = issuer.post("/device_authorization", data={"client_id": settings.oidc_cli_client, "scope": "mesh-api offline_access"}).json()
+        approved = issuer.post("/device/setup", data={"user_code": asked["user_code"], "setup_code": setup_code})
+        if approved.status_code != 200:
+            return approved, None
+        poll = {"client_id": settings.oidc_cli_client, "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+                "device_code": asked["device_code"]}
+        return approved, issuer.post("/token", data=poll)
+
+    for _ in range(2):
+        approved, tokens = sign_in(code)
+        assert approved.json() == {"approved": True, "user": "alice"}
+        assert tokens.status_code == 200 and tokens.json()["refresh_token"], tokens.text
+        # The machine's token is alice's.
+        assert api.get("/api/auth/status", headers={"Authorization": "Bearer " + tokens.json()["access_token"]}).json()["identity"]["user"] == "alice"
+    # Used up: gone from the list, and refused.
+    assert api.get("/api/auth/setup-codes").json()["codes"] == []
+    assert sign_in(code)[0].json() == {"error": "invalid_setup_code"}
+    assert sign_in("msc_made-up")[0].status_code == 400
+    # One device code is approved once, whichever way.
+    second = api.post("/api/auth/setup-codes", json={"uses": 5}).json()
+    asked = issuer.post("/device_authorization", data={"client_id": settings.oidc_cli_client, "scope": "mesh-api offline_access"}).json()
+    assert issuer.post("/device/setup", data={"user_code": asked["user_code"], "setup_code": second["code"]}).status_code == 200
+    assert issuer.post("/device/setup", data={"user_code": asked["user_code"], "setup_code": second["code"]}).status_code == 409
+    # Revoked codes stop at once; lifetimes and uses have limits.
+    assert api.delete(f"/api/auth/setup-codes/{second['id']}").status_code == 200
+    assert sign_in(second["code"])[0].json() == {"error": "invalid_setup_code"}
+    assert api.delete(f"/api/auth/setup-codes/{second['id']}").status_code == 404
+    assert api.post("/api/auth/setup-codes", json={"lifetime": 86401}).status_code == 400
+    assert api.post("/api/auth/setup-codes", json={"uses": 101}).status_code == 400
+    # Expired codes don't approve anything.
+    third = api.post("/api/auth/setup-codes", json={}).json()
+    assert third["exp"] - third["created"] == 3600
+    with service.state.transaction():
+        record = service.state.get("setup_code", digest(third["code"]))
+        service.state.put("setup_code", digest(third["code"]), {**record, "exp": 1})
+    assert sign_in(third["code"])[0].json() == {"error": "invalid_setup_code"}
+    # A new password ends its codes too.
+    fourth = api.post("/api/auth/setup-codes", json={}).json()
+    UserStore(settings.open_database()).update_user("alice", password="a-new-password")
+    assert sign_in(fourth["code"])[0].json() == {"error": "invalid_setup_code"}
+    # A command-line token can't make codes; nor can nobody.
+    api.cookies.clear()
+    assert api.post("/api/auth/setup-codes", json={}).status_code == 401

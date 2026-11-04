@@ -82,8 +82,8 @@ function Shell({ identity }: { identity: Identity | null }) {
   // After an error (a lapsed sign-in, a dropped network) these keep asking, more slowly, so the
   // counts come back by themselves; only a 403 stops them.
   const terminals = useQuery({
-    queryKey: ["terminals"],
-    queryFn: api.terminals,
+    queryKey: ["terminals", "open"],
+    queryFn: () => api.terminals(true),
     retry: false,
     refetchInterval: pollEvery(5000),
   });

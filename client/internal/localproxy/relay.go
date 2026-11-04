@@ -72,10 +72,14 @@ type serverSide struct {
 	mu   sync.Mutex
 	stop chan struct{}
 	once sync.Once
+	// The token the server holds for this socket: the dial's, then the last one sent over it. A 4410
+	// means that one stopped working, so it's the one to reject.
+	tokenMu sync.Mutex
+	token   string
 }
 
 func newServerSide(upstream settings.Upstream, server string, conn *websocket.Conn, token string) *serverSide {
-	side := &serverSide{conn: conn, stop: make(chan struct{})}
+	side := &serverSide{conn: conn, stop: make(chan struct{}), token: token}
 	alive := func() { _ = conn.SetReadDeadline(time.Now().Add(readTimeout)) }
 	alive()
 	conn.SetPingHandler(func(data string) error {
@@ -106,6 +110,13 @@ func (s *serverSide) read() (int, []byte, error) {
 
 func (s *serverSide) close() { s.once.Do(func() { close(s.stop) }) }
 
+// current is the token the server last accepted from this socket, as far as this side knows.
+func (s *serverSide) current() string {
+	s.tokenMu.Lock()
+	defer s.tokenMu.Unlock()
+	return s.token
+}
+
 func (s *serverSide) renew(upstream settings.Upstream, server, token string) {
 	if token == "" {
 		return
@@ -125,6 +136,9 @@ func (s *serverSide) renew(upstream settings.Upstream, server, token string) {
 			message, _ := json.Marshal(map[string]string{"type": "token", "token": next})
 			if s.write(websocket.TextMessage, message) == nil {
 				token, sent = next, time.Now()
+				s.tokenMu.Lock()
+				s.token = next
+				s.tokenMu.Unlock()
 			}
 		}
 	}
@@ -163,7 +177,7 @@ func (p *Proxy) terminal(w http.ResponseWriter, r *http.Request, sessionID strin
 	code, reason := relay(launcher, side)
 	closeWith(remote, websocket.CloseNormalClosure, "")
 	if code == 4410 {
-		if err := p.Upstream.RejectAccessTokenIf(server, token); err != nil {
+		if err := p.Upstream.RejectAccessTokenIf(server, side.current()); err != nil {
 			reason = err.Error()
 		}
 	}
@@ -329,7 +343,7 @@ func (p *Proxy) tunnel(conn net.Conn) {
 	mu.Lock()
 	defer mu.Unlock()
 	if closeCode == 4410 {
-		if err := p.Upstream.RejectAccessTokenIf(server, token); err != nil {
+		if err := p.Upstream.RejectAccessTokenIf(server, side.current()); err != nil {
 			closeReason = err.Error()
 		}
 	}

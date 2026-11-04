@@ -309,7 +309,8 @@ func (p *Presence) session(ctx context.Context) error {
 		renew := time.NewTicker(renewEvery)
 		defer renew.Stop()
 		// The token this connection opened with (Dial's, still cached). The server closes the
-		// connection once it expires, so each newer one is sent over it before then.
+		// connection once it expires, so each newer one is sent over it before then. If it can't be
+		// read now (the sign-in service briefly down), keep going: the first one read is sent.
 		token, _ := p.Upstream.AccessToken(server)
 		sent := time.Now()
 		for {
@@ -317,9 +318,6 @@ func (p *Presence) session(ctx context.Context) error {
 			case <-sessionCtx.Done():
 				return
 			case <-renew.C:
-				if token == "" {
-					continue
-				}
 				next, err := p.Upstream.AccessToken(server)
 				if err != nil || (next == token && time.Since(sent) < resendEvery) {
 					continue

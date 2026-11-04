@@ -220,18 +220,146 @@ const ALLOW = [
   { text: "Start agents there, in the folders you name (needs agent too)", commands: ["agent-machine launches on", "agent-machine roots add ~/code"] },
 ];
 
+// What a setup code can switch on as the machine signs in: agent-machine's own toggles.
+const ENABLE = [
+  { id: "updates", label: "Updates from the console" },
+  { id: "servers", label: "Manage its model servers" },
+  { id: "containers", label: "Model servers in containers" },
+  { id: "launches", label: "Start agents there" },
+  { id: "commands", label: "Open terminals there" },
+] as const;
+const LIFETIMES = [
+  { id: "900", label: "15 minutes" },
+  { id: "3600", label: "1 hour" },
+  { id: "86400", label: "24 hours" },
+] as const;
+type Lifetime = (typeof LIFETIMES)[number]["id"];
+
+/** A setup code just made, with what its machines switch on: the commands carry both. */
+type Setup = { code: string; enable: string[] };
+
+/** The environment a setup code goes in: agent-machine's, and agent's too when both are installed. */
+function setupEnv(setup: Setup | null, both: boolean): [string, string][] {
+  if (!setup) return [];
+  return [
+    ["AI_PROXY_MACHINE_SETUP_CODE", setup.code],
+    ...(setup.enable.length ? [["AI_PROXY_MACHINE_ENABLE", setup.enable.join(",")] as [string, string]] : []),
+    ...(both ? [["AI_PROXY_SETUP_CODE", setup.code] as [string, string]] : []),
+  ];
+}
+
+/** The install command with a setup code in its environment, so it signs in with no one to approve. */
+function withSetup(command: string, env: [string, string][], windows: boolean): string {
+  if (!env.length) return command;
+  if (windows) return `${env.map(([name, value]) => `$env:${name}='${value}'; `).join("")}${command}`;
+  // The variables go to sh, which runs the installer and its sign-ins.
+  return command.replace("| sh", `| ${env.map(([name, value]) => `${name}=${value}`).join(" ")} sh`);
+}
+
+/**
+ * Setup codes: instead of approving each machine's sign-in code, make a short-lived code that signs
+ * machines in as you, a number of times, and optionally switches some of their features on.
+ */
+function SetupCodes({ both, setup, onSetup }: { both: boolean; setup: Setup | null; onSetup: (setup: Setup | null) => void }) {
+  const notify = useToast();
+  const client = useQueryClient();
+  const [lifetime, setLifetime] = useState<Lifetime>("3600");
+  const [machines, setMachines] = useState(1);
+  const [enable, setEnable] = useState<string[]>(["updates"]);
+  const codes = useQuery({ queryKey: ["setup-codes"], queryFn: api.setupCodes, retry: false });
+  const create = useMutation({
+    // Installing agent too signs in twice per machine.
+    mutationFn: () => api.createSetupCode({ lifetime: Number(lifetime), uses: Math.min(100, machines * (both ? 2 : 1)) }),
+    onSuccess: (made) => {
+      onSetup({ code: made.code, enable });
+      void client.invalidateQueries({ queryKey: ["setup-codes"] });
+    },
+    onError: (error) => notify(error instanceof Error ? error.message : "Couldn't make a setup code"),
+  });
+  const revoke = useMutation({
+    mutationFn: api.revokeSetupCode,
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["setup-codes"] }),
+    onError: (error) => notify(error instanceof Error ? error.message : "Couldn't revoke it"),
+  });
+  const toggle = (id: string) => setEnable((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
+  return (
+    <details className="manual setup-codes" open={Boolean(setup)}>
+      <summary>Skip approving: use a setup code</summary>
+      <p className="subtle">
+        A setup code signs machines in as you, with no code to approve on each. It works for a while and a number of times, then
+        stops. Anyone who has it can add machines as you until then, so treat it like a password. The commands on this page
+        include it once you make one.
+      </p>
+      {setup ? (
+        <div className="setup-made">
+          <p>
+            Made. The commands here now include it{setup.enable.length ? `, and switch on ${setup.enable.join(", ")}` : ""}. It
+            isn't shown again.
+          </p>
+          <button type="button" className="link" onClick={() => onSetup(null)}>Use approval instead</button>
+        </div>
+      ) : (
+        <div className="setup-form">
+          <div className="join-choice">
+            <span className="subtle">Lasts</span>
+            <Switch label="How long the code lasts" options={LIFETIMES} value={lifetime} onChange={setLifetime} />
+          </div>
+          <label className="setup-machines">
+            <span className="subtle">Machines</span>
+            <input type="number" min={1} max={both ? 50 : 100} value={machines}
+              onChange={(event) => setMachines(Math.max(1, Math.min(both ? 50 : 100, Number(event.target.value) || 1)))} />
+          </label>
+          <fieldset className="setup-enable">
+            <legend className="subtle">Switch on as it signs in</legend>
+            {ENABLE.map((item) => (
+              <label key={item.id} className="check">
+                <input type="checkbox" checked={enable.includes(item.id)} onChange={() => toggle(item.id)} />
+                {item.label}
+              </label>
+            ))}
+          </fieldset>
+          <button type="button" className="primary" disabled={create.isPending} onClick={() => create.mutate()}>
+            {create.isPending ? "Making…" : "Create a setup code"}
+          </button>
+        </div>
+      )}
+      {Boolean(codes.data?.codes.length) && (
+        <div className="setup-open">
+          <p className="subtle">Your open setup codes:</p>
+          <ul>
+            {codes.data!.codes.map((item) => (
+              <li key={item.id}>
+                <span>
+                  {item.uses} of {item.max_uses} sign-ins left, until {formatDate(new Date(item.exp * 1000).toISOString())}
+                </span>
+                <button type="button" className="small" disabled={revoke.isPending} onClick={() => revoke.mutate(item.id)}>Revoke</button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </details>
+  );
+}
+
 /** Adding a machine: pick its system and what to install, and get the one command to run there. */
 function JoinSteps({ server }: { server: string }) {
   const copy = useClipboard();
   const [system, setSystem] = useRemembered<System>(SYSTEM_KEY, SYSTEMS, browserPlatform().startsWith("windows") ? "powershell" : "sh");
   const [install, setInstall] = useRemembered<Install>(INSTALL_KEY, INSTALLS, "machine");
   const [service, setService] = useState(true);
+  const [setup, setSetup] = useState<Setup | null>(null);
   const python = system === "python";
   // The container image has everything in it, so there's nothing to choose.
   const container = system === "container";
   const windows = system === "powershell";
-  const command = installLine(server, windows ? "powershell" : "sh", { only: install === "machine" ? "agent-machine" : undefined, service });
-  const login = `agent-machine login ${server}`;
+  // The container signs in agent and agent-machine both.
+  const both = container || install === "both";
+  const env = setupEnv(setup, both);
+  const command = withSetup(installLine(server, windows ? "powershell" : "sh", { only: install === "machine" ? "agent-machine" : undefined, service }), env, windows);
+  const login = setup
+    ? `agent-machine login ${server} --code ${setup.code}${setup.enable.length ? ` --enable ${setup.enable.join(",")}` : ""}`
+    : `agent-machine login ${server}`;
   const chosen = INSTALLS.find((item) => item.id === install) ?? INSTALLS[0];
   // What the command does, in order, so nothing it changes on the computer is a surprise.
   const does = [
@@ -244,9 +372,11 @@ function JoinSteps({ server }: { server: string }) {
         ? "Adds a scheduled task, agent-machine, that starts it whenever you sign in to Windows."
         : "Sets up a service that starts it at boot: systemd on Linux (a user service without sudo), launchd on macOS, rc.d on FreeBSD."]
       : []),
-    install === "both"
-      ? "Signs agent and agent-machine in to this server: each shows a code for you to approve. It never asks for your password."
-      : "Signs agent-machine in to this server: it shows a code for you to approve. It never asks for your password.",
+    setup
+      ? `Signs ${install === "both" ? "agent and agent-machine" : "agent-machine"} in to this server with the setup code, as you${setup.enable.length ? `, and switches on ${setup.enable.join(", ")}` : ""}. Nothing to approve.`
+      : install === "both"
+        ? "Signs agent and agent-machine in to this server: each shows a code for you to approve. It never asks for your password."
+        : "Signs agent-machine in to this server: it shows a code for you to approve. It never asks for your password.",
     "Starts agent-machine, which joins the fleet and appears in the list above.",
   ];
   return (
@@ -267,10 +397,11 @@ function JoinSteps({ server }: { server: string }) {
           </div>
         )}
       </div>
+      {!python && <SetupCodes both={both} setup={setup} onSetup={setSetup} />}
       {python && <p className="join-about">{PYTHON_ABOUT}</p>}
       <p className="join-about">{container ? CONTAINER_ABOUT : chosen.about}</p>
       {container ? (
-        <SandboxSteps server={server} />
+        <SandboxSteps server={server} env={env} />
       ) : python ? (
         <>
           <PythonSteps server={server} agent={install === "both"} />
@@ -289,8 +420,14 @@ function JoinSteps({ server }: { server: string }) {
               {does.map((step) => <li key={step}>{step}</li>)}
             </ol>
             <p className="subtle">
-              Approve {install === "both" ? "the codes" : "the code"} on <Link to="/approve-device">Approve a device</Link>. The machine
-              belongs to whoever approves it.
+              {setup ? (
+                <>The machine belongs to you, who made the setup code.</>
+              ) : (
+                <>
+                  Approve {install === "both" ? "the codes" : "the code"} on <Link to="/approve-device">Approve a device</Link>, or use a
+                  setup code. The machine belongs to whoever approves it.
+                </>
+              )}
             </p>
           </div>
           <details className="manual">
@@ -529,7 +666,7 @@ function useRemembered<T extends string>(key: string, options: readonly { id: T 
 const SANDBOX_IMAGE = "ghcr.io/joeyenfield/agent-sandbox:latest";
 
 /** A machine of its own in a container (sandbox/Dockerfile): agents started on it can only touch its /workspace. */
-function SandboxSteps({ server }: { server: string }) {
+function SandboxSteps({ server, env = [] }: { server: string; env?: [string, string][] }) {
   const copy = useClipboard();
   const [runtime, setRuntime] = useRemembered<Runtime>(RUNTIME_KEY, RUNTIMES, "docker");
   // The shell the commands are typed in, on the computer that runs the container: it decides how lines continue.
@@ -553,6 +690,7 @@ function SandboxSteps({ server }: { server: string }) {
     `${runtime} run -d --name agent-sandbox --restart unless-stopped`,
     ...(hostGateway ? ["  --add-host=host.docker.internal:host-gateway"] : []),
     `  -e AI_PROXY_SERVER=${address}`,
+    ...env.map(([name, value]) => `  -e ${name}=${value}`),
     `  -v agent-sandbox-home:/home/agent -v agent-sandbox-workspace:/workspace ${image}`,
   ].join(`${style.continuation}\n`);
   return (
@@ -571,9 +709,17 @@ function SandboxSteps({ server }: { server: string }) {
         <li>
           <p>
             Run it. {runtime === "podman" ? "Podman" : "Docker"} downloads the newest image from the GitHub Container
-            Registry (<code>{image}</code>) the first time. On its first start it prints two sign-in codes
-            (<code>{runtime} logs agent-sandbox</code>): approve both on <Link to="/approve-device">Approve a device</Link>. It shows up
-            here as <strong>agent-sandbox</strong>, and its sign-in is kept in the agent-sandbox-home volume.
+            Registry (<code>{image}</code>) the first time.{" "}
+            {env.length ? (
+              <>On its first start it signs in with the setup code, as you, with nothing to approve.</>
+            ) : (
+              <>
+                On its first start it prints two sign-in codes (<code>{runtime} logs agent-sandbox</code>): approve both on{" "}
+                <Link to="/approve-device">Approve a device</Link>, or use a setup code.
+              </>
+            )}{" "}
+            It shows up here as <strong>agent-sandbox</strong>, and its sign-in is kept in the agent-sandbox-home volume, so a restart
+            doesn't sign in again.
           </p>
           <CodeLine text={run} onCopy={() => copy(run, "Command copied")} />
           <p className="subtle">

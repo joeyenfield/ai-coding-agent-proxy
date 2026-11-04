@@ -30,7 +30,9 @@ const usage = `agent-machine puts this computer in an agent-server's fleet, so t
 LLM providers it runs (Ollama, llama.cpp, Strata, Docker Model Runner, containers) and start agents on it.
 
 Usage: agent-machine                           this machine as the fleet sees it
-       agent-machine login [url]                 (OIDC device sign-in)
+       agent-machine login [url]               OIDC device sign-in, approved in a browser
+       agent-machine login [url] --code CODE   ...or with a setup code from the console's Machines page
+                     [--enable LIST]           then switch toggles on, for example launches,commands
        agent-machine logout [url]
        agent-machine start                     join the fleet in the background
        agent-machine stop
@@ -65,6 +67,9 @@ A terminal from the console (commands on) is a shell as this user: only you see 
 MCP servers run here, as this user, for the agents you choose and the teams you let use them
 (the machine's Access tab). Their commands, environments and URLs stay here.
 Settings changes reach the server within a minute.
+Without --code, login uses AI_PROXY_MACHINE_SETUP_CODE when it's set, and without --enable,
+AI_PROXY_MACHINE_ENABLE. start and run sign in with AI_PROXY_MACHINE_SETUP_CODE by themselves
+when there's no sign-in for their server yet (a container's first start); after that it's ignored.
 `
 
 // Main runs agent-machine with its arguments and returns the exit status.
@@ -116,7 +121,7 @@ func configure(args []string) int {
 		}
 		machine.Updates = args[1] == "on"
 		if machine.Updates {
-			fmt.Println("Updates are on: the machine's owner or an admin can update agent-machine and agent here to the server's build from the console.")
+			printNotes(machine, "updates")
 		}
 	case "commands":
 		if len(args) != 2 || (args[1] != "on" && args[1] != "off") {
@@ -124,18 +129,15 @@ func configure(args []string) int {
 		}
 		machine.Commands = args[1] == "on"
 		if machine.Commands {
-			fmt.Println("Commands are on: signed in as this machine's owner, you can open a terminal here from the console, as this user.")
-			if len(machine.Roots) == 0 {
-				fmt.Println("Terminals start in a launch folder, and there's none yet: agent-machine roots add <dir>")
-			}
+			printNotes(machine, "commands")
 		}
 	case "launches":
 		if len(args) != 2 || (args[1] != "on" && args[1] != "off") {
 			return fail("launches takes on or off")
 		}
 		machine.Launches = args[1] == "on"
-		if machine.Launches && len(machine.Roots) == 0 {
-			fmt.Println("Launches are on, but there's no folder to start agents in yet: agent-machine roots add <dir>")
+		if machine.Launches {
+			printNotes(machine, "launches")
 		}
 		if _, err := presence.AgentCommand(); machine.Launches && err != nil {
 			fmt.Println("Note:", err)
@@ -219,6 +221,34 @@ func configure(args []string) int {
 	return 0
 }
 
+// printNotes says what switching a toggle on means, the same here as after login --enable.
+func printNotes(machine *settings.Machine, name string) {
+	for _, note := range machine.ToggleNotes(name) {
+		fmt.Println(note)
+	}
+}
+
+// runServer is the server run (and start, which runs it) joins: its --server, else the default.
+func runServer(args []string) (string, error) {
+	flags := flag.NewFlagSet("agent-machine run", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	server := flags.String("server", "", "")
+	if err := flags.Parse(args); err != nil {
+		return "", err
+	}
+	return (settings.Upstream{Fixed: *server}).Server(), nil
+}
+
+// signInFirst is the automatic sign-in with a setup code before joining (login.Automatic), as an
+// exit status: 0 to carry on.
+func signInFirst(server string) int {
+	if err := login.Automatic(server); err != nil {
+		fmt.Fprintln(os.Stderr, "agent-machine: couldn't sign in with the setup code:", err)
+		return 1
+	}
+	return 0
+}
+
 // running is the agent-machine already in the fleet, if one is.
 func running() *settings.Status {
 	status := settings.LoadStatus()
@@ -241,6 +271,9 @@ func run(args []string) int {
 	if other := running(); other != nil {
 		fmt.Fprintf(os.Stderr, "agent-machine is already running (process %d, %s). Stop it first: agent-machine stop\n", other.PID, other.State)
 		return 1
+	}
+	if status := signInFirst((settings.Upstream{Fixed: *server}).Server()); status != 0 {
+		return status
 	}
 	logger := openLog()
 	upstream := settings.Upstream{Fixed: *server}
@@ -302,6 +335,17 @@ func start(args []string) int {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "agent-machine: %v\n", err)
 		return 1
+	}
+	if other := running(); other == nil {
+		// Here rather than in the detached run, so a refused setup code is shown and fails start.
+		server, err := runServer(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "agent-machine: %v\n", err)
+			return 2
+		}
+		if status := signInFirst(server); status != 0 {
+			return status
+		}
 	}
 	return startWith(self, args)
 }

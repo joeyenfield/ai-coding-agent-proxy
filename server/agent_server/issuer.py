@@ -51,6 +51,12 @@ REFRESH_REUSE_GRACE = 60
 FAMILY_TTL = 30 * 86400
 CODE_TTL = 120
 DEVICE_TTL = 600
+# Setup codes (/setup-codes): how long one lasts by default and at most, how many sign-ins one may
+# approve at most, and how many one person may have open at once.
+SETUP_DEFAULT_LIFETIME = 3600
+SETUP_MAX_LIFETIME = 86400
+SETUP_MAX_USES = 100
+SETUP_MAX_ACTIVE = 20
 COOKIE = "__Host-mesh_auth_transaction"
 
 
@@ -952,6 +958,102 @@ def create_auth_app(settings: Settings | None = None) -> FastAPI:
             service.state.put("approval", code_hash, {"user": user.name, "version": user.version,
                                                      "approved": approved, "exp": code["exp"]})
             return {"approved": approved}
+
+    @app.post("/setup-codes")
+    async def setup_codes(request: Request):
+        """Setup codes, made by someone signed in to the console: each approves device sign-ins (an
+        agent-machine's) as them, without anyone at the machine typing a code, a limited number of times
+        before it expires. Only the API calls this, as the introspection client, with the person's console
+        access token, like /device/console. action: "create" (lifetime seconds, uses, label), "list", or
+        "revoke" (id). The code itself is shown once, at create; only its hash is kept.
+        """
+        data = await parameters(request)
+        with service.state.transaction():
+            service.authenticate(request, data, introspect=True)
+            record = service.active(data.get("token", ""))
+            if not record or record["client_id"] != service.settings.oidc_console_client:
+                raise IssuerError("invalid_token", 401)
+            user = service.bound_user(record["user"], record["version"])
+            if not user:
+                raise IssuerError("invalid_token", 401)
+            action = data.get("action")
+            index = service.state.get("setup_index", user.name) or {"codes": {}}
+            now = time.time()
+            codes = {key: item for key, item in index["codes"].items() if item["exp"] > now and item["uses"] > 0}
+            if action == "create":
+                service.rate(("setup_create", user.name), 30)
+                if len(codes) >= SETUP_MAX_ACTIVE:
+                    raise IssuerError("too_many_setup_codes", 409)
+                try:
+                    lifetime = int(data.get("lifetime") or SETUP_DEFAULT_LIFETIME)
+                    uses = int(data.get("uses") or 1)
+                except ValueError as exc:
+                    raise IssuerError("invalid_request") from exc
+                if not 60 <= lifetime <= SETUP_MAX_LIFETIME or not 1 <= uses <= SETUP_MAX_USES:
+                    raise IssuerError("invalid_request")
+                code = "msc_" + secrets.token_urlsafe(24)
+                key = digest(code)
+                item = {"id": key[:16], "label": str(data.get("label") or "")[:80], "created": now, "exp": now + lifetime,
+                        "uses": uses, "max_uses": uses}
+                service.state.put("setup_code", key, {"user": user.name, "version": user.version, "id": item["id"],
+                                                      "uses": uses, "exp": item["exp"]})
+                codes[key] = item
+                service.state.put("setup_index", user.name, {"codes": codes, "exp": max(entry["exp"] for entry in codes.values())})
+                return {"code": code, **item}
+            if action == "list":
+                return {"codes": sorted(codes.values(), key=lambda entry: entry["created"], reverse=True)}
+            if action == "revoke":
+                found = [key for key, item in codes.items() if item["id"] == data.get("id")]
+                if not found:
+                    raise IssuerError("invalid_setup_code", 404)
+                service.state.delete("setup_code", found[0])
+                codes.pop(found[0])
+                if codes:
+                    service.state.put("setup_index", user.name, {"codes": codes, "exp": max(entry["exp"] for entry in codes.values())})
+                else:
+                    service.state.delete("setup_index", user.name)
+                return {"revoked": data.get("id")}
+            raise IssuerError("invalid_request")
+
+    @app.post("/device/setup")
+    async def device_with_setup_code(request: Request):
+        """A device code approved with a setup code (user_code, setup_code), by the program that asked for
+        it: agent-machine login --code, or a container given AI_PROXY_MACHINE_SETUP_CODE. It records the
+        same approval the /device form does, as the code's owner, and spends one of its uses; the program
+        then gets its tokens from /token as usual. Only CLI device codes; the code is a bearer secret, so
+        wrong ones count towards a per-address limit.
+        """
+        data = await parameters(request)
+        with service.state.transaction():
+            key = digest(str(data.get("setup_code", "")).strip())
+            code = service.state.get("setup_code", key)
+            user = service.bound_user(code["user"], code["version"]) if code else None
+            if not code or code["exp"] <= time.time() or code["uses"] <= 0 or not user:
+                service.rate(("setup_guess", request.client.host), 20)
+                raise IssuerError("invalid_setup_code")
+            code_hash = digest(str(data.get("user_code", "")).strip().upper().replace("-", "").replace(" ", ""))
+            pending = service.state.get("user_code", code_hash)
+            credential = service.state.get("device", pending["device"]) if pending and pending["exp"] > time.time() else None
+            if not credential or credential["client_id"] != service.settings.oidc_cli_client:
+                raise IssuerError("invalid_user_code")
+            if credential["used"] or service.state.get("approval", code_hash):
+                raise IssuerError("code_already_used", 409)
+            service.state.put("approval", code_hash, {"user": user.name, "version": user.version, "approved": True, "exp": pending["exp"]})
+            code["uses"] -= 1
+            index = service.state.get("setup_index", user.name) or {"codes": {}}
+            if code["uses"] > 0:
+                service.state.put("setup_code", key, code)
+                if key in index["codes"]:
+                    index["codes"][key]["uses"] = code["uses"]
+            else:
+                service.state.delete("setup_code", key)
+                index["codes"].pop(key, None)
+            if index["codes"]:
+                index["exp"] = max(entry["exp"] for entry in index["codes"].values())
+                service.state.put("setup_index", user.name, index)
+            else:
+                service.state.delete("setup_index", user.name)
+            return {"approved": True, "user": user.name}
 
     @app.post("/token")
     async def token(request: Request):

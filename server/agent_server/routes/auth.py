@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import time
 from typing import Any
 
 import httpx
@@ -94,8 +95,9 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             response.delete_cookie(ACCOUNTS, path="/api/auth")
         response.headers["Cache-Control"] = "no-store"
 
-    def activate(response: Response, held: dict[str, Any], user: str, token: Any) -> None:
-        """Make user the active account with this token response: its access cookie, its new refresh token."""
+    def activate(response: Response, held: dict[str, Any], user: str, token: Any) -> tuple[str, int]:
+        """Make user the active account with this token response: its access cookie, its new refresh token.
+        Returns the access token and its lifetime in seconds."""
         access, expires, refresh_token = checked(token)
         if user:
             held["accounts"].pop("", None)
@@ -103,6 +105,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         held["active"] = user
         response.set_cookie(auth.COOKIE, access, max_age=expires, httponly=True, secure=secure, samesite="lax")
         store(response, held)
+        return access, expires
 
     def listing(held: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -143,7 +146,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         except httpx.HTTPError as exc:
             raise HTTPException(status_code=503, detail="Sign-out could not revoke your credential; try again.") from exc
 
-    async def renew(response: Response, held: dict[str, Any], user: str) -> None:
+    async def renew(response: Response, held: dict[str, Any], user: str) -> tuple[str, int]:
         """A fresh access token for one of the browser's accounts, which becomes the active one.
         A sign-in the issuer no longer honours is dropped from the browser: 401."""
         try:
@@ -164,7 +167,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
                     failed.delete_cookie(auth.COOKIE)
                 raise _Answer(failed) from exc
             raise
-        activate(response, held, user, token)
+        return activate(response, held, user, token)
 
     @app.get("/api/auth/status")
     async def status(request: Request) -> JSONResponse:
@@ -172,9 +175,15 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             identity = await asyncio.to_thread(accounts.identify, request)
         except auth.AuthUnavailable as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
+        expires = accounts.expires_at(request) if identity else None
+        token, via = auth.Auth.request_token(request)
         return JSONResponse({
             "required": True,
             "identity": identity.public() if identity else None,
+            # Seconds left on the access token this request carried, for the console's renewal timer.
+            "expires_in": max(0, int(expires - time.time())) if expires else None,
+            # The page's own access token (from its cookie), for renewing its open sockets in place.
+            "access_token": token if identity and via == "cookie" else None,
             "secure": request.url.scheme == "https",
             "issuer": settings.oidc_issuer, "audience": settings.oidc_audience, "client_id": settings.oidc_cli_client,
             # The browser sign-in's callbacks (the issuer knows them anyway). The Android app keeps sign-in in its
@@ -269,17 +278,66 @@ def register(app: FastAPI, runtime: Runtime) -> None:
                                              (503, "The authentication service couldn't decide that code. Try again."))
         raise HTTPException(status_code=status, detail=detail)
 
+    SETUP_REFUSALS = {
+        "invalid_token": (403, "Setup codes need a console sign-in. Sign in to the console again."),
+        "too_many_setup_codes": (409, "You have 20 setup codes open already. Revoke one, or wait for one to expire."),
+        "invalid_setup_code": (404, "No such setup code: it may have expired or been used up."),
+        "invalid_request": (400, "A setup code lasts from 1 minute to 24 hours and allows 1 to 100 sign-ins."),
+        "rate_limit_exceeded": (429, "Too many tries. Wait a few minutes, then try again."),
+    }
+
+    async def setup_call(request: Request, form: dict[str, str]) -> dict[str, Any]:
+        try:
+            response = await asyncio.to_thread(accounts.setup_codes, request, form)
+        except auth.AuthUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        try:
+            answer = response.json()
+        except ValueError:
+            answer = {}
+        if response.status_code == 200 and isinstance(answer, dict):
+            return answer
+        status, detail = SETUP_REFUSALS.get(answer.get("error") if isinstance(answer, dict) else None,
+                                            (503, "The authentication service couldn't do that. Try again."))
+        raise HTTPException(status_code=status, detail=detail)
+
+    @app.get("/api/auth/setup-codes")
+    async def list_setup_codes(request: Request) -> dict[str, Any]:
+        """Your open setup codes (never the codes themselves: id, label, created, expires, uses left)."""
+        return await setup_call(request, {"action": "list"})
+
+    @app.post("/api/auth/setup-codes", status_code=201)
+    async def create_setup_code(request: Request) -> dict[str, Any]:
+        """A setup code for adding machines as you: {"lifetime": seconds, "uses": n, "label": text}. The answer
+        holds the code, once. agent-machine login --code (or AI_PROXY_MACHINE_SETUP_CODE) signs in with it."""
+        data = await request.json()
+        if not isinstance(data, dict):
+            raise HTTPException(status_code=400, detail="Send a JSON object")
+        form = {"action": "create", "lifetime": str(data.get("lifetime") or ""), "uses": str(data.get("uses") or ""),
+                "label": str(data.get("label") or "")[:80]}
+        return await setup_call(request, form)
+
+    @app.delete("/api/auth/setup-codes/{code_id}")
+    async def revoke_setup_code(code_id: str, request: Request) -> dict[str, Any]:
+        """Revoke one of your setup codes before it expires; machines it already signed in stay signed in."""
+        return await setup_call(request, {"action": "revoke", "id": code_id[:32]})
+
     @app.post("/api/auth/refresh")
     async def refresh(request: Request) -> Response:
         """A fresh access token for the active account."""
         held = signed_in(request)
         if held["active"] is None:
             raise HTTPException(status_code=401, detail="Sign in first.")
-        response = JSONResponse({"refreshed": True})
+        response = JSONResponse({})
         try:
-            await renew(response, held, held["active"])
+            access, expires = await renew(response, held, held["active"])
         except _Answer as answer:
             return answer.response
+        # The console renews again a little before expires_in runs out, so open streams and terminals never
+        # meet an expired cookie.
+        # The token itself too: the console sends it over its open sockets ({"type": "token"}) to renew them in place.
+        response.body = response.render({"refreshed": True, "expires_in": expires, "access_token": access})
+        response.headers["content-length"] = str(len(response.body))
         return response
 
     @app.get("/api/auth/accounts")
@@ -297,10 +355,10 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             raise HTTPException(status_code=404, detail="This browser isn't signed in to that account")
         response = JSONResponse({})
         try:
-            await renew(response, held, user)
+            _, expires = await renew(response, held, user)
         except _Answer as answer:
             return answer.response
-        response.body = response.render(listing(held))
+        response.body = response.render({**listing(held), "expires_in": expires})
         response.headers["content-length"] = str(len(response.body))
         return response
 

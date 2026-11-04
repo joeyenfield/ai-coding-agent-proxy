@@ -15,8 +15,9 @@ export function pollEvery(ms: number, afterError = 20000) {
   };
 }
 
-export function useStatus() {
-  return useQuery({ queryKey: ["status"], queryFn: api.status, refetchInterval: 2000 });
+/** The server's counts and backends, polled. recent adds the last 100 request records (only the Overview shows them). */
+export function useStatus({ recent = false }: { recent?: boolean } = {}) {
+  return useQuery({ queryKey: ["status", recent ? "recent" : "summary"], queryFn: () => api.status(recent), refetchInterval: 2000 });
 }
 
 export function useSessions() {

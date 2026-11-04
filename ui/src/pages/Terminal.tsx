@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { api, renewSignIn, terminalSocketUrl, type TerminalInfo } from "../api";
+import { api, onRenewed, renewSignIn, terminalSocketUrl, type TerminalInfo } from "../api";
 import { SharingControl } from "../components/Sharing";
 import { useClipboard, useToast } from "../hooks";
 import { PairPanel, terminalState } from "./Terminals";
@@ -130,7 +130,7 @@ export function TerminalPage() {
   // The terminal's key handler is made once; it copies through the latest hook.
   const copyRef = useRef(copy);
   copyRef.current = copy;
-  const list = useQuery({ queryKey: ["terminals"], queryFn: api.terminals, refetchInterval: 3000, retry: false });
+  const list = useQuery({ queryKey: ["terminals"], queryFn: () => api.terminals(), refetchInterval: 3000, retry: false });
   const summary = list.data?.terminals.find((item) => item.session_id === sessionId);
   const [info, setInfo] = useState<TerminalInfo | null>(null);
   const [connection, setConnection] = useState<Connection>("connecting");
@@ -186,6 +186,8 @@ export function TerminalPage() {
     let position: number | null = null;
     // Whether a 4401 has already been answered by renewing the sign-in, since the last good connection.
     let renewed = false;
+    // A reconnect after the server closed for renewal shows "retrying" only if it takes longer than this.
+    let slow: number | undefined;
     const waitUntil = Date.now() + WAIT_FOR_TERMINAL_MS;
     const typed = terminal.onData((data) => {
       if ((WHEEL.test(data) || !REPLY.test(data)) && !watchOnlyRef.current) send({ keys: data });
@@ -205,6 +207,7 @@ export function TerminalPage() {
         retry = window.setTimeout(connect, 5000);
         return;
       }
+      const opened = Date.now();
       const ws = new WebSocket(terminalSocketUrl(sessionId, position));
       ws.binaryType = "arraybuffer";
       socket.current = ws;
@@ -232,6 +235,8 @@ export function TerminalPage() {
           const next = message.terminal as TerminalInfo;
           if (terminal.cols !== next.cols || terminal.rows !== next.rows) terminal.resize(next.cols, next.rows);
           setInfo(next);
+          window.clearTimeout(slow);
+          slow = undefined;
           setConnection("open");
           renewed = false;
         } else if (message.type === "replay") {
@@ -257,10 +262,19 @@ export function TerminalPage() {
           // The access token ran out between the status check and the dial: renew it once and try again.
           renewed = true;
           setConnection("retrying");
-          void renewSignIn().then(() => {
+          void renewSignIn(opened).then(() => {
             if (!stopped) connect();
           });
         } else if (event.code === 4401) setConnection("unauthorized");
+        else if (event.code === 4410) {
+          // The access token this socket opened with ran out (they last minutes) or couldn't be checked.
+          // The console renews its cookie ahead of time, so dial again at once, carrying on from what's shown.
+          window.clearTimeout(slow);
+          slow = window.setTimeout(() => {
+            if (!stopped) setConnection("retrying");
+          }, 1500);
+          retry = window.setTimeout(connect, 0);
+        }
         else if (event.code === 4404 && Date.now() < waitUntil) {
           setConnection("waiting");
           retry = window.setTimeout(connect, 1500);
@@ -273,9 +287,17 @@ export function TerminalPage() {
       };
     };
     connect();
+    // Each renewal of the console's access token goes over the open socket too, so the server keeps it
+    // open past the token it was dialled with (otherwise it closes with 4410, and the code above redials).
+    const unrenewed = onRenewed((token) => {
+      const ws = socket.current;
+      if (token && ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "token", token }));
+    });
     return () => {
       stopped = true;
+      unrenewed();
       window.clearTimeout(retry);
+      window.clearTimeout(slow);
       socket.current?.close();
       typed.dispose();
       terminal.dispose();

@@ -40,7 +40,7 @@ flowchart LR
 | `internal/api` | JSON calls, always through the agent-proxy | `Client`, `Error`, `StatusOf`, `Health` |
 | `internal/launcher` | Argument parsing, launching, the shell, containers | `ParseArgs`, `Launch`, `EnsureProxy`, `EnsureContainer`, `LaunchShell`, `List` |
 | `internal/localproxy` | The agent-proxy | `LauncherAPI`, `Proxy.ServeHTTP`, `local`, `rewriteAgent`, `ServeTunnels`, `readHead`, `Dial`, `relay` |
-| `internal/login` | `agent login`/`logout`: device sign-in, then save under the lock; logout revokes and forgets | `Login`, `Logout` |
+| `internal/login` | `agent login`/`logout`: device sign-in (approved in a browser, or by a setup code: `--code` or `AI_PROXY_SETUP_CODE`, sent to the issuer's `/device/setup` by `settings.DeviceLogin`, the same code as agent-machine's), then save under the lock; logout revokes and forgets | `Login`, `Logout` |
 | `internal/terminal` | `--control` and headless runs | `Run`, `RunHeadless`, `Share`, `History` (4 MiB), `InputGap`, ConPTY (`pty_windows.go`), creack/pty (`pty_unix.go`) |
 | `internal/accounts` | `agent accounts list\|detect\|status\|enroll`: detecting provider CLIs without reading credentials (`Detect(System)`: `--version`, `codex login status`, whether Claude's `.credentials.json` exists, Copilot's token variables), enrolling this computer as a runner, storing a Copilot token from stdin | `Main`, `Detect`, `Local`, `CLI`, `Report`, `parseEnroll` |
 | `internal/process` | Detached starts, PATH lookup that skips Windows drives on WSL | `Detach`, `LookPath`, `AgentDirs` |

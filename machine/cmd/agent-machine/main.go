@@ -1,5 +1,6 @@
 // agent-machine is the command for a machine in an agent-server's fleet: it signs the
-// machine in (agent-machine login), keeps it connected to the server, and through that
+// machine in (agent-machine login, approved in a browser or with a setup code from the
+// console: login --code, or AI_PROXY_MACHINE_SETUP_CODE in a container), keeps it connected to the server, and through that
 // connection supplies the LLM providers it runs, runs the containers the server asks for
 // and starts agents there, once the machine allows each. See ../../README.md.
 package main

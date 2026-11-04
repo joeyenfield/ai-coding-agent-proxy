@@ -116,7 +116,7 @@ func TestDevicePendingSlowDownAndEndpointValidation(t *testing.T) {
 	}))
 	defer server.Close()
 	issuer = server.URL
-	entry, err := DeviceLogin(server.URL, &discard{})
+	entry, err := DeviceLogin(server.URL, "", &discard{})
 	if err != nil || entry.User != "alice" || len(waits) != 3 || waits[2] != 6*time.Second {
 		t.Fatalf("device flow: %+v %v waits %v", entry, err, waits)
 	}

@@ -129,9 +129,11 @@ if [ -z "$bin" ]; then
 fi
 program() { if [ -x "$bin/$1" ]; then printf '%s\n' "$bin/$1"; else command -v "$1" 2>/dev/null || printf '%s\n' "$1"; fi; }
 
-# Sign-ins ask for a user and password when the server has accounts: from the terminal,
-# as this script's own input is the download.
-if [ $login -eq 1 ] && ! (: </dev/tty) 2>/dev/null; then
+# Sign-ins show a code to approve and wait: from the terminal, as this script's own input is the
+# download. A setup code from the console (AI_PROXY_MACHINE_SETUP_CODE for agent-machine,
+# AI_PROXY_SETUP_CODE for agent) signs in with no one there, so then no terminal is needed.
+signin() { if (: </dev/tty) 2>/dev/null; then "$@" </dev/tty; else "$@" </dev/null; fi; }
+if [ $login -eq 1 ] && [ -z "${AI_PROXY_MACHINE_SETUP_CODE:-}${AI_PROXY_SETUP_CODE:-}" ] && ! (: </dev/tty) 2>/dev/null; then
     say "No terminal to sign in from; run the commands below yourself."
     login=0
 fi
@@ -140,7 +142,7 @@ for component in $components; do
         if [ $login -eq 1 ]; then
             say ""
             say "Signing agent in to $SERVER"
-            "$(program agent)" login "$SERVER" </dev/tty || say "Sign in later with: agent login $SERVER"
+            signin "$(program agent)" login "$SERVER" || say "Sign in later with: agent login $SERVER"
         else
             say "Next: agent login $SERVER"
         fi
@@ -148,7 +150,7 @@ for component in $components; do
         if [ $login -eq 1 ]; then
             say ""
             say "Signing agent-machine in to $SERVER"
-            if "$(program agent-machine)" login "$SERVER" </dev/tty; then
+            if signin "$(program agent-machine)" login "$SERVER"; then
                 # A service retries by itself; otherwise join the fleet now, in the background.
                 if [ $service -eq 0 ] && [ $start -eq 1 ]; then "$(program agent-machine)" start || true; fi
             else

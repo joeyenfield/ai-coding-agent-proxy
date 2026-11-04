@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { apiUrl, LIVE_RETRY_MS, renewSignIn, type RequestRecord, type TrafficKind } from "./api";
+import { apiUrl, LIVE_RETRY_MS, onRenewed, renewSignIn, type RequestRecord, type TrafficKind } from "./api";
 
 export type DeltaKind = "reasoning" | "content" | "tool";
 
@@ -59,6 +59,8 @@ type Delta = { key: string; kind: DeltaKind; text: string };
 // Matches the proxy's tail; account agents make many small non-model requests.
 const RECENT_LIMIT = 40;
 const RATE_WINDOW_MS = 3000;
+// How long a live stream may be reconnecting before the page says it's disconnected.
+const LIVE_GAP_MS = 4000;
 
 const hydrate = (entry: LiveRequest): LiveRequest => ({ ...entry, arrivals: [], lastKind: entry.lastKind ?? null });
 
@@ -75,9 +77,16 @@ export function useLive(sessionId?: string): LiveState {
   useEffect(() => {
     const url = apiUrl(sessionId ? `/api/live?session_id=${encodeURIComponent(sessionId)}` : "/api/live");
     let source: EventSource | null = null;
+    // A stream opened on a renewed cookie, waiting for its snapshot to replace source.
+    let pending: EventSource | null = null;
     let stopped = false;
     let attempt = 0;
     let retry: number | undefined;
+    // When the current stream was opened: a renewal made since (by the console's timer, or another tab) counts.
+    let opened = 0;
+    // The server ends a stream when the access token it opened with runs out (every few minutes), and
+    // the browser reopens it a second later on the renewed cookie. Only a gap longer than this shows.
+    let lost: number | undefined;
     // EventSource reconnects by itself after a dropped connection, but gives up for good when a
     // reconnect is refused (401 once the access token expired, 502 or 503 during a restart). Then
     // renew the sign-in and open a new one, backing off; each new one starts with a snapshot.
@@ -86,25 +95,35 @@ export function useLive(sessionId?: string): LiveState {
       retry = undefined;
       if (stopped) return;
       source?.close();
+      pending?.close();
+      pending = null;
+      opened = Date.now();
       source = new EventSource(url, { withCredentials: true });
       listen(source);
     };
     const reconnect = async () => {
       const delay = LIVE_RETRY_MS[Math.min(attempt, LIVE_RETRY_MS.length - 1)];
       attempt += 1;
-      await renewSignIn();
+      await renewSignIn(opened);
       if (stopped || retry !== undefined || source?.readyState !== EventSource.CLOSED) return;
       retry = window.setTimeout(connect, delay);
     };
     // Coming back online or to the page needn't wait for the backoff.
     const wake = () => {
       if (stopped || document.visibilityState !== "visible" || source?.readyState !== EventSource.CLOSED) return;
-      void renewSignIn().then(() => {
+      void renewSignIn(opened).then(() => {
         if (source?.readyState === EventSource.CLOSED) connect();
       });
     };
     window.addEventListener("online", wake);
     document.addEventListener("visibilitychange", wake);
+    // The server ends a stream when the token it opened with runs out. After each renewal, open the
+    // next one on the new cookie ahead of that, so the page never sees a gap.
+    const unrenewed = onRenewed(() => {
+      if (stopped || pending || source?.readyState !== EventSource.OPEN) return;
+      pending = new EventSource(url, { withCredentials: true });
+      listen(pending);
+    });
     const publish = (connected = true) => {
       if (frame.current != null) return;
       frame.current = requestAnimationFrame(() => {
@@ -113,16 +132,43 @@ export function useLive(sessionId?: string): LiveState {
         setState({ connected, enabled, active: [...active.values()], recent: [...recent] });
       });
     };
-    function listen(source: EventSource) {
-      source.addEventListener("open", () => {
+    function listen(stream: EventSource) {
+      // Only the current stream's events count: a stream opened after a renewal (pending) takes over
+      // with its snapshot, and the one it replaces is closed then.
+      const mine = <E extends Event>(handler: (event: E) => void) => (event: E) => {
+        if (stream === source) handler(event);
+      };
+      stream.addEventListener("open", mine(() => {
         attempt = 0;
+        opened = Date.now();
+        window.clearTimeout(lost);
+        lost = undefined;
         publish(true);
+      }));
+      stream.addEventListener("error", () => {
+        if (stream === pending) {
+          // The new stream didn't open: keep the old one, which reconnects as before when it ends.
+          stream.close();
+          pending = null;
+          return;
+        }
+        if (stream !== source) return;
+        if (lost === undefined) {
+          lost = window.setTimeout(() => {
+            lost = undefined;
+            if (!stopped && source?.readyState !== EventSource.OPEN) setState((current) => ({ ...current, connected: false }));
+          }, LIVE_GAP_MS);
+        }
+        if (stream.readyState === EventSource.CLOSED) void reconnect();
       });
-      source.addEventListener("error", () => {
-        setState((current) => ({ ...current, connected: false }));
-        if (source.readyState === EventSource.CLOSED) void reconnect();
-      });
-      source.addEventListener("snapshot", (event) => {
+      stream.addEventListener("snapshot", (event) => {
+        if (stream === pending) {
+          source?.close();
+          source = stream;
+          pending = null;
+          opened = Date.now();
+        }
+        if (stream !== source) return;
         const data = JSON.parse((event as MessageEvent).data) as Snapshot;
         store.current = {
           enabled: data.enabled,
@@ -131,19 +177,19 @@ export function useLive(sessionId?: string): LiveState {
         };
         publish();
       });
-      source.addEventListener("start", (event) => {
+      stream.addEventListener("start", mine((event) => {
         const { request } = JSON.parse((event as MessageEvent).data) as { request: LiveRequest };
         store.current.active.set(request.key, hydrate(request));
         publish();
-      });
-      source.addEventListener("summary", (event) => {
+      }));
+      stream.addEventListener("summary", mine((event) => {
         const { key, summary } = JSON.parse((event as MessageEvent).data) as { key: string; summary: LiveSummary };
         const entry = store.current.active.get(key);
         if (!entry) return;
         store.current.active.set(key, { ...entry, summary });
         publish();
-      });
-      source.addEventListener("delta", (event) => {
+      }));
+      stream.addEventListener("delta", mine((event) => {
         const delta = JSON.parse((event as MessageEvent).data) as Delta;
         const entry = store.current.active.get(delta.key);
         if (!entry) return;
@@ -159,8 +205,8 @@ export function useLive(sessionId?: string): LiveState {
           lastKind: delta.kind,
         });
         publish();
-      });
-      source.addEventListener("end", (event) => {
+      }));
+      stream.addEventListener("end", mine((event) => {
         const { key, record } = JSON.parse((event as MessageEvent).data) as { key: string; record: RequestRecord };
         const entry = store.current.active.get(key);
         store.current.active.delete(key);
@@ -168,12 +214,15 @@ export function useLive(sessionId?: string): LiveState {
           store.current.recent = [{ ...entry, done: true, ended_at: Date.now() / 1000, record }, ...store.current.recent].slice(0, RECENT_LIMIT);
         }
         publish();
-      });
+      }));
     }
     connect();
     return () => {
       stopped = true;
       window.clearTimeout(retry);
+      window.clearTimeout(lost);
+      unrenewed();
+      pending?.close();
       window.removeEventListener("online", wake);
       document.removeEventListener("visibilitychange", wake);
       source?.close();

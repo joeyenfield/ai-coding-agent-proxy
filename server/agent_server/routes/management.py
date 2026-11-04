@@ -75,8 +75,12 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         return {"status": "ok", "proxy_instance_id": runtime.proxy_instance_id, **version.public()}
 
     @app.get("/api/status")
-    async def status(request: Request) -> dict[str, Any]:
+    async def status(request: Request, recent: bool = True) -> dict[str, Any]:
+        """Totals, backends and traffic. recent=0 leaves out recent_requests (up to 100 whole records): the
+        console's header polls this every few seconds and needs only the counts."""
         result = runtime.status(visible_ids(request), usable(request))
+        if not recent:
+            result.pop("recent_requests", None)
         identity = auth.request_identity(request)
         if not identity.site_admin:
             result["proxy_url"] = str(request.base_url).rstrip("/")
@@ -428,6 +432,9 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             try:
                 snapshot = runtime.live.snapshot(session_id)
                 snapshot = {**snapshot, **{part: [entry for entry in snapshot[part] if visible(entry["session_id"])] for part in ("active", "recent")}}
+                # The stream ends when its access token does (below); the browser reopens it with its renewed
+                # cookie after this many ms rather than its own default of a few seconds.
+                yield b"retry: 1000\n\n"
                 yield _sse("snapshot", snapshot)
                 while not await request.is_disconnected():
                     try:

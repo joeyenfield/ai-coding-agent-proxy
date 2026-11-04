@@ -67,7 +67,9 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         return response
 
     @app.get("/api/terminals")
-    async def list_terminals(request: Request) -> dict[str, Any]:
+    async def list_terminals(request: Request, open: bool = False) -> dict[str, Any]:
+        """Every shared terminal the caller may see, ended ones too. open=1: only those whose terminal and
+        session haven't ended (the console's header and alerts, which poll this, need no history)."""
         require_trusted(request)
         in_flight: dict[str, int] = {}
         for record in runtime.active.values():
@@ -78,6 +80,8 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         for summary in hub.summaries():
             session = runtime.sessions.get(summary["session_id"])
             if session is None or not sharing.can_view(identity, session):
+                continue
+            if open and (summary.get("ended_at") or session.ended_at):
                 continue
             agent = agents.get(session.client)
             machine = runtime.fleet.machine_for(session.tags)
@@ -183,6 +187,12 @@ def register(app: FastAPI, runtime: Runtime) -> None:
                 try:
                     message = json.loads(await websocket.receive_text())
                 except ValueError:
+                    continue
+                if isinstance(message, dict) and message.get("type") == "token":
+                    # The console renews its access token before it runs out and sends it here, so the
+                    # viewer outlives the token it opened with (a refused one is ignored; 4410 follows).
+                    if await auth.renew_socket(runtime, websocket, message.get("token")):
+                        checked["at"] = 0.0
                     continue
                 if isinstance(message, dict) and message.get("type") == "input":
                     denied = await permitted()

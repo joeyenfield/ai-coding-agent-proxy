@@ -12,7 +12,7 @@ import { isGroup, PARTS, type NavLinkItem, type Part } from "../navigation";
 import { providerLabel, ROUTE_ORDER, ROUTES, routeOf, type RouteKind } from "../routes";
 
 export function OverviewPage() {
-  const status = useStatus();
+  const status = useStatus({ recent: true });
   const sessions = useSessions();
   const requests = useRequests();
   if (status.isError) return <Offline message={status.error.message} />;
@@ -20,7 +20,7 @@ export function OverviewPage() {
   const data = status.data;
   const live = data.current_requests;
   // Account agents also send sign-in, telemetry and MCP calls; those belong on the Traffic page.
-  const modelCalls = data.recent_requests.filter(isModelCall);
+  const modelCalls = (data.recent_requests ?? []).filter(isModelCall);
   return (
     <div className="page">
       <header className="page-head">
@@ -64,7 +64,7 @@ export function OverviewPage() {
           <h2>Traffic by route</h2>
           <p className="subtle">How each request reached its model</p>
         </div>
-        <RouteSummary status={data} records={requests.data ?? data.recent_requests} />
+        <RouteSummary status={data} records={requests.data ?? data.recent_requests ?? []} />
       </section>
 
       <section className="section">

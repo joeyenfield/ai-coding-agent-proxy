@@ -175,7 +175,7 @@ agent logout                               # the server signed in to last
 agent logout http://server:9999
 ```
 
-`agent login [url]` signs this computer's `agent-proxy` in through OIDC device authorization. Open the printed verification URL, sign in and approve the displayed code. The CLI never collects your password. Access tokens refresh automatically; see [OIDC authentication](oidc.md). Authentication is mandatory: the old `--user`, `--key` and password-input flow no longer grant access.
+`agent login [url]` signs this computer's `agent-proxy` in through OIDC device authorization. Open the printed verification URL, sign in and approve the displayed code. The CLI never collects your password. `agent login [url] --code <setup code>` (or `AI_PROXY_SETUP_CODE` in the environment) signs in with a setup code from the console's **Machines** page instead, with nothing to approve: you become whoever made the code. Codes expire and allow a limited number of sign-ins; see [Machines](machines.md). Access tokens refresh automatically; see [OIDC authentication](oidc.md). Authentication is mandatory: the old `--user`, `--key` and password-input flow no longer grant access.
 
 The sign-in is kept in `credentials.json`: `%APPDATA%\agent-proxy\` on Windows, `$XDG_CONFIG_HOME/agent-proxy/` (or `~/.config/agent-proxy/`) elsewhere, readable only by you. `AI_PROXY_CREDENTIALS` names another file. The last server signed in to is the default. The `agent-proxy` reads the file on every request, so signing in or out applies at once, with no restart.
 

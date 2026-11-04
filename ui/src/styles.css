@@ -1442,3 +1442,15 @@ code { background: var(--ground); border: 1px solid var(--line); padding: 0 5px;
   .audit-log td:first-child { white-space: normal; }
   .audit-filters select, .audit-since { flex: 1 1 140px; }
 }
+
+/* Setup codes, under Add a machine. */
+.setup-codes .setup-form { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; margin-top: 8px; }
+.setup-codes .setup-machines { display: flex; align-items: center; gap: 10px; }
+.setup-codes .setup-machines .subtle { font-size: 13px; font-weight: 600; min-width: 52px; }
+.setup-codes .setup-machines input { width: 6em; }
+.setup-codes .setup-enable { border: 0; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.setup-codes .setup-enable legend { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.setup-codes .setup-made { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.setup-codes .setup-made p { margin: 0; }
+.setup-codes .setup-open ul { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.setup-codes .setup-open li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; font-size: 14px; }

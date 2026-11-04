@@ -21,7 +21,7 @@ const CAPTION = 36;
 /** Agents on the left, machines' providers on the right, every request routed through the server, the hub: the console's parts 1, 2 and 3. */
 export function RoutingMap({ status, sessions }: { status: Status; sessions: Session[] }) {
   const live = status.current_requests;
-  const agents = agentLanes(sessions, status.recent_requests, live).map((lane) => {
+  const agents = agentLanes(sessions, status.recent_requests ?? [], live).map((lane) => {
     const session = sessions.find((item) => item.client === lane.name);
     return session ? { ...lane, route: routeOf(session, status.backends) } : lane;
   });
@@ -40,7 +40,7 @@ export function RoutingMap({ status, sessions }: { status: Status; sessions: Ses
   const accountsUsed =
     accountLive > 0 ||
     sessions.some((session) => session.backend === DIRECT_BACKEND) ||
-    status.recent_requests.some((record) => routeOf(record, status.backends) === "account");
+    (status.recent_requests ?? []).some((record) => routeOf(record, status.backends) === "account");
   if (accountsUsed) {
     backends.unshift({ name: "Your accounts", live: accountLive, route: "account", detail: "Claude, Copilot, ChatGPT" });
   }

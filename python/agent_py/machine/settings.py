@@ -51,6 +51,26 @@ def upstream(fixed: str = "") -> common.Upstream:
     return common.Upstream(credentials_path, fixed=fixed, use_env=False)
 
 
+# machine.json's on/off switches, by the names `agent-machine <name> on|off` takes.
+TOGGLES = ("launches", "commands", "updates", "servers", "containers")
+
+
+def parse_toggles(names: str) -> List[str]:
+    """A comma-separated list of toggles (login --enable), with "terminals" for commands, as the
+    console calls what it allows. Empty names are skipped; an unknown one is a ValueError."""
+    found = []
+    for name in names.split(","):
+        name = name.strip().lower()
+        if name == "terminals":
+            name = "commands"
+        if not name:
+            continue
+        if name not in TOGGLES:
+            raise ValueError(f'unknown toggle "{name}": use {", ".join(TOGGLES)} (or terminals for commands)')
+        found.append(name)
+    return found
+
+
 @dataclass
 class Machine:
     """This machine as the server's fleet knows it: a stable id, and what the server may do here.
@@ -110,6 +130,24 @@ class Machine:
         if not value["roots"]:
             value.pop("roots")
         common.write_json(machine_path(), value)
+
+    def set_toggle(self, name: str, on: bool) -> None:
+        """Switches one of TOGGLES on or off."""
+        if name in TOGGLES:
+            setattr(self, name, on)
+
+    def toggle_notes(self, name: str) -> List[str]:
+        """What `agent-machine <name> on` tells the owner about the toggle just switched on."""
+        if name == "updates":
+            return ["Updates are on: the machine's owner or an admin can update agent-machine and agent here to the server's build from the console."]
+        if name == "commands":
+            notes = ["Commands are on: signed in as this machine's owner, you can open a terminal here from the console, as this user."]
+            if not self.roots:
+                notes.append("Terminals start in a launch folder, and there's none yet: agent-machine roots add <dir>")
+            return notes
+        if name == "launches" and not self.roots:
+            return ["Launches are on, but there's no folder to start agents in yet: agent-machine roots add <dir>"]
+        return []
 
     def display_name(self) -> str:
         return self.name or socket.gethostname() or self.id

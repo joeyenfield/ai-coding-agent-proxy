@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -71,6 +72,68 @@ func LoadMachine() *Machine {
 
 func (m *Machine) Save() error {
 	return writeJSON(MachinePath(), m)
+}
+
+// Toggles are machine.json's on/off switches, by the names `agent-machine <name> on|off` takes.
+var Toggles = []string{"launches", "commands", "updates", "servers", "containers"}
+
+// ParseToggles reads a comma-separated list of toggles (login --enable), with "terminals" for
+// commands, as the console calls what it allows. Empty names are skipped; an unknown one is an error.
+func ParseToggles(list string) ([]string, error) {
+	var names []string
+	for _, name := range strings.Split(list, ",") {
+		name = strings.ToLower(strings.TrimSpace(name))
+		if name == "terminals" {
+			name = "commands"
+		}
+		if name == "" {
+			continue
+		}
+		known := false
+		for _, toggle := range Toggles {
+			known = known || toggle == name
+		}
+		if !known {
+			return nil, fmt.Errorf("unknown toggle %q: use %s (or terminals for commands)", name, strings.Join(Toggles, ", "))
+		}
+		names = append(names, name)
+	}
+	return names, nil
+}
+
+// SetToggle switches one of Toggles on or off.
+func (m *Machine) SetToggle(name string, on bool) {
+	switch name {
+	case "launches":
+		m.Launches = on
+	case "commands":
+		m.Commands = on
+	case "updates":
+		m.Updates = on
+	case "servers":
+		m.Servers = on
+	case "containers":
+		m.Containers = on
+	}
+}
+
+// ToggleNotes is what `agent-machine <name> on` tells the owner about the toggle just switched on.
+func (m *Machine) ToggleNotes(name string) []string {
+	switch name {
+	case "updates":
+		return []string{"Updates are on: the machine's owner or an admin can update agent-machine and agent here to the server's build from the console."}
+	case "commands":
+		notes := []string{"Commands are on: signed in as this machine's owner, you can open a terminal here from the console, as this user."}
+		if len(m.Roots) == 0 {
+			notes = append(notes, "Terminals start in a launch folder, and there's none yet: agent-machine roots add <dir>")
+		}
+		return notes
+	case "launches":
+		if len(m.Roots) == 0 {
+			return []string{"Launches are on, but there's no folder to start agents in yet: agent-machine roots add <dir>"}
+		}
+	}
+	return nil
 }
 
 // DisplayName is the name the console shows: the one set with `agent-machine name`, or the hostname.

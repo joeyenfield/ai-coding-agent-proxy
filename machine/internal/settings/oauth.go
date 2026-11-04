@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -126,6 +127,46 @@ func (entry *ServerEntry) SetToken(token *OAuthToken) {
 // the server stops accepting the old token and closes the sockets it opened.
 const RefreshBefore = 120
 
+// StillValid is the margin an access token needs left to be used after a refresh failed: the
+// server's own checks (every 15 s, its answers cached 10 s) must still find it good.
+const StillValid = 30
+
+// RefreshRetry is how long a process waits after a refresh the issuer couldn't answer before it
+// tries again, using the token it has meanwhile. Retrying at once (every request and every socket's
+// renewal tick asks) could present a refresh token the issuer did consume several times over, and
+// the issuer revokes the whole sign-in on a second reuse.
+var RefreshRetry = 15 * time.Second
+
+var refreshFailed = struct {
+	sync.Mutex
+	at map[string]time.Time
+}{at: map[string]time.Time{}}
+
+func backingOff(server string) bool {
+	refreshFailed.Lock()
+	defer refreshFailed.Unlock()
+	at, ok := refreshFailed.at[server]
+	return ok && time.Since(at) < RefreshRetry
+}
+
+func noteRefresh(server string, failed bool) {
+	refreshFailed.Lock()
+	defer refreshFailed.Unlock()
+	if failed {
+		refreshFailed.at[server] = time.Now()
+	} else {
+		delete(refreshFailed.at, server)
+	}
+}
+
+// validToken is the stored access token if it has StillValid seconds left, else "".
+func validToken(entry *ServerEntry) string {
+	if entry != nil && entry.AccessToken != "" && entry.ExpiresAt > time.Now().Unix()+StillValid {
+		return entry.AccessToken
+	}
+	return ""
+}
+
 // StaleLock is how old a credentials lock must be before it's taken for one a killed process left
 // behind. Whoever holds it does one read, one refresh (at most 20 s) and one write, so a lock this old
 // has no live owner; without this, every later sign-in and request would wait and fail until someone
@@ -173,18 +214,27 @@ func (u Upstream) AccessToken(server string) (string, error) {
 	if token := os.Getenv(TokenEnvironment); token != "" {
 		return token, nil
 	}
+	key := Normalize(server)
 	unlock, err := LockCredentials()
 	if err != nil {
+		// Another process holds the lock (a slow refresh): the stored token, while it's still good,
+		// rather than failing the request. The file is replaced whole, so reading it unlocked is safe.
+		if token := validToken(LoadCredentials().Servers[key]); token != "" {
+			return token, nil
+		}
 		return "", err
 	}
 	defer unlock()
 	credentials := LoadCredentials()
-	entry := credentials.Servers[Normalize(server)]
+	entry := credentials.Servers[key]
 	if entry == nil || entry.AccessToken == "" || entry.Issuer == "" || entry.ClientID == "" {
 		return "", ErrLoginRequired
 	}
 	if entry.ExpiresAt > time.Now().Unix()+RefreshBefore {
 		return entry.AccessToken, nil
+	}
+	if token := validToken(entry); token != "" && backingOff(key) {
+		return token, nil
 	}
 	if entry.RefreshToken == "" {
 		return "", fmt.Errorf("OAuth access token expired: %w", ErrLoginRequired)
@@ -203,11 +253,29 @@ func (u Upstream) AccessToken(server string) (string, error) {
 			}
 			return "", fmt.Errorf("OAuth refresh revoked: %w", ErrLoginRequired)
 		}
-		return "", fmt.Errorf("OAuth refresh failed; run login if revoked: %w", err)
+		// The issuer couldn't answer (down, restarting, slow): carry on with the token while it lasts.
+		noteRefresh(key, true)
+		if token := validToken(entry); token != "" {
+			return token, nil
+		}
+		return "", fmt.Errorf("OAuth refresh failed: %w", err)
 	}
+	noteRefresh(key, false)
 	entry.SetToken(token)
-	if err := credentials.Save(); err != nil {
-		return "", fmt.Errorf("couldn't persist rotated OAuth credential: %w", err)
+	// The old refresh token is spent: losing the new one would mean presenting the old again, which the
+	// issuer allows only once, shortly after. On Windows a reader holding the file can make the replace
+	// fail for a moment, so try a few times.
+	for attempt := 0; ; attempt++ {
+		err := credentials.Save()
+		if err == nil {
+			break
+		}
+		if attempt == 9 {
+			// The token works now; the next refresh will say if the old one was refused.
+			fmt.Fprintln(os.Stderr, "warning: couldn't save the renewed OAuth credential:", err)
+			return entry.AccessToken, nil
+		}
+		time.Sleep(200 * time.Millisecond)
 	}
 	return entry.AccessToken, nil
 }
@@ -239,7 +307,59 @@ func (u Upstream) RejectAccessTokenIf(server, token string) error {
 	return credentials.Save()
 }
 
-func DeviceLogin(server string, output io.Writer) (*ServerEntry, error) {
+// SetupCodeEnvironment holds a setup code from the console for a sign-in without a browser: what a
+// container is given, since nobody is there to approve a device code.
+const SetupCodeEnvironment = "AI_PROXY_MACHINE_SETUP_CODE"
+
+// ErrInvalidSetupCode is the issuer refusing the setup code itself, which only a new one fixes.
+var ErrInvalidSetupCode = errors.New("The setup code isn't valid: it may have expired or been used up. Create a new one on the console's Machines page.")
+
+// ApproveWithSetupCode approves the device authorization userCode as the setup code's owner, at
+// the issuer's /device/setup. Its errors never contain the setup code.
+func ApproveWithSetupCode(issuer, userCode, setupCode string) error {
+	endpoint := strings.TrimRight(issuer, "/") + "/device/setup"
+	if err := IssuerEndpoint(issuer, endpoint); err != nil {
+		return err
+	}
+	response, err := OAuthClient().PostForm(endpoint, url.Values{"user_code": {userCode}, "setup_code": {setupCode}})
+	if err != nil {
+		// A transport error names the URL, never the form, so it can't carry the code.
+		return err
+	}
+	defer response.Body.Close()
+	var answer struct {
+		Approved    bool   `json:"approved"`
+		Error       string `json:"error"`
+		Description string `json:"error_description"`
+	}
+	_ = json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&answer)
+	return setupCodeError(response.StatusCode, answer.Approved, answer.Error, answer.Description)
+}
+
+// setupCodeError says what an answer from /device/setup means for the person signing in.
+func setupCodeError(status int, approved bool, code, description string) error {
+	switch {
+	case status == 200 && approved:
+		return nil
+	case code == "invalid_setup_code":
+		return ErrInvalidSetupCode
+	case code == "invalid_user_code":
+		return errors.New("the issuer didn't accept this sign-in's device code (it may have expired); run login again")
+	case status == 409 || code == "code_already_used":
+		return errors.New("this sign-in's device code was already approved or used; run login again")
+	case status == 429:
+		return errors.New("too many setup code attempts from this address; wait a few minutes and try again")
+	case code != "" && description != "":
+		return fmt.Errorf("setup code sign-in failed: %s (%s)", code, description)
+	case code != "":
+		return fmt.Errorf("setup code sign-in failed: %s", code)
+	}
+	return fmt.Errorf("setup code sign-in failed (HTTP %d)", status)
+}
+
+// DeviceLogin signs in with OAuth device authorization: approved by a person in a browser, or by
+// setupCode when it isn't empty.
+func DeviceLogin(server, setupCode string, output io.Writer) (*ServerEntry, error) {
 	if err := SecureURL(server); err != nil {
 		return nil, err
 	}
@@ -297,7 +417,17 @@ func DeviceLogin(server string, output io.Writer) (*ServerEntry, error) {
 	if err := IssuerEndpoint(status.Issuer, verify.String()); err != nil {
 		return nil, err
 	}
-	fmt.Fprintf(output, "Open %s and enter code %s to sign in.\n", device.URI, device.UserCode)
+	approved := false
+	if setupCode != "" {
+		// The setup code stands in for the person at the browser; it's a bearer secret, so it's never printed.
+		if err := ApproveWithSetupCode(status.Issuer, device.UserCode, setupCode); err != nil {
+			return nil, err
+		}
+		fmt.Fprintln(output, "Approved with a setup code.")
+		approved = true
+	} else {
+		fmt.Fprintf(output, "Open %s and enter code %s to sign in.\n", device.URI, device.UserCode)
+	}
 	if device.Interval <= 0 {
 		device.Interval = 5
 	}
@@ -307,7 +437,12 @@ func DeviceLogin(server string, output io.Writer) (*ServerEntry, error) {
 		if time.Now().Add(wait).After(deadline) {
 			return nil, errors.New("OAuth device authorization expired; run login again")
 		}
-		deviceSleep(wait)
+		// Once a setup code has approved it the first poll succeeds: no need to wait for it.
+		if approved {
+			approved = false
+		} else {
+			deviceSleep(wait)
+		}
 		token, err := TokenRequest(d.Token, url.Values{"grant_type": {"urn:ietf:params:oauth:grant-type:device_code"}, "device_code": {device.Code}, "client_id": {status.ClientID}})
 		if err != nil {
 			if token != nil && token.Error == "authorization_pending" {

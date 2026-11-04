@@ -128,6 +128,12 @@ async def dial_with_token(upstream: common.Upstream, server: str, path: str):
     return conn, token
 
 
+
+def token_status(error: Exception) -> int:
+    """401 only when signing in again is the cure; a sign-in service that's down or slow is 503, which
+    agents retry, rather than telling the user to log in (Go's tokenStatus)."""
+    return 401 if getattr(error, "code", "") == "login_required" else 503
+
 class ServerSide:
     """The server's end of a relayed socket: one writer at a time, a write timeout, and the machine's
     access token sent over it whenever it's refreshed. The server closes a socket (4410) once the token
@@ -135,6 +141,9 @@ class ServerSide:
     terminal up. Dead connections are found by the keepalive dial_with_token sets."""
 
     def __init__(self, upstream: common.Upstream, server: str, conn, token: str) -> None:
+        # The token the server holds for this socket: the dial's, then the last one sent over it. A 4410
+        # means that one stopped working, so it's the one to reject.
+        self.token = token
         self.conn = conn
         self.lock = asyncio.Lock()
         self.renewing = asyncio.ensure_future(self.renew(upstream, server, token))
@@ -159,6 +168,7 @@ class ServerSide:
                     continue
                 await self.send(json.dumps({"type": "token", "token": latest}))
                 token, sent = latest, loop.time()
+                self.token = latest
             except asyncio.CancelledError:
                 raise
             except Exception:  # noqa: BLE001 - try again; the server closes the socket with 4410 if it never comes
@@ -236,7 +246,7 @@ class AgentProxy:
         try:
             headers[common.TOKEN_HEADER] = await asyncio.to_thread(self.upstream.token, server)
         except (RuntimeError, ValueError, OSError, httpx.HTTPError) as error:
-            return JSONResponse({"detail": str(error)}, status_code=401)
+            return JSONResponse({"detail": str(error)}, status_code=token_status(error))
         target = server + path + (f"?{request.url.query}" if request.url.query else "")
         try:
             answer = await self.http.request(request.method, target, content=await request.body(), headers=headers)
@@ -261,7 +271,7 @@ class AgentProxy:
         try:
             headers[common.TOKEN_HEADER] = await asyncio.to_thread(self.upstream.token, server)
         except (RuntimeError, ValueError, OSError, httpx.HTTPError) as error:
-            return JSONResponse({"detail": str(error)}, status_code=401)
+            return JSONResponse({"detail": str(error)}, status_code=token_status(error))
         length = request.headers.get("content-length")
         if length is not None:
             headers["Content-Length"] = length
@@ -323,8 +333,8 @@ class AgentProxy:
         await remote.close()
         if code == 4410:
             try:
-                # Only the token this socket opened with: another socket may have refreshed it already.
-                await asyncio.to_thread(self.upstream.reject_access_token, server, token)
+                # Only the token this socket last held: another socket may have refreshed it already.
+                await asyncio.to_thread(self.upstream.reject_access_token, server, side.token)
             except (RuntimeError, ValueError, OSError) as error:
                 reason = str(error)
         if code == 4401:
@@ -443,8 +453,8 @@ class TunnelServer:
         code, reason = remote.close_code or 0, remote.close_reason or ""
         await remote.close()
         if code == 4410:
-            # Only the token this socket opened with: another socket may have refreshed it already.
-            await asyncio.to_thread(self.upstream.reject_access_token, server, token)
+            # Only the token this socket last held: another socket may have refreshed it already.
+            await asyncio.to_thread(self.upstream.reject_access_token, server, side.token)
         if not state["answered"] and code >= 4000:
             await refuse_tunnel(reader, writer, 407 if code in (4401, 4403) else 502, reason or "the agent-server refused")
 

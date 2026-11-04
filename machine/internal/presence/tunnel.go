@@ -89,10 +89,9 @@ func (p *Presence) tunnel(server string, request Tunnel, extra []int) error {
 	// The server closes the tunnel once the token it was opened with expires, which a long reply
 	// (or a kept-alive connection) outlasts: each newer token goes over it as a text frame.
 	go func() {
-		token, err := p.Upstream.AccessToken(server)
-		if err != nil || token == "" {
-			return
-		}
+		// If the token can't be read now (the sign-in service briefly down), keep going: the first one
+		// read is sent, rather than leaving the tunnel to be closed at expiry.
+		token, _ := p.Upstream.AccessToken(server)
 		sent := time.Now()
 		ticker := time.NewTicker(renewEvery)
 		defer ticker.Stop()

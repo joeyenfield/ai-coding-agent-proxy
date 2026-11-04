@@ -490,10 +490,10 @@ class Presence:
                 # RESEND_EVERY in case the server missed it.
                 try:
                     token = await asyncio.to_thread(self.upstream.token, server)
-                except Exception:  # noqa: BLE001 - no credentials to renew (a fixed token, tests)
-                    return
+                except Exception:  # noqa: BLE001 - the sign-in service briefly down: the first one read is sent
+                    token = ""
                 sent = loop.time()
-                while token:
+                while True:
                     await asyncio.sleep(RENEW_EVERY)
                     try:
                         latest = await asyncio.to_thread(self.upstream.token, server)
@@ -675,10 +675,10 @@ class Presence:
                 loop = asyncio.get_running_loop()
                 try:
                     token = await asyncio.to_thread(self.upstream.token, server)
-                except Exception:  # noqa: BLE001 - no credentials to renew (a fixed token, tests)
-                    return
+                except Exception:  # noqa: BLE001 - the sign-in service briefly down: the first one read is sent
+                    token = ""
                 sent = loop.time()
-                while token:
+                while True:
                     await asyncio.sleep(RENEW_EVERY)
                     try:
                         latest = await asyncio.to_thread(self.upstream.token, server)

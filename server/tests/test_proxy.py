@@ -497,6 +497,8 @@ def test_dashboard_clears_data_and_deletes_only_selected_session(tmp_path):
         assert status["total_input_tokens"] == 3
         assert status["total_output_tokens"] == 1
         assert all(record["session_id"] == second["session_id"] for record in status["recent_requests"])
+        summary = client.get("/api/status", params={"recent": "0"}).json()
+        assert "recent_requests" not in summary and summary["total_requests"] == 1
         response = client.post(f"/session/{first['session_id']}/api/chat", json={"model": "test", "stream": False})
         assert response.headers["x-request-id"] == "000002"
         assert client.delete(url).status_code == 200

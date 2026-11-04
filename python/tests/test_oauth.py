@@ -83,7 +83,7 @@ def test_refresh_is_serialized_and_revocation_stops_reuse(tmp_path, monkeypatch)
     assert upstream.token(url) == "new" and len(exchanges) == 2
     rejected.set()
     credentials.save()
-    with pytest.raises(oauth.OAuthError, match="refresh failed"):
+    with pytest.raises(oauth.OAuthError, match="refresh revoked"):
         upstream.token(url)
     failed = common.Credentials.load(path).servers[common.normalize(url)]
     assert not failed.access_token and not failed.refresh_token

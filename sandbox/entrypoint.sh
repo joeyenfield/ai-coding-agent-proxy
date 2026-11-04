@@ -4,6 +4,10 @@
 #   AI_PROXY_SERVER          the API, for example https://api.aicontrolmesh.com (required)
 #   On first start, approve both printed OIDC device codes in your browser.
 #   Later starts reuse rotating credentials in the persistent home volume.
+#   AI_PROXY_MACHINE_SETUP_CODE  a setup code from the console's Machines page: agent-machine
+#                            login uses it instead of a device code (and AI_PROXY_MACHINE_ENABLE)
+#   AI_PROXY_SETUP_CODE      the same for agent's own sign-in (the console sets both to one code,
+#                            with a use for each); later starts don't spend it again
 #   AI_PROXY_MACHINE_NAME    the name the console shows (default: the container's hostname)
 #   AGENT_WORKSPACE          where agents may start (default /workspace)
 #
@@ -138,7 +142,7 @@ case "${AGENT_SERVERS:-off}" in
 esac
 
 # Agents started here inherit this environment: keep the secrets out of it.
-unset AI_PROXY_PASSWORD AI_PROXY_PASSWORD_FILE AI_PROXY_KEY
+unset AI_PROXY_PASSWORD AI_PROXY_PASSWORD_FILE AI_PROXY_KEY AI_PROXY_MACHINE_SETUP_CODE AI_PROXY_SETUP_CODE
 export AI_PROXY_URL="$server"
 agent-machine
 exec agent-machine run
