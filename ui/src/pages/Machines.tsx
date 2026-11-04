@@ -470,12 +470,13 @@ function uninstallLine(server: string, system: "sh" | "powershell", { only, purg
 type Step = { command: string; text: string };
 
 /** Taking a machine out again, for the system and install chosen above: its uninstaller, then its entry in the fleet. */
-function RemoveSteps({ server, system, install, runtime = "docker", image = "" }: {
+function RemoveSteps({ server, system, install, runtime = "docker", image = "", container = SANDBOX_BASE }: {
   server: string;
   system: System;
   install: Install;
   runtime?: Runtime;
   image?: string;
+  container?: string;
 }) {
   const copy = useClipboard();
   const [purge, setPurge] = useState(false);
@@ -525,14 +526,14 @@ function RemoveSteps({ server, system, install, runtime = "docker", image = "" }
     steps = [
       ...(purge
         ? [
-          { command: `${runtime} exec agent-sandbox agent-machine logout`, text: "Signs its agent-machine out first, which revokes its token." },
-          { command: `${runtime} exec agent-sandbox agent logout`, text: "And its agent." },
+          { command: `${runtime} exec ${container} agent-machine logout`, text: "Signs its agent-machine out first, which revokes its token." },
+          { command: `${runtime} exec ${container} agent logout`, text: "And its agent." },
         ]
         : []),
-      { command: `${runtime} rm -f agent-sandbox`, text: purge ? "Stops and removes the container." : "Stops and removes the container. Its sign-ins and workspace stay in their volumes, for the next one." },
+      { command: `${runtime} rm -f ${container}`, text: purge ? "Stops and removes the container." : "Stops and removes the container. Its sign-ins and workspace stay in their volumes, for the next one." },
       ...(purge
         ? [
-          { command: `${runtime} volume rm agent-sandbox-home agent-sandbox-workspace`, text: "Deletes its volumes: its sign-ins, and everything in /workspace, so copy out anything you want to keep first." },
+          { command: `${runtime} volume rm ${container}-home ${container}-workspace`, text: "Deletes its volumes: its sign-ins, and everything in /workspace, so copy out anything you want to keep first." },
           ...(image ? [{ command: `${runtime} image rm ${image}`, text: "Frees the image's disk space." }] : []),
         ]
         : []),
@@ -664,6 +665,14 @@ function useRemembered<T extends string>(key: string, options: readonly { id: T 
 // Where .github/workflows/images.yml publishes the images. latest is the newest build of master
 // or a release: sandboxes follow it rather than the server's own version.
 const SANDBOX_IMAGE = "ghcr.io/joeyenfield/agent-sandbox:latest";
+// What a sandbox's container and its two volumes start with; a name adds to it, so a computer
+// can run several, each with its own sign-ins and workspace.
+const SANDBOX_BASE = "agent-sandbox";
+
+/** A container or volume name: letters, digits and dashes only, so it needs no quoting in a command. */
+function dockerName(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
 
 /** A machine of its own in a container (sandbox/Dockerfile): agents started on it can only touch its /workspace. */
 function SandboxSteps({ server, env = [] }: { server: string; env?: [string, string][] }) {
@@ -671,8 +680,13 @@ function SandboxSteps({ server, env = [] }: { server: string; env?: [string, str
   const [runtime, setRuntime] = useRemembered<Runtime>(RUNTIME_KEY, RUNTIMES, "docker");
   // The shell the commands are typed in, on the computer that runs the container: it decides how lines continue.
   const [shell, setShell] = useRemembered<Shell>(SHELL_KEY, SHELLS, browserPlatform().startsWith("windows") ? "powershell" : "bash");
+  // Not remembered: it belongs to the one sandbox being added, and a leftover name would silently
+  // point the next one at another's volumes.
+  const [name, setName] = useState("");
   const engine = RUNTIMES.find((item) => item.id === runtime) ?? RUNTIMES[0];
   const style = SHELLS.find((item) => item.id === shell) ?? SHELLS[0];
+  const suffix = dockerName(name);
+  const container = suffix ? `${SANDBOX_BASE}-${suffix}` : SANDBOX_BASE;
   let address = server;
   let hostGateway = false;
   try {
@@ -687,11 +701,12 @@ function SandboxSteps({ server, env = [] }: { server: string; env?: [string, str
   }
   const image = SANDBOX_IMAGE;
   const run = [
-    `${runtime} run -d --name agent-sandbox --restart unless-stopped`,
+    // --hostname too: the sandbox is named after its hostname, which is otherwise the container's id.
+    `${runtime} run -d --name ${container} --hostname ${container} --restart unless-stopped`,
     ...(hostGateway ? ["  --add-host=host.docker.internal:host-gateway"] : []),
     `  -e AI_PROXY_SERVER=${address}`,
-    ...env.map(([name, value]) => `  -e ${name}=${value}`),
-    `  -v agent-sandbox-home:/home/agent -v agent-sandbox-workspace:/workspace ${image}`,
+    ...env.map(([key, value]) => `  -e ${key}=${value}`),
+    `  -v ${container}-home:/home/agent -v ${container}-workspace:/workspace ${image}`,
   ].join(`${style.continuation}\n`);
   return (
     <div className="sandbox-steps">
@@ -704,6 +719,15 @@ function SandboxSteps({ server, env = [] }: { server: string; env?: [string, str
           <span className="subtle">Shell</span>
           <Switch label="Shell" options={SHELLS} value={shell} onChange={setShell} />
         </div>
+        <label className="join-choice">
+          <span className="subtle">Name</span>
+          <input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="optional: work, test…"
+            spellCheck={false}
+          />
+        </label>
       </div>
       <ol className="steps">
         <li>
@@ -714,15 +738,17 @@ function SandboxSteps({ server, env = [] }: { server: string; env?: [string, str
               <>On its first start it signs in with the setup code, as you, with nothing to approve.</>
             ) : (
               <>
-                On its first start it prints two sign-in codes (<code>{runtime} logs agent-sandbox</code>): approve both on{" "}
+                On its first start it prints two sign-in codes (<code>{runtime} logs {container}</code>): approve both on{" "}
                 <Link to="/approve-device">Approve a device</Link>, or use a setup code.
               </>
             )}{" "}
-            It shows up here as <strong>agent-sandbox</strong>, and its sign-in is kept in the agent-sandbox-home volume, so a restart
+            It shows up here as <strong>{container}</strong>, and its sign-in is kept in the {container}-home volume, so a restart
             doesn't sign in again.
           </p>
           <CodeLine text={run} onCopy={() => copy(run, "Command copied")} />
           <p className="subtle">
+            A name adds to <code>{SANDBOX_BASE}</code>: it names the container and both of its volumes, so one computer can run several
+            sandboxes, each with its own sign-ins, models and workspace. Leave it out for the plain <code>{SANDBOX_BASE}</code>.{" "}
             Use <code>-v "{style.home}projects:/workspace"</code> instead of the workspace volume to work on a folder of that computer's, and
             add <code>-v "{style.home}sandbox-ssh:/ssh:ro"</code> for git keys. To run your own changes, build the image from a copy of
             this repository (<code>{runtime} build -f sandbox/Dockerfile -t agent-sandbox .</code>) and run <code>agent-sandbox</code>{" "}
@@ -736,7 +762,7 @@ function SandboxSteps({ server, env = [] }: { server: string; env?: [string, str
           )}
         </li>
       </ol>
-      <RemoveSteps server={server} system="container" install="both" runtime={runtime} image={image} />
+      <RemoveSteps server={server} system="container" install="both" runtime={runtime} image={image} container={container} />
     </div>
   );
 }

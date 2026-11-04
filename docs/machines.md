@@ -405,7 +405,7 @@ The `agent-machine` deb, rpm and Arch packages include a systemd user unit, not 
 Agents you start on it run inside the container, so they can't touch the computer it runs on beyond `/workspace`.
 
 ```bash
-docker run -d --name agent-sandbox --restart unless-stopped \
+docker run -d --name agent-sandbox --hostname agent-sandbox --restart unless-stopped \
   -e AI_PROXY_SERVER=https://api.aicontrolmesh.com \
   -v agent-sandbox-home:/home/agent -v agent-sandbox-workspace:/workspace \
   ghcr.io/joeyenfield/agent-sandbox:latest
@@ -423,6 +423,8 @@ Or beside the server in `compose.yaml`, with its `sandbox` profile:
 docker compose --profile sandbox up -d
 docker compose logs -f agent-sandbox
 ```
+
+**More than one sandbox on a computer.** The console's **Add a machine** (System: **Docker container**) has an optional **Name** that adds to `agent-sandbox` and names the container and both of its volumes; do the same by hand. `work` gives `--name agent-sandbox-work --hostname agent-sandbox-work` with `agent-sandbox-work-home` and `agent-sandbox-work-workspace`, so each sandbox keeps its own sign-ins, models, llama.cpp and workspace and none of them shares another's. Names are lower-case letters, digits and dashes. The machine is named after the container's hostname, which is the container's id unless `--hostname` sets it, so give it the container's name (`AI_PROXY_MACHINE_NAME` still overrides it). `--network`, the model-server settings and the rest are the same for each; nothing else about a sandbox is shared between them.
 
 | Setting | What it does |
 |---|---|
@@ -460,7 +462,7 @@ docker network create agent-models
 docker run -d --name ollama --network agent-models -v ollama-models:/root/.ollama ollama/ollama
 docker run -d --name llamacpp --network agent-models -v ./models:/models \
   ghcr.io/ggml-org/llama.cpp:server -m /models/Llama-3.2-1B-Instruct-Q4_K_M.gguf --host 0.0.0.0 --port 8080
-docker run -d --name agent-sandbox --network agent-models --restart unless-stopped \
+docker run -d --name agent-sandbox --hostname agent-sandbox --network agent-models --restart unless-stopped \
   -e AI_PROXY_SERVER=https://api.aicontrolmesh.com \
   -e AGENT_OLLAMA=ollama -e AGENT_LLAMACPP=llamacpp:8080 \
   -v agent-sandbox-home:/home/agent -v agent-sandbox-workspace:/workspace \

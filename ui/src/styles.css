@@ -1125,6 +1125,7 @@ code { background: var(--ground); border: 1px solid var(--line); padding: 0 5px;
 .join-choice > .subtle { font-size: 13px; font-weight: 600; min-width: 52px; }
 /* Three options don't fit a phone's width: let them wrap inside the switch. */
 .join-choice .env-switch { flex-wrap: wrap; border-radius: 16px; }
+.join-choice input { width: 15em; }
 .join-about { margin: 0; font-size: 14px; max-width: 78ch; color: var(--steel); }
 .join-does { font-size: 14px; }
 .join-does > p { margin: 0 0 6px; font-weight: 600; }
