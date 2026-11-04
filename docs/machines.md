@@ -157,19 +157,23 @@ agent-machine keeps everything in one folder:
 | `servers.json` | The Ollama and llama-server it started (process ids, where Ollama listens, the settings each started with). |
 | `llamacpp.json` | The `LLAMA_ARG_*` settings it starts llama-server with, saved from the console. |
 | `llamacpp.log` | The output of the llama-server it started. |
-| `llamacpp/` | The llama.cpp builds installed from the console, one folder each (`<release>-<build>`): the newest and the one before it. |
+| `llamacpp/` | The llama.cpp builds installed from the console, one folder each (`<release>-<build>`): the newest and the one before it. In the data folder (below). |
 | `llamacpp-install.json` | Which llama.cpp the console installed (from GitHub or Termux, which build) and where its `llama-server` is. |
 | `llamacpp-install.log` | What installing llama.cpp did (Termux's `apt-get` output, and each install's result). |
-| `llamacpp-models/` | The GGUF folder agent-machine's llama-server serves unless its settings name another: models agent-machine downloads itself, one subfolder each. |
+| `llamacpp-models/` | The GGUF folder agent-machine's llama-server serves unless its settings name another: models agent-machine downloads itself, one subfolder each. In the data folder (below). |
+| `ollama-models/` | Only with `AI_PROXY_MACHINE_DATA` set: the models of the Ollama agent-machine starts, unless its settings name another folder. In the data folder. |
 | `mcp.json` | The MCP servers it shares: commands, environments, folders, URLs and headers. |
 
 Files are written readable by this user only. The machine's id is made the first time it's needed. A `machine.json` from before agent-machine existed (in the client's `agent-proxy` folder) is carried over once, so the server still knows the machine by its id. That doesn't happen when `AI_PROXY_MACHINE_HOME` is set.
+
+**The data folder.** The large files, llama.cpp's builds and models (gigabytes), go in the data folder: `AI_PROXY_MACHINE_DATA` when it's set, else agent-machine's folder. Set it where the sign-in's folder is small, or where the only writable space is `/tmp` or a scratch volume, as in a pod under OpenShift's restricted policy: `AI_PROXY_MACHINE_DATA=/tmp/agent-data`. The sign-in and settings stay in agent-machine's folder. With it set, an Ollama agent-machine starts keeps its models in `ollama-models` there too, unless Ollama's **Models directory** setting names a folder. Without it, Ollama keeps them where it always does (`~/.ollama/models`). Moving it doesn't move files already downloaded: they're downloaded again.
 
 It reads these environment variables:
 
 | Variable | What it does |
 |---|---|
 | `AI_PROXY_MACHINE_HOME` | agent-machine's folder |
+| `AI_PROXY_MACHINE_DATA` | The data folder: llama.cpp's builds and models, and the models of an Ollama it starts (default: agent-machine's folder, and Ollama's own for Ollama's models) |
 | `AI_PROXY_MACHINE_SETUP_CODE` | A setup code for `login` without `--code`, and for `start` and `run` to sign in with when there's no sign-in yet ([Signing in with a setup code](#signing-in-with-a-setup-code)) |
 | `AI_PROXY_MACHINE_ENABLE` | Toggles to turn on after such a sign-in, comma-separated, for `login` without `--enable` |
 | `APPDATA`, `XDG_CONFIG_HOME` | Where the folder is by default |
@@ -433,6 +437,7 @@ docker compose logs -f agent-sandbox
 | `AI_PROXY_MACHINE_SETUP_CODE` | A setup code from **Machines** › **Add a machine** › **Create a setup code**, so agent-machine signs in on first start without a browser ([Signing in with a setup code](#signing-in-with-a-setup-code)) |
 | `AI_PROXY_MACHINE_ENABLE` | Toggles to turn on with that sign-in, for example `commands`. The sandbox sets launches, containers and servers itself (step 5), so this matters for `commands` and `updates`. |
 | `AGENT_WORKSPACE` | Where agents may start (default `/workspace`) |
+| `AGENT_DATA_DIR` | Where llama.cpp's builds and models and the Ollama models go (agent-machine's `AI_PROXY_MACHINE_DATA`), for example `/tmp/agent-data`. Default: the home volume. |
 | `-v <folder>:/ssh:ro` | SSH keys for git (and optionally `config` and `known_hosts`), copied into `~/.ssh` on every start |
 | `GIT_USER_NAME`, `GIT_USER_EMAIL` | Who the agents' commits are by |
 | `AGENT_REPOS` | Git URLs to clone into the workspace on start, space-separated. Ones already there are left alone. |
@@ -445,6 +450,7 @@ docker compose logs -f agent-sandbox
 - **Sign-ins.** On first start, open the verification URL printed in the logs and approve each of the two device codes. With `AI_PROXY_MACHINE_SETUP_CODE` set, agent-machine's is approved by the code instead, and the code is kept out of the agents' environment. Credentials and the machine id persist in `/home/agent`; subsequent starts renew automatically and don't use the code again. Password/key environment bootstrap is removed.
 - **Git over SSH.** The keys are copied rather than used in place, because a mount from Windows or macOS usually has permissions ssh refuses. Without your own `config`, a host's key is trusted the first time it's seen, so a clone doesn't stop at a question nobody can answer. Agents in the sandbox can read the key: use a deploy key or one made for the sandbox.
 - **Account agents.** Their sign-ins (Claude, Copilot, ChatGPT) also live in `/home/agent`. Sign in once from the agent's terminal in the console.
+- **OpenShift and OKD.** The image runs under the restricted policy, as a random user in group 0: its home and workspace are writable by group 0, and the entrypoint gives that user a name in `/etc/passwd`. If the home folder isn't writable (a read-only root file system with no volume there), it uses `/tmp/agent-home`, so sign-ins last only as long as the pod: sign in with a setup code that allows enough sign-ins, or mount a volume at `/home/agent`. Set `AGENT_DATA_DIR=/tmp/agent-data` (or a scratch volume) to keep llama.cpp and the models out of the home volume.
 - **Podman** takes the same commands. A server on the same computer is reached at `host.docker.internal` (Docker, with `--add-host=host.docker.internal:host-gateway`) or `host.containers.internal` (Podman).
 
 ### Model servers for a sandbox

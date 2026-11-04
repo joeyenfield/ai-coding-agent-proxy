@@ -75,6 +75,8 @@ sequenceDiagram
 
 ## State (`settings.Home()`: `AI_PROXY_MACHINE_HOME`, `%APPDATA%\agent-machine`, `~/.config/agent-machine`)
 
+`settings.Data()` (`AI_PROXY_MACHINE_DATA`, else `Home()`) holds the large files: `llamacpp/` (installed builds) and `llamacpp-models/` (the default GGUF folder). Only when the variable is set (`settings.DataSet`) does an Ollama agent-machine starts get `OLLAMA_MODELS=<data>/ollama-models` (`ollamaDataModels`, unless the models_dir setting names one), so existing machines keep Ollama's own folder. Python: `settings.data()`/`data_set()`, `servers.ollama_data_models`. Credentials, settings, logs and install records stay in `Home()`.
+
 `credentials.json` (OAuth access and refresh tokens, expiry, issuer, client id and endpoints, in the client's format; never a password), `credentials.json.lock` (the refresh lock directory, shared with the Python agent-machine), `machine.json` (id, name, toggles, roots, address, CLI), `status.json` (pid, state, server, at, server_version, started: background, service or terminal), `mcp.json`, `servers.json` (the Ollama and llama-server it started; Ollama's saves keep llama-server's fields and the other way round), `ollama.json`, `llamacpp.json`, `llamacpp-install.json` (what the console installed and where its `llama-server` is), `llamacpp/` (installed builds), `agent-machine.log`, `ollama.log`, `llamacpp.log`, `llamacpp-install.log`. Files are 0600 in a 0700 folder, written atomically.
 
 ## Invariants

@@ -67,7 +67,7 @@ var LlamaSettings = []Setting{
 	setting("cache_dir", groupModels, "Download folder", "str", "",
 		"Where models downloaded from Hugging Face go. Empty = llama.cpp's standard cache.", "LLAMA_CACHE"),
 	setting("models_dir", groupModels, "GGUF folder", "str", "",
-		"A folder of .gguf files to serve as well (a subfolder for a model in several files). Empty = llamacpp-models in agent-machine's folder. Models agent-machine downloads itself go here.", "LLAMA_ARG_MODELS_DIR"),
+		"A folder of .gguf files to serve as well (a subfolder for a model in several files). Empty = llamacpp-models in agent-machine's data folder (AI_PROXY_MACHINE_DATA, else its own folder). Models agent-machine downloads itself go here.", "LLAMA_ARG_MODELS_DIR"),
 
 	onOff(setting("webui", groupServer, "Web UI", "bool", false, "llama-server's own chat page, on this computer only.", "LLAMA_ARG_UI")),
 	setting("metrics", groupServer, "Metrics endpoint", "bool", false, "Prometheus metrics at /metrics.", "LLAMA_ARG_ENDPOINT_METRICS"),
@@ -116,8 +116,9 @@ func LlamaManagedEnv(config map[string]any) map[string]*string {
 	return env
 }
 
-// defaultModelsDir is the GGUF folder when none is set: llamacpp-models in agent-machine's folder.
-func defaultModelsDir() string { return filepath.Join(settings.Home(), "llamacpp-models") }
+// defaultModelsDir is the GGUF folder when none is set: llamacpp-models in agent-machine's data
+// folder (its own folder, unless AI_PROXY_MACHINE_DATA moves it).
+func defaultModelsDir() string { return filepath.Join(settings.Data(), "llamacpp-models") }
 
 // llamaModelsDir is the GGUF folder agent-machine's llama-server serves.
 func llamaModelsDir() string {

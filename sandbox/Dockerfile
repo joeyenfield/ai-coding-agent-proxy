@@ -68,7 +68,13 @@ RUN sed -i 's/\r$//' /usr/local/bin/agent-sandbox-entrypoint \
     && usermod --login agent --home /home/agent --move-home node \
     && groupmod --new-name agent node \
     && mkdir -p /workspace \
-    && chown agent:agent /workspace
+    && chown agent:agent /workspace \
+    && chgrp -R 0 /home/agent /workspace \
+    && chmod -R g=u /home/agent /workspace \
+    && chmod g+w /etc/passwd
+# OpenShift/OKD's restricted policy runs the container as a random user in group 0: the home and
+# workspace are group 0's to write too, and the entrypoint adds that user to /etc/passwd (which
+# ssh and git need to know who they are).
 USER agent
 WORKDIR /workspace
 ENV HOME=/home/agent

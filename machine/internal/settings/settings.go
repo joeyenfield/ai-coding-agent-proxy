@@ -79,6 +79,28 @@ func Home() string {
 	return filepath.Join(configDir(), "agent-machine")
 }
 
+// DataEnv moves the large files agent-machine installs or downloads (llama.cpp's builds, its
+// GGUF models, and the models of an Ollama it starts) out of its folder, which holds the sign-in
+// and has to persist: a pod whose only writable space is /tmp or a scratch volume points it there.
+const DataEnv = "AI_PROXY_MACHINE_DATA"
+
+// Data is where those files go: AI_PROXY_MACHINE_DATA, else agent-machine's folder.
+func Data() string {
+	if path, ok := DataSet(); ok {
+		return path
+	}
+	return Home()
+}
+
+// DataSet is AI_PROXY_MACHINE_DATA, when it's set. Ollama's models only move then: by default
+// they stay where Ollama keeps them.
+func DataSet() (string, bool) {
+	if path := os.Getenv(DataEnv); path != "" {
+		return expandHome(path), true
+	}
+	return "", false
+}
+
 // configDir is the user's config folder: %APPDATA% on Windows, XDG_CONFIG_HOME or ~/.config elsewhere.
 func configDir() string {
 	if runtime.GOOS == "windows" {

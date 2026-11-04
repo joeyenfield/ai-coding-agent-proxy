@@ -321,6 +321,12 @@ func (m *Manager) startOllama(bind string) error {
 	defer logFile.Close()
 	fmt.Fprintf(logFile, "# agent-machine: starting %s serve on %s:%d at %s\n", strings.Join(program, " "), bind, m.port(), time.Now().Format(time.RFC3339))
 	config := LoadConfig()
+	if folder, ok := ollamaDataModels(config); ok {
+		if err := os.MkdirAll(folder, 0o700); err != nil {
+			return err
+		}
+		fmt.Fprintf(logFile, "#   OLLAMA_MODELS=%s (in %s)\n", folder, settings.DataEnv)
+	}
 	for name, value := range publicEnv(ManagedEnv(config)) {
 		fmt.Fprintf(logFile, "#   %s=%v\n", name, orUnset(value))
 	}

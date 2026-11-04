@@ -89,7 +89,7 @@ SETTINGS = [
             choices=["", "cuda_v12", "cuda_v13", "rocm", "vulkan", "cpu"], editable=True),
     setting("vulkan", HARDWARE, "Vulkan backend", "bool", False, "Experimental Vulkan backend.", "OLLAMA_VULKAN"),
     setting("new_engine", HARDWARE, "New engine", "bool", False, "Opt into Ollama's new engine where supported.", "OLLAMA_NEW_ENGINE"),
-    setting("models_dir", SERVER, "Models directory", "str", "", "Empty = standard model directory.", "OLLAMA_MODELS"),
+    setting("models_dir", SERVER, "Models directory", "str", "", "Empty = standard model directory (ollama-models in AI_PROXY_MACHINE_DATA when that's set).", "OLLAMA_MODELS"),
     setting("origins", SERVER, "CORS origins", "str", "", "Comma-separated extra allowed origins.", "OLLAMA_ORIGINS"),
     setting("debug", SERVER, "Debug logging", "bool", False, "Verbose server log.", "OLLAMA_DEBUG"),
 ]
@@ -287,7 +287,21 @@ def managed_env(config: Dict[str, Any]) -> Dict[str, Optional[str]]:
 
 def environment(base: Dict[str, str], config: Dict[str, Any]) -> Dict[str, str]:
     """The environment Ollama starts with: base with the managed variables applied, and no OLLAMA_HOST."""
-    return OLLAMA_TABLE.environment(base, config, lambda name: name.upper() == "OLLAMA_HOST")
+    env = OLLAMA_TABLE.environment(base, config, lambda name: name.upper() == "OLLAMA_HOST")
+    folder = ollama_data_models(config)
+    if folder:
+        env["OLLAMA_MODELS"] = folder
+    return env
+
+
+def ollama_data_models(config: Dict[str, Any]) -> Optional[str]:
+    """Where an Ollama agent-machine starts keeps its models when AI_PROXY_MACHINE_DATA is set and
+    its settings name no folder: ollama-models there. Without that variable Ollama keeps its own
+    default (~/.ollama/models), so models already pulled stay."""
+    data = settings.data_set()
+    if data is None or managed_env(config).get("OLLAMA_MODELS") is not None:
+        return None
+    return str(data / "ollama-models")
 
 
 def config_warnings(config: Dict[str, Any]) -> List[str]:
@@ -1027,8 +1041,16 @@ class Manager:
         config = load_config()
         path = log_path()
         path.parent.mkdir(parents=True, exist_ok=True)
+        models = ollama_data_models(config)
+        if models:
+            try:
+                os.makedirs(models, mode=0o700, exist_ok=True)
+            except OSError as error:
+                raise Refused(f"couldn't make Ollama's models folder {models}: {error}")
         with open(path, "a", encoding="utf-8") as log:
             log.write(f"# agent-machine: starting {' '.join(program)} serve on {bind}:{self.port} at {datetime.datetime.now().astimezone().isoformat(timespec='seconds')}\n")
+            if models:
+                log.write(f"#   OLLAMA_MODELS={models} (in {settings.DATA_ENV})\n")
             for name, value in sorted(managed_env(config).items()):
                 log.write(f"#   {name}={'(unset)' if value is None else value}\n")
             log.flush()

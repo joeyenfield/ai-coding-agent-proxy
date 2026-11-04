@@ -45,7 +45,8 @@ const (
 	maxUnpacked = 6 << 30
 )
 
-func installRoot() string { return filepath.Join(settings.Home(), "llamacpp") }
+// installRoot holds the installed builds, in agent-machine's data folder: they're hundreds of MB.
+func installRoot() string { return filepath.Join(settings.Data(), "llamacpp") }
 
 func installLog() string { return filepath.Join(settings.Home(), "llamacpp-install.log") }
 

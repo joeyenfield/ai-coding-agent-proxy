@@ -428,3 +428,25 @@ def test_ollama_starts_with_its_settings_and_restarts(monkeypatch):
         assert matches() is True
     finally:
         manager.handle({"request": "r9", "op": "stop", "kind": "ollama"})
+
+
+def test_the_data_folder_holds_the_models_and_builds_when_set(home, tmp_path, monkeypatch):
+    """Mirrors the Go TestTheDataFolderHoldsTheModelsAndBuildsWhenSet."""
+    from agent_py.machine import llamacpp, providers
+    monkeypatch.delenv("AI_PROXY_MACHINE_DATA", raising=False)
+    # Unset: llama.cpp's builds and models stay in agent-machine's folder, and Ollama keeps its own.
+    assert llamacpp.install_root() == settings.home() / "llamacpp"
+    assert llamacpp.models_dir() == str(settings.home() / "llamacpp-models")
+    assert "OLLAMA_MODELS" not in servers.environment({"PATH": "/bin"}, servers.default_config())
+    data = tmp_path / "scratch"
+    monkeypatch.setenv("AI_PROXY_MACHINE_DATA", str(data))
+    assert llamacpp.install_root() == data / "llamacpp"
+    assert llamacpp.models_dir() == str(data / "llamacpp-models") == providers.llama_folder()
+    env = servers.environment({"PATH": "/bin", "OLLAMA_MODELS": "/old"}, servers.default_config())
+    assert env["OLLAMA_MODELS"] == str(data / "ollama-models")
+    # A folder in Ollama's settings still wins.
+    config = servers.default_config()
+    config["models_dir"] = "/models"
+    assert servers.environment({}, config)["OLLAMA_MODELS"] == "/models"
+    # The sign-in stays in agent-machine's own folder.
+    assert settings.credentials_path().parent == settings.home() != data

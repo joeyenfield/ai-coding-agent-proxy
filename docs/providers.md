@@ -242,7 +242,7 @@ The settings are the machine's: agent-machine keeps them in `llamacpp.json` in i
 | Reasoning | Thinking budget (`-1` no limit, `0` don't think) | `LLAMA_ARG_THINK_BUDGET` | `-1` |
 | | Model's chat template | `LLAMA_ARG_JINJA` | on |
 | Models | Download folder | `LLAMA_CACHE` | llama.cpp's cache |
-| | GGUF folder (where agent-machine's own downloads go) | `LLAMA_ARG_MODELS_DIR` | `llamacpp-models` in agent-machine's folder |
+| | GGUF folder (where agent-machine's own downloads go) | `LLAMA_ARG_MODELS_DIR` | `llamacpp-models` in agent-machine's data folder (`AI_PROXY_MACHINE_DATA`, else its own folder) |
 | Server | Web UI | `LLAMA_ARG_UI` | off |
 | | Metrics endpoint | `LLAMA_ARG_ENDPOINT_METRICS` | off |
 

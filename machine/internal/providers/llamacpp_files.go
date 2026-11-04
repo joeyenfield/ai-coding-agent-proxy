@@ -34,7 +34,7 @@ const DefaultQuant = "Q4_K_M"
 
 // LlamaFolder is the GGUF folder agent-machine's llama-server serves. Package servers, which
 // owns llama.cpp's settings, replaces it with the configured one.
-var LlamaFolder = func() string { return filepath.Join(settings.Home(), "llamacpp-models") }
+var LlamaFolder = func() string { return filepath.Join(settings.Data(), "llamacpp-models") }
 
 var safeName = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 

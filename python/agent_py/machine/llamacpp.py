@@ -79,7 +79,7 @@ SETTINGS = [
             "LLAMA_ARG_THINK_BUDGET", minimum=-1, maximum=1048576),
     setting("jinja", REASONING, "Model's chat template", "bool", True, "Use the chat template in the model (needed for tool calls).", "LLAMA_ARG_JINJA"),
     setting("cache_dir", MODELS, "Download folder", "str", "", "Where models downloaded from Hugging Face go. Empty = llama.cpp's standard cache.", "LLAMA_CACHE"),
-    setting("models_dir", MODELS, "GGUF folder", "str", "", "A folder of .gguf files to serve as well (a subfolder for a model in several files). Empty = llamacpp-models in agent-machine's folder. Models agent-machine downloads itself go here.", "LLAMA_ARG_MODELS_DIR"),
+    setting("models_dir", MODELS, "GGUF folder", "str", "", "A folder of .gguf files to serve as well (a subfolder for a model in several files). Empty = llamacpp-models in agent-machine's data folder (AI_PROXY_MACHINE_DATA, else its own folder). Models agent-machine downloads itself go here.", "LLAMA_ARG_MODELS_DIR"),
     setting("webui", SERVER, "Web UI", "bool", False, "llama-server's own chat page, on this computer only.", "LLAMA_ARG_UI", false="off", true="on"),
     setting("metrics", SERVER, "Metrics endpoint", "bool", False, "Prometheus metrics at /metrics.", "LLAMA_ARG_ENDPOINT_METRICS"),
 ]
@@ -109,8 +109,9 @@ def _dropped(name: str) -> bool:
 
 
 def default_models_dir() -> str:
-    """The GGUF folder when none is set: llamacpp-models in agent-machine's folder."""
-    return str(settings.home() / "llamacpp-models")
+    """The GGUF folder when none is set: llamacpp-models in agent-machine's data folder (its own
+    folder, unless AI_PROXY_MACHINE_DATA moves it)."""
+    return str(settings.data() / "llamacpp-models")
 
 
 def managed_env(config: Dict[str, Any]) -> Dict[str, Optional[str]]:
@@ -263,7 +264,8 @@ def pid() -> int:
 
 
 def install_root() -> Path:
-    return settings.home() / "llamacpp"
+    """The installed builds, in agent-machine's data folder: they're hundreds of MB."""
+    return settings.data() / "llamacpp"
 
 
 def install_log() -> Path:

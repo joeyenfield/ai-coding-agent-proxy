@@ -30,6 +30,24 @@ def home() -> Path:
     return common.config_dir() / "agent-machine"
 
 
+# Moves the large files agent-machine installs or downloads (llama.cpp's builds, its GGUF models,
+# and the models of an Ollama it starts) out of its folder, which holds the sign-in and has to
+# persist: a pod whose only writable space is /tmp or a scratch volume points it there.
+DATA_ENV = "AI_PROXY_MACHINE_DATA"
+
+
+def data_set() -> Optional[Path]:
+    """AI_PROXY_MACHINE_DATA, when it's set. Ollama's models only move then."""
+    if os.environ.get(DATA_ENV):
+        return common.expand_home(os.environ[DATA_ENV])
+    return None
+
+
+def data() -> Path:
+    """Where those files go: AI_PROXY_MACHINE_DATA, else agent-machine's folder."""
+    return data_set() or home()
+
+
 def credentials_path() -> Path:
     return home() / "credentials.json"
 

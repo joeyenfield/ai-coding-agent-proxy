@@ -10,6 +10,14 @@
 #                            with a use for each); later starts don't spend it again
 #   AI_PROXY_MACHINE_NAME    the name the console shows (default: the container's hostname)
 #   AGENT_WORKSPACE          where agents may start (default /workspace)
+#   AGENT_DATA_DIR           where llama.cpp's builds, its models and the models of the Ollama
+#                            started here go (default: the home volume), for example /tmp/agent-data
+#                            or a scratch volume in a pod whose only writable space is that. The
+#                            sign-ins stay in the home folder.
+#
+# Under OpenShift/OKD's restricted policy (a random user in group 0), it adds that user to
+# /etc/passwd, and when the home folder isn't writable it uses /tmp/agent-home instead (sign-ins
+# then last as long as the pod: use a setup code that allows several sign-ins).
 #
 # Local model servers, which agent-machine only looks for on its own loopback:
 #   AGENT_OLLAMA             an Ollama in another container, host[:port] (default port 11434),
@@ -39,6 +47,22 @@ fi
 case "$server" in *://*) ;; *) server="https://$server" ;; esac
 server=${server%/}
 workspace=${AGENT_WORKSPACE:-/workspace}
+
+if ! mkdir -p "$HOME/.config" 2>/dev/null || [ ! -w "$HOME" ]; then
+    echo "agent-sandbox: $HOME isn't writable; using /tmp/agent-home, so sign-ins last as long as the container" >&2
+    export HOME=/tmp/agent-home
+    mkdir -p "$HOME/.config"
+fi
+# A random user (OpenShift's restricted policy) has no name: give it this home, so ssh, git and
+# the agents know who they are. The image makes /etc/passwd writable by group 0 for this.
+if ! whoami >/dev/null 2>&1 && [ -w /etc/passwd ]; then
+    echo "agent:x:$(id -u):0:agent:$HOME:/bin/bash" >> /etc/passwd
+fi
+if [ -n "${AGENT_DATA_DIR:-}" ]; then
+    mkdir -p "$AGENT_DATA_DIR" || { echo "agent-sandbox: can't make AGENT_DATA_DIR $AGENT_DATA_DIR" >&2; exit 2; }
+    # agent-machine puts llama.cpp's builds, its models and Ollama's models there.
+    export AI_PROXY_MACHINE_DATA="$AGENT_DATA_DIR"
+fi
 config=${XDG_CONFIG_HOME:-$HOME/.config}
 
 # sign_in signs one component in, unless its credentials already name this server. A login that

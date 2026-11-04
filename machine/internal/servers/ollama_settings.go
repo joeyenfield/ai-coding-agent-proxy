@@ -6,8 +6,11 @@ package servers
 // ones, so the server can't set what else a program here runs with.
 
 import (
+	"path/filepath"
 	"reflect"
 	"strings"
+
+	"ai-coding-agent-proxy/machine/internal/settings"
 )
 
 const (
@@ -48,7 +51,7 @@ var Settings = []Setting{
 	setting("vulkan", groupHardware, "Vulkan backend", "bool", false, "Experimental Vulkan backend.", "OLLAMA_VULKAN"),
 	setting("new_engine", groupHardware, "New engine", "bool", false, "Opt into Ollama's new engine where supported.", "OLLAMA_NEW_ENGINE"),
 
-	setting("models_dir", groupServer, "Models directory", "str", "", "Empty = standard model directory.", "OLLAMA_MODELS"),
+	setting("models_dir", groupServer, "Models directory", "str", "", "Empty = standard model directory (ollama-models in AI_PROXY_MACHINE_DATA when that's set).", "OLLAMA_MODELS"),
 	setting("origins", groupServer, "CORS origins", "str", "", "Comma-separated extra allowed origins.", "OLLAMA_ORIGINS"),
 	setting("debug", groupServer, "Debug logging", "bool", false, "Verbose server log.", "OLLAMA_DEBUG"),
 }
@@ -77,7 +80,22 @@ func ManagedEnv(config map[string]any) map[string]*string { return ollamaTable.m
 
 // Environment is the environment Ollama starts with: base with the managed variables applied.
 func Environment(base []string, config map[string]any) []string {
-	return ollamaTable.environment(base, config, func(name string) bool { return strings.EqualFold(name, "OLLAMA_HOST") })
+	env := ollamaTable.environment(base, config, func(name string) bool { return strings.EqualFold(name, "OLLAMA_HOST") })
+	if folder, ok := ollamaDataModels(config); ok {
+		env = append(env, "OLLAMA_MODELS="+folder)
+	}
+	return env
+}
+
+// ollamaDataModels is where an Ollama agent-machine starts keeps its models when
+// AI_PROXY_MACHINE_DATA is set and its settings name no folder: ollama-models there. Without
+// that variable Ollama keeps its own default (~/.ollama/models), so models already pulled stay.
+func ollamaDataModels(config map[string]any) (string, bool) {
+	data, ok := settings.DataSet()
+	if !ok || ollamaTable.managed(config)["OLLAMA_MODELS"] != nil {
+		return "", false
+	}
+	return filepath.Join(data, "ollama-models"), true
 }
 
 // ConfigWarnings is what the console warns about in a config.

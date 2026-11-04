@@ -3,8 +3,12 @@ package servers
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"ai-coding-agent-proxy/machine/internal/providers"
+	"ai-coding-agent-proxy/machine/internal/settings"
 )
 
 func TestOllamaSettingsAreCheckedAndSaved(t *testing.T) {
@@ -69,6 +73,38 @@ func TestEnvironmentAppliesManagedVariables(t *testing.T) {
 		if strings.Contains(joined, gone) {
 			t.Fatalf("%q left in %v", gone, env)
 		}
+	}
+}
+
+func TestTheDataFolderHoldsTheModelsAndBuildsWhenSet(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("AI_PROXY_MACHINE_HOME", home)
+	t.Setenv("AI_PROXY_MACHINE_DATA", "")
+	// Unset: llama.cpp's builds and models stay in agent-machine's folder, and Ollama keeps its own.
+	if installRoot() != filepath.Join(home, "llamacpp") || llamaModelsDir() != filepath.Join(home, "llamacpp-models") {
+		t.Fatalf("%s %s", installRoot(), llamaModelsDir())
+	}
+	if env := strings.Join(Environment([]string{"PATH=/bin"}, DefaultConfig()), "\n"); strings.Contains(env, "OLLAMA_MODELS") {
+		t.Fatalf("%s", env)
+	}
+	data := filepath.Join(t.TempDir(), "scratch")
+	t.Setenv("AI_PROXY_MACHINE_DATA", data)
+	if installRoot() != filepath.Join(data, "llamacpp") || llamaModelsDir() != filepath.Join(data, "llamacpp-models") || providers.LlamaFolder() != filepath.Join(data, "llamacpp-models") {
+		t.Fatalf("%s %s %s", installRoot(), llamaModelsDir(), providers.LlamaFolder())
+	}
+	env := Environment([]string{"PATH=/bin", "OLLAMA_MODELS=/old"}, DefaultConfig())
+	if joined := "\n" + strings.Join(env, "\n") + "\n"; !strings.Contains(joined, "\nOLLAMA_MODELS="+filepath.Join(data, "ollama-models")+"\n") || strings.Contains(joined, "/old") {
+		t.Fatalf("%v", env)
+	}
+	// A folder in Ollama's settings still wins.
+	config := DefaultConfig()
+	config["models_dir"] = "/models"
+	if joined := strings.Join(Environment(nil, config), "\n"); !strings.Contains(joined, "OLLAMA_MODELS=/models") || strings.Contains(joined, "ollama-models") {
+		t.Fatalf("%s", joined)
+	}
+	// The sign-in stays in agent-machine's own folder.
+	if settings.CredentialsPath() != filepath.Join(home, "credentials.json") {
+		t.Fatal(settings.CredentialsPath())
 	}
 }
 
