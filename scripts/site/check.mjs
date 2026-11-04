@@ -1,5 +1,6 @@
 // Uses the same optional Playwright dependency as scripts/screenshots/capture.mjs.
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFile, mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -37,6 +38,15 @@ try {
   const pagePaths = ['/', '/teams.html', '/security.html'];
   const pageSources = await Promise.all(pagePaths.map(page => readFile(path.join(root, 'site', page === '/' ? 'index.html' : page.slice(1)), 'utf8')));
   const html = pageSources.join('\n');
+  // Cloudflare keeps the stylesheet, script and images for hours: each link must carry its file's
+  // current content hash (scripts/site/fingerprint.py), or a deploy shows new markup with old styles.
+  for (const [index, source] of pageSources.entries()) {
+    for (const file of ['/styles.css', '/site.js']) assert.ok(source.includes(`${file}?v=`), `${pagePaths[index]} links ${file} without a hash`);
+    for (const [, file, hash] of source.matchAll(/(?<=["\s])(\/(?:styles\.css|site\.js|assets\/screens\/[^"?\s]+\.webp))\?v=([0-9a-z]+)/g)) {
+      const current = createHash('sha256').update(await readFile(path.join(root, 'site', file))).digest('hex').slice(0, 10);
+      assert.equal(hash, current, `${pagePaths[index]}: ${file} changed since its link was stamped; run python scripts/site/fingerprint.py`);
+    }
+  }
   // All repository documentation links must point at real files in this checkout.
   for (const [, file] of html.matchAll(/https:\/\/github\.com\/joeyenfield\/ai-coding-agent-proxy\/blob\/master\/([^"#]+)/g)) {
     await readFile(path.join(root, file));

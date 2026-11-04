@@ -9,8 +9,8 @@ Run it after capture.mjs changes one of the captures below:
 """
 from __future__ import annotations
 
-import hashlib
-import re
+import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -19,7 +19,6 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "docs" / "screenshots"
 TARGET = ROOT / "site" / "assets" / "screens"
-PAGES = [ROOT / "site" / name for name in ("index.html", "teams.html", "security.html")]
 WIDTHS = (800, 1440)
 
 
@@ -74,29 +73,9 @@ def main() -> None:
                 out = TARGET / f"{shot.name}-{width}.webp"
                 image.resize((width, height), Image.LANCZOS).save(out, "WEBP", quality=82, method=6)
                 print(f"{out.relative_to(ROOT)}  {width}x{height}  {out.stat().st_size // 1024} KB")
-    fingerprint()
+    # The pages link to each copy by its content hash (scripts/site/fingerprint.py).
+    subprocess.run([sys.executable, str(ROOT / "scripts" / "site" / "fingerprint.py")], check=True)
 
-
-def fingerprint() -> None:
-    """Puts each copy's content hash in the pages' links to it (name.webp?v=hash). Cloudflare and
-    browsers keep these images for hours, so a copy made again under the same name would otherwise
-    go on showing the old one."""
-    def stamped(match: re.Match[str]) -> str:
-        name = match.group(1)
-        path = TARGET / name
-        if not path.exists():
-            return match.group(0)
-        return f"/assets/screens/{name}?v={hashlib.sha256(path.read_bytes()).hexdigest()[:10]}"
-
-    for page in PAGES:
-        with open(page, encoding="utf-8", newline="") as file:
-            text = file.read()
-        updated = re.sub(r"/assets/screens/([A-Za-z0-9._-]+\.webp)(?:\?v=[0-9a-f]+)?", stamped, text)
-        if updated != text:
-            # newline="" keeps the page's own line endings.
-            with open(page, "w", encoding="utf-8", newline="") as file:
-                file.write(updated)
-            print(f"{page.relative_to(ROOT)}: image links fingerprinted")
 
 
 if __name__ == "__main__":
