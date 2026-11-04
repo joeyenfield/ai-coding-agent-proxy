@@ -13,6 +13,9 @@ deleted after the retention setting, or SAVED_DAYS without one. The console's po
 most of the traffic, is never saved.
 
 Query strings are reduced to their names, as an OAuth callback carries its code in one.
+
+Every finished entry also goes to the request log (request_log.py), which saves all of them for
+as long as its setting says, with their payloads in debug mode.
 """
 
 from __future__ import annotations
@@ -38,8 +41,8 @@ ALL_LIMIT = 5000
 FAILED_LIMIT = 2000
 # The start of an error's body: its {"detail": ...}, enough to say why.
 DETAIL_LIMIT = 300
-# The log's own page polls it; listing those would only bury everything else.
-SKIPPED = ("/api/server/access-log", "/assets/")
+# The logs' own pages poll them; listing those would only bury everything else.
+SKIPPED = ("/api/server/access-log", "/api/server/request-log", "/assets/")
 # A WebSocket closed with one of these by either side ended normally.
 NORMAL_CLOSES = {1000, 1001}
 # agent-machine's connection to the fleet: saved however it ends, so a machine's history survives restarts.
@@ -97,6 +100,8 @@ class AccessLog:
         self.failing_routes: Counter[tuple[str, str, str]] = Counter()
         self.failing_clients: Counter[str] = Counter()
         self.last_failure: dict[Any, dict[str, Any]] = {}
+        # The request log (request_log.RequestLog), which saves every finished entry; the runtime sets it.
+        self.request_log: Any = None
 
     def start(self, scope: dict[str, Any]) -> dict[str, Any]:
         headers = {key.decode("latin-1").lower(): value.decode("latin-1") for key, value in scope.get("headers") or []}
@@ -146,7 +151,7 @@ class AccessLog:
         if machine:
             entry["machine_id"], entry["machine_name"] = machine.get("id"), machine.get("name")
 
-    def finish(self, entry: dict[str, Any], scope: dict[str, Any]) -> None:
+    def finish(self, entry: dict[str, Any], scope: dict[str, Any], capture: Any = None) -> None:
         self.identify(entry, scope)
         entry["duration_ms"] = round((time.time() - entry["time"]) * 1000, 1)
         entry["outcome"] = outcome(entry)
@@ -157,6 +162,8 @@ class AccessLog:
             self.failed.append(entry)
         if entry["outcome"] != "ok" or entry["path"] == FLEET_PATH:
             self._save(entry)
+        if self.request_log is not None:
+            self.request_log.save(entry, capture)
 
     def _count(self, entry: dict[str, Any]) -> None:
         kind = entry["outcome"]
@@ -370,6 +377,8 @@ class AccessLogMiddleware:
         scope.setdefault("state", {})
         entry = self.log.start(scope)
         capture = {"body": False}
+        # The request's and response's payloads, in the request log's debug mode only.
+        payload = self.log.request_log.capture(scope) if self.log.request_log is not None else None
 
         async def logged_send(message: dict[str, Any]) -> None:
             kind = message["type"]
@@ -379,9 +388,13 @@ class AccessLogMiddleware:
                 self.log.identify(entry, scope)
                 content_type = next((value for key, value in message.get("headers") or [] if key.lower() == b"content-type"), b"")
                 capture["body"] = message["status"] >= 400 and (b"json" in content_type or b"text" in content_type)
-            elif kind in ("http.response.body", "websocket.http.response.body") and capture["body"]:
+                if payload is not None and kind == "http.response.start":
+                    payload.response_start(message.get("headers") or [])
+            elif kind in ("http.response.body", "websocket.http.response.body"):
+                if payload is not None and kind == "http.response.body":
+                    payload.response(message.get("body", b""))
                 room = DETAIL_LIMIT - len(entry["detail"])
-                if room > 0:
+                if capture["body"] and room > 0:
                     entry["detail"] += message.get("body", b"")[:room].decode("utf-8", "replace")
             elif kind == "websocket.accept":
                 entry["status"] = 101
@@ -398,6 +411,8 @@ class AccessLogMiddleware:
 
         async def logged_receive() -> dict[str, Any]:
             message = await receive()
+            if payload is not None and message["type"] == "http.request":
+                payload.request(message.get("body", b""))
             if message["type"] == "websocket.disconnect" and entry["close_code"] is None:
                 entry["close_code"] = message.get("code", 1005)
                 entry["close_reason"] = str(message.get("reason") or "")[:DETAIL_LIMIT]
@@ -415,4 +430,4 @@ class AccessLogMiddleware:
                 entry["detail"] = entry["detail"] or f"{type(exc).__name__}: {exc}"[:DETAIL_LIMIT]
             raise
         finally:
-            self.log.finish(entry, scope)
+            self.log.finish(entry, scope, payload)

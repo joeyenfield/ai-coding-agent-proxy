@@ -193,6 +193,8 @@ class Settings:
     agents: dict[str, dict[str, Any]] | None = field(default=None, repr=False)
     # Traces and terminal recordings of sessions older than this many days are deleted; None keeps them.
     retention_days: int | None = None
+    # The request log (request_log.py): enabled, days, payloads (debug mode), payload_days.
+    request_log: dict[str, Any] = field(default_factory=lambda: dict(defaults.REQUEST_LOG))
     # The open database (open_database). Settings.load() reads its settings from it; Settings built
     # in code write theirs into it instead, so a test says what it wants and the database follows.
     db: Database | None = field(default=None, repr=False, compare=False)
@@ -321,6 +323,10 @@ class Settings:
         self.model_profiles = list(models.get("profiles") or [])
         retention = document.get("retention_days")
         self.retention_days = int(retention) if retention else None
+        try:
+            self.request_log = checked_request_log(document.get("request_log") or {})
+        except ValueError:
+            self.request_log = dict(defaults.REQUEST_LOG)
 
     def _store_config(self, connection: Any) -> None:
         """Settings built in code: their values become the database's."""
@@ -334,6 +340,7 @@ class Settings:
         kv.put(connection, schema.settings, "intercept", self.intercept.public())
         kv.put(connection, schema.settings, "models", self.models_document())
         kv.put(connection, schema.settings, "retention_days", self.retention_days)
+        kv.put(connection, schema.settings, "request_log", checked_request_log(self.request_log))
         _replace_backends(connection, {name: backend.public() for name, backend in self.backends.items()})
         definitions = defaults.agents() if self.agents is None else self.agents
         connection.execute(schema.agents.delete())
@@ -568,6 +575,39 @@ class Settings:
         self.changed("retention")
         return value
 
+    def set_request_log(self, changes: Any) -> dict[str, Any]:
+        """Change the request log's settings (any of enabled, days, payloads, payload_days); returns all of them."""
+        if not isinstance(changes, dict):
+            raise ValueError("request_log is an object: enabled, days, payloads, payload_days")
+        value = checked_request_log({**self.request_log, **changes})
+        with self.open_database().write() as connection:
+            kv.put(connection, schema.settings, "request_log", value)
+        self.request_log = value
+        self.changed("request_log")
+        return value
+
+
+def checked_request_log(data: Any) -> dict[str, Any]:
+    """The request log's settings with the shipped defaults filled in, or ValueError."""
+    if not isinstance(data, dict):
+        raise ValueError("request_log is an object: enabled, days, payloads, payload_days")
+    unknown = sorted(set(data) - set(defaults.REQUEST_LOG))
+    if unknown:
+        raise ValueError(f"request_log has no {', '.join(unknown)} (it has enabled, days, payloads, payload_days)")
+    value = {**defaults.REQUEST_LOG, **data}
+    for key in ("enabled", "payloads"):
+        if not isinstance(value[key], bool):
+            raise ValueError(f"request_log.{key} is true or false")
+    for key, most in (("days", 3650), ("payload_days", 365)):
+        try:
+            number = int(value[key])
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"request_log.{key} is a number of days") from exc
+        if isinstance(value[key], bool) or number != value[key] or not 1 <= number <= most:
+            raise ValueError(f"request_log.{key} is between 1 and {most} days")
+        value[key] = number
+    return value
+
 
 def _backend_row(backend: Backend) -> dict[str, Any]:
     return {"type": backend.type, "url": backend.url, "machine": backend.machine, "container": backend.container}
@@ -583,7 +623,7 @@ def stored_config(connection: Any) -> tuple[dict[str, Any], dict[str, Any]]:
     """The stored network settings (shaped as backends.yaml was) and model tuning."""
     document: dict[str, Any] = {
         key: kv.get(connection, schema.settings, key)
-        for key in ("proxy", "default_backend", "intercept", "retention_days")
+        for key in ("proxy", "default_backend", "intercept", "retention_days", "request_log")
     }
     rows = connection.execute(select(schema.backends).order_by(schema.backends.c.position, schema.backends.c.name)).mappings()
     document["backends"] = {
@@ -600,7 +640,7 @@ def seed(connection: Any) -> None:
     # Each setting an import didn't bring.
     for key, value in (
         ("proxy", dict(defaults.PROXY)), ("default_backend", defaults.DEFAULT_BACKEND), ("intercept", dict(defaults.INTERCEPT)),
-        ("models", defaults.models()), ("retention_days", defaults.RETENTION_DAYS),
+        ("models", defaults.models()), ("retention_days", defaults.RETENTION_DAYS), ("request_log", dict(defaults.REQUEST_LOG)),
     ):
         if kv.get(connection, schema.settings, key) is None:
             kv.put(connection, schema.settings, key, value)

@@ -19,6 +19,7 @@ import { SubscriptionsPage } from "./pages/Subscriptions";
 import { ProvidersPage } from "./pages/Providers";
 import { ServerStatsPage } from "./pages/ServerStats";
 import { AccessLogPage } from "./pages/AccessLog";
+import { ApiLogPage } from "./pages/ApiLog";
 import { AuditLogPage } from "./pages/AuditLog";
 import { SettingsPage } from "./pages/Settings";
 import { TerminalsPage } from "./pages/Terminals";
@@ -239,6 +240,7 @@ function Shell({ identity }: { identity: Identity | null }) {
           ))}
           <Route path="/server-stats" element={<ServerStatsPage />} />
           <Route path="/access-log" element={<AccessLogPage />} />
+          <Route path="/api-log" element={<ApiLogPage />} />
           <Route path="/audit" element={<AuditLogPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/organization" element={<OrganizationPage />} />

@@ -834,6 +834,8 @@ SITE_ADMIN_ONLY = [
     (re.compile(r"GET"), re.compile(r"/api/server/stats")),
     # Every request the server received, anyone's: addresses, users, what was refused.
     (re.compile(r"GET"), re.compile(r"/api/server/access-log(/.*)?")),
+    # Every request saved, and in debug mode their payloads.
+    (re.compile(r"GET"), re.compile(r"/api/server/request-log(/.*)?")),
     (re.compile(r"POST"), re.compile(r"/api/orgs")),
     (re.compile(r"DELETE"), re.compile(r"/api/orgs/[^/]+")),
     # Signing the audit log's chains now.

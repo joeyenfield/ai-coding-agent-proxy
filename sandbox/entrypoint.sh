@@ -39,7 +39,11 @@ server=${server%/}
 workspace=${AGENT_WORKSPACE:-/workspace}
 config=${XDG_CONFIG_HOME:-$HOME/.config}
 
-# sign_in signs one component in, unless its credentials already name this server.
+# sign_in signs one component in, unless its credentials already name this server. A login that
+# fails (a code nobody approved, a used-up setup code, the sign-in service refusing) is tried again
+# after a wait that doubles up to 15 minutes. Exiting instead would have the container's restart
+# policy start it again at once, and every start asks the sign-in service for a new code: a
+# container left like that sent the server thousands of requests an hour.
 sign_in() {
     program=$1
     credentials=$2
@@ -47,7 +51,13 @@ sign_in() {
         echo "$program: already signed in to $server"
         return 0
     fi
-    "$program" login "$server" </dev/null
+    wait=30
+    until "$program" login "$server" </dev/null; do
+        echo "agent-sandbox: $program couldn't sign in to $server. Trying again in ${wait}s: approve its code when it shows one, or start the container with a setup code (AI_PROXY_MACHINE_SETUP_CODE)." >&2
+        sleep "$wait"
+        wait=$((wait * 2))
+        if [ "$wait" -gt 900 ]; then wait=900; fi
+    done
 }
 
 # Wait for the server: in compose it may still be starting.

@@ -1389,8 +1389,20 @@ code { background: var(--ground); border: 1px solid var(--line); padding: 0 5px;
 .access-facts > div { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 12px; }
 .access-facts dt { font-size: 12px; color: var(--steel); }
 .access-facts dd { margin: 0; font-size: 13px; }
+/* API log: a request's saved headers and bodies, side by side where there's room. */
+.api-log-payloads { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-top: 12px; }
+.api-log-payloads > div { min-width: 0; }
+.api-log-payloads h3 { margin: 0 0 6px; font-size: 14px; }
+.api-log-headers { display: grid; gap: 4px; margin: 6px 0; }
+.api-log-headers > div { display: grid; grid-template-columns: minmax(120px, 30%) minmax(0, 1fr); gap: 8px; font-size: 12px; }
+.api-log-headers dd { margin: 0; }
+.api-log-body { max-height: 420px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+/* Start an agent: starting it on a machine comes before the commands. */
+.machine-launch { display: flex; flex-direction: column; gap: 10px; margin-bottom: 8px; }
+.machine-launch h3 { margin: 0; }
 /* On a phone the address and duration are in the opened row. */
 @media (max-width: 600px) {
+  .api-log-headers > div { grid-template-columns: 1fr; gap: 0; }
   .access-facts > div { grid-template-columns: 1fr; gap: 2px; }
   .access-log th:nth-child(n+4), .access-log tr:not(.access-detail) td:nth-child(n+4) { display: none; }
   .access-log td.mono { overflow-wrap: anywhere; }

@@ -1,6 +1,6 @@
 import type { ActiveRequest, RequestRecord, Session, Status } from "../api";
 import { formatNumber } from "../format";
-import { PARTS } from "../navigation";
+import { partsById } from "../navigation";
 import { DIRECT_BACKEND, providerLabel, routeOf, type RouteKind } from "../routes";
 
 interface Lane {
@@ -49,7 +49,7 @@ export function RoutingMap({ status, sessions }: { status: Status; sessions: Ses
   const hubY = CAPTION + (height - CAPTION) / 2;
   const hubX = (WIDTH - HUB_W) / 2;
   const laneY = (index: number, count: number) => hubY + (index - (count - 1) / 2) * ROW;
-  const [agentsPart, serverPart, machinesPart] = PARTS;
+  const [agentsPart, serverPart, machinesPart] = partsById("agents", "server", "machines");
 
   return (
     <figure className="routing-map">

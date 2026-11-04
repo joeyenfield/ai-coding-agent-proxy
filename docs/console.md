@@ -6,13 +6,13 @@ The screenshots come from the demo (`python scripts/screenshots/demo.py`), which
 
 ## Layout
 
-The rail on the left has three parts, in the order a request flows:
+The rail on the left has three parts: the agents, the machines they and their model servers run on, and the server every request passes through.
 
 | Part | Pages | What it's for |
 | --- | --- | --- |
 | **1 Agents** | Start an agent, Running agents, Ask a model, Providers, Subscriptions | Start a coding agent through the server, then watch it and type into it from any device, or ask a model a question yourself. |
-| **2 Server** | Live, Traffic, Requests, Sessions, Server stats, Access log, Audit log, Server settings, Organizations, Downloads | The hub: allowed agent requests pass through it and are recorded. |
-| **3 Machines** | All machines, Approve a device, Add a machine | Open **All machines** to search and select a computer. Individual machines aren't listed in the rail. |
+| **2 Machines** | All machines, Approve a device, Add a machine | Open **All machines** to search and select a computer. Individual machines aren't listed in the rail. |
+| **3 Server** | Live, Traffic, Requests, Sessions, Server stats, Access log, API log, Audit log, Server settings, Organizations, Downloads | The hub: allowed agent requests pass through it and are recorded. |
 
 - The small label above each page's title is its breadcrumb ("Machines › build-box").
 - The footer of the rail links to **Downloads** and **Documentation**, and shows how many sessions are open, the server's address and its version.
@@ -61,18 +61,22 @@ In the Android app, a server that can't be reached, or that answers with a serve
 
 `/agents` lists every agent the server knows (its stored agent definitions, which site admins change on [Server settings](#server-settings)), grouped by route: **Your accounts**, **Local models** and **Hosted API**. Each shows whether it's installed on the server's computer and which API it speaks. Pick one to see its launch panel:
 
+- **Run it on a machine**: pick one of the machines you may start agents on. Its launch form opens with the agent already chosen: provider, folder, model, MCP servers, sharing and payload capture, then **Start on** the machine. The agent runs there in a shared terminal, which you're taken to. Machines that can't start it now are listed but greyed out, with why: offline, launches off, no launch folders, or the agent isn't installed there.
+
+**Or run it yourself** has the rest, for starting it from a terminal:
+
 - **Install**: the install command for Linux, macOS, Windows or WSL. The console remembers your choice.
 - **Provider and model** (local and hosted agents): the backends this agent can use, with the one the server picks by default, and the models on that backend (aliases from the Ollama model tuning included). An offline backend says why.
 - **Capture full request and response payloads**: saves every request and reply in full (`--trace`). Account agents redact credentials.
 - **Watch and type into it from Running agents** (`--control`): shares the agent's terminal with the server.
 - **MCP servers**: the MCP servers your machines share that you may use. Ticking one adds `--mcp` to the command. Agents that can't take MCP servers (Aider) say so. See [MCP servers](mcp.md).
 - **Sharing** (with accounts): **Only me**, one of your teams or everyone in your organization, and whether they may type into it.
-- **Run it from your project folder**: the full `agent` command, ready to copy.
+- **From your project folder**: the full `agent` command, ready to copy.
 - **Set it up by hand instead**: opens a session now and prints the environment for the agent in PowerShell or bash, for when you can't use the launcher. Started this way, its terminal isn't shared. For MCP servers it lists the URLs to add to the agent's own settings.
 
 ![Start an agent, for a local-model agent with an MCP server chosen](screenshots/agents-ollama.png)
 
-To start an agent on one of your machines from the console instead, use **Start an agent** on that machine's page (see [its Agents tab](#summary-agents-and-terminal)).
+A machine's own page has the same launch form (see [its Agents tab](#summary-agents-and-terminal)).
 
 ### Running agents
 
@@ -237,6 +241,18 @@ In both lists, **Answer** is the HTTP status, or for a WebSocket **Open**, its c
 
 Saved entries are deleted after the days set under **Storage** on [Server settings](#server-settings), or after 30 days when recordings are kept forever. Query strings show their parameter names only, never their values. The log's own requests aren't listed, nor the console's `/assets/`.
 
+### API log
+
+`/api-log` (site admins only) lists every request the server saved, successful ones included: the console's calls, agents' model calls, machines' fleet connections and tunnels, sign-ins and refusals. The Access log keeps everything only since the server started, and saves only failures; the API log keeps everything, across restarts, for as many days as you choose.
+
+- **What's saved**: whether every request is being saved and for how many days, how many are saved and since when, and whether debug mode is on. Saving is off until you turn it on: **Start saving requests** (or **Storage** on Server settings, or `request_log` in `config import`). **Turn debug mode on** starts saving payloads too; **Change how long they're kept** opens **Storage** on [Server settings](#server-settings).
+- **Requests**: newest first. Search words in the path, address, user, machine, user agent, status and reason, or pick a method, an answer (2xx, 3xx, 4xx, 5xx, failed or dropped, WebSockets) and a user. **Follow** refreshes it every 5 seconds; **Load older** pages back. Requests with a saved payload are marked **payload**.
+- Select a row for when it came, its address, user, program and duration, and in debug mode its payload: the request's query, headers and body, and the response's headers and body. JSON is shown laid out.
+
+**Debug mode** saves up to 64 KB of each request's and response's body, for fewer days than the requests themselves. Sign-in (`/api/auth/`) is never saved, credential headers (`Authorization`, cookies, API keys) are replaced, and fields named like secrets (passwords, tokens, keys) are replaced in JSON and form bodies. Anything else in a body (prompts, code, settings) is saved as it is, so turn it on while you look into a problem and off again after.
+
+The log's own requests aren't listed, nor the console's `/assets/`. Requests that never reach the server aren't in it: the sign-in service (`agent-auth`) is a separate program, and a reverse proxy in front keeps its own log.
+
 ### Audit log
 
 `/audit` (admins: their organization's events; site admins: everyone's) is the [audit log](audit.md): who did what, to what, and whether it worked, newest first. Filter by type (a category like `machines` or `machines.launch`), person, outcome, organization (site admins) and a day to start from; **Load 100 older** pages back. Open an event for its reason, the fields it changed, its place in its organization's chain and its whole record as JSON. **Download CSV** and **Download NDJSON** save the events shown by the filters (up to 5000). **Verify chain** checks every chain against the signed checkpoints and lists any problem; site admins can **Sign checkpoint now**. On a phone the person is shown with each event. Members don't see the page.
@@ -251,7 +267,7 @@ Saved entries are deleted after the days set under **Storage** on [Server settin
 - **Providers**: every backend, with its type, address and machine. Choose the **Default**, or remove one. **Add hosted API** adds an Anthropic API backend (name, type, URL). Local providers can't be added here: they come from machines (see [Providers](providers.md)). **Save changes** saves this section and the one above.
 - **Agents**: every agent launchers can start, each marked **Shipped**, **Shipped, changed** or **Added here**. **Edit** opens its definition as YAML; **Add an agent** takes an id and a definition; **Remove** stops launchers offering it. **Reset to the shipped one** undoes changes to an agent that ships with the server. Shipped agents follow the server's upgrades until you change them. See [Adding a new agent](agents.md#adding-a-new-agent).
 - **Ollama model tuning**: the `defaults`, `profiles` and `aliases` the server applies to requests it sends to Ollama, as one YAML document. **Save tuning** applies it to new requests. See [Model tuning](providers.md#model-tuning).
-- **Storage**: which database the server uses (SQLite or PostgreSQL, its address without the password, and its size), and the server's [retention policy](retention.md): which trace modes organizations may choose and the default one, whether account agents' traffic and terminal output are recorded, and for each kind (traces, terminal output, request records, sessions, the audit log) how long it's kept and the least and most organizations may set. Empty means forever, or no bound. On a phone each kind is a block of its own.
+- **Storage**: which database the server uses (SQLite or PostgreSQL, its address without the password, and its size), and the server's [retention policy](retention.md): which trace modes organizations may choose and the default one, whether account agents' traffic and terminal output are recorded, and for each kind (traces, terminal output, request records, sessions, the audit log) how long it's kept and the least and most organizations may set. Empty means forever, or no bound. On a phone each kind is a block of its own. **API log** turns on saving every request for the [API log](#api-log) (off by default) and says for how many days (7 by default), and whether debug mode saves headers and bodies too, and for how many days (1).
 - **Audit**: the key checkpoints are signed with (its id, and the public key to copy), how many events exports haven't sent yet, the checkpoint interval, and the [exports](audit.md#exports): add, edit or remove one (name, kind, URL or blob folder, the environment variable holding its secret, which organizations, on or off).
 - **Restart the server** (shown when the server can restart itself, which it can't when started with `--reload`): restarts it once requests in flight finish, and says where it comes back. It picks up a new listen address, and settings changed from the command line (`agent-server config import`).
 

@@ -186,7 +186,7 @@ function AdoptButton({ machine, provider }: { machine: FleetMachine; provider: M
 }
 
 /** Whether you can start an agent on the machine now: connected, launches on there, a folder, an agent, and you're let in. */
-function launchReady(machine: FleetMachine, installed: Agent[]): boolean {
+export function launchReady(machine: FleetMachine, installed: Agent[]): boolean {
   return machine.connected && machine.launches && Boolean(machine.you.launch) && machine.roots.length > 0 && installed.length > 0 && machine.launcher !== false;
 }
 
@@ -1226,11 +1226,12 @@ function ShellForm({ machine, onDone }: { machine: FleetMachine; onDone?: () => 
   );
 }
 
-function LaunchForm({ machine, agents, onDone }: { machine: FleetMachine; agents: Agent[]; onDone?: () => void }) {
+/** Start an agent on a machine (its page, and Start an agent); initialAgent is the one chosen first. */
+export function LaunchForm({ machine, agents, onDone, initialAgent }: { machine: FleetMachine; agents: Agent[]; onDone?: () => void; initialAgent?: string }) {
   const navigate = useNavigate();
   const notify = useToast();
   const client = useQueryClient();
-  const [agentId, setAgentId] = useState(agents[0]?.id ?? "");
+  const [agentId, setAgentId] = useState(agents.some((item) => item.id === initialAgent) ? initialAgent! : agents[0]?.id ?? "");
   const [project, setProject] = useState(machine.roots[0] ?? "");
   const [model, setModel] = useState("");
   const [backend, setBackend] = useState("");

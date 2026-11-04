@@ -9,6 +9,7 @@ import {
   type AuditExport,
   type AuditExportKind,
   type CapturePolicy,
+  type RequestLogSettings,
   type RetentionDays,
   type RetentionKind,
   type ServerRetention,
@@ -204,7 +205,85 @@ export function StorageSettings() {
           </div>
         </form>
       )}
+      {storage.data && <RequestLogForm settings={storage.data.request_log} />}
     </section>
+  );
+}
+
+/** The request log (Server › API log): whether every request is saved, for how long, and debug mode's payloads. */
+function RequestLogForm({ settings }: { settings: RequestLogSettings }) {
+  const client = useQueryClient();
+  const [enabled, setEnabled] = useState(settings.enabled);
+  const [days, setDays] = useState(String(settings.days));
+  const [payloads, setPayloads] = useState(settings.payloads);
+  const [payloadDays, setPayloadDays] = useState(String(settings.payload_days));
+  const [message, setMessage] = useState<{ text: string; tone: "good" | "bad" } | null>(null);
+  useEffect(() => {
+    setEnabled(settings.enabled);
+    setDays(String(settings.days));
+    setPayloads(settings.payloads);
+    setPayloadDays(String(settings.payload_days));
+  }, [settings]);
+  const save = useMutation({
+    mutationFn: () => api.saveRequestLog({ enabled, days: Number(days), payloads, payload_days: Number(payloadDays) }),
+    onSuccess: (result) => {
+      client.setQueryData(["storage"], result);
+      void client.invalidateQueries({ queryKey: ["request-log-summary"] });
+      setMessage({ text: "Saved.", tone: "good" });
+    },
+    onError: (error) => setMessage({ text: error.message, tone: "bad" }),
+  });
+  return (
+    <form
+      className="panel"
+      onSubmit={(event) => {
+        event.preventDefault();
+        setMessage(null);
+        save.mutate();
+      }}
+    >
+      <div className="panel-head">
+        <h3>API log</h3>
+        <p className="subtle">
+          Every request the server receives, from anyone, for site admins on <Link to="/api-log">API log</Link>. Deleting runs every hour.
+        </p>
+      </div>
+      <div className="form-grid">
+        <label className="check span-2">
+          <input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} />
+          Save every request
+        </label>
+        <label className="field">
+          Keep requests for
+          <input type="number" min={1} max={3650} value={days} onChange={(event) => setDays(event.target.value)} required disabled={!enabled} />
+          <small>Days, from 1 to 3650. A busy server saves many thousands a day.</small>
+        </label>
+        <span />
+        <label className="check span-2">
+          <input type="checkbox" checked={payloads} onChange={(event) => setPayloads(event.target.checked)} disabled={!enabled} />
+          Debug mode: save headers and bodies too
+        </label>
+        <label className="field">
+          Keep payloads for
+          <input type="number" min={1} max={365} value={payloadDays} onChange={(event) => setPayloadDays(event.target.value)} required disabled={!enabled} />
+          <small>Days, from 1 to 365, and never longer than the requests. Up to 64 KB of each body.</small>
+        </label>
+      </div>
+      <p className="subtle">
+        Payloads are never saved for sign-in, credential headers are left out, and fields named like secrets (passwords, tokens, keys) are
+        replaced. Anything else in a body (prompts, code, settings) is saved as it is, so use debug mode only while you need it.
+      </p>
+      <div className="row wrap">
+        <button className="primary" type="submit" disabled={save.isPending}>
+          {save.isPending ? "Saving…" : "Save API log settings"}
+        </button>
+        {message && (
+          <span className={message.tone} role="status">
+            {message.text}
+          </span>
+        )}
+      </div>
+    </form>
   );
 }
 

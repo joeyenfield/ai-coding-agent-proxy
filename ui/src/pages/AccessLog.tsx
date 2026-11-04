@@ -14,7 +14,7 @@ const FLEET_PATH = "/api/machines/connect";
 const forbiddenError = (error: unknown) => error instanceof ApiError && error.status === 403;
 
 /** What a request got back: its status, and for a WebSocket how it was closed and by whom. */
-function answer(entry: AccessEntry): string {
+export function answer(entry: Omit<AccessEntry, "id" | "saved">): string {
   if (entry.kind === "http") return entry.status === null ? "" : String(entry.status);
   if (entry.outcome === "open") return entry.status === 101 ? "Open" : "Connecting";
   if (entry.status !== null && entry.status !== 101) return `Refused (${entry.status}${entry.close_code !== null ? `, ${entry.close_code}` : ""})`;
@@ -22,18 +22,18 @@ function answer(entry: AccessEntry): string {
   return `${entry.close_code} by ${entry.closed_by ?? "?"}`;
 }
 
-const OUTCOME_CLASS: Record<AccessEntry["outcome"], string> = { ok: "pill good", failed: "pill bad", dropped: "pill live", open: "pill" };
-const OUTCOME_LABEL: Record<AccessEntry["outcome"], string> = { ok: "OK", failed: "Failed", dropped: "Dropped", open: "Open" };
+export const OUTCOME_CLASS: Record<AccessEntry["outcome"], string> = { ok: "pill good", failed: "pill bad", dropped: "pill live", open: "pill" };
+export const OUTCOME_LABEL: Record<AccessEntry["outcome"], string> = { ok: "OK", failed: "Failed", dropped: "Dropped", open: "Open" };
 
 const clock = (seconds: number) => new Date(seconds * 1000).toLocaleTimeString();
-const when = (seconds: number | null) => {
+export const when = (seconds: number | null) => {
   if (!seconds) return "–";
   const date = new Date(seconds * 1000);
   return date.toDateString() === new Date().toDateString() ? date.toLocaleTimeString() : date.toLocaleString();
 };
 
 /** Days, hours and minutes (or seconds) for a span in milliseconds. */
-function span(ms: number) {
+export function span(ms: number) {
   const minutes = Math.floor(ms / 60000);
   if (minutes < 1) return `${Math.round(ms / 1000)} s`;
   const hours = Math.floor(minutes / 60);

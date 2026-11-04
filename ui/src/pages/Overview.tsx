@@ -8,7 +8,7 @@ import { RoutingMap } from "../components/RoutingMap";
 import { ThroughputChart } from "../components/ThroughputChart";
 import { formatBytes, formatCompact, formatDuration, formatNumber, formatRelative } from "../format";
 import { useAgents, useAuth, useMachines, useModels, useRequests, useSessions, useStatus } from "../hooks";
-import { isGroup, PARTS, type NavLinkItem, type Part } from "../navigation";
+import { isGroup, partsById, type NavLinkItem, type Part } from "../navigation";
 import { providerLabel, ROUTE_ORDER, ROUTES, routeOf, type RouteKind } from "../routes";
 
 export function OverviewPage() {
@@ -122,13 +122,13 @@ export function OverviewPage() {
   );
 }
 
-/** The parts in the order a request flows (agent, server, machine), each with its key numbers and pages. */
+/** The parts in the rail's order (agents, machines, server), each with its key numbers and pages. */
 function PartCards({ status }: { status: Status }) {
   const agents = useAgents();
   const models = useModels();
   const machines = useMachines();
   const siteAdmin = Boolean(useAuth().data?.identity?.site_admin);
-  const [agentsPart, serverPart, machinesPart] = PARTS;
+  const [agentsPart, serverPart, machinesPart] = partsById("agents", "server", "machines");
   const fleet = machines.data?.machines ?? [];
   const installed = (agents.data ?? []).filter((agent) => agent.installed).length;
   const live = status.current_requests.length;
@@ -158,31 +158,6 @@ function PartCards({ status }: { status: Status }) {
             <dd>
               {agents.data ? formatNumber(installed) : "–"}
               <small>of {agents.data ? formatNumber(agents.data.length) : "–"} agents set up</small>
-            </dd>
-          </div>
-        </dl>
-      </PartCard>
-      <PartCard
-        part={serverPart}
-        links={[
-          { to: "/live", label: "Live" },
-          { to: "/traffic", label: "Traffic" },
-          siteAdmin ? { to: "/settings", label: "Server settings" } : { to: "/sessions", label: "Sessions" },
-        ]}
-      >
-        <dl>
-          <div>
-            <dt>Requests</dt>
-            <dd>
-              {formatNumber(status.total_requests)}
-              <small className={live ? "warn" : undefined}>{live ? `${live} streaming now` : "none in flight"}</small>
-            </dd>
-          </div>
-          <div>
-            <dt>Tokens</dt>
-            <dd>
-              {formatCompact(status.total_input_tokens)}
-              <small>read, {formatCompact(status.total_output_tokens)} written</small>
             </dd>
           </div>
         </dl>
@@ -219,6 +194,31 @@ function PartCards({ status }: { status: Status }) {
             );
           })}
         </ul>
+      </PartCard>
+      <PartCard
+        part={serverPart}
+        links={[
+          { to: "/live", label: "Live" },
+          { to: "/traffic", label: "Traffic" },
+          siteAdmin ? { to: "/settings", label: "Server settings" } : { to: "/sessions", label: "Sessions" },
+        ]}
+      >
+        <dl>
+          <div>
+            <dt>Requests</dt>
+            <dd>
+              {formatNumber(status.total_requests)}
+              <small className={live ? "warn" : undefined}>{live ? `${live} streaming now` : "none in flight"}</small>
+            </dd>
+          </div>
+          <div>
+            <dt>Tokens</dt>
+            <dd>
+              {formatCompact(status.total_input_tokens)}
+              <small>read, {formatCompact(status.total_output_tokens)} written</small>
+            </dd>
+          </div>
+        </dl>
       </PartCard>
     </section>
   );

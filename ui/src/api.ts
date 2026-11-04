@@ -1059,6 +1059,15 @@ export interface ModelTuning {
 export interface StorageInfo {
   database: { kind: "sqlite" | "postgresql"; url: string; size: number | null };
   retention_days: number | null;
+  request_log: RequestLogSettings;
+}
+
+/** The request log (console: API log): every request saved for days; payloads (debug mode) for payload_days. */
+export interface RequestLogSettings {
+  enabled: boolean;
+  days: number;
+  payloads: boolean;
+  payload_days: number;
 }
 
 /** What a retention policy keeps, each for its own number of days. */
@@ -2092,6 +2101,20 @@ export const api = {
     if (options.before) params.set("before", String(options.before));
     return request<{ entries: AccessEntry[]; kept_days: number }>(`/api/server/access-log/history?${params}`);
   },
+  /** Every request saved in the request log, newest first (site admins only); before is a time. */
+  requestLog: (options: RequestLogFilters & { limit?: number; before?: number } = {}) => {
+    const params = new URLSearchParams();
+    for (const key of ["q", "method", "status", "user"] as const) if (options[key]) params.set(key, options[key] ?? "");
+    if (options.limit) params.set("limit", String(options.limit));
+    if (options.before) params.set("before", String(options.before));
+    return request<{ entries: RequestLogEntry[]; settings: RequestLogSettings }>(`/api/server/request-log?${params}`);
+  },
+  /** One saved request, with its payloads when debug mode kept them. */
+  requestLogEntry: (id: string) => request<RequestLogEntry & { payloads: RequestLogPayloads | null }>(`/api/server/request-log/${encodeURIComponent(id)}`),
+  requestLogSummary: () => request<RequestLogSummary>("/api/server/request-log/summary"),
+  /** Change any of the request log's settings; the answer has them all. */
+  saveRequestLog: (changes: Partial<RequestLogSettings>) =>
+    request<StorageInfo>("/api/config/storage", { method: "PUT", body: JSON.stringify({ request_log: changes }) }),
   health: () => request<Health>("/health", { cache: "no-store" }),
   helpPage,
   // Served outside /api (public, for machines that aren't signed in yet); the console's page is /get.
@@ -2561,6 +2584,44 @@ export interface AccessEntry {
   duration_ms: number | null;
   /** dropped: a WebSocket whose connection was lost without a close (a phone asleep or changing network). */
   outcome: "ok" | "failed" | "dropped" | "open";
+}
+
+/** A request in the request log: an access log entry, saved, with its own id. */
+export type RequestLogEntry = Omit<AccessEntry, "id" | "saved"> & {
+  id: string;
+  /** Debug mode saved its headers and bodies (they may since have expired). */
+  payload: boolean;
+};
+
+export interface RequestLogFilters {
+  q?: string;
+  method?: string;
+  /** 2xx, 3xx, 4xx, 5xx, failed or websocket. */
+  status?: string;
+  user?: string;
+}
+
+/** A saved body: JSON or text with secrets redacted, or what it was when it isn't text. */
+export interface LoggedBody {
+  bytes: number;
+  truncated: boolean;
+  omitted?: string;
+  json?: unknown;
+  text?: string;
+}
+
+export interface RequestLogPayloads {
+  request: { query: string; headers: Record<string, string>; body: LoggedBody };
+  response: { headers: Record<string, string>; body: LoggedBody };
+}
+
+/** GET /api/server/request-log/summary. */
+export interface RequestLogSummary {
+  count: number;
+  oldest: number | null;
+  payloads: number;
+  oldest_payload: number | null;
+  settings: RequestLogSettings;
 }
 
 /** GET /api/server/access-log. */

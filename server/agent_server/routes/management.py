@@ -114,6 +114,29 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         entries = await asyncio.to_thread(runtime.access_log.history, q, failed, fleet, max(1, min(limit, 1000)), before)
         return {"entries": entries, "kept_days": runtime.access_log.kept_days()}
 
+    @app.get("/api/server/request-log")
+    async def request_log(
+        q: str = "", method: str = "", status: str = "", user: str = "", limit: int = 100,
+        before: float | None = None, since: float | None = None,
+    ) -> dict[str, Any]:
+        """Every saved request, newest first (site admins): filter by words, method, status class and user."""
+        try:
+            entries = await asyncio.to_thread(runtime.request_log.query, q, method, status, user, limit, before, since)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"entries": entries, "settings": dict(settings.request_log)}
+
+    @app.get("/api/server/request-log/summary")
+    async def request_log_summary() -> dict[str, Any]:
+        return await asyncio.to_thread(runtime.request_log.summary)
+
+    @app.get("/api/server/request-log/{entry_id}")
+    async def request_log_entry(entry_id: str) -> dict[str, Any]:
+        entry = await asyncio.to_thread(runtime.request_log.get, entry_id[:32])
+        if entry is None:
+            raise HTTPException(status_code=404, detail="No such request in the log: it may have been deleted after the log's days")
+        return entry
+
     @app.post("/api/server/restart", status_code=202)
     async def restart(request: Request) -> dict[str, Any]:
         """Restart with the stored settings, after in-flight requests finish (up to 30 s)."""
@@ -221,13 +244,17 @@ def register(app: FastAPI, runtime: Runtime) -> None:
 
     @app.put("/api/config/storage")
     async def put_config_storage(request: Request) -> dict[str, Any]:
-        """Set retention_days: how long traces and terminal recordings are kept (null: forever)."""
+        """Set retention_days (how long traces and terminal recordings are kept, null: forever) and/or
+        request_log (any of enabled, days, payloads, payload_days)."""
         try:
             data = await request.json()
-            if not isinstance(data, dict):
-                raise ValueError("Send an object with retention_days: a number of days, or null")
+            if not isinstance(data, dict) or not ({"retention_days", "request_log"} & set(data)):
+                raise ValueError("Send an object with retention_days (a number of days, or null) and/or request_log")
             async with runtime.config_lock:
-                await asyncio.to_thread(settings.set_retention, data.get("retention_days"))
+                if "request_log" in data:
+                    await asyncio.to_thread(settings.set_request_log, data["request_log"])
+                if "retention_days" in data:
+                    await asyncio.to_thread(settings.set_retention, data.get("retention_days"))
         except (ValueError, TypeError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         await asyncio.to_thread(runtime.prune)
@@ -237,6 +264,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         return {
             "database": {"kind": "sqlite" if runtime.db.sqlite else "postgresql", "url": redacted(runtime.db.url), "size": runtime.db.size()},
             "retention_days": settings.retention_days,
+            "request_log": dict(settings.request_log),
         }
 
     @app.post("/api/sessions", status_code=201)

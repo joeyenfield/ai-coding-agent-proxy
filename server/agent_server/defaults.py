@@ -19,6 +19,11 @@ BACKENDS: dict[str, dict[str, Any]] = {"anthropic": {"type": "anthropic", "url":
 DEFAULT_BACKEND = "anthropic"
 # Traces and terminal recordings of sessions older than this are deleted (None keeps them).
 RETENTION_DAYS: int | None = None
+# The request log (request_log.py, console: API log): off until a site admin turns it on (`enabled`),
+# then every request the server receives is saved for `days`. `payloads` is its debug mode: request
+# and response bodies too, kept only `payload_days`. Server settings -> Storage, the API log page, or
+# PUT /api/config/storage change it; `config export|import` carry it.
+REQUEST_LOG: dict[str, Any] = {"enabled": False, "days": 7, "payloads": False, "payload_days": 1}
 
 MODELS_YAML = r"""
 # The Ollama model tuning a new server starts with: settings the proxy applies

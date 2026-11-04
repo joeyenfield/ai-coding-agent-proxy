@@ -1,9 +1,9 @@
 /**
- * The console's three parts, in the order a request flows: an agent is started (1), its
- * traffic passes through the server, the hub that records it (2), and a machine's LLM
- * provider answers it (3). Machines sign in to the server and supply every local model
- * server; only hosted APIs and agents' own accounts aren't on a machine. The rail, the
- * breadcrumb above each page's title and the Overview all come from this list.
+ * The console's three parts: agents (1), the machines they and their model servers run on (2),
+ * and the server, the hub every request passes through and is recorded by (3). Machines come
+ * before the server because they're where the work happens: they sign in to the server and
+ * supply every local model server; only hosted APIs and agents' own accounts aren't on a
+ * machine. The rail, the breadcrumb above each page's title and the Overview all come from this list.
  *
  * Everything about a model server (its models, settings, logs, the containers that run it,
  * the machine's load) is on its machine's page (/machines/<id>), because the machine does
@@ -62,8 +62,20 @@ export const PARTS: Part[] = [
     ],
   },
   {
-    id: "server",
+    id: "machines",
     number: 2,
+    label: "Machines",
+    summary: "Computers signed in to the server. Each runs model servers agents use (Ollama, Strata, Docker, containers), managed on its page.",
+    home: "/machines",
+    items: [
+      { to: "/machines", label: "All machines", icon: "monitor" },
+      // Signing in agent login or agent-machine login elsewhere, from here.
+      { to: "/approve-device", label: "Approve a device", icon: "key" },
+    ],
+  },
+  {
+    id: "server",
+    number: 3,
     label: "Server",
     summary: "The hub: every request agents make passes through it and is recorded, on its way to a machine.",
     items: [
@@ -74,6 +86,8 @@ export const PARTS: Part[] = [
       { to: "/server-stats", label: "Server stats", icon: "cpu", siteAdmin: true },
       // Every HTTP request and WebSocket, the refused ones too: why a machine shows offline.
       { to: "/access-log", label: "Access log", icon: "list", siteAdmin: true },
+      // Every request saved for the request log's days, with payloads in debug mode.
+      { to: "/api-log", label: "API log", icon: "book", siteAdmin: true },
       // Who changed what, chained by hash: admins read their organization's, site admins everyone's.
       { to: "/audit", label: "Audit log", icon: "shield", admin: true },
       { to: "/settings", label: "Server settings", icon: "settings", siteAdmin: true },
@@ -82,21 +96,14 @@ export const PARTS: Part[] = [
       { to: "/get", label: "Downloads", icon: "download" },
     ],
   },
-  {
-    id: "machines",
-    number: 3,
-    label: "Machines",
-    summary: "Computers signed in to the server. Each runs model servers agents use (Ollama, Strata, Docker, containers), managed on its page.",
-    home: "/machines",
-    items: [
-      { to: "/machines", label: "All machines", icon: "monitor" },
-      // Signing in agent login or agent-machine login elsewhere, from here.
-      { to: "/approve-device", label: "Approve a device", icon: "key" },
-    ],
-  },
 ];
 
 export const isGroup = (item: NavItem): item is NavGroupItem => "items" in item;
+
+/** Parts by id, whatever their order in the rail (the routing map draws them in the order a request flows). */
+export function partsById(...ids: PartId[]): Part[] {
+  return ids.map((id) => PARTS.find((part) => part.id === id) as Part);
+}
 
 /** The parts with only the pages this person can use: the server's own pages are for site admins, some for admins. */
 export function visibleParts(siteAdmin: boolean, admin = siteAdmin): Part[] {

@@ -19,6 +19,7 @@ from . import blobs as blob_store
 from . import cluster as cluster_module
 from . import roles as roles_module
 from .access_log import AccessLog
+from .request_log import RequestLog
 from .agents import AgentDefinition, load_agents
 from .auth import Auth, Revocations, UserStore
 from .certs import CertificateAuthority
@@ -97,6 +98,9 @@ class Runtime:
         self.intercept_client: httpx.AsyncClient | None = None
         # Every HTTP request and WebSocket received, and how it ended (memory only, site admins).
         self.access_log = AccessLog(self.db, lambda: self.settings.retention_days)
+        # Every request saved for the request_log setting's days, with payloads in its debug mode (site admins).
+        self.request_log = RequestLog(self.db, lambda: self.settings.request_log)
+        self.access_log.request_log = self.request_log
         self.recent: deque[dict[str, Any]] = deque(maxlen=100)
         self.active: dict[str, dict[str, Any]] = {}
         self.config_lock = asyncio.Lock()
@@ -179,6 +183,7 @@ class Runtime:
         self.usage.prune()
         # Saved access log entries go even when recordings are kept forever (after access_log.SAVED_DAYS).
         self.access_log.prune()
+        self.request_log.prune()
         # Each session by its organization's policy (retention.py): traces, terminal output, records, the session itself.
         done = self.retention.run()
         pruned = done["traces"]

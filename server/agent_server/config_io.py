@@ -1,7 +1,8 @@
 """The server's settings as one document: for export, import, backups and editing by hand.
 
 The document holds what the old YAML files did (backends.yaml, models.yaml, agents.yaml):
-proxy, default_backend, intercept, retention_days, backends, models and agents. The server
+proxy, default_backend, intercept, retention_days, backends, models and agents, and since then
+request_log. The server
 never reads it from a file by itself; `agent-server config import` or POST /api/config/import
 stores it, and `agent-server config export` or GET /api/config/export writes it out.
 """
@@ -16,10 +17,10 @@ from sqlalchemy import select
 
 from . import defaults
 from .agents import parse_agents
-from .config import BACKEND_TYPES, Settings, _replace_backends, _validate_http_url, stored_config, validate_models
+from .config import BACKEND_TYPES, Settings, _replace_backends, _validate_http_url, checked_request_log, stored_config, validate_models
 from .db import kv, schema
 
-KEYS = ("proxy", "default_backend", "intercept", "retention_days", "backends", "models", "agents")
+KEYS = ("proxy", "default_backend", "intercept", "retention_days", "request_log", "backends", "models", "agents")
 
 
 def export(settings: Settings) -> dict[str, Any]:
@@ -31,6 +32,7 @@ def export(settings: Settings) -> dict[str, Any]:
     return {
         "proxy": document.get("proxy") or {}, "default_backend": document.get("default_backend"),
         "intercept": document.get("intercept") or {}, "retention_days": document.get("retention_days"),
+        "request_log": checked_request_log(document.get("request_log") or {}),
         "backends": document.get("backends") or {}, "models": models or {}, "agents": agents,
     }
 
@@ -92,6 +94,8 @@ def apply(settings: Settings, document: dict[str, Any], *, replace: bool = False
         if days not in (None, 0) and not 1 <= int(days) <= 36500:
             raise ValueError("retention_days is between 1 and 36500, or empty to keep everything")
         checked["retention_days"] = int(days) if days else None
+    if "request_log" in parts:
+        checked["request_log"] = checked_request_log(parts["request_log"] or {})
     if "models" in parts:
         checked["models"] = validate_models(parts["models"] or {})
     if "agents" in parts:
@@ -101,7 +105,7 @@ def apply(settings: Settings, document: dict[str, Any], *, replace: bool = False
         parse_agents(agents)
         checked["agents"] = agents
     with settings.open_database().write() as connection:
-        for key in ("proxy", "default_backend", "intercept", "retention_days", "models"):
+        for key in ("proxy", "default_backend", "intercept", "retention_days", "request_log", "models"):
             if key in checked:
                 kv.put(connection, schema.settings, key, checked[key])
         if "backends" in checked:

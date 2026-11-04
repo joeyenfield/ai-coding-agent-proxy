@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { api, preferredModel, providerModels, PROTOCOL_LABELS, type Agent, type InstallEnvironment, type PreparedSession } from "../api";
+import { api, preferredModel, providerModels, PROTOCOL_LABELS, type Agent, type FleetMachine, type InstallEnvironment, type PreparedSession } from "../api";
 import { CodeLine } from "../components/CodeLine";
 import { McpChoice, McpUrls, mcpArgs } from "../components/McpChoice";
-import { useAgents, useAuth, useClipboard, useModels, useStatus } from "../hooks";
+import { useAgents, useAuth, useClipboard, useMachines, useModels, useStatus } from "../hooks";
 import { PartTag } from "../components/PartTag";
 import { ShareChoice, shareArgs } from "../components/Sharing";
 import { providerLabel, ROUTE_ORDER, ROUTES, type RouteKind } from "../routes";
+import { LaunchForm, launchReady } from "./Machine";
 
 const ROUTE_INTROS: Record<RouteKind, string> = {
   account: "Use the agent's own sign-in and plan. Nothing is translated: the proxy records every request on its way to the vendor.",
@@ -123,6 +124,8 @@ function AccountLaunchPanel({ agent }: { agent: Agent }) {
       <p>
         <span className="route-badge route-account">{ROUTES.account.label}</span>
       </p>
+      <MachineLaunch agent={agent} />
+      <h3>Or run it yourself</h3>
       <InstallCommand agent={agent} />
       <p>
         The agent keeps its own sign-in and talks to its own service. The launcher sends all of its HTTPS to the
@@ -146,7 +149,7 @@ function AccountLaunchPanel({ agent }: { agent: Agent }) {
       <ControlCheck checked={control} onChange={setControl} />
       <McpChoice agent={agent} chosen={mcp} onChange={setMcp} />
       <ShareChoice value={share.value} control={share.control} onChange={(value, control) => setShare({ value, control })} />
-      <h3>Run it from your project folder</h3>
+      <h4>From your project folder</h4>
       <CodeLine text={launcher} onCopy={() => copy(launcher, "Command copied")} />
       <p className="subtle">Arguments after <code>--</code> go to the agent, for example <code>{launcher} -- --model sonnet</code>.</p>
       {agent.notes && <p className="subtle">{agent.notes}</p>}
@@ -241,6 +244,8 @@ function ProxyLaunchPanel({ agent }: { agent: Agent }) {
         <span className={`route-badge route-${route}`}>{ROUTES[route].label}</span>{" "}
         <span className="subtle">{ROUTES[route].description}</span>
       </p>
+      <MachineLaunch agent={agent} />
+      <h3>Or run it yourself</h3>
       <InstallCommand agent={agent} />
       {!backends.length ? (
         <p className="bad">
@@ -299,7 +304,7 @@ function ProxyLaunchPanel({ agent }: { agent: Agent }) {
       <McpChoice agent={agent} chosen={mcp} onChange={setMcp} />
       <ShareChoice value={share.value} control={share.control} onChange={(value, control) => setShare({ value, control })} />
 
-      <h3>Run it from your project folder</h3>
+      <h4>From your project folder</h4>
       <CodeLine text={launcher} onCopy={() => copy(launcher, "Command copied")} />
       <p className="subtle">
         The launcher opens a session through the agent-proxy on its machine, points the agent at it and closes the
@@ -344,6 +349,63 @@ function ProxyLaunchPanel({ agent }: { agent: Agent }) {
         </p>
       )}
     </section>
+  );
+}
+
+/** Why an agent can't be started on a machine from here, or null when it can. */
+function notReady(machine: FleetMachine, agent: Agent): string | null {
+  if (!machine.you.launch) return "you can't start agents there";
+  if (!machine.connected) return "offline";
+  if (!machine.launches) return "launches are off";
+  if (machine.launcher === false) return "the agent command isn't installed";
+  if (!machine.roots.length) return "no launch folders";
+  if (!machine.agents.includes(agent.id)) return `${agent.name} isn't installed`;
+  return null;
+}
+
+/** Start the agent on one of the machines you may launch on, in a shared terminal, without a command. */
+function MachineLaunch({ agent }: { agent: Agent }) {
+  const machines = useMachines();
+  const agents = useAgents();
+  const [machineId, setMachineId] = useState("");
+  // Machines you may start agents on at all; the others never could, so they aren't offered.
+  const fleet = (machines.data?.machines ?? []).filter((machine) => machine.you.launch);
+  const machine = fleet.find((item) => item.id === machineId);
+  const installed = machine ? (agents.data ?? []).filter((item) => machine.agents.includes(item.id)) : [];
+  const ready = fleet.filter((item) => !notReady(item, agent));
+  return (
+    <div className="machine-launch">
+      <h3>Run it on a machine</h3>
+      {machines.isPending ? (
+        <p className="subtle">Looking for machines…</p>
+      ) : !fleet.length ? (
+        <p className="subtle">
+          No machine lets you start agents on it. Add one on <Link to="/machines">Machines</Link>, or ask its owner for launch access.
+        </p>
+      ) : (
+        <>
+          <label className="field">
+            Machine
+            <select value={machineId} onChange={(event) => setMachineId(event.target.value)}>
+              <option value="">{ready.length ? "Choose a machine…" : `None can start ${agent.name} now`}</option>
+              {fleet.map((item) => {
+                const reason = notReady(item, agent);
+                return (
+                  <option key={item.id} value={item.id} disabled={Boolean(reason)}>
+                    {item.name}
+                    {reason ? ` (${reason})` : ""}
+                  </option>
+                );
+              })}
+            </select>
+            <small>It runs there in a shared terminal, which you're taken to. Nothing to install or type here.</small>
+          </label>
+          {machine && launchReady(machine, installed) && (
+            <LaunchForm key={`${machine.id}:${agent.id}`} machine={machine} agents={installed} initialAgent={agent.id} onDone={() => setMachineId("")} />
+          )}
+        </>
+      )}
+    </div>
   );
 }
 

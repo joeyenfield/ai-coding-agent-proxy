@@ -206,6 +206,34 @@ access_log = Table(
     Index("access_log_day", "day"),
 )
 
+# The request log (request_log.py): every HTTP request and WebSocket, kept for the request_log setting's days.
+request_log = Table(
+    "request_log", api,
+    Column("id", String(32), primary_key=True),
+    Column("time", Float, nullable=False),
+    Column("method", String(10), nullable=False),
+    Column("path", Text, nullable=False),
+    # The HTTP status, or the WebSocket handshake's (101 when accepted); null if none was sent.
+    Column("status", Integer),
+    Column("outcome", String(10), nullable=False),
+    Column("user", String(200)),
+    Column("search", Text, nullable=False),
+    Column("entry", JSON, nullable=False),
+    # Whether request_log_payloads has its bodies (debug mode was on).
+    Column("payload", Boolean, nullable=False, default=False),
+    Index("request_log_time", "time"),
+)
+
+# Bodies and headers of logged requests, only while the request log's debug mode is on: gzipped JSON,
+# kept for payload_days (usually far fewer than the request log's own days).
+request_log_payloads = Table(
+    "request_log_payloads", api,
+    Column("id", String(32), primary_key=True),
+    Column("time", Float, nullable=False),
+    Column("data", LargeBinary, nullable=False),
+    Index("request_log_payloads_time", "time"),
+)
+
 # Usage by person and provider (usage_limits.py), by hour: provider is backend:<name> or subscription:<kind>.
 provider_usage = Table(
     "provider_usage", api,

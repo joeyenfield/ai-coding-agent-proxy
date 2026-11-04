@@ -396,7 +396,7 @@ The `agent-machine` deb, rpm and Arch packages include a systemd user unit, not 
 **agent-sandbox** (`ghcr.io/joeyenfield/agent-sandbox`, built from `sandbox/Dockerfile`) is a container that is a machine of its own. It has `agent`, `agent-proxy` and `agent-machine`, plus Claude Code, Codex, OpenCode, Qwen Code and Copilot CLI (the npm packages in the `AGENTS` build argument). On start it:
 
 1. waits up to two minutes for the server's `/health`;
-2. signs both agent-machine and agent in to the server, unless their credentials already name it;
+2. signs both agent-machine and agent in to the server, unless their credentials already name it. A sign-in that fails (nobody approved the code in time, a used-up setup code) is tried again after 30 seconds, then a wait that doubles up to 15 minutes, until it works; `docker logs agent-sandbox` shows each new code. It doesn't exit, so a restart policy can't make it ask for codes over and over;
 3. copies SSH keys from `/ssh`, sets git's user, and clones `AGENT_REPOS`;
 4. relays the model servers named by `AGENT_OLLAMA` and `AGENT_LLAMACPP` to its own loopback (see [Model servers for a sandbox](#model-servers-for-a-sandbox));
 5. sets the machine's name, turns launches on with the workspace as its only root, turns containers off, and turns servers on only with `AGENT_SERVERS=on`;

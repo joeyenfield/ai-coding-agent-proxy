@@ -113,6 +113,7 @@ A computer can be all three. How an agent's request reaches a model depends on t
 | Recordings in S3 (or compatible) storage | `AI_PROXY_BLOB_URL` | | [Running several server processes](scaling.md#blob-storage) |
 | The server computer's CPU, memory and disks | | Server stats | [Console](console.md#server-stats) |
 | Every request the server received, failed ones too, its stats and each machine's fleet connections (why a machine shows offline) | | Access log | [Console](console.md#access-log) |
+| Every request saved for days, searchable, with headers and bodies in debug mode | | API log | [Console](console.md#api-log) |
 | Downloads and installers | `/install.sh`, `/install.ps1` | Downloads | [Deployment](deployment.md) |
 | Uninstalling from a computer | `/uninstall.sh`, `/uninstall.ps1`, `install.sh --uninstall` | Downloads › Uninstall | [Deployment](deployment.md#uninstalling) |
 | The server in Docker, HTTPS | `docker compose up -d` | | [Deployment](deployment.md#the-server-in-docker) |
