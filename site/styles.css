@@ -121,6 +121,24 @@ pre code { font-size: inherit; }
 .shot li { margin-bottom: 6px; }
 .shot figcaption a { color: var(--mint); }
 .shot .open-full { display: inline-flex; align-items: center; min-height: 44px; margin-top: 10px; font-size: 13px; }
+/* Any agent, any machine: three agents' terminals side by side, then what makes it work. */
+.term-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+.term-card { margin: 0; min-width: 0; border: 1px solid #47516b; border-radius: 10px; background: #0d0f14; overflow: hidden; box-shadow: 0 20px 50px #0005; }
+.term-card .window-bar { border-radius: 0; gap: 10px; }
+.term-card .window-bar > span:nth-child(2) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.term-state { padding: 2px 8px; border-radius: 999px; font-size: 10px; }
+.term-state.working { color: #f5c46b; background: #3a2f16; }
+.term-state.waiting { color: var(--mint); background: #163329; }
+.term-shot { display: block; }
+.term-shot:hover img { opacity: .92; }
+.term-card figcaption { padding: 12px 15px; font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); }
+.any-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 36px; margin-top: 44px; }
+.any-grid article { display: flex; flex-direction: column; align-items: flex-start; border-top: 2px solid #5e5488; padding-top: 25px; }
+.any-grid h3 { margin-bottom: 14px; font-size: 20px; }
+.any-grid p { font-size: 14px; margin-bottom: 18px; }
+.any-grid a { font-size: 12px; margin-top: auto; color: var(--mint); min-height: 44px; display: inline-flex; align-items: center; }
+.any-grid .run-kind { font: 10px/1.6 var(--mono); letter-spacing: .07em; color: var(--lavender); margin-bottom: 10px; }
+.android-card { border-top-color: var(--mint) !important; }
 /* Where it runs: the four ways to add a machine. */
 .runs-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; }
 .runs-grid article { display: flex; flex-direction: column; align-items: flex-start; padding: 24px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
@@ -241,6 +259,8 @@ pre code { font-size: inherit; }
   .code-toolbar .mono { font-size: 9px; }
   pre { font-size: 12px; padding-inline: 15px; }
   .runs-grid { grid-template-columns: 1fr; }
+  .term-grid, .any-grid { grid-template-columns: 1fr; }
+  .term-card:last-child { grid-column: auto; }
   .shot h3 { font-size: 21px; }
   .feature-grid { grid-template-columns: 1fr; }
   .feature-grid article { border-right: 0; padding: 26px 0; }
@@ -311,12 +331,15 @@ th small { display: block; font-weight: 400; color: var(--muted); }
   .shot { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 32px; }
   .shot:nth-child(even) { grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); }
   .runs-grid { grid-template-columns: 1fr 1fr; }
+  .term-grid { grid-template-columns: 1fr 1fr; }
+  .term-card:last-child { grid-column: 1 / -1; }
 }
 @media (max-width: 850px) {
   .mobile-start { display: inline-flex; min-height: 44px; padding: 8px 12px; font-size: 12px; margin-left: auto; }
   .hero { grid-template-columns: 1fr; }
   .hero h1 { font-size: clamp(36px, 6.3vw, 58px); }
   .shots { gap: 56px; }
+  .any-grid { grid-template-columns: 1fr; gap: 30px; }
   .shot, .shot:nth-child(even) { grid-template-columns: 1fr; gap: 22px; }
   .shot-phone .shot-frame { width: min(300px, 80%); }
   .shot:nth-child(even) .shot-frame { order: 0; }

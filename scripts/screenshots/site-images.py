@@ -41,6 +41,11 @@ SHOTS = (
     Shot("terminals-dark", box=(0.18, 0.0, 1.0, 0.84)),
     Shot("live-dark", box=(0.175, 0.0, 1.0, 0.95)),
     Shot("terminal-phone", widths=(400, 618)),
+    # Three agents' terminals side by side, each the same 1272 x 600 (the captures are 1272 wide):
+    # the output, without the empty rows and the message box below it.
+    Shot("terminal-opencode-dark", keep=600 / 879, widths=(640, 1272)),
+    Shot("terminal-copilot-account-dark", keep=600 / 819, widths=(640, 1272)),
+    Shot("terminal-qwen-dark", keep=600 / 819, widths=(640, 1272)),
     Shot("session-chat", box=NO_SIDEBAR),
     Shot("agents", box=NO_SIDEBAR),
     Shot("machines", box=NO_SIDEBAR),

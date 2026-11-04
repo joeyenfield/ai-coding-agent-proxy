@@ -277,7 +277,7 @@ const openTerminalOf = (agent) => async (page) => {
 };
 for (const agent of ["opencode", "copilot-account", "qwen"]) {
   await shot(`terminal-${agent}-dark`, "/terminals", {
-    theme: "dark", width: 1180, height: 940, element: ".terminal-page", storage: { "ai-proxy-terminal-font": "15" }, prepare: openTerminalOf(agent),
+    theme: "dark", width: 1180, height: 940, element: ".term-screen", storage: { "ai-proxy-terminal-font": "15" }, prepare: openTerminalOf(agent),
   });
 }
 await shot("overview-phone", "/", { width: 412, height: 860, fullPage: true });
