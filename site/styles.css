@@ -130,6 +130,9 @@ pre code { font-size: inherit; }
 .term-state.working { color: #f5c46b; background: #3a2f16; }
 .term-state.waiting { color: var(--mint); background: #163329; }
 .term-shot { display: block; }
+/* The captures differ a little in width: every frame shows the same shape, from the top left. */
+.term-shot img { aspect-ratio: 1333 / 877; object-fit: cover; object-position: left top; }
+.term-state.asking { color: #c9bfff; background: #2b2550; }
 .term-shot:hover img { opacity: .92; }
 .term-card figcaption { padding: 12px 15px; font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); }
 .any-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 36px; margin-top: 44px; }

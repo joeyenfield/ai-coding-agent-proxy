@@ -267,19 +267,6 @@ const openTerminal = async (page) => {
   await page.goto(`${base}/terminals/${id}`, { waitUntil: "networkidle", timeout: 10000 }).catch(() => {});
   await page.waitForTimeout(2500);
 };
-// One agent's terminal, by its agent id, with the question banner out of the way: the site shows three side by side.
-const openTerminalOf = (agent) => async (page) => {
-  const id = await page.evaluate(async (agent) => (await (await fetch("/api/terminals")).json()).terminals.find((item) => item.agent === agent && !item.ended_at)?.session_id, agent);
-  await page.goto(`${base}/terminals/${id}`, { waitUntil: "networkidle", timeout: 10000 }).catch(() => {});
-  await page.waitForTimeout(2500);
-  await page.addStyleTag({ content: ".attention { display: none !important; }" });
-  await page.waitForTimeout(300);
-};
-for (const agent of ["opencode", "copilot-account", "qwen"]) {
-  await shot(`terminal-${agent}-dark`, "/terminals", {
-    theme: "dark", width: 1180, height: 940, element: ".term-screen", storage: { "ai-proxy-terminal-font": "15" }, prepare: openTerminalOf(agent),
-  });
-}
 await shot("overview-phone", "/", { width: 412, height: 860, fullPage: true });
 await shot("terminals", "/terminals", { fullPage: true });
 // The brochure site (site/, scripts/screenshots/site-images.py) shows these on its dark page.
