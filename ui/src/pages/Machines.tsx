@@ -682,10 +682,10 @@ function SandboxSteps({ server, env = [] }: { server: string; env?: [string, str
   const [shell, setShell] = useRemembered<Shell>(SHELL_KEY, SHELLS, browserPlatform().startsWith("windows") ? "powershell" : "bash");
   // Not remembered: it belongs to the one sandbox being added, and a leftover name would silently
   // point the next one at another's volumes.
-  const [workspace, setWorkspace] = useState("");
+  const [name, setName] = useState("");
   const engine = RUNTIMES.find((item) => item.id === runtime) ?? RUNTIMES[0];
   const style = SHELLS.find((item) => item.id === shell) ?? SHELLS[0];
-  const suffix = dockerName(workspace);
+  const suffix = dockerName(name);
   const container = suffix ? `${SANDBOX_BASE}-${suffix}` : SANDBOX_BASE;
   let address = server;
   let hostGateway = false;
@@ -701,10 +701,11 @@ function SandboxSteps({ server, env = [] }: { server: string; env?: [string, str
   }
   const image = SANDBOX_IMAGE;
   const run = [
-    `${runtime} run -d --name ${container} --restart unless-stopped`,
+    // --hostname too: the sandbox is named after its hostname, which is otherwise the container's id.
+    `${runtime} run -d --name ${container} --hostname ${container} --restart unless-stopped`,
     ...(hostGateway ? ["  --add-host=host.docker.internal:host-gateway"] : []),
     `  -e AI_PROXY_SERVER=${address}`,
-    ...env.map(([name, value]) => `  -e ${name}=${value}`),
+    ...env.map(([key, value]) => `  -e ${key}=${value}`),
     `  -v ${container}-home:/home/agent -v ${container}-workspace:/workspace ${image}`,
   ].join(`${style.continuation}\n`);
   return (
@@ -721,8 +722,8 @@ function SandboxSteps({ server, env = [] }: { server: string; env?: [string, str
         <label className="join-choice">
           <span className="subtle">Name</span>
           <input
-            value={workspace}
-            onChange={(event) => setWorkspace(event.target.value)}
+            value={name}
+            onChange={(event) => setName(event.target.value)}
             placeholder="optional: work, test…"
             spellCheck={false}
           />
