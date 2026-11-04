@@ -25,8 +25,8 @@
   <link rel="icon" href="/assets/icon-192.png" type="image/png" sizes="192x192">
   <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" sizes="180x180">
   <link rel="manifest" href="/site.webmanifest">
-  <link rel="stylesheet" href="/styles.css?v=mesh-2026-11-04c">
-  <script src="/site.js?v=mesh-2026-11-01" defer></script>
+  <link rel="stylesheet" href="/styles.css?v=mesh-2026-11-04d">
+  <script src="/site.js?v=mesh-2026-11-04" defer></script>
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -100,17 +100,30 @@
         <p class="eyebrow">02 / Run it locally</p>
         <h2 id="quickstart-title">Your first mesh,<br>on your computer.</h2>
         <p>Start the server and console, OIDC sign-in, PostgreSQL, two fleet machines, and Ollama. The images are pulled from the project’s published container registry.</p>
-        <p class="prerequisites"><strong>Bring:</strong> Git, Docker with Compose or Podman with a Compose provider, several GB of disk, and free localhost ports 19999 and 20000. Allow at least 8 GB RAM for a small CPU-model trial; model size and context can need much more. On Windows/macOS, allocate that memory to the container VM. An NVIDIA GPU is optional and makes models much faster (see <strong>Have an NVIDIA GPU?</strong>); on CPU, speed varies.</p>
+        <p class="prerequisites"><strong>Bring:</strong> Git, Docker with Compose or Podman with a Compose provider, several GB of disk, and free localhost ports 19999 and 20000. Allow at least 8 GB RAM for a small CPU-model trial; model size and context can need much more. On Windows/macOS, allocate that memory to the container VM. An NVIDIA GPU is optional and makes models much faster (choose <strong>NVIDIA GPU</strong> above the commands); on CPU, speed varies.</p>
         <a class="text-link" href="https://github.com/joeyenfield/ai-coding-agent-proxy/blob/master/docs/quickstart.md">Follow the guided quickstart <span aria-hidden="true">→</span></a>
       </div>
       <div class="quickstart-install">
         <div class="code-window">
-          <div class="code-toolbar"><span class="mono">LOCAL DEMO / TERMINAL</span><button class="copy-button" type="button" data-copy="quickstart-command" hidden>Copy commands</button></div>
-          <pre tabindex="0" aria-label="Docker quickstart commands"><code id="quickstart-command">git clone https://github.com/joeyenfield/ai-coding-agent-proxy.git
+          <div class="code-toolbar"><span class="mono">LOCAL DEMO / TERMINAL</span><button class="copy-button" type="button" data-copy-shown="qs-cmd" hidden>Copy commands</button></div>
+          <div class="qs-toggles">
+            <fieldset class="seg"><legend>Engine</legend><input type="radio" name="qs-engine" id="qs-docker" value="docker" checked><label for="qs-docker">Docker</label><input type="radio" name="qs-engine" id="qs-podman" value="podman"><label for="qs-podman">Podman</label></fieldset>
+            <fieldset class="seg"><legend>Models run on</legend><input type="radio" name="qs-hw" id="qs-cpu" value="cpu" checked><label for="qs-cpu">CPU</label><input type="radio" name="qs-hw" id="qs-gpu" value="gpu"><label for="qs-gpu">NVIDIA GPU</label></fieldset>
+          </div>
+          <pre class="qs-cmd" data-v="docker-cpu" tabindex="0" aria-label="Docker quickstart commands"><code id="quickstart-command">git clone https://github.com/joeyenfield/ai-coding-agent-proxy.git
 cd ai-coding-agent-proxy
 docker compose -f quickstart/compose.yaml up -d</code></pre>
-          <details class="podman-note"><summary>Podman instructions</summary><p>Use the same clone and folder commands above, then:</p><pre tabindex="0" aria-label="Podman startup command"><code id="podman-command">podman compose -f quickstart/compose.yaml up -d</code></pre><button class="copy-button" type="button" data-copy="podman-command" hidden>Copy Podman command</button><p>Requires a Compose provider (<code>podman compose version</code>). On Windows/macOS: <code>podman machine init</code> once, then <code>podman machine start</code>.</p></details>
-          <details class="gpu-note"><summary>Have an NVIDIA GPU?</summary><p>Add the GPU file to give Ollama your NVIDIA GPUs, so models answer much faster. Use it every time you start the stack; without it, Ollama runs on the CPU.</p><pre tabindex="0" aria-label="Docker startup command with an NVIDIA GPU"><code id="gpu-command">docker compose -f quickstart/compose.yaml -f quickstart/compose.gpu.yaml up -d</code></pre><button class="copy-button" type="button" data-copy="gpu-command" hidden>Copy GPU command</button><p>With Podman, run <code>podman compose</code> with the same two files. Check it sees the GPU first: <code>podman run --rm --device nvidia.com/gpu=all docker.io/library/ubuntu:24.04 nvidia-smi</code>. Docker needs the NVIDIA Container Toolkit with CDI on. <a href="https://github.com/joeyenfield/ai-coding-agent-proxy/blob/master/quickstart/README.md#use-a-gpu">GPU setup →</a></p></details>
+          <pre class="qs-cmd" data-v="docker-gpu" tabindex="0" aria-label="Docker quickstart commands with an NVIDIA GPU"><code id="qs-docker-gpu">git clone https://github.com/joeyenfield/ai-coding-agent-proxy.git
+cd ai-coding-agent-proxy
+docker compose -f quickstart/compose.yaml -f quickstart/compose.gpu.yaml up -d</code></pre>
+          <pre class="qs-cmd" data-v="podman-cpu" tabindex="0" aria-label="Podman quickstart commands"><code id="qs-podman-cpu">git clone https://github.com/joeyenfield/ai-coding-agent-proxy.git
+cd ai-coding-agent-proxy
+podman compose -f quickstart/compose.yaml up -d</code></pre>
+          <pre class="qs-cmd" data-v="podman-gpu" tabindex="0" aria-label="Podman quickstart commands with an NVIDIA GPU"><code id="qs-podman-gpu">git clone https://github.com/joeyenfield/ai-coding-agent-proxy.git
+cd ai-coding-agent-proxy
+podman compose -f quickstart/compose.yaml -f quickstart/compose.gpu.yaml up -d</code></pre>
+          <p class="qs-note qs-note-podman">Podman needs a Compose provider (<code>podman compose version</code>). On Windows and macOS, run <code>podman machine init</code> once, then <code>podman machine start</code>.</p>
+          <p class="qs-note qs-note-gpu">The GPU file gives Ollama your NVIDIA GPUs, so models answer much faster. Use it every time you start the stack; without it, Ollama runs on the CPU. Docker needs the NVIDIA Container Toolkit with CDI on. With Podman, check it sees the GPU first: <code>podman run --rm --device nvidia.com/gpu=all docker.io/library/ubuntu:24.04 nvidia-smi</code>. <a href="https://github.com/joeyenfield/ai-coding-agent-proxy/blob/master/quickstart/README.md#use-a-gpu">GPU setup →</a></p>
         </div>
         <p id="copy-status" class="copy-status" role="status" aria-live="polite"></p>
         <ol class="next-steps">

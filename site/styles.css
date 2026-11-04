@@ -90,7 +90,26 @@ strong { font-weight: 650; color: var(--text); }
 .copy-button:hover { border-color: var(--mint); }
 pre { overflow-x: auto; padding: 23px 20px; margin: 0; font-size: 13px; line-height: 2.1; color: var(--mint); }
 pre code { font-size: inherit; }
-.podman-note, .gpu-note { font-size: 12px; line-height: 1.8; padding: 16px 20px; border-top: 1px solid var(--line); }
+/* Quickstart: two switches (engine, where models run) pick one of four command blocks. Radios and
+   :has() do it, so the choice works without JavaScript; only copying needs it. */
+.qs-toggles { display: flex; flex-wrap: wrap; gap: 12px 24px; padding: 16px 18px 4px; }
+.seg { display: inline-flex; align-items: center; gap: 0; border: 0; margin: 0; padding: 0; }
+.seg legend { float: left; margin-right: 10px; font: 10px/44px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.seg input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.seg label { min-height: 44px; display: inline-flex; align-items: center; padding: 0 16px; border: 1px solid #58647b; font-size: 13px; font-weight: 650; color: var(--muted); cursor: pointer; background: #0b101b; }
+.seg label:first-of-type { border-radius: 6px 0 0 6px; }
+.seg label:last-of-type { border-radius: 0 6px 6px 0; border-left: 0; }
+.seg input:checked + label { background: var(--mint); border-color: var(--mint); color: #111d1b; }
+.seg input:focus-visible + label { outline: 2px solid var(--lavender); outline-offset: 2px; }
+.qs-cmd, .qs-note { display: none; }
+.code-window:has(#qs-docker:checked):has(#qs-cpu:checked) .qs-cmd[data-v="docker-cpu"],
+.code-window:has(#qs-docker:checked):has(#qs-gpu:checked) .qs-cmd[data-v="docker-gpu"],
+.code-window:has(#qs-podman:checked):has(#qs-cpu:checked) .qs-cmd[data-v="podman-cpu"],
+.code-window:has(#qs-podman:checked):has(#qs-gpu:checked) .qs-cmd[data-v="podman-gpu"] { display: block; }
+.code-window:has(#qs-podman:checked) .qs-note-podman, .code-window:has(#qs-gpu:checked) .qs-note-gpu { display: block; }
+.qs-note { margin: 0; padding: 14px 20px; border-top: 1px solid var(--line); font-size: 12px; line-height: 1.8; }
+.qs-note a { color: var(--mint); }
+.qs-note code { overflow-wrap: anywhere; }
 .copy-status { font-size: 12px; min-height: 25px; color: var(--mint); padding-top: 3px; }
 .next-steps { padding-left: 22px; margin: 4px 0 20px; color: var(--muted); font-size: 14px; }
 .next-steps li { padding-left: 5px; margin-bottom: 10px; }
@@ -292,12 +311,6 @@ html { scroll-padding-top: 110px; }
 .section { padding-block: 64px; }
 details { border: 1px solid var(--line); border-radius: 7px; }
 summary { cursor: pointer; color: var(--text); font-weight: 650; padding: 18px; }
-.podman-note, .gpu-note { border: 0; padding: 0; }
-/* The GPU option sits under the Podman one, in the same box. */
-.gpu-note { border-top: 1px solid var(--line); border-radius: 0; }
-.gpu-note a { color: var(--mint); }
-.podman-note p, .podman-note button, .gpu-note p, .gpu-note button { margin: 0 20px 16px; }
-.podman-note pre, .gpu-note pre { white-space: pre-wrap; overflow-wrap: anywhere; padding-top: 0; }
 .compat-details { margin-top: 30px; scroll-margin-top: 15px; }
 .compat-details > p, .compat-details > .route-grid { margin: 20px; }
 .compat-details > p { font-size: 14px; }

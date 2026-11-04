@@ -150,15 +150,22 @@ try {
     await page.getByRole('button', { name: 'Copy commands' }).click();
     assert.equal(await page.evaluate(() => getSelection().toString().trim()), copied);
     assert.match(await page.locator('#copy-status').textContent(), /Clipboard unavailable/);
-    await page.locator('.podman-note summary').click();
-    await page.getByRole('button', { name: 'Copy Podman command' }).click();
-    assert.equal(await page.evaluate(() => getSelection().toString().trim()), 'podman compose -f quickstart/compose.yaml up -d');
-    await page.locator('.podman-note summary').click();
-    // The NVIDIA GPU option: the quickstart's GPU file, which must exist.
-    await page.locator('.gpu-note summary').click();
-    await page.getByRole('button', { name: 'Copy GPU command' }).click();
-    assert.equal(await page.evaluate(() => getSelection().toString().trim()), 'docker compose -f quickstart/compose.yaml -f quickstart/compose.gpu.yaml up -d');
-    await page.locator('.gpu-note summary').click();
+    // The engine and GPU switches: each pair shows one block, its note, and copies just that block.
+    for (const [engine, hardware, last] of [
+      ['Podman', 'CPU', 'podman compose -f quickstart/compose.yaml up -d'],
+      ['Podman', 'NVIDIA GPU', 'podman compose -f quickstart/compose.yaml -f quickstart/compose.gpu.yaml up -d'],
+      ['Docker', 'NVIDIA GPU', 'docker compose -f quickstart/compose.yaml -f quickstart/compose.gpu.yaml up -d'],
+      ['Docker', 'CPU', 'docker compose -f quickstart/compose.yaml up -d'],
+    ]) {
+      await page.locator('.seg label', { hasText: new RegExp(`^${engine}$`) }).click();
+      await page.locator('.seg label', { hasText: new RegExp(`^${hardware}$`) }).click();
+      assert.equal(await page.locator('.qs-cmd:visible').count(), 1, `${engine}/${hardware} shows one block`);
+      assert.equal(await page.locator('.qs-note-podman').isVisible(), engine === 'Podman');
+      assert.equal(await page.locator('.qs-note-gpu').isVisible(), hardware === 'NVIDIA GPU');
+      await page.getByRole('button', { name: 'Copy commands' }).click();
+      const shown = await page.evaluate(() => getSelection().toString().trim());
+      assert.ok(shown.startsWith('git clone ') && shown.endsWith(last), `${engine}/${hardware}: ${shown}`);
+    }
     await page.locator('#compatibility summary').focus();
     await page.keyboard.press('Enter');
     assert.equal(await page.locator('#compatibility table').isVisible(), true);

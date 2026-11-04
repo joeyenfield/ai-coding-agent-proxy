@@ -38,10 +38,13 @@ nav.addEventListener('click', (event) => {
   }
 });
 
-for (const button of document.querySelectorAll('[data-copy]')) {
+for (const button of document.querySelectorAll('[data-copy], [data-copy-shown]')) {
   button.hidden = false;
   button.addEventListener('click', async () => {
-    const code = document.getElementById(button.dataset.copy);
+    // data-copy-shown: the one block of that class the switches show (the quickstart's engine and GPU).
+    const code = button.dataset.copyShown
+      ? [...document.querySelectorAll(`.${button.dataset.copyShown}`)].find((block) => block.offsetParent)?.querySelector('code')
+      : document.getElementById(button.dataset.copy);
     const status = document.getElementById('copy-status');
     try {
       await navigator.clipboard.writeText(code.textContent.trim());
