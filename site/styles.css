@@ -119,6 +119,12 @@ pre code { font-size: inherit; }
 .next-steps { padding-left: 22px; margin: 4px 0 20px; color: var(--muted); font-size: 14px; }
 .next-steps li { padding-left: 5px; margin-bottom: 10px; }
 .next-steps a { color: var(--mint); }
+/* The link to docs/quickstart.md's illustrated steps, under the short list. */
+.guide-link { position: relative; display: grid; gap: 4px; margin: 0 0 22px; padding: 18px 52px 18px 20px; border: 1px solid #4a566d; border-left: 3px solid var(--mint); border-radius: 8px; background: #141b29; color: var(--muted); text-decoration: none; font-size: 13px; }
+.guide-link:hover { border-color: var(--mint); }
+.guide-link strong { color: var(--text); font-size: 16px; }
+.guide-link-kicker { font: 10px var(--mono); letter-spacing: .07em; text-transform: uppercase; color: var(--mint); }
+.guide-link-go { position: absolute; right: 20px; top: 50%; transform: translateY(-50%); color: var(--mint); font-size: 20px; }
 .demo-notice { padding-left: 16px; border-left: 2px solid var(--lavender); font-size: 12px; }
 .demo-notice a { color: var(--lavender); white-space: nowrap; }
 .product-section { background: #171e2d; border-block: 1px solid var(--line); }

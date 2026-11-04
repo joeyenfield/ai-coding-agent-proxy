@@ -88,7 +88,7 @@ On Windows PowerShell, run the two `port-forward` commands in two windows instea
 5. **Pull a model.** On the new provider's tab, open **Find and pull** and pull something small (a 1 to 4 billion parameter model): it runs on the cluster's CPU.
 6. **Start an agent.** On the machine's **Agents** tab, choose **Start an agent**, pick **OpenCode** or **Qwen Code**, your provider and model, the folder `/workspace`, tick **Capture full request and response payloads**, and start it. Its terminal opens in the console: type a task, choose **Send**, and watch **Live**, **Requests** and **Sessions** fill in.
 
-Everything the [Docker or Podman quickstart](quickstart.md#try-it) suggests trying next works here too.
+Everything the [Docker or Podman quickstart](quickstart.md#try-it-step-by-step) suggests trying next works here too.
 
 ## Stop and clean up
 

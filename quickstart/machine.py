@@ -89,10 +89,14 @@ def main():
                 time.sleep(1)
         else:
             raise RuntimeError("Ollama did not start on machine-1's loopback")
+    # Servers on where the quickstart's Ollama is, so the console can pull models into it (the
+    # guide's next step) with nothing to type on the machine. It's another container: agent-machine
+    # can't start or stop it, only manage its models. machine-2 has no model server to manage.
+    servers = "on" if os.getenv("QUICKSTART_OLLAMA") == "1" else "off"
     for arguments in (
         ["name", socket.gethostname()], ["address", socket.gethostname()],
         ["launches", "on"], ["roots", "add", "/workspace"],
-        ["commands", "on"], ["containers", "off"], ["servers", "off"],
+        ["commands", "on"], ["containers", "off"], ["servers", servers],
     ):
         subprocess.run(["agent-machine", *arguments], check=True)
     os.execvp("agent-machine", ["agent-machine", "run"])

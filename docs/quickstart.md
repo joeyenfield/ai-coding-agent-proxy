@@ -24,7 +24,7 @@ flowchart LR
 | `server` | The agent-server: the API and the web console, on `http://localhost:19999`. |
 | `auth` | The sign-in service (agent-auth), on `http://localhost:20000`. |
 | `postgres` | PostgreSQL, holding the server's settings, accounts and recordings, and the sign-in service's state, each in its own schema. Not published. |
-| `machine-1` | A fleet machine with `agent`, `agent-machine` and coding agents (Claude Code, Codex, OpenCode, Qwen Code, Copilot CLI) installed. It takes launches and terminals in `/workspace`, and finds Ollama. |
+| `machine-1` | A fleet machine with `agent`, `agent-machine` and coding agents (Claude Code, Codex, OpenCode, Qwen Code, Copilot CLI) installed. It takes launches and terminals in `/workspace`, and finds Ollama, whose models the console can pull and delete (its servers switch is on). |
 | `machine-2` | A second machine, the same but without Ollama, with its own workspace and sign-ins. |
 | `ollama` | Ollama, reached only by machine-1. It runs on CPU unless you give it a GPU. It starts with no models. |
 
@@ -53,14 +53,80 @@ The first start downloads about 1 GB of images, most of it the machines' coding 
 - **A GPU.** Add `-f quickstart/compose.gpu.yaml` to give Ollama your NVIDIA GPUs, every time you start the stack (with only `compose.yaml`, Ollama is recreated on CPU). Podman needs your GPU by its CDI name: check with `podman run --rm --device nvidia.com/gpu=all docker.io/library/ubuntu:24.04 nvidia-smi`, and if it doesn't print your card, run `podman machine ssh "sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml"` (again after a driver update). [The quickstart's README](../quickstart/README.md#use-a-gpu) has the details.
 - **Another password.** Set `QUICKSTART_ADMIN_PASSWORD` the same way before the first start.
 
-## Try it
+## Try it, step by step
 
-1. **Sign in.** Open **http://localhost:19999** (type `localhost` exactly: the sign-in only accepts that address) and choose **Sign in**. The sign-in page is the separate sign-in service on port 20000. Sign in as **admin** with the password **secret**. Open **Machines**: machine-1 and machine-2 are there and connected.
-2. **Add machine-1's Ollama as a provider.** Local model servers belong to the machines that run them, and an admin adds each one once. Open **machine-1**, then its **Model servers** tab: it found Ollama on its own `127.0.0.1:11434`. Choose **Add as a provider**. The server adds a backend called `machine-1`, already the quickstart's default. Agents on either machine can now use it, through the server and machine-1's own connection.
-3. **Pull a model.** Ollama starts empty. On the **machine-1** provider tab, open **Find and pull**, search for a model and pull it. On CPU, pick something small (a 1 to 4 billion parameter model of a few GB answers in seconds; bigger ones are slow).
-4. **Start an agent.** On machine-1's **Agents** tab, choose **Start an agent**. Pick one that uses local models, such as **OpenCode** or **Qwen Code**, leave the provider on **machine-1**, choose your model, use `/workspace` (or a new folder inside it), tick **Capture full request and response payloads**, and choose **Start on machine-1**. The agent starts in a terminal shared with the server, and the console opens it. Agents on machine-2 work the same way, reaching machine-1's Ollama through the server.
-5. **Watch it and type into it.** Type a task in the box at the bottom, such as *write a Python script that prints the first ten primes*, and choose **Send**. The keys underneath answer the agent's menus and prompts (Esc, Enter, the arrows, y and n); when it asks something, a banner shows the question on every page. Open **Live** in another tab to see each model request stream as it happens. **Running agents** lists every agent with whether it's working, waiting for you or finished.
-6. **Read back what it did.** **Requests** has every request with its timing, tokens and status; select one for the full request, the reply and the exact payload the server sent to Ollama after translating it. **Sessions** has one row per agent run, with a **Chat** view of the whole conversation. **Traffic** groups requests by what they were for. Payloads are kept until you delete the session, or for the days set on **Server settings › Storage**.
+Every picture below is the real quickstart, started fresh with the command above on a Windows computer with Podman, on the CPU only. Nothing was set up by hand beforehand. The steps take about ten minutes, most of it the model download and the model's first answer. `node scripts/screenshots/quickstart-steps.mjs` takes these pictures again on a fresh quickstart.
+
+### 1. Sign in
+
+Open **http://localhost:19999**. Type `localhost` exactly: sign-in only accepts that address. The console asks you to sign in, and **Continue to sign in** takes you to the sign-in service on port 20000.
+
+![The console's sign-in page](screenshots/quickstart-01-sign-in.png)
+
+Sign in as **admin** with the password **secret** (or the one you set with `QUICKSTART_ADMIN_PASSWORD`). You come straight back to the console. The console never sees your password: only the sign-in service does.
+
+![The sign-in service's form, filled in as admin](screenshots/quickstart-02-issuer.png)
+
+### 2. Check the machines
+
+Open **All machines**. machine-1 and machine-2 are already there and **Online**: they signed themselves in when they started, so there's nothing to approve. Each row says what the machine allows. Both take agents (**Agents: Enabled**) and terminals. machine-1 also shares its Ollama (**Model servers: Enabled**).
+
+![Machines: machine-1 and machine-2, both online](screenshots/quickstart-03-machines.png)
+
+### 3. Add machine-1's Ollama as a provider
+
+Local model servers belong to the machines that run them, and an admin adds each one once. Open **machine-1**, then its **Providers** tab. machine-1 found Ollama on its own `127.0.0.1:11434`, but it's **Not a provider yet**.
+
+![machine-1's Providers tab: Ollama on port 11434, not a provider yet](screenshots/quickstart-04-model-servers.png)
+
+Open it and choose **Add as a provider**. The server adds a provider called `machine-1`, the quickstart's default. Agents on either machine can now use it: their requests go through the server and machine-1's own connection to it, so nothing needs a published port.
+
+![Ollama on machine-1, with Add as a provider](screenshots/quickstart-05-add-provider.png)
+
+### 4. Find a model and pull it
+
+Ollama starts with no models, and nothing is downloaded for you. On the provider's page, open **Find and pull**, keep **Ollama library**, search for `qwen3` and choose **Search**.
+
+![Find and pull: searching the Ollama library for qwen3](screenshots/quickstart-06-search.png)
+
+Each model family lists its sizes, with what it can do (**tools** is what coding agents need). On a CPU, pick something small: **Pull 1.7b** on `qwen3` downloads 1.3 GB and answers in seconds. Bigger models answer better but slower, and need more memory.
+
+![Search results: the qwen3 family with a Pull button per size](screenshots/quickstart-07-results.png)
+
+The download shows its progress at the top of the tab. When it's done, the model is on the **Models** tab, with the settings the server uses for it.
+
+![Models: qwen3:1.7b, 1.3 GB, on machine-1](screenshots/quickstart-08-pulled.png)
+
+### 5. Start Qwen Code on machine-1
+
+Choose **Start an agent** (at the top of machine-1's page, or in the menu). Pick **machine-1** under **Where should it run?** and **Qwen Code** under **Which agent?**. The provider is already **machine-1**, the folder is `/workspace`, and the model is the one you pulled. Choose **Start on machine-1**. (**Capture full request and response payloads** keeps the whole conversation; tick it to read it back afterwards.)
+
+![Start an agent: machine-1, Qwen Code, provider machine-1, model qwen3:1.7b](screenshots/quickstart-09-start-agent.png)
+
+The agent starts on machine-1 in a terminal it shares with the server, and the console opens it. Qwen Code shows its banner, the model it's using, and its prompt.
+
+![Qwen Code's terminal in the console, ready for a message](screenshots/quickstart-10-agent-ready.png)
+
+### 6. Ask it something
+
+Type *What model are you?* in **Message for the agent** and choose **Send**. The keys underneath answer the agent's menus and prompts (Esc, Enter, the arrows, y and n), and when it asks you something, a banner shows the question on every page.
+
+The first answer takes longest: Ollama loads the model into memory on the first request, which on a CPU can take a minute or two. Here Qwen Code thought for 44 seconds and then answered.
+
+![Qwen Code's answer to "What model are you?", on qwen3:1.7b](screenshots/quickstart-11-answer.png)
+
+### 7. See what it sent
+
+Open **Requests**. Every request the agent made is there, with the model, the provider, the time it took and the tokens it produced. Select one for the full request, the reply and the exact payload the server sent to Ollama. One question can take several requests: agents also ask the model for titles, summaries and the next step. The first one here says **Client hung up**: Qwen Code gave up waiting while Ollama loaded the model, and asked again.
+
+![Request history: five qwen3:1.7b requests from Qwen Code on machine-1](screenshots/quickstart-12-requests.png)
+
+From here:
+
+- **Give it a task.** Send *write a Python script that prints the first ten primes* and watch it work. Open **Live** in another tab to see each model request stream as it happens.
+- **Running agents** lists every agent, with whether it's working, waiting for you, or finished.
+- **Sessions** has one row per agent run, with a **Chat** view of the whole conversation when capture is on. **Traffic** groups requests by what they were for. Payloads are kept until you delete the session, or for the days set on **Server settings › Storage**.
+- **Agents on machine-2** work the same way: start one there, and it reaches machine-1's Ollama through the server.
 
 Then try the rest:
 
