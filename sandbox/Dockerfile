@@ -1,8 +1,8 @@
 # agent-sandbox: a container that joins an agent-server's fleet as a machine and offers
 # itself as a sandbox, where the server starts coding agents in /workspace only.
 #
-# It has both Go components (the client's agent and agent-proxy, and agent-machine) and
-# the coding agents installed with npm. On start it signs in to AI_PROXY_SERVER (see
+# It has both Go components (the client's agent and agent-proxy, and agent-machine), the
+# coding agents installed with npm, and Ollama (CPU only) for the console to start. On start it signs in to AI_PROXY_SERVER (see
 # entrypoint.sh), turns launches on for /workspace and stays in the fleet.
 #
 # Published as ghcr.io/joeyenfield/agent-sandbox (.github/workflows/images.yml), which
@@ -12,6 +12,8 @@
 #
 # AGENTS picks the npm packages (the install lines of the shipped agents, server/agent_server/defaults.py):
 #   docker build -f sandbox/Dockerfile --build-arg AGENTS="@openai/codex opencode-ai" -t agent-sandbox .
+
+ARG OLLAMA_VERSION=0.40.14
 
 # The Go components, for whichever platform the image is built for.
 FROM docker.io/library/golang:1.24-bookworm AS build
@@ -30,13 +32,25 @@ RUN version="${AI_PROXY_VERSION:-$(cat VERSION)+unknown}" \
     && cd client && go build -trimpath -ldflags "-s -w -X main.version=$version" -o /out/ ./cmd/agent ./cmd/agent-proxy \
     && cd ../machine && go build -trimpath -ldflags "-s -w -X main.version=$version" -o /out/ ./cmd/agent-machine
 
+# Ollama, for the console to start and pull models into here (servers are on unless
+# AGENT_SERVERS=off). CPU only: the sandbox has no GPU of its own, and the CUDA, ROCm and
+# Vulkan libraries are most of Ollama's 3 GB. For a GPU, relay an Ollama container that has
+# one (AGENT_OLLAMA). --build-arg OLLAMA_VERSION=... picks another release (it's declared
+# at the top, as an argument a FROM uses must be).
+FROM docker.io/ollama/ollama:${OLLAMA_VERSION} AS ollama
+# Its CPU backends are the files at the top of lib/ollama; each GPU backend is a folder.
+RUN mkdir -p /out/bin /out/lib \
+    && cp /usr/bin/ollama /out/bin/ \
+    && cp -a /usr/lib/ollama /out/lib/ \
+    && find /out/lib/ollama -mindepth 1 -maxdepth 1 -type d -exec rm -rf {} +
+
 FROM docker.io/library/node:22-bookworm-slim
 ARG AGENTS="@anthropic-ai/claude-code @openai/codex opencode-ai @qwen-code/qwen-code @github/copilot"
 # What coding agents expect to find: git, a shell, Python, search tools. tini reaps the
 # processes agents leave behind, as agent-machine is the container's main process.
 # socat relays model servers in other containers (AGENT_OLLAMA, AGENT_LLAMACPP) to the
 # loopback ports agent-machine looks on; libgomp1 is what llama.cpp's Linux builds, which
-# the console installs here with AGENT_SERVERS=on, need beyond the base image.
+# the console installs here, and Ollama's CPU backends need beyond the base image.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates curl git openssh-client less procps jq unzip ripgrep python3 python3-venv tini \
@@ -44,6 +58,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 RUN if [ -n "$AGENTS" ]; then npm install -g --no-audit --no-fund $AGENTS && npm cache clean --force; fi
 COPY --from=build /out/ /usr/local/bin/
+# ollama finds its backends in ../lib/ollama beside itself.
+COPY --from=ollama /out/ /usr/local/
 COPY sandbox/entrypoint.sh /usr/local/bin/agent-sandbox-entrypoint
 # Shell scripts must have LF endings, whatever the checkout used. node's image already
 # has a user 1000 (node); the agents run as it, renamed agent.

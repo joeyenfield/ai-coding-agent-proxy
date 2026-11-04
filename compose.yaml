@@ -147,11 +147,12 @@ services:
       AGENT_REPOS: ${AGENT_REPOS:-}
       # Model servers in other containers on this network, relayed to the sandbox's loopback
       # where agent-machine finds them: AGENT_OLLAMA=ollama, AGENT_LLAMACPP=llamacpp:8080.
-      # AGENT_SERVERS=on lets the console manage model servers and their models here.
+      # Without them, the console starts the image's own Ollama (CPU only) and installs
+      # llama.cpp here. AGENT_SERVERS=off stops the console managing model servers here.
       # See docs/machines.md, Model servers for a sandbox.
       AGENT_OLLAMA: ${AGENT_OLLAMA:-}
       AGENT_LLAMACPP: ${AGENT_LLAMACPP:-}
-      AGENT_SERVERS: ${AGENT_SERVERS:-off}
+      AGENT_SERVERS: ${AGENT_SERVERS:-on}
     volumes:
       - agent-sandbox-home:/home/agent
       - agent-sandbox-workspace:/workspace

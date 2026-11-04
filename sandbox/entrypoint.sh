@@ -16,8 +16,10 @@
 #                            relayed to 127.0.0.1:11434
 #   AGENT_LLAMACPP           a llama-server in another container, host[:port] (default port
 #                            8080), relayed to 127.0.0.1:$AI_PROXY_LLAMACPP_PORT (default 9931)
-#   AGENT_SERVERS=on         let the console install llama.cpp here and start, stop and
-#                            configure the model servers in this container (default off)
+#   AGENT_SERVERS            on (the default): the console may start, stop and configure the
+#                            model servers in this container (the image's Ollama, and llama.cpp,
+#                            which it installs here), and pull models into them. off: it only
+#                            sees them. They run inside the container, under its limits.
 #
 # Git, for agents that clone, pull and push:
 #   /ssh (a read-only mount)  SSH keys (id_ed25519, ...) and optionally config and known_hosts,
@@ -141,13 +143,16 @@ agent-machine launches on >/dev/null
 agent-machine roots add "$workspace" >/dev/null
 # docker run is root on the computer the sandbox runs on: never from inside it.
 agent-machine containers off >/dev/null
-case "${AGENT_SERVERS:-off}" in
-    on|1|true|yes)
+case "${AGENT_SERVERS:-on}" in
+    on|1|true|yes|"")
+        if [ -n "${AGENT_OLLAMA:-}" ]; then
+            echo "agent-sandbox: AGENT_OLLAMA holds 127.0.0.1:11434, so the console manages that Ollama, not the one in this image" >&2
+        fi
         if [ -n "${AGENT_LLAMACPP:-}" ]; then
             echo "agent-sandbox: AGENT_LLAMACPP holds 127.0.0.1:$llamacpp_port, so a llama.cpp started here from the console can't listen there" >&2
         fi
         agent-machine servers on >/dev/null ;;
-    off|0|false|no|"") agent-machine servers off >/dev/null ;;
+    off|0|false|no) agent-machine servers off >/dev/null ;;
     *) echo "agent-sandbox: AGENT_SERVERS must be on or off, not $AGENT_SERVERS" >&2; exit 2 ;;
 esac
 
