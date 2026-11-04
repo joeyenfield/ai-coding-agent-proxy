@@ -264,6 +264,14 @@ const openTerminal = async (page) => {
 };
 await shot("overview-phone", "/", { width: 412, height: 860, fullPage: true });
 await shot("terminals", "/terminals", { fullPage: true });
+// The brochure site (site/, scripts/screenshots/site-images.py) shows these on its dark page.
+await shot("terminals-dark", "/terminals", { theme: "dark", height: 1000 });
+// The first card mid-reply: it's the one in view.
+await shot("live-dark", "/live", {
+  theme: "dark",
+  prepare: (page) =>
+    page.waitForFunction(() => (document.querySelector(".live-card:not(.phase-done) .stream-text")?.textContent.length ?? 0) > 160, null, { timeout: 90000 }),
+});
 await shot("terminal", "/terminals", { prepare: openTerminal });
 await shot("terminal-phone", "/terminals", { theme: "dark", width: 412, height: 860, prepare: openTerminal });
 await shot("request", "/requests", {

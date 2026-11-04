@@ -692,10 +692,31 @@ def share_terminals() -> None:
     working.append(b"\x1b[1mopencode\x1b[0m  qwen3.8:latest via agent-proxy\r\n\r\n> Make the usage chart load lazily\r\n\r\n"
                    b"Reading src/charts/Usage.tsx\r\nReading src/pages/Dashboard.tsx\r\n\r\n")
 
+    # Different agents on every machine: Codex and Copilot at work on build-box, and Qwen Code on
+    # ai-laptop done and waiting at its prompt (quiet, with no question on its screen).
+    _, codex, _ = start("codex-account", "", "direct", "data-pipeline", (96, 26), {"machine": "build-box", "machine_name": "build-box"})
+    codex.append(b"\x1b[1m>_ OpenAI Codex\x1b[0m  \x1b[2mgpt-6.1-sol \xc2\xb7 ~/src/data-pipeline\x1b[0m\r\n\r\n"
+                 b"> Make the nightly export job resumable after a crash\r\n\r\n"
+                 b"\x1b[2m\xe2\x80\xa2\x1b[0m Explored jobs/export.py, jobs/checkpoint.py\r\n"
+                 b"\x1b[32m\xe2\x80\xa2\x1b[0m Edited jobs/export.py \x1b[32m+42\x1b[0m \x1b[31m-9\x1b[0m\r\n\r\n")
+    _, copilot, _ = start("copilot-account", "", "direct", "infra", (96, 26), {"machine": "build-box", "machine_name": "build-box"})
+    copilot.append(b"\x1b[1mGitHub Copilot\x1b[0m  \x1b[2m~/src/infra\x1b[0m\r\n\r\n"
+                   b"> Bump the Postgres chart to 17 and fix the failing upgrade test\r\n\r\n"
+                   b"\x1b[32m\xe2\x9c\x93\x1b[0m Read charts/postgres/values.yaml\r\n"
+                   b"\x1b[32m\xe2\x9c\x93\x1b[0m Ran helm template charts/postgres\r\n\r\n")
+    _, qwen, _ = start("qwen", "qwen3.6:35b", "laptop", "docs-site", (96, 26), {"hostname": "ai-laptop", "machine_name": "ai-laptop"})
+    qwen.append(b"\x1b[1;35mQwen Code\x1b[0m  \x1b[2mqwen3.6:35b \xc2\xb7 ~/src/docs-site\x1b[0m\r\n\r\n"
+                b"> Fix the broken links in the deployment guide\r\n\r\n"
+                b"\x1b[32m\xe2\x9c\x94\x1b[0m Fixed 4 links in docs/deployment.md and docs/helm.md.\r\n\r\n"
+                b"\x1b[2m>\x1b[0m ")
+
     def spin() -> None:
         frames, seconds = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏", 0
         while True:
-            working.append(f"\r\x1b[K\x1b[33m{frames[seconds % len(frames)]}\x1b[0m Thinking… ({seconds}s)".encode())
+            frame = frames[seconds % len(frames)]
+            working.append(f"\r\x1b[K\x1b[33m{frame}\x1b[0m Thinking… ({seconds}s)".encode())
+            codex.append(f"\r\x1b[K\x1b[36m{frame}\x1b[0m Working ({seconds + 40}s \xb7 esc to interrupt)".encode())
+            copilot.append(f"\r\x1b[K\x1b[35m{frame}\x1b[0m Running tests ({seconds + 12}s)".encode())
             seconds += 1
             time.sleep(1)
 
