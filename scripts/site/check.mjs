@@ -63,6 +63,7 @@ try {
   assert.ok(guide.includes('podman compose -f quickstart/compose.yaml up -d'));
   assert.ok(pageSources[0].includes('docker compose -f quickstart/compose.yaml up -d'));
   assert.ok(pageSources[0].includes('podman compose -f quickstart/compose.yaml up -d'));
+  assert.ok((await readFile(path.join(root, 'quickstart/compose.gpu.yaml'), 'utf8')).includes('nvidia.com/gpu=all'));
   const errors = [];
   for (const pagePath of pagePaths) {
   const pageName = pagePath === '/' ? 'homepage' : path.basename(pagePath, '.html');
@@ -153,6 +154,11 @@ try {
     await page.getByRole('button', { name: 'Copy Podman command' }).click();
     assert.equal(await page.evaluate(() => getSelection().toString().trim()), 'podman compose -f quickstart/compose.yaml up -d');
     await page.locator('.podman-note summary').click();
+    // The NVIDIA GPU option: the quickstart's GPU file, which must exist.
+    await page.locator('.gpu-note summary').click();
+    await page.getByRole('button', { name: 'Copy GPU command' }).click();
+    assert.equal(await page.evaluate(() => getSelection().toString().trim()), 'docker compose -f quickstart/compose.yaml -f quickstart/compose.gpu.yaml up -d');
+    await page.locator('.gpu-note summary').click();
     await page.locator('#compatibility summary').focus();
     await page.keyboard.press('Enter');
     assert.equal(await page.locator('#compatibility table').isVisible(), true);

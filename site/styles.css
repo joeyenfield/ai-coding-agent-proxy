@@ -90,7 +90,7 @@ strong { font-weight: 650; color: var(--text); }
 .copy-button:hover { border-color: var(--mint); }
 pre { overflow-x: auto; padding: 23px 20px; margin: 0; font-size: 13px; line-height: 2.1; color: var(--mint); }
 pre code { font-size: inherit; }
-.podman-note { font-size: 12px; line-height: 1.8; padding: 16px 20px; border-top: 1px solid var(--line); }
+.podman-note, .gpu-note { font-size: 12px; line-height: 1.8; padding: 16px 20px; border-top: 1px solid var(--line); }
 .copy-status { font-size: 12px; min-height: 25px; color: var(--mint); padding-top: 3px; }
 .next-steps { padding-left: 22px; margin: 4px 0 20px; color: var(--muted); font-size: 14px; }
 .next-steps li { padding-left: 5px; margin-bottom: 10px; }
@@ -269,9 +269,12 @@ html { scroll-padding-top: 110px; }
 .section { padding-block: 64px; }
 details { border: 1px solid var(--line); border-radius: 7px; }
 summary { cursor: pointer; color: var(--text); font-weight: 650; padding: 18px; }
-.podman-note { border: 0; padding: 0; }
-.podman-note p, .podman-note button { margin: 0 20px 16px; }
-.podman-note pre { white-space: pre-wrap; overflow-wrap: anywhere; padding-top: 0; }
+.podman-note, .gpu-note { border: 0; padding: 0; }
+/* The GPU option sits under the Podman one, in the same box. */
+.gpu-note { border-top: 1px solid var(--line); border-radius: 0; }
+.gpu-note a { color: var(--mint); }
+.podman-note p, .podman-note button, .gpu-note p, .gpu-note button { margin: 0 20px 16px; }
+.podman-note pre, .gpu-note pre { white-space: pre-wrap; overflow-wrap: anywhere; padding-top: 0; }
 .compat-details { margin-top: 30px; scroll-margin-top: 15px; }
 .compat-details > p, .compat-details > .route-grid { margin: 20px; }
 .compat-details > p { font-size: 14px; }
