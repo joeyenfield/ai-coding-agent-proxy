@@ -690,7 +690,14 @@ def share_terminals() -> None:
 
     _, working, _ = start("opencode", "qwen3.8:latest", "desktop", "web-dashboard", (100, 28), {"machine": "ai-desktop", "machine_name": "ai-desktop"})
     working.append(b"\x1b[1mopencode\x1b[0m  qwen3.8:latest via agent-proxy\r\n\r\n> Make the usage chart load lazily\r\n\r\n"
-                   b"Reading src/charts/Usage.tsx\r\nReading src/pages/Dashboard.tsx\r\n\r\n")
+                   b"Reading src/charts/Usage.tsx\r\nReading src/pages/Dashboard.tsx\r\n\r\n"
+                   b"\x1b[36m\xe2\x97\x86\x1b[0m The chart pulls in the whole charting library on first paint. I'll split it\r\n"
+                   b"  into its own chunk and load it when the panel scrolls into view.\r\n\r\n"
+                   b"\x1b[32m\xe2\x9c\x93\x1b[0m \x1b[1mEdit\x1b[0m src/pages/Dashboard.tsx  \x1b[32m+14\x1b[0m \x1b[31m-3\x1b[0m\r\n"
+                   b"    \x1b[32m+ const Usage = lazy(() => import(\"../charts/Usage\"));\x1b[0m\r\n"
+                   b"    \x1b[32m+ <Suspense fallback={<ChartSkeleton />}>\x1b[0m\r\n"
+                   b"\x1b[32m\xe2\x9c\x93\x1b[0m \x1b[1mBash\x1b[0m npm run build\r\n"
+                   b"    dist/assets/Usage-3f9c.js   \x1b[2m84.2 kB\x1b[0m  (was in index.js)\r\n\r\n")
 
     # Different agents on every machine: Codex and Copilot at work on build-box, and Qwen Code on
     # ai-laptop done and waiting at its prompt (quiet, with no question on its screen).
@@ -703,11 +710,22 @@ def share_terminals() -> None:
     copilot.append(b"\x1b[1mGitHub Copilot\x1b[0m  \x1b[2m~/src/infra\x1b[0m\r\n\r\n"
                    b"> Bump the Postgres chart to 17 and fix the failing upgrade test\r\n\r\n"
                    b"\x1b[32m\xe2\x9c\x93\x1b[0m Read charts/postgres/values.yaml\r\n"
-                   b"\x1b[32m\xe2\x9c\x93\x1b[0m Ran helm template charts/postgres\r\n\r\n")
+                   b"\x1b[32m\xe2\x9c\x93\x1b[0m Ran helm template charts/postgres\r\n"
+                   b"\x1b[32m\xe2\x9c\x93\x1b[0m Edited charts/postgres/Chart.yaml  \x1b[2mappVersion 16.4 \xe2\x86\x92 17.2\x1b[0m\r\n"
+                   b"\x1b[32m\xe2\x9c\x93\x1b[0m Edited tests/upgrade_test.go  \x1b[32m+6\x1b[0m \x1b[31m-2\x1b[0m\r\n\r\n"
+                   b"  The upgrade test pinned the old image tag. It now reads the tag from the\r\n"
+                   b"  chart, so the next bump won't break it.\r\n\r\n"
+                   b"\x1b[33m\xe2\x97\x8f\x1b[0m go test ./tests/... -run Upgrade\r\n")
     _, qwen, _ = start("qwen", "qwen3.6:35b", "laptop", "docs-site", (96, 26), {"hostname": "ai-laptop", "machine_name": "ai-laptop"})
     qwen.append(b"\x1b[1;35mQwen Code\x1b[0m  \x1b[2mqwen3.6:35b \xc2\xb7 ~/src/docs-site\x1b[0m\r\n\r\n"
                 b"> Fix the broken links in the deployment guide\r\n\r\n"
-                b"\x1b[32m\xe2\x9c\x94\x1b[0m Fixed 4 links in docs/deployment.md and docs/helm.md.\r\n\r\n"
+                b"\x1b[32m\xe2\x9c\x94\x1b[0m ReadFile docs/deployment.md\r\n"
+                b"\x1b[32m\xe2\x9c\x94\x1b[0m Grep \"](/\" docs/  \x1b[2m31 matches in 9 files\x1b[0m\r\n"
+                b"\x1b[32m\xe2\x9c\x94\x1b[0m Edit docs/deployment.md  \x1b[32m+4\x1b[0m \x1b[31m-4\x1b[0m\r\n"
+                b"\x1b[32m\xe2\x9c\x94\x1b[0m Edit docs/helm.md  \x1b[32m+1\x1b[0m \x1b[31m-1\x1b[0m\r\n"
+                b"\x1b[32m\xe2\x9c\x94\x1b[0m Shell npm run check-links  \x1b[32m0 broken\x1b[0m\r\n\r\n"
+                b"\x1b[35m\xe2\x9c\xa6\x1b[0m Fixed 4 links in docs/deployment.md and docs/helm.md: three pointed at\r\n"
+                b"  pages that moved under docs/guides/, one at a heading that was renamed.\r\n\r\n"
                 b"\x1b[2m>\x1b[0m ")
 
     def spin() -> None:

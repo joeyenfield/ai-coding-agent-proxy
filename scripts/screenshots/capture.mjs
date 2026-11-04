@@ -89,7 +89,8 @@ async function scrub(page) {
   }, { homes: [home, home.replaceAll("\\", "/")], host: os.hostname().replace(/[^A-Za-z0-9-]/g, "") });
 }
 
-async function shot(name, path, { theme = "light", width = 1440, height = 900, prepare, fullPage = false, scrollTop = false, admin = false, scrubbed = false } = {}) {
+// element: capture only that part of the page. storage: more localStorage settings, such as the terminal's font size.
+async function shot(name, path, { theme = "light", width = 1440, height = 900, prepare, fullPage = false, scrollTop = false, admin = false, scrubbed = false, element, storage = {} } = {}) {
   if (only && !only.split(",").includes(name)) return;
   const context = await browser.newContext({ storageState: admin ? adminState : authenticatedState, viewport: { width, height }, deviceScaleFactor: 1.5, colorScheme: theme });
   // Carry the latest rotating refresh token into the next (sequential) screenshot.
@@ -102,7 +103,10 @@ async function shot(name, path, { theme = "light", width = 1440, height = 900, p
       throw new Error("The screenshot browser sign-in could not be renewed.");
     }
   }
-  await context.addInitScript((value) => localStorage.setItem("ai-proxy-theme", value), theme);
+  await context.addInitScript(({ value, storage }) => {
+    localStorage.setItem("ai-proxy-theme", value);
+    for (const [key, item] of Object.entries(storage)) localStorage.setItem(key, item);
+  }, { value: theme, storage });
   const page = await context.newPage();
   page.on("console", (message) => message.type() === "error" && console.log(`[${name}] console:`, message.text()));
   page.on("pageerror", (error) => console.log(`[${name}] error:`, error.message));
@@ -114,7 +118,8 @@ async function shot(name, path, { theme = "light", width = 1440, height = 900, p
   if (scrubbed) await scrub(page);
   // Selecting a row can scroll the list; keep the page header in view (the inspector is sticky).
   if (scrollTop) await page.evaluate(() => window.scrollTo(0, 0));
-  await page.screenshot({ path: `${out}/${name}.png`, fullPage });
+  if (element) await page.locator(element).first().screenshot({ path: `${out}/${name}.png` });
+  else await page.screenshot({ path: `${out}/${name}.png`, fullPage });
   console.log("saved", name);
   if (admin) adminState = await context.storageState();
   else authenticatedState = await context.storageState();
@@ -262,6 +267,19 @@ const openTerminal = async (page) => {
   await page.goto(`${base}/terminals/${id}`, { waitUntil: "networkidle", timeout: 10000 }).catch(() => {});
   await page.waitForTimeout(2500);
 };
+// One agent's terminal, by its agent id, with the question banner out of the way: the site shows three side by side.
+const openTerminalOf = (agent) => async (page) => {
+  const id = await page.evaluate(async (agent) => (await (await fetch("/api/terminals")).json()).terminals.find((item) => item.agent === agent && !item.ended_at)?.session_id, agent);
+  await page.goto(`${base}/terminals/${id}`, { waitUntil: "networkidle", timeout: 10000 }).catch(() => {});
+  await page.waitForTimeout(2500);
+  await page.addStyleTag({ content: ".attention { display: none !important; }" });
+  await page.waitForTimeout(300);
+};
+for (const agent of ["opencode", "copilot-account", "qwen"]) {
+  await shot(`terminal-${agent}-dark`, "/terminals", {
+    theme: "dark", width: 1180, height: 940, element: ".terminal-page", storage: { "ai-proxy-terminal-font": "15" }, prepare: openTerminalOf(agent),
+  });
+}
 await shot("overview-phone", "/", { width: 412, height: 860, fullPage: true });
 await shot("terminals", "/terminals", { fullPage: true });
 // The brochure site (site/, scripts/screenshots/site-images.py) shows these on its dark page.
