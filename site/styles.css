@@ -66,8 +66,8 @@ h1 span { color: var(--mint); }
 .window-bar > span:first-child { display: flex; gap: 5px; }
 .window-bar i { width: 6px; height: 6px; background: #7c87a0; border-radius: 50%; }
 .demo-label { color: var(--mint); }
-.hero-capture { display: block; aspect-ratio: 1.35; overflow: hidden; }
-.hero-capture img { height: 100%; object-fit: cover; object-position: top; }
+.hero-capture { display: block; background: #0b0f17; }
+.hero-capture img { border-radius: 0; }
 .hero-product figcaption { display: flex; justify-content: space-between; gap: 12px; padding: 14px 16px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--line); }
 .hero-product figcaption a { white-space: nowrap; min-height: 24px; display: inline-flex; align-items: center; }
 .compatibility { display: flex; align-items: center; flex-wrap: wrap; gap: 20px 28px; padding-block: 25px; border-block: 1px solid var(--line); font-size: 15px; }
@@ -99,15 +99,30 @@ pre code { font-size: inherit; }
 .section-heading > p:last-child { margin-top: 22px; }
 .split-heading { display: grid; grid-template-columns: 1.2fr 1fr; gap: 80px; align-items: end; max-width: none; }
 .split-heading > p { font-size: 15px; }
-.screenshot-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px 28px; }
-.screenshot-grid figure { min-width: 0; }
-.screenshot-link { display: block; border: 1px solid #63708b; border-radius: 7px; overflow: hidden; background: #f6f7fa; }
-.screenshot-link img { aspect-ratio: 1.6; object-fit: cover; object-position: top; }
-.screenshot-link:hover { outline: 2px solid var(--mint); outline-offset: 3px; }
-.screenshot-grid figcaption { display: flex; gap: 16px; padding-top: 20px; }
-.figure-number { font: 12px var(--mono); color: var(--mint); padding-top: 4px; }
-.screenshot-grid h3 { font-size: 19px; margin-bottom: 8px; }
-.screenshot-grid p { font-size: 14px; }
+/* The console, one feature a row: the whole capture, scaled to fit, beside what it shows. */
+.shots { display: grid; gap: 72px; }
+.shot { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 48px; align-items: center; margin: 0; }
+.shot:nth-child(even) { grid-template-columns: minmax(0, 1fr) minmax(0, 1.55fr); }
+.shot:nth-child(even) .shot-frame { order: 2; }
+.shot-frame { display: block; border: 1px solid #4a566d; border-radius: 10px; overflow: hidden; background: #f6f7fa; box-shadow: 0 24px 60px #0006; transition: transform .2s, border-color .2s; }
+.shot-frame:hover { transform: translateY(-3px); border-color: var(--mint); }
+.shot-frame:focus-visible { outline: 2px solid var(--mint); outline-offset: 4px; }
+.shot figcaption { min-width: 0; }
+.figure-number { display: block; font: 12px var(--mono); color: var(--mint); letter-spacing: .06em; margin-bottom: 14px; }
+.shot h3 { font-size: 24px; line-height: 1.25; margin-bottom: 14px; }
+.shot p { font-size: 15px; }
+.shot ul { margin: 16px 0 0; padding-left: 18px; color: var(--muted); font-size: 14px; }
+.shot li { margin-bottom: 6px; }
+.shot figcaption a { color: var(--mint); }
+.shot .open-full { display: inline-flex; align-items: center; min-height: 44px; margin-top: 10px; font-size: 13px; }
+/* Where it runs: the four ways to add a machine. */
+.runs-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; }
+.runs-grid article { display: flex; flex-direction: column; align-items: flex-start; padding: 24px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+.runs-grid .run-kind { font: 10px/1.6 var(--mono); letter-spacing: .07em; color: var(--lavender); margin-bottom: 14px; }
+.runs-grid h3 { font-size: 19px; margin-bottom: 12px; }
+.runs-grid p { font-size: 14px; margin-bottom: 16px; }
+.runs-grid code { font-size: 12px; overflow-wrap: anywhere; }
+.runs-grid a { margin-top: auto; font-size: 12px; color: var(--mint); min-height: 44px; display: inline-flex; align-items: center; }
 .feature-grid { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--line); }
 .feature-grid article { padding: 30px 24px; border-right: 1px solid var(--line); display: flex; align-items: flex-start; flex-direction: column; }
 .feature-grid article:first-child { padding-left: 0; }
@@ -179,7 +194,6 @@ pre code { font-size: inherit; }
   h1 { font-size: clamp(40px, 7vw, 62px); }
   .hero-lede { max-width: 600px; }
   .hero-product { max-width: 700px; width: 100%; }
-  .hero-capture { aspect-ratio: 1.65; }
   .quickstart { grid-template-columns: 1fr; gap: 30px; }
   .quickstart-copy { max-width: 630px; }
   .section { padding-block: 65px; }
@@ -220,8 +234,8 @@ pre code { font-size: inherit; }
   .code-toolbar { padding-inline: 12px; }
   .code-toolbar .mono { font-size: 9px; }
   pre { font-size: 12px; padding-inline: 15px; }
-  .screenshot-grid { grid-template-columns: 1fr; gap: 30px; }
-  .screenshot-grid figcaption { gap: 12px; }
+  .runs-grid { grid-template-columns: 1fr; }
+  .shot h3 { font-size: 21px; }
   .feature-grid { grid-template-columns: 1fr; }
   .feature-grid article { border-right: 0; padding: 26px 0; }
   .feature-index { margin-bottom: 18px; }
@@ -244,20 +258,9 @@ html { scroll-padding-top: 110px; }
 .hero { grid-template-columns: 1.15fr 1fr; gap: 35px; padding-block: 56px; }
 .hero h1 { font-size: clamp(38px, 4.1vw, 60px); }
 .hero .eyebrow { font-size: 11px; }
-.hero-capture { height: 370px; aspect-ratio: auto; position: relative; }
-.hero-capture img { width: 920px; max-width: none; height: auto; margin: -95px 0 0 -175px; }
 .compatibility a { margin-left: 0; }
 .compatibility .mono { width: 100%; }
 .section { padding-block: 64px; }
-.screenshot-grid { grid-template-columns: 1fr; gap: 32px; }
-.screenshot-grid figure { display: grid; grid-template-columns: 2fr 1fr; gap: 30px; align-items: center; }
-.capture-scroll { min-width: 0; max-height: 420px; overflow: auto; border: 1px solid #63708b; border-radius: 7px; }
-.screenshot-link { width: 1070px; min-width: 1070px; border: 0; border-radius: 0; }
-.screenshot-link img { width: 1300px; max-width: none; margin: -160px 0 0 -230px; aspect-ratio: auto; }
-.screenshot-grid figure:first-child img { margin-top: -340px; }
-.screenshot-grid figure:nth-child(2) img { margin-top: -470px; }
-.screenshot-grid figcaption { padding: 0; }
-.screenshot-grid figcaption a { color: var(--mint); }
 details { border: 1px solid var(--line); border-radius: 7px; }
 summary { cursor: pointer; color: var(--text); font-weight: 650; padding: 18px; }
 .podman-note { border: 0; padding: 0; }
@@ -296,14 +299,17 @@ th small { display: block; font-weight: 400; color: var(--muted); }
 @media (max-width: 1100px) {
   .site-header nav { gap: 14px; }
   .hero { grid-template-columns: 1.1fr 1fr; }
-  .screenshot-grid figure { grid-template-columns: 1.5fr 1fr; }
+  .shot { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 32px; }
+  .shot:nth-child(even) { grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); }
+  .runs-grid { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 850px) {
   .mobile-start { display: inline-flex; min-height: 44px; padding: 8px 12px; font-size: 12px; margin-left: auto; }
   .hero { grid-template-columns: 1fr; }
   .hero h1 { font-size: clamp(36px, 6.3vw, 58px); }
-  .hero-capture { height: 350px; }
-  .screenshot-grid figure { grid-template-columns: 1fr; gap: 20px; }
+  .shots { gap: 56px; }
+  .shot, .shot:nth-child(even) { grid-template-columns: 1fr; gap: 22px; }
+  .shot:nth-child(even) .shot-frame { order: 0; }
   .detail-grid, .route-grid { grid-template-columns: 1fr; }
   .site-header.is-enhanced nav.is-open { max-height: 65vh; overflow: auto; }
   .site-header:not(.is-enhanced) { position: static; }
@@ -315,9 +321,6 @@ th small { display: block; font-weight: 400; color: var(--muted); }
   .hero { padding-top: 32px; }
   .hero h1 { font-size: clamp(30px, 9.6vw, 37px); }
   .hero .eyebrow { font-size: 9px; letter-spacing: .02em; gap: 6px; }
-  .hero-capture { height: 290px; }
-  .hero-capture img { width: 820px; margin: -100px 0 0 -160px; }
-  .capture-scroll { max-height: 330px; }
   .section { padding-block: 48px; }
   .page-intro { padding-top: 35px; }
   .page-nav { gap: 0 18px; }

@@ -6,14 +6,16 @@ import path from 'node:path';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const pages = ['index.html', 'teams.html', 'security.html', 'styles.css', 'site.js', 'robots.txt', 'sitemap.xml', 'site.webmanifest'];
-const captures = ['overview-dark', 'machines', 'session-chat', 'machine-mcp', 'terminal'];
-const assets = ['icon.svg', 'social.svg', 'social.png', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'];
+const captures = ['overview-dark', 'agents', 'machines', 'session-chat', 'machine-mcp', 'terminal'];
+// The web-sized copies the homepage shows (scripts/screenshots/site-images.py).
+const screens = ['overview-dark', 'agents', 'machines', 'session-chat', 'machine-mcp', 'terminal'].flatMap(name => [800, 1440].map(width => `screens/${name}-${width}.webp`));
+const assets = ['icon.svg', 'social.svg', 'social.png', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png', ...screens];
 export const publicFiles = new Map([
   ...pages.map(name => [`/${name}`, `site/${name}`]),
   ...captures.map(name => [`/screenshots/${name}.png`, `docs/screenshots/${name}.png`]),
   ...assets.map(name => [`/assets/${name}`, `site/assets/${name}`]),
 ]);
-const types = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.txt': 'text/plain', '.xml': 'application/xml', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png' };
+const types = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.txt': 'text/plain', '.xml': 'application/xml', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp' };
 
 export async function startPreview(port = 0) {
   const server = createServer(async (request, response) => {
