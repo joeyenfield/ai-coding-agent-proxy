@@ -106,10 +106,15 @@ pre code { font-size: inherit; }
 .code-window:has(#qs-docker:checked):has(#qs-gpu:checked) .qs-cmd[data-v="docker-gpu"],
 .code-window:has(#qs-podman:checked):has(#qs-cpu:checked) .qs-cmd[data-v="podman-cpu"],
 .code-window:has(#qs-podman:checked):has(#qs-gpu:checked) .qs-cmd[data-v="podman-gpu"] { display: block; }
-.code-window:has(#qs-podman:checked) .qs-note-podman, .code-window:has(#qs-gpu:checked) .qs-note-gpu { display: block; }
+.code-window:has(#qs-helm:checked) .qs-cmd[data-v="helm"] { display: block; }
+/* Kubernetes has its own notes, and its own word on GPUs. */
+.code-window:has(#qs-podman:checked) .qs-note-podman, .code-window:has(#qs-helm:checked) .qs-note-helm,
+.code-window:has(#qs-gpu:checked):not(:has(#qs-helm:checked)) .qs-note-gpu, .code-window:has(#qs-gpu:checked):has(#qs-helm:checked) .qs-note-helm-gpu { display: block; }
 .qs-note { margin: 0; padding: 14px 20px; border-top: 1px solid var(--line); font-size: 12px; line-height: 1.8; }
 .qs-note a { color: var(--mint); }
 .qs-note code { overflow-wrap: anywhere; }
+.qs-note-cmd { border-top: 0; padding: 0 20px 6px; }
+.qs-note-cmd code { font-size: 12px; }
 .copy-status { font-size: 12px; min-height: 25px; color: var(--mint); padding-top: 3px; }
 .next-steps { padding-left: 22px; margin: 4px 0 20px; color: var(--muted); font-size: 14px; }
 .next-steps li { padding-left: 5px; margin-bottom: 10px; }

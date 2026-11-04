@@ -64,6 +64,9 @@ try {
   assert.ok(pageSources[0].includes('docker compose -f quickstart/compose.yaml up -d'));
   assert.ok(pageSources[0].includes('podman compose -f quickstart/compose.yaml up -d'));
   assert.ok((await readFile(path.join(root, 'quickstart/compose.gpu.yaml'), 'utf8')).includes('nvidia.com/gpu=all'));
+  // The Helm commands' chart and files, and the Services the port-forwards name (release mesh).
+  for (const file of ['deploy/helm/agent-mesh/Chart.yaml', 'quickstart/kubernetes/values.yaml', 'quickstart/kubernetes/machine.yaml']) await readFile(path.join(root, file));
+  assert.ok((await readFile(path.join(root, 'docs/quickstart-kubernetes.md'), 'utf8')).includes('svc/mesh-agent-mesh-auth 20000:20000'));
   const errors = [];
   for (const pagePath of pagePaths) {
   const pageName = pagePath === '/' ? 'homepage' : path.basename(pagePath, '.html');
@@ -155,13 +158,18 @@ try {
       ['Podman', 'CPU', 'podman compose -f quickstart/compose.yaml up -d'],
       ['Podman', 'NVIDIA GPU', 'podman compose -f quickstart/compose.yaml -f quickstart/compose.gpu.yaml up -d'],
       ['Docker', 'NVIDIA GPU', 'docker compose -f quickstart/compose.yaml -f quickstart/compose.gpu.yaml up -d'],
+      ['Kubernetes (Helm)', 'CPU', 'kubectl -n mesh get pods -w'],
+      ['Kubernetes (Helm)', 'NVIDIA GPU', 'kubectl -n mesh get pods -w'],
       ['Docker', 'CPU', 'docker compose -f quickstart/compose.yaml up -d'],
     ]) {
-      await page.locator('.seg label', { hasText: new RegExp(`^${engine}$`) }).click();
+      const helm = engine.startsWith('Kubernetes');
+      await page.locator('.seg label', { hasText: new RegExp(`^${engine.replace(/[()]/g, '\\$&')}$`) }).click();
       await page.locator('.seg label', { hasText: new RegExp(`^${hardware}$`) }).click();
       assert.equal(await page.locator('.qs-cmd:visible').count(), 1, `${engine}/${hardware} shows one block`);
       assert.equal(await page.locator('.qs-note-podman').isVisible(), engine === 'Podman');
-      assert.equal(await page.locator('.qs-note-gpu').isVisible(), hardware === 'NVIDIA GPU');
+      assert.equal(await page.locator('.qs-note-gpu').isVisible(), hardware === 'NVIDIA GPU' && !helm);
+      assert.equal(await page.locator('.qs-note-helm').first().isVisible(), helm);
+      assert.equal(await page.locator('.qs-note-helm-gpu').isVisible(), hardware === 'NVIDIA GPU' && helm);
       await page.getByRole('button', { name: 'Copy commands' }).click();
       const shown = await page.evaluate(() => getSelection().toString().trim());
       assert.ok(shown.startsWith('git clone ') && shown.endsWith(last), `${engine}/${hardware}: ${shown}`);
