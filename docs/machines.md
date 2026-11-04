@@ -411,6 +411,8 @@ docker run -d --name agent-sandbox --restart unless-stopped \
   ghcr.io/joeyenfield/agent-sandbox:latest
 ```
 
+**More than one sandbox on a computer.** The console's **Add a machine** (System: **Docker container**) has an optional **Name** that adds to `agent-sandbox` and names the container and both of its volumes; do the same by hand. `work` gives `--name agent-sandbox-work` with `agent-sandbox-work-home` and `agent-sandbox-work-workspace`, so each sandbox keeps its own sign-ins, models, llama.cpp and workspace and none of them shares another's. Names are lower-case letters, digits and dashes. The machine's name here is the container's, since that is its hostname (`AI_PROXY_MACHINE_NAME` still overrides it). `--network`, the model-server settings and the rest are the same for each; nothing else about a sandbox is shared between them.
+
 `latest` is the newest build of master or a release, and it's what the console's **Add a machine** (System: **Docker container**) shows. `docker pull` and a new container move a sandbox to a newer one. To pin it, use a release's tag (`2.0.1`) or a commit of master's (`sha-<commit>`) instead. A server that is too old for the sandbox's protocol refuses it, and the sandbox's log says so: use the tag of the server's own version then. To run changes of your own, build the image from a copy of this repository and run `agent-sandbox` instead:
 
 ```bash
