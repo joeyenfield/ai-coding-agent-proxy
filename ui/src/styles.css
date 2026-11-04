@@ -404,11 +404,6 @@ dialog.confirm form { display: flex; flex-direction: column; gap: 14px; }
 dialog::backdrop { background: rgb(15 20 30 / 0.5); }
 
 /* Agents */
-.agent-list { display: flex; flex-direction: column; gap: 8px; }
-.agent { width: 100%; display: flex; flex-direction: column; align-items: stretch; gap: 4px; text-align: left; white-space: normal; padding: 14px 16px; border-radius: var(--radius); border-color: var(--line); }
-.agent.selected { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); background: var(--accent-soft); }
-.agent-name { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; }
-.agent-meta { display: flex; gap: 16px; font-size: 13px; }
 .panel { display: flex; flex-direction: column; gap: 14px; padding: 22px; background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); }
 .panel h3 { font-size: 15px; margin-top: 6px; }
 .callout { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: var(--radius-small); background: var(--live-soft); }
@@ -617,9 +612,6 @@ dialog::backdrop { background: rgb(15 20 30 / 0.5); }
 .route-card dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
 .route-card dd small { display: block; font-weight: 400; color: var(--steel); }
 .route-card .row { margin-top: auto; gap: 14px; font-size: 13.5px; }
-.agent-group { margin-bottom: 28px; }
-.agent-group h2 { display: flex; align-items: center; margin: 0 0 4px; font-size: 17px; }
-.agent-group > p { margin: 0 0 12px; }
 .nav-group { display: flex; flex-direction: column; gap: 1px; }
 .nav-group + .nav-group { margin-top: 16px; }
 .nav-heading { margin: 0 0 4px; padding: 0 10px; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: color-mix(in srgb, var(--steel) 80%, var(--paper)); cursor: default; }
@@ -982,10 +974,6 @@ ul.plain { list-style: none; padding: 0; margin: 6px 0; display: flex; flex-dire
   border-color: var(--line);
   box-shadow: var(--shadow);
 }
-.agent { box-shadow: var(--shadow-sm); }
-.agent:hover:not(:disabled) { background: var(--paper); border-color: var(--line-strong); }
-.agent.selected { box-shadow: 0 0 0 1px var(--accent), var(--shadow); background: var(--accent-soft); }
-.agent.selected:hover:not(:disabled) { background: var(--accent-soft); border-color: var(--accent); }
 .table th { background: var(--raised); font-weight: 600; font-size: 12px; letter-spacing: 0.02em; }
 .table.selectable tbody tr:hover td { background: var(--raised); }
 .routing-map { border-radius: var(--radius); }
@@ -1398,8 +1386,18 @@ code { background: var(--ground); border: 1px solid var(--line); padding: 0 5px;
 .api-log-headers dd { margin: 0; }
 .api-log-body { max-height: 420px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
 /* Start an agent: starting it on a machine comes before the commands. */
-.machine-launch { display: flex; flex-direction: column; gap: 10px; margin-bottom: 8px; }
-.machine-launch h3 { margin: 0; }
+.start-page { max-width: 960px; }
+.start-picker .form-grid { align-items: start; }
+.start-picker select { min-height: 42px; font-size: 15px; }
+.start-step { font-weight: 700; font-size: 15px; color: var(--ink); }
+.start-no-machines { gap: 16px; }
+.start-hint { text-align: center; padding: 8px 0; }
+.agent-start h3 { margin-top: 10px; }
+.start-options { padding: 10px 14px; border: 1px solid var(--line); border-radius: var(--radius-small); background: var(--raised); }
+.start-options summary { cursor: pointer; font-weight: 600; }
+.start-options[open] > * + * { margin-top: 12px; }
+.agent-start-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.agent-start-head h2 { font-size: 20px; }
 /* On a phone the address and duration are in the opened row. */
 @media (max-width: 600px) {
   .api-log-headers > div { grid-template-columns: 1fr; gap: 0; }

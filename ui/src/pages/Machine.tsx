@@ -1226,8 +1226,11 @@ function ShellForm({ machine, onDone }: { machine: FleetMachine; onDone?: () => 
   );
 }
 
-/** Start an agent on a machine (its page, and Start an agent); initialAgent is the one chosen first. */
-export function LaunchForm({ machine, agents, onDone, initialAgent }: { machine: FleetMachine; agents: Agent[]; onDone?: () => void; initialAgent?: string }) {
+/**
+ * Start an agent on a machine (its page, and Start an agent); initialAgent is the one chosen first.
+ * fixedAgent: Start an agent has picked it already, so the form doesn't offer the choice again.
+ */
+export function LaunchForm({ machine, agents, onDone, initialAgent, fixedAgent }: { machine: FleetMachine; agents: Agent[]; onDone?: () => void; initialAgent?: string; fixedAgent?: boolean }) {
   const navigate = useNavigate();
   const notify = useToast();
   const client = useQueryClient();
@@ -1294,16 +1297,18 @@ export function LaunchForm({ machine, agents, onDone, initialAgent }: { machine:
   return (
     <form className="launch-form panel" onSubmit={submit}>
       <div className="form-grid">
-        <label className="field">
-          Agent
-          <select value={agentId} onChange={(event) => setAgentId(event.target.value)}>
-            {agents.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        {!fixedAgent && (
+          <label className="field">
+            Agent
+            <select value={agentId} onChange={(event) => setAgentId(event.target.value)}>
+              {agents.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         {agent && !agent.intercept && backends.length > 0 && (
           <label className="field">
             Provider

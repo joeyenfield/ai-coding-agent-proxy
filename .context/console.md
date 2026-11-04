@@ -91,7 +91,7 @@ The design rule: **everything about a model server is on its machine's page**, o
 
 ## Extending
 
-- Start an agent (`pages/Agents.tsx`): `MachineLaunch` offers the machines you may launch on (`machine.you.launch`; the not-ready ones disabled with why) and opens `Machine.tsx`'s exported `LaunchForm` with `initialAgent`; the `agent` command stays below it.
+- Start an agent (`pages/Agents.tsx`): two choices kept in the address (`?on=<machine id>&agent=<id>`; the last machine also in localStorage): where it runs ("Give me the command", or a machine with `you.launch`, each with `machineBlocker()`'s reason) and the agent, then `AgentStart` shows only that case: on a ready machine `Machine.tsx`'s exported `LaunchForm` with `initialAgent` and `fixedAgent` (no agent choice of its own); on one without the agent its `InstallCommand` for the machine's OS; for the command, the install command, then `AccountCommand`/`ProxyCommand` with the extras under a collapsed Options. No machines you may launch on: a callout linking to `/machines#add`.
 - **Page**: `pages/X.tsx` with `<PartTag />` above its `<h1>`, a `<Route>` in `App.tsx`, an item in `PARTS`, calls in `api.ts`, and docs in `docs/console.md`.
 - **Provider view**: `MACHINE_TYPES`, `PROVIDERS`, the Settings `<option>` and `URL_PLACEHOLDERS`, a `<Kind>Provider` taking the props above, and its case in `ProviderView`. No global provider pages.
 - Check with `npm run typecheck` and `npm run build`; for visual checks, the demo below.

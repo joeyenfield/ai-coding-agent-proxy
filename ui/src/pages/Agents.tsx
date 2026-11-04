@@ -1,88 +1,248 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
-import { api, preferredModel, providerModels, PROTOCOL_LABELS, type Agent, type FleetMachine, type InstallEnvironment, type PreparedSession } from "../api";
+import { Link, useSearchParams } from "react-router-dom";
+import { api, preferredModel, providerModels, type Agent, type FleetMachine, type InstallEnvironment, type PreparedSession } from "../api";
 import { CodeLine } from "../components/CodeLine";
 import { McpChoice, McpUrls, mcpArgs } from "../components/McpChoice";
 import { useAgents, useAuth, useClipboard, useMachines, useModels, useStatus } from "../hooks";
 import { PartTag } from "../components/PartTag";
 import { ShareChoice, shareArgs } from "../components/Sharing";
 import { providerLabel, ROUTE_ORDER, ROUTES, type RouteKind } from "../routes";
-import { LaunchForm, launchReady } from "./Machine";
+import { LaunchForm } from "./Machine";
 
-const ROUTE_INTROS: Record<RouteKind, string> = {
-  account: "Use the agent's own sign-in and plan. Nothing is translated: the proxy records every request on its way to the vendor.",
-  ollama: "Run the agent against your own Ollama machines, Docker Model Runner or Strata, on your machines. For Ollama the proxy translates requests and applies the context size and sampling from the server's model tuning; Docker and Strata take them as they are.",
-  hosted: "Point the agent's API endpoint at the proxy and pass requests through unchanged to a hosted API backend.",
+/** One line on each route, under the agent's name. */
+const ROUTE_LINES: Record<RouteKind, string> = {
+  account: "Uses its own sign-in and plan. The server records everything it sends.",
+  ollama: "Runs on a model from your machines: Ollama, llama.cpp, Strata or Docker Model Runner.",
+  hosted: "Uses a hosted API, such as Anthropic, through the server.",
 };
 
 /** Hosted backends don't list models through the proxy, so suggest the usual names instead. */
 const HOSTED_MODELS = ["sonnet", "opus", "haiku"];
 
+/** The last place agents were started from (a machine's id, or "" for the command), for the next visit. */
+const START_ON_KEY = "ai-proxy-start-on";
+
 const routeOfAgent = (agent: Agent): RouteKind => agent.route ?? (agent.intercept ? "account" : "ollama");
 
+function remembered(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function remember(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Private windows can refuse storage; the choice just isn't kept.
+  }
+}
+
+/** Why no agent can be started on the machine now, or null when it can take launches. */
+function machineBlocker(machine: FleetMachine): string | null {
+  if (!machine.you.launch) return "you can't start agents there";
+  if (!machine.connected) return "offline";
+  if (!machine.launches) return "launches are off";
+  if (machine.launcher === false) return "the agent command isn't installed";
+  if (!machine.roots.length) return "no launch folders";
+  return null;
+}
+
+/**
+ * Start an agent: where it runs (one of your machines, or a command to run yourself), then which
+ * agent, then only what that choice needs. The choices are in the address (?on=&agent=), so a link
+ * opens the same view.
+ */
 export function AgentsPage() {
   const agents = useAgents();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const machines = useMachines();
+  const [params, setParams] = useSearchParams();
   const list = agents.data ?? [];
-  const selected = list.find((agent) => agent.id === selectedId) ?? list[0];
-  const groups = ROUTE_ORDER.map((route) => ({ route, agents: list.filter((agent) => routeOfAgent(agent) === route) })).filter(
-    (group) => group.agents.length,
-  );
+  // Machines you may start agents on; the others never could, so they aren't offered.
+  const fleet = (machines.data?.machines ?? []).filter((machine) => machine.you.launch);
+  const asked = params.get("on") ?? remembered(START_ON_KEY) ?? "";
+  const machine = fleet.find((item) => item.id === asked);
+  // Until the machines arrive, keep the one asked for, so choosing an agent meanwhile doesn't drop it.
+  const on = machine?.id ?? (machines.isPending ? asked : "");
+  const agent = list.find((item) => item.id === params.get("agent"));
+
+  const choose = (next: { on?: string; agent?: string }) => {
+    const values = { on, agent: agent?.id ?? params.get("agent") ?? "", ...next };
+    if (next.on !== undefined) remember(START_ON_KEY, next.on);
+    const search = new URLSearchParams();
+    if (values.on) search.set("on", values.on);
+    if (values.agent) search.set("agent", values.agent);
+    setParams(search, { replace: true });
+  };
+
+  const installedHere = (item: Agent) => Boolean(machine?.agents.includes(item.id));
+  const groups = machine
+    ? [
+        { label: `Installed on ${machine.name}`, agents: list.filter(installedHere) },
+        { label: `Not installed on ${machine.name}`, agents: list.filter((item) => !installedHere(item)) },
+      ]
+    : ROUTE_ORDER.map((route) => ({ label: ROUTES[route].label, agents: list.filter((item) => routeOfAgent(item) === route) }));
+
   return (
-    <div className="page wide">
+    <div className="page start-page">
       <header className="page-head">
         <PartTag />
         <h1>Start an agent</h1>
         <p className="lede">
-          Every agent runs through this proxy so its requests are recorded. Choose how it reaches a model: your own account,
-          a local model on Ollama, Docker or Strata, or a hosted API.
+          Pick where it runs and which coding agent. Everything it sends goes through this server, so you can watch it and
+          see every request it makes.
         </p>
       </header>
       {agents.isError && <p className="bad">{agents.error.message}</p>}
-      <div className="split">
-        <div className="split-main">
-          {groups.map((group) => (
-            <section key={group.route} className={`agent-group route-${group.route}`} aria-labelledby={`agents-${group.route}`}>
-              <h2 id={`agents-${group.route}`}>
-                <span className={`route-dot route-${group.route}`} aria-hidden="true" />
-                {ROUTES[group.route].label}
-              </h2>
-              <p className="subtle">{ROUTE_INTROS[group.route]}</p>
-              <ul className="agent-list" aria-label={ROUTES[group.route].label}>
-                {group.agents.map((agent) => (
-                  <li key={agent.id}>
-                    <button
-                      type="button"
-                      className={`agent ${selected?.id === agent.id ? "selected" : ""}`}
-                      aria-pressed={selected?.id === agent.id}
-                      onClick={() => setSelectedId(agent.id)}
-                    >
-                      <span className="agent-name">
-                        {agent.name}
-                        {agent.recommended_for.includes("qwen") && <span className="pill accent">Good with Qwen</span>}
-                      </span>
-                      <span className="subtle">{agent.description}</span>
-                      <span className="agent-meta">
-                        <span className={agent.installed ? "good" : "subtle"}>{agent.installed ? "Installed" : "Not installed"}</span>
-                        <span className="subtle">{agent.intercept ? "Full traffic capture" : PROTOCOL_LABELS[agent.protocol]}</span>
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ))}
+      {machines.isSuccess && !fleet.length && (
+        <div className="callout row start-no-machines">
+          <span>
+            <strong>No machines yet.</strong> Add a computer as a machine to start agents on it from here, in one click, and
+            watch them from any device. Until then, run them yourself with a command.
+          </span>
+          <Link to="/machines#add" className="button primary">
+            Add a machine
+          </Link>
         </div>
-        <div className="split-side">{selected && <LaunchPanel key={selected.id} agent={selected} />}</div>
-      </div>
+      )}
+      <section className="panel start-picker" aria-label="What to start">
+        <div className="form-grid two">
+          <label className="field">
+            <span className="start-step">1. Where should it run?</span>
+            <select value={on} onChange={(event) => choose({ on: event.target.value })}>
+              <option value="">Give me the command</option>
+              {fleet.length > 0 && (
+                <optgroup label="On one of your machines">
+                  {fleet.map((item) => {
+                    const reason = machineBlocker(item);
+                    return (
+                      <option key={item.id} value={item.id}>
+                        {item.name}
+                        {reason ? ` (${reason})` : ""}
+                      </option>
+                    );
+                  })}
+                </optgroup>
+              )}
+            </select>
+            <small>
+              {machine
+                ? machineBlocker(machine)
+                  ? `${machine.name} can't start agents now: ${machineBlocker(machine)}.`
+                  : `It starts on ${machine.name} in a terminal you can watch and type into from any device.`
+                : machines.isPending
+                  ? "Looking for your machines…"
+                  : "You run it yourself in a terminal, on any computer with the agent command."}
+            </small>
+          </label>
+          <label className="field">
+            <span className="start-step">2. Which agent?</span>
+            <select value={agent?.id ?? ""} onChange={(event) => choose({ agent: event.target.value })} disabled={!list.length}>
+              <option value="">{agents.isPending ? "Loading agents…" : "Choose an agent…"}</option>
+              {groups
+                .filter((group) => group.agents.length)
+                .map((group) => (
+                  <optgroup key={group.label} label={group.label}>
+                    {group.agents.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+            </select>
+            <small>
+              {machine
+                ? `${list.filter(installedHere).length} of ${list.length} installed on ${machine.name}. Any other shows how to install it.`
+                : "Agents signed in to your own plan, or running on your machines' models or a hosted API."}
+            </small>
+          </label>
+        </div>
+      </section>
+      {agent ? (
+        <AgentStart key={`${on}:${agent.id}`} agent={agent} machine={machine} />
+      ) : (
+        <p className="subtle start-hint">Choose an agent to see how to start it.</p>
+      )}
     </div>
   );
 }
 
-function LaunchPanel({ agent }: { agent: Agent }) {
-  if (agent.intercept) return <AccountLaunchPanel agent={agent} />;
-  return <ProxyLaunchPanel agent={agent} />;
+/** The chosen agent: what it is, then how to start it where it was asked to run. */
+function AgentStart({ agent, machine }: { agent: Agent; machine?: FleetMachine }) {
+  const agents = useAgents();
+  const route = routeOfAgent(agent);
+  return (
+    <section className="panel agent-start" aria-labelledby="agent-start-title">
+      <div className="agent-start-head">
+        <h2 id="agent-start-title">{agent.name}</h2>
+        <span className={`route-badge route-${route}`}>{ROUTES[route].label}</span>
+        {agent.recommended_for.includes("qwen") && <span className="pill accent">Good with Qwen</span>}
+      </div>
+      <p>
+        {agent.description ? `${agent.description} ` : ""}
+        <span className="subtle">{ROUTE_LINES[route]}</span>{" "}
+        {agent.homepage && (
+          <a href={agent.homepage} target="_blank" rel="noreferrer">
+            Its documentation
+          </a>
+        )}
+      </p>
+      {machine ? (
+        <MachineStart agent={agent} machine={machine} agents={agents.data ?? []} />
+      ) : (
+        <>
+          <h3>3. Install {agent.name}</h3>
+          <InstallCommand agent={agent} />
+          <h3>4. Start it from your project folder</h3>
+          <p className="subtle">
+            It needs the <code>agent</code> command, signed in to this server: get it from <Link to="/get">Downloads</Link>,
+            then run <code>agent login</code> once.
+          </p>
+          {agent.intercept ? <AccountCommand agent={agent} /> : <ProxyCommand agent={agent} />}
+        </>
+      )}
+    </section>
+  );
+}
+
+/** Starting it on a machine: why it can't, how to install it there, or the launch form. */
+function MachineStart({ agent, machine, agents }: { agent: Agent; machine: FleetMachine; agents: Agent[] }) {
+  const blocker = machineBlocker(machine);
+  if (blocker) {
+    return (
+      <div className="callout">
+        <span>
+          <strong>{machine.name} can't start agents now:</strong> {blocker}.
+        </span>
+        <span>
+          <Link to={`/machines/${encodeURIComponent(machine.id)}`}>Open {machine.name}</Link> to see why, or choose{" "}
+          <em>Give me the command</em> above to run it yourself.
+        </span>
+      </div>
+    );
+  }
+  if (!machine.agents.includes(agent.id)) {
+    return (
+      <>
+        <h3>3. Install {agent.name} on {machine.name}</h3>
+        <InstallCommand agent={agent} initial={environmentOf(machine)} where={machine.name} />
+        <p className="subtle">
+          {machine.name} tells the server what's installed every minute: once {agent.executable} is on its PATH, you can start it
+          here.
+        </p>
+      </>
+    );
+  }
+  return (
+    <>
+      <h3>3. Start it on {machine.name}</h3>
+      <LaunchForm machine={machine} agents={agents.filter((item) => machine.agents.includes(item.id))} initialAgent={agent.id} fixedAgent />
+    </>
+  );
 }
 
 /** --control: share the agent's terminal with this server, to watch and type into from Running agents. */
@@ -97,107 +257,92 @@ function ControlCheck({ checked, onChange }: { checked: boolean; onChange: (chec
   );
 }
 
-/** Agents signed in to their own service: no backend or model to pick, traffic is captured in transit. */
-function AccountLaunchPanel({ agent }: { agent: Agent }) {
-  const status = useStatus();
+/** Setting up an agent's environment without the launcher: a session now, and the variables to set. */
+function ManualSetup({ agent, disabled, prepare }: { agent: Agent; disabled: boolean; prepare: () => Promise<PreparedSession> }) {
   const copy = useClipboard();
   const client = useQueryClient();
-  const [trace, setTrace] = useState(true);
-  const [control, setControl] = useState(false);
-  const [share, setShare] = useState({ value: "private", control: false });
-  const identity = useAuth().data?.identity;
   const [shell, setShell] = useState<"powershell" | "bash">(navigator.userAgent.includes("Windows") ? "powershell" : "bash");
   const [prepared, setPrepared] = useState<PreparedSession | null>(null);
-  const [mcp, setMcp] = useState<string[]>([]);
-  const intercept = status.data?.intercept;
-  const prepare = useMutation({
-    mutationFn: () => api.prepareAgent(agent.id, { model: "", backend: "", trace, mcp }),
+  const open = useMutation({
+    mutationFn: prepare,
     onSuccess: (result) => {
       setPrepared(result);
       client.invalidateQueries({ queryKey: ["sessions"] });
     },
   });
-  const launcher = ["agent", agent.id, ".", ...(trace ? ["--trace"] : []), ...(control ? ["--control"] : []), ...mcpArgs(mcp), ...shareArgs(identity, share.value, share.control)].join(" ");
   return (
-    <section className="panel" aria-labelledby="launch-title">
-      <h2 id="launch-title">Start {agent.name}</h2>
-      <p>
-        <span className="route-badge route-account">{ROUTES.account.label}</span>
+    <details className="manual" onToggle={() => open.reset()}>
+      <summary>Set it up by hand instead</summary>
+      <p className="subtle">
+        Opens a session now and shows the environment for {agent.executable}, on a machine whose agent-proxy is running.
+        Started this way, its terminal isn't shared with Running agents.
       </p>
-      <MachineLaunch agent={agent} />
-      <h3>Or run it yourself</h3>
-      <InstallCommand agent={agent} />
-      <p>
-        The agent keeps its own sign-in and talks to its own service. The launcher sends all of its HTTPS to the
-        agent-proxy on its machine, which carries it here to be recorded. Every request it makes shows up on the{" "}
-        <Link to="/traffic">Traffic</Link> page, and model calls also stream on the <Link to="/live">Live</Link> page.
-      </p>
-      {intercept && !intercept.running ? (
-        <p className="bad">HTTPS capture is off on this server: {intercept.error}</p>
-      ) : (
-        intercept && (
-          <p className="subtle">
-            The agent-proxy's HTTPS proxy is <span className="mono">{intercept.url}</span> on each agent machine. This
-            server's certificate authority is trusted only by the processes the launcher starts.
-          </p>
-        )
-      )}
-      <label className="check">
-        <input type="checkbox" checked={trace} onChange={(event) => setTrace(event.target.checked)} />
-        Save full request and response bodies (credentials are redacted)
-      </label>
-      <ControlCheck checked={control} onChange={setControl} />
-      <McpChoice agent={agent} chosen={mcp} onChange={setMcp} />
-      <ShareChoice value={share.value} control={share.control} onChange={(value, control) => setShare({ value, control })} />
-      <h4>From your project folder</h4>
-      <CodeLine text={launcher} onCopy={() => copy(launcher, "Command copied")} />
-      <p className="subtle">Arguments after <code>--</code> go to the agent, for example <code>{launcher} -- --model sonnet</code>.</p>
-      {agent.notes && <p className="subtle">{agent.notes}</p>}
-      <details className="manual" onToggle={() => prepare.reset()}>
-        <summary>Set it up by hand instead</summary>
-        <p className="subtle">
-          Opens a session now and shows the environment for {agent.executable}, on a machine whose agent-proxy is
-          running. Started this way, its terminal isn't shared with Running agents.
-        </p>
-        <button type="button" disabled={prepare.isPending || !intercept?.running} onClick={() => prepare.mutate()}>
-          Open session and show environment
-        </button>
-        {prepare.isError && <p className="bad">{prepare.error.message}</p>}
-        {prepared && (
-          <>
-            <div className="tabs" role="tablist" aria-label="Shell">
-              {(["powershell", "bash"] as const).map((name) => (
-                <button key={name} type="button" role="tab" aria-selected={shell === name} onClick={() => setShell(name)}>
-                  {name === "powershell" ? "PowerShell" : "bash / zsh"}
-                </button>
-              ))}
-            </div>
-            <div className="code-block">
-              <pre className="code">{prepared.shell[shell]}</pre>
-              <button type="button" onClick={() => copy(prepared.shell[shell], "Environment copied")}>
-                Copy
+      <button type="button" disabled={disabled || open.isPending} onClick={() => open.mutate()}>
+        Open session and show environment
+      </button>
+      {open.isError && <p className="bad">{open.error.message}</p>}
+      {prepared && (
+        <>
+          <div className="tabs" role="tablist" aria-label="Shell">
+            {(["powershell", "bash"] as const).map((name) => (
+              <button key={name} type="button" role="tab" aria-selected={shell === name} onClick={() => setShell(name)}>
+                {name === "powershell" ? "PowerShell" : "bash / zsh"}
               </button>
-            </div>
-            <McpUrls servers={prepared.mcp} />
-          </>
-        )}
-      </details>
-      {agent.homepage && (
-        <p>
-          <a href={agent.homepage} target="_blank" rel="noreferrer">
-            {agent.name} documentation
-          </a>
-        </p>
+            ))}
+          </div>
+          <div className="code-block">
+            <pre className="code">{prepared.shell[shell]}</pre>
+            <button type="button" onClick={() => copy(prepared.shell[shell], "Environment copied")}>
+              Copy
+            </button>
+          </div>
+          <McpUrls servers={prepared.mcp} />
+        </>
       )}
-    </section>
+    </details>
   );
 }
 
-function ProxyLaunchPanel({ agent }: { agent: Agent }) {
+/** The command for an agent signed in to its own service: no provider or model to pick, traffic captured in transit. */
+function AccountCommand({ agent }: { agent: Agent }) {
+  const status = useStatus();
+  const copy = useClipboard();
+  const [trace, setTrace] = useState(true);
+  const [control, setControl] = useState(false);
+  const [share, setShare] = useState({ value: "private", control: false });
+  const identity = useAuth().data?.identity;
+  const [mcp, setMcp] = useState<string[]>([]);
+  const intercept = status.data?.intercept;
+  const launcher = ["agent", agent.id, ".", ...(trace ? ["--trace"] : []), ...(control ? ["--control"] : []), ...mcpArgs(mcp), ...shareArgs(identity, share.value, share.control)].join(" ");
+  return (
+    <>
+      {intercept && !intercept.running && <p className="bad">HTTPS capture is off on this server: {intercept.error}</p>}
+      <CodeLine text={launcher} onCopy={() => copy(launcher, "Command copied")} />
+      <p className="subtle">
+        Arguments after <code>--</code> go to the agent, for example <code>{launcher} -- --model sonnet</code>. Its requests show
+        up on <Link to="/traffic">Traffic</Link>.
+      </p>
+      <details className="start-options">
+        <summary>Options: payloads, watching, MCP servers, sharing</summary>
+        <label className="check">
+          <input type="checkbox" checked={trace} onChange={(event) => setTrace(event.target.checked)} />
+          Save full request and response bodies (credentials are redacted)
+        </label>
+        <ControlCheck checked={control} onChange={setControl} />
+        <McpChoice agent={agent} chosen={mcp} onChange={setMcp} />
+        <ShareChoice value={share.value} control={share.control} onChange={(value, control) => setShare({ value, control })} />
+      </details>
+      {agent.notes && <p className="subtle">{agent.notes}</p>}
+      <ManualSetup agent={agent} disabled={!intercept?.running} prepare={() => api.prepareAgent(agent.id, { model: "", backend: "", trace, mcp })} />
+    </>
+  );
+}
+
+/** The command for an agent the server points at a provider: pick the provider and model. */
+function ProxyCommand({ agent }: { agent: Agent }) {
   const status = useStatus();
   const models = useModels();
   const copy = useClipboard();
-  const client = useQueryClient();
   const route = routeOfAgent(agent);
   // The proxy lists the backends this agent's protocol can use: Ollama, and Docker or Strata for local-model agents.
   const backends = (agent.backends ?? []).filter((name) => status.data?.backends[name]);
@@ -210,8 +355,6 @@ function ProxyLaunchPanel({ agent }: { agent: Agent }) {
   const [control, setControl] = useState(false);
   const [share, setShare] = useState({ value: "private", control: false });
   const identity = useAuth().data?.identity;
-  const [shell, setShell] = useState<"powershell" | "bash">(navigator.userAgent.includes("Windows") ? "powershell" : "bash");
-  const [prepared, setPrepared] = useState<PreparedSession | null>(null);
   const [mcp, setMcp] = useState<string[]>([]);
 
   useEffect(() => {
@@ -226,27 +369,12 @@ function ProxyLaunchPanel({ agent }: { agent: Agent }) {
     setModel(route === "hosted" ? HOSTED_MODELS[0] : preferredModel(available));
   }, [available, model, route]);
 
-  const prepare = useMutation({
-    mutationFn: () => api.prepareAgent(agent.id, { model, backend, trace, mcp }),
-    onSuccess: (result) => {
-      setPrepared(result);
-      client.invalidateQueries({ queryKey: ["sessions"] });
-    },
-  });
   // The launcher picks preferredBackend itself, so only name a different one.
   const launcher = ["agent", agent.id, ".", "--model", model || "<model>", ...(backend && backend !== preferredBackend ? ["--backend", backend] : []), ...(trace ? ["--trace"] : []), ...(control ? ["--control"] : []), ...mcpArgs(mcp), ...shareArgs(identity, share.value, share.control)].join(" ");
   const backendState = route === "ollama" ? models.data?.backends[backend] : undefined;
 
   return (
-    <section className="panel" aria-labelledby="launch-title">
-      <h2 id="launch-title">Start {agent.name}</h2>
-      <p>
-        <span className={`route-badge route-${route}`}>{ROUTES[route].label}</span>{" "}
-        <span className="subtle">{ROUTES[route].description}</span>
-      </p>
-      <MachineLaunch agent={agent} />
-      <h3>Or run it yourself</h3>
-      <InstallCommand agent={agent} />
+    <>
       {!backends.length ? (
         <p className="bad">
           No {route === "ollama" ? "local-model provider (Ollama, Docker or Strata)" : `${providerLabel(agent.backend_type ?? undefined)} provider`} that this
@@ -296,116 +424,20 @@ function ProxyLaunchPanel({ agent }: { agent: Agent }) {
         </div>
       )}
       {backendState && !backendState.online && <p className="bad">{backend} is offline: {backendState.error}</p>}
-      <label className="check">
-        <input type="checkbox" checked={trace} onChange={(event) => setTrace(event.target.checked)} />
-        Capture full request and response payloads
-      </label>
-      <ControlCheck checked={control} onChange={setControl} />
-      <McpChoice agent={agent} chosen={mcp} onChange={setMcp} />
-      <ShareChoice value={share.value} control={share.control} onChange={(value, control) => setShare({ value, control })} />
-
-      <h4>From your project folder</h4>
       <CodeLine text={launcher} onCopy={() => copy(launcher, "Command copied")} />
-      <p className="subtle">
-        The launcher opens a session through the agent-proxy on its machine, points the agent at it and closes the
-        session when the agent exits. The agent-proxy carries every request here.
-      </p>
-      {agent.notes && <p className="subtle">{agent.notes}</p>}
-
-      <details className="manual" onToggle={() => prepare.reset()}>
-        <summary>Set it up by hand instead</summary>
-        <p className="subtle">
-          Opens a session now and shows the environment for {agent.executable}, on a machine whose agent-proxy is
-          running. Started this way, its terminal isn't shared with Running agents.
-        </p>
-        <button type="button" disabled={!model || prepare.isPending} onClick={() => prepare.mutate()}>
-          Open session and show environment
-        </button>
-        {prepare.isError && <p className="bad">{prepare.error.message}</p>}
-        {prepared && (
-          <>
-            <div className="tabs" role="tablist" aria-label="Shell">
-              {(["powershell", "bash"] as const).map((name) => (
-                <button key={name} type="button" role="tab" aria-selected={shell === name} onClick={() => setShell(name)}>
-                  {name === "powershell" ? "PowerShell" : "bash / zsh"}
-                </button>
-              ))}
-            </div>
-            <div className="code-block">
-              <pre className="code">{prepared.shell[shell]}</pre>
-              <button type="button" onClick={() => copy(prepared.shell[shell], "Environment copied")}>
-                Copy
-              </button>
-            </div>
-            <McpUrls servers={prepared.mcp} />
-          </>
-        )}
+      <details className="start-options">
+        <summary>Options: payloads, watching, MCP servers, sharing</summary>
+        <label className="check">
+          <input type="checkbox" checked={trace} onChange={(event) => setTrace(event.target.checked)} />
+          Capture full request and response payloads
+        </label>
+        <ControlCheck checked={control} onChange={setControl} />
+        <McpChoice agent={agent} chosen={mcp} onChange={setMcp} />
+        <ShareChoice value={share.value} control={share.control} onChange={(value, control) => setShare({ value, control })} />
       </details>
-      {agent.homepage && (
-        <p>
-          <a href={agent.homepage} target="_blank" rel="noreferrer">
-            {agent.name} documentation
-          </a>
-        </p>
-      )}
-    </section>
-  );
-}
-
-/** Why an agent can't be started on a machine from here, or null when it can. */
-function notReady(machine: FleetMachine, agent: Agent): string | null {
-  if (!machine.you.launch) return "you can't start agents there";
-  if (!machine.connected) return "offline";
-  if (!machine.launches) return "launches are off";
-  if (machine.launcher === false) return "the agent command isn't installed";
-  if (!machine.roots.length) return "no launch folders";
-  if (!machine.agents.includes(agent.id)) return `${agent.name} isn't installed`;
-  return null;
-}
-
-/** Start the agent on one of the machines you may launch on, in a shared terminal, without a command. */
-function MachineLaunch({ agent }: { agent: Agent }) {
-  const machines = useMachines();
-  const agents = useAgents();
-  const [machineId, setMachineId] = useState("");
-  // Machines you may start agents on at all; the others never could, so they aren't offered.
-  const fleet = (machines.data?.machines ?? []).filter((machine) => machine.you.launch);
-  const machine = fleet.find((item) => item.id === machineId);
-  const installed = machine ? (agents.data ?? []).filter((item) => machine.agents.includes(item.id)) : [];
-  const ready = fleet.filter((item) => !notReady(item, agent));
-  return (
-    <div className="machine-launch">
-      <h3>Run it on a machine</h3>
-      {machines.isPending ? (
-        <p className="subtle">Looking for machines…</p>
-      ) : !fleet.length ? (
-        <p className="subtle">
-          No machine lets you start agents on it. Add one on <Link to="/machines">Machines</Link>, or ask its owner for launch access.
-        </p>
-      ) : (
-        <>
-          <label className="field">
-            Machine
-            <select value={machineId} onChange={(event) => setMachineId(event.target.value)}>
-              <option value="">{ready.length ? "Choose a machine…" : `None can start ${agent.name} now`}</option>
-              {fleet.map((item) => {
-                const reason = notReady(item, agent);
-                return (
-                  <option key={item.id} value={item.id} disabled={Boolean(reason)}>
-                    {item.name}
-                    {reason ? ` (${reason})` : ""}
-                  </option>
-                );
-              })}
-            </select>
-            <small>It runs there in a shared terminal, which you're taken to. Nothing to install or type here.</small>
-          </label>
-          {machine && launchReady(machine, installed) && (
-            <LaunchForm key={`${machine.id}:${agent.id}`} machine={machine} agents={installed} initialAgent={agent.id} onDone={() => setMachineId("")} />
-          )}
-        </>
-      )}
-    </div>
+      {agent.notes && <p className="subtle">{agent.notes}</p>}
+      <ManualSetup agent={agent} disabled={!model} prepare={() => api.prepareAgent(agent.id, { model, backend, trace, mcp })} />
+    </>
   );
 }
 
@@ -427,7 +459,7 @@ const ENVIRONMENT_KEY = "ai-proxy-install-environment";
 
 /** The browser's own system, until the user picks another. */
 function guessEnvironment(): InstallEnvironment {
-  const saved = localStorage.getItem(ENVIRONMENT_KEY);
+  const saved = remembered(ENVIRONMENT_KEY);
   if (saved && ENVIRONMENTS.some((item) => item.id === saved)) return saved as InstallEnvironment;
   const platform = navigator.userAgent.toLowerCase();
   if (platform.includes("windows")) return "windows";
@@ -435,19 +467,29 @@ function guessEnvironment(): InstallEnvironment {
   return "linux";
 }
 
-/** How to install the agent where it'll run: the command for the environment picked, always shown. */
-function InstallCommand({ agent }: { agent: Agent }) {
+/** The system a machine runs, for its install command. */
+function environmentOf(machine: FleetMachine): InstallEnvironment {
+  if (machine.os === "windows") return "windows";
+  if (machine.os === "darwin" || machine.os === "macos") return "macos";
+  return "linux";
+}
+
+/**
+ * How to install the agent where it'll run: the command for the environment picked.
+ * initial and where: the machine it's for, whose system is picked first.
+ */
+function InstallCommand({ agent, initial, where }: { agent: Agent; initial?: InstallEnvironment; where?: string }) {
   const copy = useClipboard();
-  const [environment, setEnvironment] = useState<InstallEnvironment>(guessEnvironment);
+  const [environment, setEnvironment] = useState<InstallEnvironment>(() => initial ?? guessEnvironment());
   const pick = (value: InstallEnvironment) => {
     setEnvironment(value);
-    localStorage.setItem(ENVIRONMENT_KEY, value);
+    if (!initial) remember(ENVIRONMENT_KEY, value);
   };
   const command = agent.installs?.[environment] ?? agent.install;
   return (
     <div className="install-command">
       <div className="install-command-head">
-        <h3>Install {agent.name}</h3>
+        <span className="subtle">{where ? `Run this on ${where}` : "Run this on the computer the agent runs on"}</span>
         <div className="env-switch" role="radiogroup" aria-label="Where it runs">
           {ENVIRONMENTS.map((item) => (
             <button key={item.id} type="button" role="radio" aria-checked={environment === item.id} onClick={() => pick(item.id)}>
@@ -462,13 +504,9 @@ function InstallCommand({ agent }: { agent: Agent }) {
         <p className="subtle">The server has no install command for it.</p>
       )}
       <p className="subtle">
-        {agent.installed ? (
+        {!where && (
           <>
-            Installed on the server's computer (<code>{agent.executable}</code> is on its PATH).{" "}
-          </>
-        ) : (
-          <>
-            <code>{agent.executable}</code> isn't on the server's computer. Install it on the computer that runs the agent.{" "}
+            Skip this if <code>{agent.executable}</code> is installed already.{" "}
           </>
         )}
         {environment === "wsl" && command?.startsWith("npm ") && (

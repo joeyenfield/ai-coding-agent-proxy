@@ -57,24 +57,29 @@ In the Android app, a server that can't be reached, or that answers with a serve
 
 ### Start an agent
 
-![Start an agent, for an account agent](screenshots/agents.png)
+![Start an agent, with the command for an account agent](screenshots/agents.png)
 
-`/agents` lists every agent the server knows (its stored agent definitions, which site admins change on [Server settings](#server-settings)), grouped by route: **Your accounts**, **Local models** and **Hosted API**. Each shows whether it's installed on the server's computer and which API it speaks. Pick one to see its launch panel:
+`/agents` is where you start a coding agent. Pick two things, and the page shows only what that choice needs:
 
-- **Run it on a machine**: pick one of the machines you may start agents on. Its launch form opens with the agent already chosen: provider, folder, model, MCP servers, sharing and payload capture, then **Start on** the machine. The agent runs there in a shared terminal, which you're taken to. Machines that can't start it now are listed but greyed out, with why: offline, launches off, no launch folders, or the agent isn't installed there.
+1. **Where should it run?** **Give me the command** (the first choice), or one of the machines you may start agents on. A machine that can't start agents now says why: offline, launches off, no launch folders, or the `agent` command isn't installed there. The console remembers your choice for next time.
+2. **Which agent?** Every agent the server knows (its stored agent definitions, which site admins change on [Server settings](#server-settings)). With **Give me the command** they're grouped by route: **Your accounts**, **Local models** and **Hosted API**. With a machine they're grouped by whether they're installed there.
 
-**Or run it yourself** has the rest, for starting it from a terminal:
+The agent's card then shows its route and description, and:
 
-- **Install**: the install command for Linux, macOS, Windows or WSL. The console remembers your choice.
-- **Provider and model** (local and hosted agents): the backends this agent can use, with the one the server picks by default, and the models on that backend (aliases from the Ollama model tuning included). An offline backend says why.
-- **Capture full request and response payloads**: saves every request and reply in full (`--trace`). Account agents redact credentials.
-- **Watch and type into it from Running agents** (`--control`): shares the agent's terminal with the server.
-- **MCP servers**: the MCP servers your machines share that you may use. Ticking one adds `--mcp` to the command. Agents that can't take MCP servers (Aider) say so. See [MCP servers](mcp.md).
-- **Sharing** (with accounts): **Only me**, one of your teams or everyone in your organization, and whether they may type into it.
-- **From your project folder**: the full `agent` command, ready to copy.
-- **Set it up by hand instead**: opens a session now and prints the environment for the agent in PowerShell or bash, for when you can't use the launcher. Started this way, its terminal isn't shared. For MCP servers it lists the URLs to add to the agent's own settings.
+- **On a machine, with the agent installed:** the launch form, with provider, folder, model, MCP servers, sharing and payload capture, then **Start on** the machine. The agent runs there in a shared terminal, which you're taken to.
+- **On a machine without it:** the install command for that machine's system. The machine reports what's installed every minute, so once it's there you can start it.
+- **On a machine that can't start agents:** why, with a link to the machine's page.
+- **Give me the command:** the install command for Linux, macOS, Windows or WSL (the console remembers your choice), then the `agent` command to run from your project folder. You need the `agent` command signed in to this server (see [Downloads](#downloads), then `agent login`). For local and hosted agents, pick the provider and model first: the backends this agent can use, with the one the server picks by default, and the models on it (aliases from the Ollama model tuning included). An offline backend says why. **Options** has the rest, each of which changes the command:
+  - **Capture full request and response payloads** (`--trace`). Account agents redact credentials.
+  - **Watch and type into it from Running agents** (`--control`): shares the agent's terminal with the server.
+  - **MCP servers**: the ones your machines share that you may use (`--mcp`). Agents that can't take MCP servers (Aider) say so. See [MCP servers](mcp.md).
+  - **Sharing** (with accounts): **Only me**, one of your teams or everyone in your organization, and whether they may type into it.
 
-![Start an agent, for a local-model agent with an MCP server chosen](screenshots/agents-ollama.png)
+  **Set it up by hand instead** opens a session now and prints the agent's environment for PowerShell or bash, for when you can't use the launcher. Started this way, its terminal isn't shared. For MCP servers it lists the URLs to add to the agent's own settings.
+
+With no machines yet, the page says so and links to **Add a machine**. The choices are kept in the page's address (`/agents?on=<machine>&agent=<agent>`), so a link opens the same view.
+
+![Start an agent on a machine](screenshots/agents-ollama.png)
 
 A machine's own page has the same launch form (see [its Agents tab](#summary-agents-and-terminal)).
 

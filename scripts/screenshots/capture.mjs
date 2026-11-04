@@ -137,20 +137,22 @@ const sessionId = (page, client) =>
 
 await shot("overview", "/", { fullPage: true });
 await shot("overview-dark", "/", { theme: "dark", fullPage: true });
-await shot("agents", "/agents", {
+// Start an agent: the command for an account agent, then a launch on a machine that has the agent.
+await shot("agents", "/agents?agent=claude-account", {
+  height: 1220,
   prepare: async (page) => {
-    await page.getByRole("button", { name: /Claude Code \(claude\.ai account\)/ }).click();
+    await page.getByText("Start it from your project folder").waitFor();
     await page.waitForTimeout(400);
   },
 });
-await shot("agents-ollama", "/agents", {
+await shot("agents-ollama", "/agents?on=build-box&agent=opencode", {
+  height: 1480,
   prepare: async (page) => {
-    await page.getByRole("button", { name: /^OpenCode/ }).click();
-    await page.getByLabel("Local provider").selectOption("desktop");
+    await page.getByRole("button", { name: "Start on build-box" }).waitFor();
+    await page.getByLabel("Provider").selectOption("desktop");
     await page.waitForTimeout(600);
     // build-box shares MCP servers: give the agent one.
     await page.locator(".mcp-choice input").first().check();
-    await page.locator(".split-side").scrollIntoViewIfNeeded();
   },
 });
 await shot("live", "/live", {
