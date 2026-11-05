@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api, type TerminalSummary } from "../api";
@@ -6,7 +6,7 @@ import { Icon } from "../components/Icon";
 import { PartTag } from "../components/PartTag";
 import { useAuth } from "../hooks";
 import { PairPanel, terminalState } from "./Terminals";
-import { TerminalView } from "./Terminal";
+import { KEYS, TerminalView, type KeySender } from "./Terminal";
 
 const LAYOUT_KEY = "ai-proxy-terminal-grid-layout";
 const MAX_SELECTED = 16;
@@ -56,6 +56,9 @@ function TerminalGrid({ selectionKey }: { selectionKey: string }) {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const grid = useRef<HTMLDivElement>(null);
+  // The tile the key bar types into: the last one clicked, tapped or focused.
+  const [active, setActive] = useState<string | null>(null);
+  const senders = useRef(new Map<string, KeySender>());
 
   useEffect(() => {
     const element = grid.current;
@@ -63,7 +66,9 @@ function TerminalGrid({ selectionKey }: { selectionKey: string }) {
     // Alerts, the picker and the collapsing bar change the space above the grid without a window resize.
     const fit = () => {
       const top = element.getBoundingClientRect().top + window.scrollY;
-      element.style.setProperty("--grid-height", `${Math.max(0, window.innerHeight - top - 16)}px`);
+      // The key bar sits under the grid, inside the same screen.
+      const keys = element.nextElementSibling?.getBoundingClientRect().height ?? 0;
+      element.style.setProperty("--grid-height", `${Math.max(0, window.innerHeight - top - keys - 16)}px`);
     };
     const observer = new ResizeObserver(fit);
     observer.observe(element.parentElement!);
@@ -85,6 +90,9 @@ function TerminalGrid({ selectionKey }: { selectionKey: string }) {
   const pages = Math.max(1, Math.ceil(selected.length / capacity));
   const currentPage = Math.min(page, pages - 1);
   const visible = selected.slice(currentPage * capacity, (currentPage + 1) * capacity);
+  const target = active && visible.includes(active) ? active : visible.find((id) => byId.has(id)) ?? null;
+  const targetTerminal = target ? byId.get(target) : undefined;
+  const canType = Boolean(targetTerminal?.you?.control) && !(targetTerminal?.ended_at ?? targetTerminal?.session_ended_at);
   const candidates = all.filter((terminal) => selected.includes(terminal.session_id) || !(terminal.ended_at ?? terminal.session_ended_at));
   const matching = candidates.filter((terminal) =>
     [terminal.agent_name, terminal.project, terminal.machine_name, terminal.session_id].some((value) => value?.toLowerCase().includes(search.trim().toLowerCase())),
@@ -113,7 +121,7 @@ function TerminalGrid({ selectionKey }: { selectionKey: string }) {
           <Icon name="chevron" size={15} className={layout.slim ? "" : "down"} />
         </button>
         <PartTag />
-        <h1>Running agents <span className="pill">Beta</span></h1>
+        <h1>Live agent view</h1>
         <div className="grid-actions">
           {pages > 1 && <div className="row grid-pages" aria-label="Grid pages">
             <button type="button" className="small" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous</button>
@@ -138,7 +146,7 @@ function TerminalGrid({ selectionKey }: { selectionKey: string }) {
               </label>
             </div>
             <span className="subtle grid-capacity">{layout.rows} × {layout.columns} · {capacity} per page</span>
-            <span className="subtle grid-hint">{touch ? "Use Fullscreen to send a message." : "Click a terminal to type."}</span>
+            <span className="subtle grid-hint">{touch ? "Tap a terminal for the keys below." : "Click a terminal to type."}</span>
           </div>
         </div>
       </header>
@@ -179,24 +187,38 @@ function TerminalGrid({ selectionKey }: { selectionKey: string }) {
           <p className="subtle">Choose the agents you want to watch together. Each terminal keeps its own keyboard focus.</p>
           <button type="button" onClick={() => setChoosing(true)}>Choose agents</button>
         </div> : <div ref={grid} className="terminal-grid" style={{ "--grid-rows": layout.rows, "--grid-columns": layout.columns } as CSSProperties}>
-          {visible.map((id) => <TerminalTile key={id} id={id} terminal={byId.get(id)} fontSize={layout.fontSize} loading={terminals.isPending} onRemove={() => toggle(id)} />)}
+          {visible.map((id) => <TerminalTile key={id} id={id} terminal={byId.get(id)} fontSize={layout.fontSize} loading={terminals.isPending}
+            active={id === target && visible.length > 1} onActivate={() => setActive(id)} senders={senders.current} onRemove={() => toggle(id)} />)}
           {Array.from({ length: capacity - visible.length }, (_, index) => <button type="button" className="grid-empty-tile" key={`empty-${index}`} onClick={() => setChoosing(true)}>
             <Icon name="plus" size={24} /><span>Add an agent</span>
           </button>)}
+        </div>}
+        {selected.length > 0 && <div className="key-bar grid-key-bar" role="toolbar" aria-label={`Keys for ${targetTerminal?.agent_name ?? "the selected agent"}`}>
+          <span className="subtle grid-key-target" title="Keys go to the selected terminal: click or tap one to select it">
+            <Icon name="terminal" size={14} /> {targetTerminal?.agent_name ?? "No agent"}
+          </span>
+          {KEYS.map((key) => <button key={key.label} type="button" title={key.title} disabled={!canType}
+            onClick={() => { if (target) senders.current.get(target)?.(key.keys); }}>{key.label}</button>)}
         </div>}
       </>}
     </div>
   );
 }
 
-function TerminalTile({ id, terminal, fontSize, loading, onRemove }: {
-  id: string; terminal?: TerminalSummary; fontSize: number; loading: boolean; onRemove: () => void;
+function TerminalTile({ id, terminal, fontSize, loading, active, onActivate, senders, onRemove }: {
+  id: string; terminal?: TerminalSummary; fontSize: number; loading: boolean; active: boolean;
+  onActivate: () => void; senders: Map<string, KeySender>; onRemove: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const onSender = useCallback((sender: KeySender | null) => {
+    if (sender) senders.set(id, sender);
+    else senders.delete(id);
+  }, [id, senders]);
   const state = terminalState(terminal);
   const name = terminal?.agent_name ?? "Unavailable session";
   const metaId = `tile-meta-${id}`;
-  return <section className={`terminal-tile tone-${state.tone}`} aria-label={`${name} terminal`}>
+  return <section className={`terminal-tile tone-${state.tone}${active ? " active" : ""}`} aria-label={`${name} terminal`}
+    onPointerDown={onActivate} onFocus={onActivate}>
     <header className="terminal-tile-head">
       <button type="button" className="terminal-tile-title" aria-expanded={open} aria-controls={metaId} title={`${name} · ${state.label}`}
         onClick={() => setOpen((previous) => !previous)}>
@@ -216,6 +238,6 @@ function TerminalTile({ id, terminal, fontSize, loading, onRemove }: {
       <span className="meta-session"><b>Session</b> <span className="mono">{id}</span></span>
       {terminal && !terminal.you?.control && <span>Watch only: you cannot type in this terminal.</span>}
     </p>}
-    {terminal ? <TerminalView sessionId={id} compact gridFontSize={fontSize} /> : <p className="grid-unavailable subtle">{loading ? "Loading terminal…" : "This session is no longer available. Remove it from the grid to choose another."}</p>}
+    {terminal ? <TerminalView sessionId={id} compact gridFontSize={fontSize} onSender={onSender} /> : <p className="grid-unavailable subtle">{loading ? "Loading terminal…" : "This session is no longer available. Remove it from the grid to choose another."}</p>}
   </section>;
 }

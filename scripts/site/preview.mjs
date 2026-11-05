@@ -8,10 +8,10 @@ const root = fileURLToPath(new URL('../../', import.meta.url));
 const pages = ['index.html', 'quickstart.html', 'teams.html', 'security.html', 'styles.css', 'site.js', 'robots.txt', 'sitemap.xml', 'site.webmanifest'];
 // The quickstart page's steps (scripts/screenshots/quickstart-steps.mjs).
 const quickstart = ['01-sign-in', '02-issuer', '03-machines', '04-model-servers', '05-add-provider', '06-search', '07-results', '08-pulled', '09-start-agent', '10-agent-ready', '11-answer', '12-requests'].map(name => `quickstart-${name}`);
-const captures = [...quickstart, 'terminals-dark', 'real-opencode', 'real-copilot', 'real-qwen', 'live-dark', 'terminal-phone', 'overview-dark', 'agents', 'machines', 'session-chat', 'machine-mcp', 'terminal'];
+const captures = [...quickstart, 'terminal-grid-dark', 'real-opencode', 'real-copilot', 'real-qwen', 'live-dark', 'terminal-phone', 'overview-dark', 'agents', 'machines', 'session-chat', 'machine-mcp', 'terminal'];
 // The web-sized copies the homepage shows (scripts/screenshots/site-images.py).
 const screens = [
-  ...['terminals-dark', 'live-dark', 'overview-dark', 'agents', 'machines', 'session-chat', 'machine-mcp', 'terminal'].flatMap(name => [800, 1440].map(width => `screens/${name}-${width}.webp`)),
+  ...['terminal-grid-dark', 'live-dark', 'overview-dark', 'agents', 'machines', 'session-chat', 'machine-mcp', 'terminal'].flatMap(name => [800, 1440].map(width => `screens/${name}-${width}.webp`)),
   ...[400, 618].map(width => `screens/terminal-phone-${width}.webp`),
   ...quickstart.flatMap(name => (/0[12]-/.test(name) ? [540, 1080] : [800, 1440]).map(width => `screens/${name}-${width}.webp`)),
   ...['real-opencode', 'real-copilot', 'real-qwen'].flatMap(name => [666, 1333].map(width => `screens/${name}-${width}.webp`)),

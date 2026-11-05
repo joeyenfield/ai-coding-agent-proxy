@@ -40,7 +40,8 @@ class Shot:
 NO_SIDEBAR = (0.175, 0.0, 1.0, 1.0)
 
 SHOTS = (
-    Shot("terminals-dark", box=(0.18, 0.0, 1.0, 0.84)),
+    # The hero: four agents side by side in the Live agent view, one asking a question.
+    Shot("terminal-grid-dark", box=(0.18, 0.0, 1.0, 0.95)),
     Shot("live-dark", box=(0.175, 0.0, 1.0, 0.95)),
     Shot("terminal-phone", widths=(400, 618)),
     # Three real agents' terminals side by side: OpenCode, GitHub Copilot CLI and Qwen Code started

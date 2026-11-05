@@ -895,7 +895,10 @@ details.collapsible > summary::-webkit-details-marker { display: none; }
 .terminal-tile.tone-good { border-top-color: var(--good); }
 .terminal-tile.tone-bad { border-top-color: var(--bad); }
 .terminal-tile.tone-ask { border-top-color: var(--accent); }
-.terminal-tile:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.terminal-tile:focus-within, .terminal-tile.active { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* The quick keys under the grid, for the selected tile: answers to prompts without opening it. */
+.grid-key-bar { position: sticky; bottom: 0; z-index: 2; align-items: center; padding: 6px 0; background: var(--ground); }
+.grid-key-target { flex: none; display: inline-flex; align-items: center; gap: 5px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; padding-right: 4px; }
 /* One clickable line per tile: its details only take room when the title is opened. */
 .terminal-tile-head { display: flex; align-items: center; gap: 2px; min-height: 28px; padding: 2px 3px 2px 4px; border-bottom: 1px solid var(--line); }
 .terminal-tile-title { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: flex-start; gap: 6px; min-height: 24px; padding: 2px 4px; border: 0; background: none; box-shadow: none; color: var(--ink); font-size: 12.5px; font-weight: 620; text-align: left; white-space: nowrap; }
@@ -927,8 +930,24 @@ details.collapsible > summary::-webkit-details-marker { display: none; }
   .grid-picker { padding: 14px; }
 }
 .terminal-view .banner { margin: 0; max-width: none; }
-.terminal-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
-.terminal-toolbar button { min-height: 32px; padding: 4px 10px; }
+/* The full terminal: one line of chrome (back, title, status, text controls); the rest folds under the title. */
+.page.wide.terminal-page { gap: 8px; }
+.term-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; padding: 3px 6px 3px 3px; background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); }
+.term-back { flex: none; gap: 4px; min-height: 30px; padding: 0 8px 0 4px; font-size: 13px; }
+.term-back .icon { transform: rotate(180deg); }
+.term-title { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 7px; min-height: 30px; padding: 2px 6px; border: 0; background: none; box-shadow: none; color: var(--ink); text-align: left; white-space: nowrap; }
+.term-title:hover:not(:disabled) { background: var(--ground); border: 0; color: var(--ink); }
+.term-title h1 { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 16px; line-height: 1.25; letter-spacing: -0.01em; font-weight: 650; }
+.term-project { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 13px; }
+.term-title .tile-chevron { flex: none; }
+.term-bar > .pill { flex: none; }
+.term-bar .terminal-toolbar { margin-left: auto; }
+.term-details { display: flex; flex-direction: column; gap: 6px; padding: 8px 12px; background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); }
+.term-details p { margin: 0; }
+.terminal-toolbar { display: flex; justify-content: flex-end; align-items: center; gap: 6px 12px; flex-wrap: wrap; }
+.terminal-toolbar .row { gap: 4px; }
+.terminal-toolbar button { min-height: 28px; padding: 2px 9px; font-size: 13px; }
+.terminal-toolbar .check { font-size: 13px; gap: 6px; }
 .term-screen { overflow-x: auto; padding: 8px; border: 1px solid var(--line); border-radius: var(--radius-small); }
 .term-screen .xterm { display: inline-block; }
 .term-hint { font-size: 13px; }
@@ -937,16 +956,21 @@ details.collapsible > summary::-webkit-details-marker { display: none; }
 .term-input textarea { flex: 1; font-family: var(--sans); font-size: 15px; resize: none; }
 .key-bar { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
 .key-bar button { flex: none; min-width: 44px; min-height: 40px; padding: 4px 10px; font-family: var(--mono); font-size: 13px; }
+@media (max-width: 1000px) {
+  /* Not enough room beside the title: the text controls join the details under it. */
+  .term-bar .terminal-toolbar { display: none; }
+  .term-bar.open .terminal-toolbar { display: flex; flex-basis: 100%; justify-content: space-between; padding: 4px 2px 2px; border-top: 1px solid var(--line); }
+}
 @media (max-width: 760px) {
-  /* On a phone the terminal is what matters: keep the header and controls short. */
-  .terminal-page { gap: 12px; }
-  .terminal-page .page-head { gap: 4px; }
-  .terminal-page h1 { font-size: 19px; }
-  .terminal-toolbar { gap: 6px; }
-  .terminal-toolbar .row { gap: 6px; }
-  .terminal-toolbar button { min-height: 30px; padding: 2px 8px; font-size: 13px; }
-  .terminal-toolbar .check { font-size: 13px; }
+  /* On a phone the terminal is what matters: one short line above it. */
+  .page.wide.terminal-page { gap: 6px; }
+  .term-back-label { display: none; }
+  .term-back { padding: 0; min-width: 30px; justify-content: center; }
+  .term-title h1 { font-size: 15px; }
+  .term-bar > .pill { margin-left: auto; font-size: 11px; padding: 1px 7px; }
+  .term-details { padding: 8px 10px; font-size: 13px; }
   .term-screen { padding: 4px; }
+  .term-controls { padding-top: 6px; }
 }
 
 /* Containers: model servers the proxy runs */

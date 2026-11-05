@@ -218,7 +218,8 @@ function Shell({ identity }: { identity: Identity | null }) {
           <Route path="/sessions/:sessionId" element={<SessionPage />} />
           <Route path="/agents" element={<AgentsPage />} />
           <Route path="/terminals" element={<TerminalsPage />} />
-          <Route path="/terminals-beta" element={<Suspense fallback={<p>Loading terminals…</p>}><TerminalGridPage /></Suspense>} />
+          <Route path="/live-agents" element={<Suspense fallback={<p>Loading terminals…</p>}><TerminalGridPage /></Suspense>} />
+          <Route path="/terminals-beta" element={<Navigate to="/live-agents" replace />} />
           <Route path="/ask" element={<AskPage />} />
           <Route path="/subscriptions" element={<SubscriptionsPage />} />
           <Route path="/providers" element={<ProvidersPage />} />

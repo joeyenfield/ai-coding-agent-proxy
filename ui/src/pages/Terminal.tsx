@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { api, onRenewed, renewSignIn, terminalSocketUrl, type TerminalInfo } from "../api";
+import { Icon } from "../components/Icon";
 import { SharingControl } from "../components/Sharing";
 import { useClipboard, useToast } from "../hooks";
 import { PairPanel, terminalState } from "./Terminals";
@@ -51,7 +52,10 @@ const scroll = (term: Terminal | null, up: boolean) => {
   return up ? "\x1b[5~" : "\x1b[6~";
 };
 
-const KEYS: { label: string; title: string; keys: (term: Terminal | null) => string }[] = [
+/** Sends keys made for the terminal as it is now; false when they couldn't go (not connected, watch only). */
+export type KeySender = (keys: (term: Terminal | null) => string) => boolean;
+
+export const KEYS: { label: string; title: string; keys: (term: Terminal | null) => string }[] = [
   { label: "Esc", title: "Escape: interrupt the agent or close a menu", keys: () => "\x1b" },
   { label: "Enter", title: "Enter", keys: () => "\r" },
   { label: "↑", title: "Up", keys: (term) => arrow(term, "A") },
@@ -130,11 +134,13 @@ export function TerminalPage() {
 }
 
 /** One viewer per session, shared by the full page and the terminal grid. */
-export function TerminalView({ sessionId, compact = false, gridFontSize = 9, fromGrid = false }: {
+export function TerminalView({ sessionId, compact = false, gridFontSize = 9, fromGrid = false, onSender }: {
   sessionId: string;
   compact?: boolean;
   gridFontSize?: number;
   fromGrid?: boolean;
+  /** The grid's key bar types into whichever tile is selected, through this. */
+  onSender?: (sender: KeySender | null) => void;
 }) {
   const notify = useToast();
   const copy = useClipboard();
@@ -148,7 +154,10 @@ export function TerminalView({ sessionId, compact = false, gridFontSize = 9, fro
   const [fontSize, setFontSize] = useStored<number>("ai-proxy-terminal-font", 13);
   const [background, setBackground] = useStored<"dark" | "light">("ai-proxy-terminal-background", "dark");
   const [text, setText] = useState("");
+  // Status, sharing and hints fold away under the title, so the terminal gets the screen.
+  const [details, setDetails] = useState(false);
   const screen = useRef<HTMLDivElement>(null);
+  const message = useRef<HTMLTextAreaElement>(null);
   const term = useRef<Terminal | null>(null);
   const socket = useRef<WebSocket | null>(null);
   const touch = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
@@ -320,6 +329,12 @@ export function TerminalView({ sessionId, compact = false, gridFontSize = 9, fro
   }, [sessionId, send, touch]);
 
   useEffect(() => {
+    if (!onSender) return;
+    onSender((keys) => send({ keys: keys(term.current) }));
+    return () => onSender(null);
+  }, [onSender, send]);
+
+  useEffect(() => {
     if (term.current) term.current.options.fontSize = compact ? gridFontSize : fontSize;
   }, [compact, gridFontSize, fontSize]);
   useEffect(() => {
@@ -350,42 +365,29 @@ export function TerminalView({ sessionId, compact = false, gridFontSize = 9, fro
   const state = terminalState(merged);
   const live = Boolean(info?.connected) && !watchOnly;
   const name = summary?.agent_name ?? info?.command ?? "Agent";
+  const back = fromGrid ? { to: "/live-agents", label: "Live agent view" } : { to: "/terminals", label: "Running agents" };
+  // On a phone the terminal takes no keystrokes itself (its hidden input mangles autocorrect and
+  // composed text), so a tap on it brings up the keyboard in the message box instead.
+  const tapToType = () => {
+    if (touch && live && !compact) message.current?.focus();
+  };
 
   return (
     <div className={compact ? "terminal-tile-view" : "page wide terminal-page"}>
-      {!compact && <header className="page-head">
-        <p className="breadcrumbs">
-          <Link to={fromGrid ? "/terminals-beta" : "/terminals"}>{fromGrid ? "Running agents (Beta)" : "Running agents"}</Link>
-          <span aria-hidden="true"> › </span>
-          <span>{name}</span>
-        </p>
-        <div className="section-head">
-          <h1>
-            {name}
-            {summary?.project && <span className="subtle"> · {summary.project}</span>}
-          </h1>
-          <span className={`pill ${state.tone === "idle" ? "" : state.tone}`}>{state.label}</span>
-        </div>
-        <p className="subtle">
-          {state.detail}
-          {state.detail && " · "}
-          <Link to={`/sessions/${encodeURIComponent(sessionId)}`}>Session traffic</Link>
-        </p>
-        <SharingControl sessionId={sessionId} you={summary?.you} />
-      </header>}
-
-      {connection === "unauthorized" && <PairPanel />}
-      {connection === "missing" && (
-        <div className="empty panel">
-          <p>This session has no shared terminal.</p>
-          <p className="subtle">
-            Only agents started with <code>agent … --control</code> share their terminal.
-          </p>
-        </div>
-      )}
-
-      <section className="terminal-view" hidden={connection === "unauthorized" || connection === "missing"} aria-label="Agent terminal">
-        {!compact && <div className="terminal-toolbar">
+      {!compact && <header className={`term-bar${details ? " open" : ""}`}>
+        <Link className="button icon-button term-back" to={back.to} title={`Back to ${back.label}`} aria-label={`Back to ${back.label}`}>
+          <Icon name="chevron" size={16} />
+          <span className="term-back-label">{back.label}</span>
+        </Link>
+        <button type="button" className="term-title" aria-expanded={details} aria-controls="term-details"
+          title={details ? "Hide the details" : "Show the details: status, sharing and text controls"} onClick={() => setDetails(!details)}>
+          <span className={`state-dot ${state.tone}`} aria-hidden="true" />
+          <h1>{name}</h1>
+          {summary?.project && <span className="subtle term-project">{summary.project}</span>}
+          <Icon name="chevron" size={12} className={`tile-chevron${details ? " open" : ""}`} />
+        </button>
+        <span className={`pill ${state.tone === "idle" ? "" : state.tone}`}>{state.label}</span>
+        <div className="terminal-toolbar">
           <div className="row" role="group" aria-label="Text size">
             <button type="button" onClick={() => resize(-1)} aria-label="Smaller text" disabled={fontSize <= SIZES.min}>
               A−
@@ -399,9 +401,9 @@ export function TerminalView({ sessionId, compact = false, gridFontSize = 9, fro
             </button>
           </div>
           <div className="row">
-            <label className="check">
+            <label className="check" title="A light background for the terminal">
               <input type="checkbox" checked={background === "light"} onChange={(event) => setBackground(event.target.checked ? "light" : "dark")} />
-              Light background
+              Light
             </label>
             <button type="button" onClick={() => term.current?.scrollToBottom()}>
               Latest
@@ -422,7 +424,32 @@ export function TerminalView({ sessionId, compact = false, gridFontSize = 9, fro
               Copy all
             </button>
           </div>
-        </div>}
+        </div>
+      </header>}
+      {!compact && details && <div className="term-details" id="term-details">
+        <p className="subtle">
+          {state.detail}
+          {state.detail && " · "}
+          <Link to={`/sessions/${encodeURIComponent(sessionId)}`}>Session traffic</Link>
+        </p>
+        <SharingControl sessionId={sessionId} you={summary?.you} />
+        {!touch && <p className="subtle term-hint">
+          {live && "Click the terminal to type into it directly, or use the box below. "}
+          Select text by dragging, or with Shift+drag when the agent uses the mouse (Option+drag on a Mac); Ctrl+C copies a selection.
+        </p>}
+      </div>}
+
+      {connection === "unauthorized" && <PairPanel />}
+      {connection === "missing" && (
+        <div className="empty panel">
+          <p>This session has no shared terminal.</p>
+          <p className="subtle">
+            Only agents started with <code>agent … --control</code> share their terminal.
+          </p>
+        </div>
+      )}
+
+      <section className="terminal-view" hidden={connection === "unauthorized" || connection === "missing"} aria-label="Agent terminal">
         {compact && connection === "connecting" && <p className="banner">Connecting…</p>}
         {connection === "retrying" && <p className="banner warn">Lost the connection to the proxy. Reconnecting…</p>}
         {connection === "waiting" && <p className="banner">Waiting for the agent to share its terminal…</p>}
@@ -433,17 +460,12 @@ export function TerminalView({ sessionId, compact = false, gridFontSize = 9, fro
               : "The launcher isn't connected right now, so typing won't reach the agent."}
           </p>
         )}
-        <div className="term-screen" ref={screen} style={{ background: THEMES[background].background }} />
-        {!compact && !touch && (
-          <p className="subtle term-hint">
-            {live && "Click the terminal to type into it directly, or use the box below. "}
-            Select text by dragging, or with Shift+drag when the agent uses the mouse (Option+drag on a Mac); Ctrl+C copies a selection.
-          </p>
-        )}
+        <div className="term-screen" ref={screen} style={{ background: THEMES[background].background }} onClick={tapToType} />
 
         {!compact && <div className="term-controls">
           <form className="term-input" onSubmit={submit}>
             <textarea
+              ref={message}
               value={text}
               rows={2}
               onChange={(event) => setText(event.target.value)}

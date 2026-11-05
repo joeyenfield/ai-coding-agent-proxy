@@ -278,10 +278,10 @@ const chooseGridAgents = async (page) => {
   await page.locator(".terminal-tile .xterm-screen").nth(3).waitFor();
   await page.waitForTimeout(1500);
 };
-await shot("terminal-grid", "/terminals-beta", { fullPage: true, scrollTop: true, prepare: chooseGridAgents });
-await shot("terminal-grid-dark", "/terminals-beta", { theme: "dark", fullPage: true, scrollTop: true, prepare: chooseGridAgents });
-await shot("terminal-grid-phone", "/terminals-beta", { theme: "dark", width: 412, height: 860, fullPage: true, scrollTop: true, prepare: chooseGridAgents });
-// The brochure site (site/, scripts/screenshots/site-images.py) shows these on its dark page.
+await shot("terminal-grid", "/live-agents", { fullPage: true, scrollTop: true, prepare: chooseGridAgents });
+await shot("terminal-grid-dark", "/live-agents", { theme: "dark", fullPage: true, scrollTop: true, prepare: chooseGridAgents });
+await shot("terminal-grid-phone", "/live-agents", { theme: "dark", width: 412, height: 860, fullPage: true, scrollTop: true, prepare: chooseGridAgents });
+// The brochure site (site/, scripts/screenshots/site-images.py) shows terminal-grid-dark (its hero) and these on its dark page.
 await shot("terminals-dark", "/terminals", { theme: "dark", height: 1000 });
 // The first card mid-reply: it's the one in view.
 await shot("live-dark", "/live", {
