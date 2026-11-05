@@ -14,7 +14,7 @@ from urllib.parse import quote, urlparse
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
-from .. import access, auth, config_io, mcp, remote, strata, version
+from .. import access, api_providers, auth, config_io, mcp, remote, strata, version
 from ..agents import stored_agents
 from ..db import redacted
 from ..config import DIRECT_BACKEND, LOCAL_PROXY_URL, ModelProfile, serves
@@ -704,6 +704,10 @@ async def _backend_models(runtime: Runtime, name: str) -> dict[str, Any]:
     except ValueError as exc:
         return {"online": False, "error": str(exc), "models": []}
     base = {"type": backend.type, "url": backend.url}
+    if backend.type == "api" and not backend.machine:
+        # A hosted API or gateway: its configured models, and those its last discovery found (runtime.api_models),
+        # without calling it from a console page.
+        return {**base, "online": (runtime.api_health.get(name) or {}).get("ok", True), "models": _api_models(runtime, backend, [])}
     if backend.type not in PROVIDER_TYPES:
         return {**base, "online": False, "error": "Hosted backend: select a model in the signed-in client. Model discovery is unavailable.", "models": []}
     provider = provider_id(backend)
@@ -747,6 +751,12 @@ async def _backend_models(runtime: Runtime, name: str) -> dict[str, Any]:
             for item in state.get("models") or [] if isinstance(item, dict) and item.get("state") not in {"downloading", "incomplete"}
         ]
         return {**base, "online": True, "version": None, "models": models}
+    if backend.type == "api":
+        found = [
+            {"id": str(item.get("id")), "context_length": item.get("context_length")}
+            for item in state.get("models") or [] if isinstance(item, dict) and item.get("id")
+        ]
+        return {**base, "online": True, "version": state.get("version") or None, "models": _api_models(runtime, backend, found)}
     models = [
         {
             "name": item.get("name"), "size": None, "modified_at": None, "family": item.get("architecture"),
@@ -785,6 +795,24 @@ async def _context_window(runtime: Runtime, backend_name: str, model: str) -> in
     found = [item for item in listed if item.get("name") == model] or (listed if len(listed) == 1 else [])
     size = found[0].get("context_length") if found else None
     return int(size) if isinstance(size, (int, float)) and size > 0 else None
+
+
+def _api_models(runtime: Runtime, backend: Any, found: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """An api backend's models as /api/models lists them: its aliases first, then the ids it reports."""
+    configured = api_providers.options(backend)
+    discovered = found or ([{"id": item} for item in runtime.api_models.get(backend.name, [])] if configured["discover"] else [])
+    sizes = {item["id"]: item.get("context_length") for item in found}
+    names = list(configured["models"]) + [item["id"] for item in discovered if item["id"] not in configured["models"]]
+    return [
+        {
+            "name": name, "size": None, "modified_at": None, "family": None, "parameter_size": None, "quantization": None,
+            "loaded": None, "size_loaded": None, "size_vram": None,
+            "context_length": sizes.get(configured["models"].get(name, name)) if isinstance(sizes.get(configured["models"].get(name, name)), int) else None,
+            "upstream": configured["models"].get(name, name),
+            "profile": ModelProfile(ollama_model=configured["models"].get(name, name), translate_openai=False).public(),
+        }
+        for name in names
+    ]
 
 
 def _ollama_model(item: dict[str, Any]) -> dict[str, Any]:

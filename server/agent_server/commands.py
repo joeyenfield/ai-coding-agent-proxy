@@ -127,6 +127,7 @@ def _vault(args: argparse.Namespace) -> int:
     from sqlalchemy import func, select
 
     from .db import schema
+    from .api_providers import ApiKeys
     from .provider_accounts import ProviderAccounts, Vault, VaultError, new_key
 
     try:
@@ -138,7 +139,8 @@ def _vault(args: argparse.Namespace) -> int:
         print(new_key(args.version or vault.current + 1))
         print("Add it to AI_PROXY_VAULT_KEYS (keep older keys listed until `agent-server vault rotate` has run).", file=sys.stderr)
         return 0
-    db = Settings.load().open_database()
+    settings = Settings.load()
+    db = settings.open_database()
     if args.action == "status":
         table = schema.provider_credentials
         with db.read() as connection:
@@ -157,6 +159,8 @@ def _vault(args: argparse.Namespace) -> int:
 
     try:
         done = ProviderAccounts(db, Offline(), vault).rotate()
+        # API providers' keys (api_providers.ApiKeys) are in the same table, under backend:<name>.
+        done += ApiKeys(db, vault).rotate(settings.backends)
     except VaultError as exc:
         print(str(exc), file=sys.stderr)
         return 1

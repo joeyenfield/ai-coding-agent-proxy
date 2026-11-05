@@ -294,6 +294,7 @@ await shot("settings", "/settings", {
   // The save bar floats at the bottom of the window; in a full-page capture it would cover a provider.
   prepare: (page) => page.addStyleTag({ content: ".save-bar.floating { position: static !important; }" }),
 });
+await shot("api-providers", "/settings?tab=apis", { fullPage: true, admin: true, scrubbed: true });
 await shot("server-stats", "/server-stats", { fullPage: true, admin: true, scrubbed: true, prepare: (page) => page.waitForTimeout(6000) });
 await shot("organization", "/organization", { fullPage: true });
 // A real device code from the demo's issuer, as `agent login` would ask for: checked, never approved.

@@ -33,6 +33,8 @@ TAGS = [
     ("Providers and usage", "agent_server.routes.providers",
      "Providers as people use them (backends on machines, hosted APIs, kinds of subscription), each person's usage of "
      "each, and the token limits an organization's admins set (`/api/providers`, `/api/orgs/{org}/usage`, `/api/orgs/{org}/limits`)."),
+    ("API providers", "agent_server.routes.api_providers",
+     "OpenAI and Anthropic-compatible providers (`api` backends): their settings, write-only keys, connection tests and model discovery (`/api/config/providers`, site admins)."),
     ("Retention and audit", "agent_server.routes.governance",
      "What's recorded and for how long (the server's policy, organizations' own, legal holds), and the audit log: "
      "its events, exports, checkpoints and verification (`/api/config/retention`, `/api/orgs/{org}/retention`, `/api/holds`, `/api/audit`)."),

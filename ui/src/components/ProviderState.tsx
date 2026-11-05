@@ -6,6 +6,8 @@ export type ProviderTone = "good" | "bad" | "idle" | "live" | "ask";
 /** How a configured backend is doing, from its entry in /api/models. Hosted APIs aren't probed. */
 export function providerState(type: string | undefined, models: BackendModels | undefined, pending: boolean): { tone: ProviderTone; text: string } {
   if (type === "anthropic") return { tone: "idle", text: "Pass-through" };
+  // An API provider the server doesn't list models for (hosted, discovery off) is passed through as well.
+  if (type === "api" && !models && !pending) return { tone: "idle", text: "Pass-through" };
   if (!models) return { tone: "idle", text: pending ? "Checking…" : "Unknown" };
   if (!models.online) return { tone: "bad", text: "Offline" };
   const count = models.models.length;

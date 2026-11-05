@@ -1,6 +1,7 @@
 // Package providers answers the server's questions about the model servers running on
-// this machine ({"type": "provider"} over the fleet connection: Ollama, llama.cpp, Strata and
-// Docker Model Runner): their state, their
+// this machine ({"type": "provider"} over the fleet connection: Ollama, llama.cpp, Strata,
+// Docker Model Runner, and kind "api", other OpenAI-compatible servers whose models are only
+// read): their state, their
 // models (pull, delete, load, unload), their logs, this machine's load, and the model
 // catalogues (ollama.com, Hugging Face, Docker Hub) to pull from.
 //
@@ -110,7 +111,7 @@ func (m *Manager) handle(request Request, progress Progress) (map[string]any, er
 		result, err := m.search(request.Catalog, request.Query, request.Repo)
 		return map[string]any{"result": result}, err
 	}
-	if request.Kind != "ollama" && request.Kind != "strata" && request.Kind != "docker" && request.Kind != "llamacpp" {
+	if request.Kind != "ollama" && request.Kind != "strata" && request.Kind != "docker" && request.Kind != "llamacpp" && request.Kind != "api" {
 		return nil, fmt.Errorf("unknown model server kind %q", request.Kind)
 	}
 	if request.Port <= 0 || request.Port > 65535 {
@@ -119,10 +120,16 @@ func (m *Manager) handle(request Request, progress Progress) (map[string]any, er
 	if changes[request.Op] && !m.machine().Servers {
 		return nil, errors.New("Managing model servers is off on this machine (agent-machine servers on)")
 	}
+	base := m.base(request.Port)
+	if request.Kind == "api" {
+		if request.Op == "status" {
+			return map[string]any{"state": apiStatus(base)}, nil
+		}
+		return nil, errAPIManaged
+	}
 	if progress == nil {
 		progress = func(map[string]any) {}
 	}
-	base := m.base(request.Port)
 	model := strings.TrimSpace(request.Model)
 	if (request.Op == "pull" || request.Op == "delete" || request.Op == "load" || request.Op == "unload" || request.Op == "files") && request.Kind != "strata" && model == "" {
 		return nil, errors.New("A model name is required")

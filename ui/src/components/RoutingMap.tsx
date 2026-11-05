@@ -1,7 +1,7 @@
 import type { ActiveRequest, RequestRecord, Session, Status } from "../api";
 import { formatNumber } from "../format";
 import { partsById } from "../navigation";
-import { DIRECT_BACKEND, providerLabel, routeOf, type RouteKind } from "../routes";
+import { DIRECT_BACKEND, isHosted, providerLabel, routeOf, type RouteKind } from "../routes";
 
 interface Lane {
   name: string;
@@ -32,7 +32,7 @@ export function RoutingMap({ status, sessions }: { status: Status; sessions: Ses
     return {
       name,
       live: count,
-      route: backend.type === "anthropic" ? "hosted" : "ollama",
+      route: isHosted(backend) ? "hosted" : "ollama",
       detail: `${kind}, ${backend.machine_name ? `on ${backend.machine_name}` : hostOf(backend.url)}${name === status.default_backend ? ", default" : ""}`,
     };
   });

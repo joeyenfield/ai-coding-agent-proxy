@@ -43,6 +43,13 @@ class RequestTelemetry:
     host: str | None = None
     cache_read_tokens: int = 0
     cache_creation_tokens: int = 0
+    # API providers (api_providers.py): which protocol the request was, the provider's model id when an
+    # alias was mapped, and where it went when its provider couldn't be reached (fallback).
+    protocol: str | None = None
+    upstream_model: str | None = None
+    fallback_from: str | None = None
+    routing: list[dict[str, Any]] = field(default_factory=list)
+    rate_limited: bool = False
 
     def saw_content(self) -> None:
         if self.first_token is None:
@@ -73,6 +80,8 @@ class RequestTelemetry:
         self.input_tokens = int(usage.get("prompt_tokens") or usage.get("input_tokens") or self.input_tokens)
         self.output_tokens = int(usage.get("completion_tokens") or usage.get("output_tokens") or self.output_tokens)
         cached = _mapping(usage.get("prompt_tokens_details") or usage.get("input_tokens_details")).get("cached_tokens")
+        # DeepSeek reports its cache hits as prompt_cache_hit_tokens.
+        cached = cached or usage.get("prompt_cache_hit_tokens")
         self.cache_read_tokens = int(usage.get("cache_read_input_tokens") or cached or self.cache_read_tokens)
         self.cache_creation_tokens = int(usage.get("cache_creation_input_tokens") or self.cache_creation_tokens)
 
@@ -126,6 +135,10 @@ class RequestTelemetry:
             "host": self.host,
             "cache_read_tokens": self.cache_read_tokens,
             "cache_creation_tokens": self.cache_creation_tokens,
+            **({"protocol": self.protocol} if self.protocol else {}),
+            **({"upstream_model": self.upstream_model} if self.upstream_model else {}),
+            **({"fallback_from": self.fallback_from, "routing": self.routing} if self.fallback_from else {}),
+            **({"rate_limited": True} if self.rate_limited else {}),
         }
 
 

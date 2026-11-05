@@ -1465,3 +1465,18 @@ code { background: var(--ground); border: 1px solid var(--line); padding: 0 5px;
 .setup-codes .setup-made p { margin: 0; }
 .setup-codes .setup-open ul { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .setup-codes .setup-open li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; font-size: 14px; }
+/* API providers (Server settings, API providers tab; ApiProviders.tsx) */
+.api-provider-group { display: grid; gap: 10px; }
+.panel.is-off { background: var(--raised); }
+.api-provider-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 16px; margin: 0; font-size: 13.5px; }
+.api-provider-facts dt { font-size: 12.5px; font-weight: 600; color: var(--steel); }
+.api-provider-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.api-pairs { display: grid; gap: 8px; justify-items: start; }
+.api-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 8px; width: 100%; }
+.api-discovered { display: flex; flex-wrap: wrap; gap: 6px 16px; max-height: 220px; overflow: auto; }
+.api-editor > fieldset.field { display: grid; gap: 8px; }
+.provider-backends li.api-model { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 600px) {
+  .api-provider-facts { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .api-provider-facts dd { margin-bottom: 6px; }
+}

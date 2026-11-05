@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, apiUrl, MACHINE_TYPES, type NetworkConfig } from "../api";
+import { api, API_TYPE, apiUrl, MACHINE_TYPES, type NetworkConfig } from "../api";
 import { Icon } from "../components/Icon";
 import { PartTag } from "../components/PartTag";
 import { RestartButton } from "../components/Restart";
@@ -9,6 +9,7 @@ import { useAuth, useStatus } from "../hooks";
 import { machinePath, providersPath } from "./Machine";
 import { TabBar, TabPanel, useTabParam } from "../components/Tabs";
 import { AgentDefinitions, AuditSettings, ModelTuningEditor, StorageSettings } from "./SettingsStored";
+import { ApiProviderSettings } from "./ApiProviders";
 
 const URL_PLACEHOLDERS: Record<string, string> = {
   ollama: "http://host:11434",
@@ -25,6 +26,7 @@ const TYPE_HINTS: Record<string, string> = {
   strata: "A Strata server; requests pass through with Strata's API key added.",
   llamacpp: "llama.cpp's llama-server; requests pass through unchanged (a container's with the key the server gave it).",
   anthropic: "Hosted API; requests pass through with the agent's own credentials.",
+  api: "An OpenAI- or Anthropic-compatible API.",
 };
 
 interface Row {
@@ -36,6 +38,8 @@ interface Row {
   managed?: boolean;
   /** A model server on a machine: added from the machine, so its type and URL aren't edited here. */
   local?: boolean;
+  /** An API provider: its options are kept by the server and changed on the API providers tab. */
+  api?: boolean;
 }
 
 let nextId = 0;
@@ -56,7 +60,7 @@ export function SettingsPage() {
   return <ServerSettings />;
 }
 
-const TABS = ["server", "agents", "tuning", "storage", "audit"] as const;
+const TABS = ["server", "apis", "agents", "tuning", "storage", "audit"] as const;
 
 function ServerSettings() {
   const [tab, setTab] = useTabParam(TABS);
@@ -82,7 +86,7 @@ function ServerSettings() {
     setRows(
       Object.entries(value.backends).map(([name, backend]) => ({
         id: nextId++, name, type: backend.type, url: backend.url, managed: Boolean(backend.container),
-        local: MACHINE_TYPES.includes(backend.type),
+        local: MACHINE_TYPES.includes(backend.type), api: backend.type === API_TYPE,
       })),
     );
   }, [config.data]);
@@ -145,6 +149,7 @@ function ServerSettings() {
         className="page-tabs"
         tabs={[
           { id: "server", label: "Server and providers" },
+          { id: "apis", label: "API providers" },
           { id: "agents", label: "Agents" },
           { id: "tuning", label: "Model tuning" },
           { id: "storage", label: "Storage" },
@@ -194,7 +199,8 @@ function ServerSettings() {
             <p className="subtle">
               Local model servers come from your machines: add them, and manage their models, on each machine's page under{" "}
               <Link to="/machines">Machines</Link>. Here you pick the default, which agents started without{" "}
-              <code>--backend</code> use, and remove ones you no longer need. Agents signed in to their own accounts don't use one.
+              <code>--backend</code> use, and remove ones you no longer need. OpenAI- and Anthropic-compatible APIs, with their keys and model{" "}
+              names, are on <Link to="?tab=apis">API providers</Link>. Agents signed in to their own accounts don't use one.
             </p>
             {rows.length === 0 && <p className="subtle">No providers yet.</p>}
             <ul className="backend-cards">
@@ -203,11 +209,12 @@ function ServerSettings() {
                   <div className="backend-card-grid">
                     <label className="field">
                       Name
-                      <input value={row.name} onChange={(event) => update(row.id, { name: event.target.value })} required pattern="[A-Za-z0-9][A-Za-z0-9_\-]*" disabled={row.managed || row.local} />
+                      <input value={row.name} onChange={(event) => update(row.id, { name: event.target.value })} required pattern="[A-Za-z0-9][A-Za-z0-9_\-]*" disabled={row.managed || row.local || row.api} />
                     </label>
                     <label className="field">
                       Type
-                      <select value={row.type} onChange={(event) => update(row.id, { type: event.target.value })} disabled={row.managed || row.local}>
+                      <select value={row.type} onChange={(event) => update(row.id, { type: event.target.value })} disabled={row.managed || row.local || row.api}>
+                        {row.api && <option value="api">OpenAI-compatible API</option>}
                         {row.local && (
                           <>
                             <option value="ollama">Ollama</option>
@@ -221,7 +228,7 @@ function ServerSettings() {
                     </label>
                     <label className="field url-field">
                       URL
-                      <input type="url" value={row.url} placeholder={URL_PLACEHOLDERS[row.type] ?? URL_PLACEHOLDERS.ollama} onChange={(event) => update(row.id, { url: event.target.value })} required disabled={row.managed || row.local} />
+                      <input type="url" value={row.url} placeholder={URL_PLACEHOLDERS[row.type] ?? URL_PLACEHOLDERS.ollama} onChange={(event) => update(row.id, { url: event.target.value })} required disabled={row.managed || row.local || row.api} />
                     </label>
                   </div>
                   <div className="backend-card-foot">
@@ -230,6 +237,11 @@ function ServerSettings() {
                         <>
                           A container on {machineOf(row) ?? "a machine"}; change or delete it on{" "}
                           <Link to={providersPath(status.data?.backends[row.name]?.machine ?? "", "containers")}>its machine's Containers</Link>.
+                        </>
+                      ) : row.api ? (
+                        <>
+                          {machineOf(row) ? <>On <Link to={pageOf(row)}>{machineOf(row)}</Link>. </> : null}
+                          {TYPE_HINTS.api} Change it on <Link to="?tab=apis">API providers</Link>.
                         </>
                       ) : row.local ? (
                         machineOf(row) ? (
@@ -248,9 +260,9 @@ function ServerSettings() {
                     <button
                       type="button"
                       className="icon-button danger"
-                      title="Remove"
                       aria-label={`Remove ${row.name || "this backend"}`}
-                      disabled={row.managed}
+                      disabled={row.managed || row.api}
+                      title={row.api ? "Remove it on API providers" : "Remove"}
                       onClick={() => setRows((current) => current.filter((item) => item.id !== row.id))}
                     >
                       <Icon name="trash" />
@@ -288,6 +300,9 @@ function ServerSettings() {
             </div>
           </section>
         )}
+      </TabPanel>
+      <TabPanel idPrefix="settings-" id="apis" active={tab === "apis"} className="settings-panel">
+        <ApiProviderSettings />
       </TabPanel>
       <TabPanel idPrefix="settings-" id="agents" active={tab === "agents"} className="settings-panel">
         <AgentDefinitions />

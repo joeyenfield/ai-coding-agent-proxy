@@ -4,7 +4,7 @@ import type { Backend, TrafficKind } from "./api";
  * The three ways traffic reaches a model through this proxy.
  *
  * ollama:  local models: Ollama machines (translated and tuned by the proxy), llama.cpp, Strata and Docker Model Runner (passed through).
- * hosted:  a hosted API backend (Anthropic) reached through a proxy endpoint, passed through unchanged.
+ * hosted:  a hosted API backend (Anthropic, or an OpenAI- or Anthropic-compatible API) reached through a proxy endpoint, passed through unchanged.
  * account: an agent signed in to its own service; its HTTPS is captured by the intercept listener.
  */
 export type RouteKind = "ollama" | "hosted" | "account";
@@ -18,7 +18,7 @@ export const ROUTES: Record<RouteKind, { label: string; description: string }> =
   },
   hosted: {
     label: "Hosted API",
-    description: "A hosted API backend such as Anthropic. Requests pass through unchanged and use the agent's own credentials.",
+    description: "A hosted API such as Anthropic, OpenAI or OpenRouter. Requests pass through with the agent's own credentials or the key the server keeps for it.",
   },
   account: {
     label: "Your accounts",
@@ -33,7 +33,12 @@ export const PROVIDERS: Record<string, { label: string; short: string }> = {
   strata: { label: "Strata", short: "Strata" },
   docker: { label: "Docker Model Runner", short: "Docker" },
   anthropic: { label: "Anthropic API", short: "Hosted API" },
+  api: { label: "OpenAI-compatible API", short: "API" },
 };
+
+/** Whether a backend is a hosted API rather than a model server on a machine: Anthropic's, or an API provider no machine runs. */
+export const isHosted = (backend: Pick<Backend, "type" | "machine"> | undefined) =>
+  backend?.type === "anthropic" || (backend?.type === "api" && !backend.machine);
 
 export const providerLabel = (type: string | undefined, short = false) => {
   const provider = PROVIDERS[type ?? ""];
@@ -58,12 +63,12 @@ interface Routed {
 
 export function routeOf(item: Routed, backends: Record<string, Backend> | undefined): RouteKind {
   if ((item.kind && item.kind !== "api") || item.backend === DIRECT_BACKEND) return "account";
-  return backends?.[item.backend]?.type === "anthropic" ? "hosted" : "ollama";
+  return isHosted(backends?.[item.backend]) ? "hosted" : "ollama";
 }
 
 /** Short text naming where one request or session went, e.g. "Ollama · desktop". */
 export function routeDetail(item: Routed, route: RouteKind, backends?: Record<string, Backend>): string {
   if (route === "account") return ACCOUNT_NAMES[item.client ?? ""] ?? "Account";
-  if (route === "hosted") return `Anthropic API · ${item.backend}`;
+  if (route === "hosted") return `${providerLabel(backends?.[item.backend]?.type ?? "anthropic")} · ${item.backend}`;
   return `${providerLabel(backends?.[item.backend]?.type ?? "ollama", true)} · ${item.backend}`;
 }

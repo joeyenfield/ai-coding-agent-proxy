@@ -524,9 +524,10 @@ def show(machine: settings.Machine) -> None:
         print("Address   :", machine.address)
     found = providers.detect()
     if not found:
-        print("Providers : no Ollama, llama.cpp, Strata or Docker Model Runner answering here")
+        print("Providers : no Ollama, llama.cpp, Strata, Docker Model Runner or OpenAI-compatible server answering here")
     for index, provider in enumerate(found):
-        print(f"{'Providers :' if index == 0 else '           '} {provider['type']} on port {provider['port']}")
+        kind = provider["type"] + (f" ({provider['flavor']})" if provider.get("flavor") else "")
+        print(f"{'Providers :' if index == 0 else '           '} {kind} on port {provider['port']}")
     show_containers(machine)
     print("Servers   : on: the server can manage the model servers here (start, stop, settings, models)" if machine.servers else "Servers   : off (agent-machine servers on)")
     print("Launches  :", "on" if machine.launches else "off (agent-machine launches on)")

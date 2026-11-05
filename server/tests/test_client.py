@@ -712,6 +712,73 @@ def test_a_fleet_machine_runs_llamacpp_and_its_models_serve_agents_through_its_t
         assert stopped.status_code == 200 and not stopped.json()["servers"]["llamacpp"]["running"], stopped.text
 
 
+@contextmanager
+def fake_openai_server():
+    """An OpenAI-compatible server (LM Studio, vLLM, ...) on a free loopback port: a model list and chat."""
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    seen: list[tuple[str, str, dict]] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def reply(self, value: object) -> None:
+            data = json.dumps(value).encode()
+            self.send_response(200)
+            self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_GET(self) -> None:  # noqa: N802
+            seen.append(("GET", self.path, dict(self.headers)))
+            self.reply({"object": "list", "data": [{"id": "qwen3-coder-30b", "object": "model", "max_model_len": 32768}]})
+
+        def do_POST(self) -> None:  # noqa: N802
+            body = json.loads(self.rfile.read(int(self.headers.get("content-length") or 0)) or b"{}")
+            seen.append(("POST", self.path, {"body": body, "headers": dict(self.headers)}))
+            self.reply({"choices": [{"index": 0, "message": {"role": "assistant", "content": f"hello from {body.get('model')}"}, "finish_reason": "stop"}],
+                        "usage": {"prompt_tokens": 3, "completion_tokens": 4}})
+
+        def log_message(self, *args: object) -> None:
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        yield server.server_address[1], seen
+    finally:
+        server.shutdown()
+
+
+def test_a_fleet_machine_finds_an_openai_compatible_server_that_serves_agents_through_its_tunnel(tmp_path, agent_binary, machine_binary):
+    with fake_openai_server() as (port, seen), machine(tmp_path, agent_binary) as m, \
+            fleet_machine(m, machine_binary, tmp_path, ["address", "203.0.113.9"], env={"AI_PROXY_API_PORTS": str(port)}) as fleet:
+        base = f"{m.server}/api/machines/{fleet.box['id']}"
+        deadline = time.monotonic() + 20
+        found: list = []
+        while time.monotonic() < deadline and not found:
+            found = [item for item in m.runtime.fleet.machines[fleet.box["id"]].providers if item["type"] == "api"]
+            time.sleep(0.2)
+        assert found and found[0]["port"] == port and found[0]["flavor"] == "openai" and found[0]["models"] == 1, found
+        state = httpx.get(f"{base}/providers/api-{port}", headers=m.headers, timeout=30).json()
+        assert state["online"] and state["models"][0]["id"] == "qwen3-coder-30b" and state["models"][0]["context_length"] == 32768, state
+        # Its models are managed in that server itself.
+        assert httpx.post(f"{base}/providers/api-{port}/models/pull", headers=m.headers, json={"name": "x"}, timeout=30).status_code == 404
+        adopted = httpx.post(f"{base}/providers/adopt", headers=m.headers, json={"type": "api", "port": port}, timeout=30)
+        assert adopted.status_code == 201, adopted.text
+        name = adopted.json()["backend"]
+        listed = httpx.get(f"{m.server}/api/models", headers=m.headers, params={"backend": name}, timeout=30).json()["backends"][name]
+        assert [model["name"] for model in listed["models"]] == ["qwen3-coder-30b"] and listed["models"][0]["context_length"] == 32768
+        # The machine's address answers nothing, so this is the tunnel.
+        m.runtime.client = httpx.AsyncClient(trust_env=False, timeout=30)
+        session = new_session(m.server, backend=name, headers=m.headers)
+        answer = httpx.post(f"{m.server}/session/{session}/v1/chat/completions", headers={**m.headers, "authorization": "Bearer local-ollama"}, timeout=30,
+                            json={"model": "qwen3-coder-30b", "messages": [{"role": "user", "content": "hi"}]})
+        assert answer.status_code == 200 and answer.json()["choices"][0]["message"]["content"] == "hello from qwen3-coder-30b", answer.text
+        [(method, path, sent)] = [item for item in seen if item[0] == "POST"]
+        # auth: none, so neither the agent's placeholder nor the platform's token reaches it.
+        assert path == "/v1/chat/completions" and not {"authorization", "x-ai-proxy-token"} & {key.lower() for key in sent["headers"]}
+
+
 def test_the_programs_speak_the_servers_protocol(agent_binary, machine_binary):
     for binary in (agent_binary, machine_binary):
         printed = subprocess.run([str(binary), "version"], capture_output=True, text=True, timeout=30).stdout

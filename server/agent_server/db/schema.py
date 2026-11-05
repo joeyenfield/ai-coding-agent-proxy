@@ -35,6 +35,8 @@ backends = Table(
     Column("url", Text, nullable=False),
     Column("machine", String(200)),
     Column("container", JSON),
+    # An api backend's options (api_providers.py; API step 8). Its key is never here.
+    Column("options", JSON),
 )
 
 agents = Table(

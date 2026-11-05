@@ -29,7 +29,8 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 
 from .. import auth, mcp, remote
 from ..fleet import (
-    FEATURES, PROVIDER_TYPES, FleetError, allowed, can_manage, can_see, checked_access, normal_url, parse_provider, provider_request, within_roots,
+    FEATURES, PROVIDER_TYPES, FleetError, allowed, can_manage, can_see, checked_access, parse_provider, provider_address,
+    provider_request, within_roots,
 )
 from ..fleet import provider_id as fleet_provider_id
 from ..provider_accounts import AccountError
@@ -281,16 +282,21 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         target = visible(machine_id, request)
         data = await request.json()
         kind = str((data or {}).get("type") or "")
-        provider = next((item for item in target.providers if item["type"] == kind), None)
+        port = (data or {}).get("port")
+        # Two of a kind can run on one machine (LM Studio and vLLM are both api): the port says which.
+        provider = next((item for item in target.providers if item["type"] == kind and (not isinstance(port, int) or item["port"] == port)), None)
         if kind not in PROVIDER_TYPES or provider is None:
             raise HTTPException(status_code=404, detail=f"{target.name} doesn't run that model server")
         url = fleet.provider_url(target, provider)
+        if kind == "api":
+            # An OpenAI-compatible server's API is under /v1; agents' paths are relative to it (api_providers.target).
+            url += "/v1"
         async with runtime.config_lock:
             # Only this machine's own backends, and ones from before machines, can be this server. Another machine's
             # at the same address is another server: machines behind one public address (a home router, a PC and
             # its WSL) look alike from here, and agents reach each through its own machine (tunnels: machine, port).
             existing = next((backend for backend in runtime.settings.backends.values()
-                             if backend.type == kind and normal_url(backend.url) == normal_url(url) and backend.machine in (None, target.id)), None)
+                             if backend.type == kind and provider_address(kind, backend.url) == provider_address(kind, url) and backend.machine in (None, target.id)), None)
             if existing is not None:
                 if existing.machine:
                     raise HTTPException(status_code=409, detail=f"It's already a provider: {existing.name}")
@@ -307,8 +313,13 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         while name in taken:
             name = f"{base}-{kind}-{suffix}"
             suffix += 1
+        value: dict[str, Any] = {"type": kind, "url": url, "machine": target.id}
+        if kind == "api":
+            # Only Chat Completions is assumed: LM Studio, vLLM and SGLang all have it. Responses and Messages
+            # depend on the server's version, so a site admin turns them on (Server settings -> Providers).
+            value["options"] = {"category": "machine", "protocols": ["openai-chat"], "auth": "none", "discover": True}
         async with runtime.config_lock:
-            runtime.settings.save_backend(name, {"type": kind, "url": url, "machine": target.id})
+            runtime.settings.save_backend(name, value)
         return {"backend": name, "url": url}
 
     async def ask(target: Any, op: str, timeout: float | None = 30.0, channel: str = "provider", **fields: Any) -> dict[str, Any]:
@@ -374,6 +385,8 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         if not allowed(auth.request_identity(request), target, "models"):
             raise HTTPException(status_code=403, detail="Only the machine's owner, an admin, or the teams it lets can change its models.")
         kind, port, backend = provider(target, provider_id)
+        if kind == "api":
+            raise HTTPException(status_code=404, detail="An OpenAI-compatible server's models are managed in that server itself (LM Studio, vLLM, ...)")
         if (action not in MODEL_ACTIONS and not (kind == "llamacpp" and action in LLAMA_ACTIONS)) or (kind == "strata" and action not in {"load", "unload"}):
             raise HTTPException(status_code=404, detail="Pull, delete, load or unload a model (Strata: load or unload; llama.cpp also files and reload)")
         data = await request.json() if request.headers.get("content-length") not in (None, "0") else {}

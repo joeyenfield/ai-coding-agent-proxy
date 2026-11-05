@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { Link, Navigate, NavLink, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, machineProviders, preferredModel, providerModels, type Agent, type FleetMachine, type MachineProvider, type ProviderRef, type StrataProfile } from "../api";
+import { api, API_FLAVORS, machineProviders, preferredModel, providerModels, type Agent, type FleetMachine, type MachineProvider, type ProviderRef, type StrataProfile } from "../api";
 import { CodeLine } from "../components/CodeLine";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { FolderPicker } from "../components/FolderPicker";
@@ -13,6 +13,7 @@ import { providerLabel } from "../routes";
 import { formatRelative } from "../format";
 import { OllamaProvider } from "./Models";
 import { StrataProvider } from "./Strata";
+import { ApiServerProvider } from "./ApiProviders";
 import { DockerGuide, DockerProvider } from "./Docker";
 import { MachineOllama } from "./OllamaServer";
 import { LlamaCppProvider, MachineLlamaCpp } from "./LlamaCpp";
@@ -34,7 +35,8 @@ export const OS_LABELS: Record<string, string> = { windows: "Windows", linux: "L
 
 /** A model server's name on its machine's page: "Ollama :11434", with its backend's name once it's one. */
 export function providerName(provider: MachineProvider): string {
-  return `${providerLabel(provider.kind)} :${provider.port}`;
+  const label = provider.kind === "api" && provider.flavor ? API_FLAVORS[provider.flavor] ?? providerLabel(provider.kind) : providerLabel(provider.kind);
+  return `${label} :${provider.port}`;
 }
 
 /** A machine's page, or one of its tabs ("agents", or "providers/ollama/ollama-11434": each part encoded). */
@@ -138,6 +140,7 @@ function ProviderView({ machine, provider }: { machine: FleetMachine; provider: 
       {provider.kind === "llamacpp" && <LlamaCppProvider target={target} label={label} backend={provider.backend} manageable={manageable} />}
       {provider.kind === "strata" && <StrataProvider target={target} label={label} backend={provider.backend} manageable={manageable} />}
       {provider.kind === "docker" && <DockerProvider target={target} label={label} backend={provider.backend} manageable={manageable} />}
+      {provider.kind === "api" && <ApiServerProvider provider={provider} />}
     </>
   );
 }
@@ -622,7 +625,7 @@ function MachineTerminal({ machine }: { machine: FleetMachine }) {
 }
 
 /** Where each kind of provider comes in the machine's Providers tab. */
-const KIND_ORDER = ["ollama", "llamacpp", "strata", "docker"];
+const KIND_ORDER = ["ollama", "llamacpp", "strata", "docker", "api"];
 
 /** The kinds of provider the machine has: those it runs, and those installed there (managed from the kind's server tab). */
 function providerKinds(machine: FleetMachine, providers: MachineProvider[]): string[] {
@@ -752,6 +755,7 @@ function MachineModelServers({ machine, providers }: { machine: FleetMachine; pr
                 </span>
                 <span className="subtle">
                   {provider.backend ? <>Provider <strong>{provider.backend}</strong></> : "Not a provider yet"}
+                  {provider.models != null && ` · ${provider.models} ${provider.models === 1 ? "model" : "models"}`}
                   {provider.container && " · container"}
                   {!provider.detected && " · not answering now"}
                 </span>
@@ -767,7 +771,7 @@ function MachineModelServers({ machine, providers }: { machine: FleetMachine; pr
           <div className="empty">
             <p>No model server found on {machine.name}.</p>
             <p className="subtle">
-              Start Ollama, Strata or Docker Model Runner there and agent-machine finds it within a minute. Or run{" "}
+              Start Ollama, Strata, Docker Model Runner, LM Studio, vLLM or SGLang there and agent-machine finds it within a minute. Or run{" "}
               <code>agent-machine containers on</code> there so the server can run Strata or Ollama on it in containers.
             </p>
           </div>

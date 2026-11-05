@@ -23,8 +23,10 @@ from .access_log import AccessLogMiddleware
 from .auth import ROOT_TENANT, AuthMiddleware, UserStore
 from .config import Settings
 from .downloads import Downloads
+from .api_providers import ProviderTransport
 from .intercept import InterceptProxy, InterceptTransport
 from .audit import AuditMiddleware
+from .routes import api_providers as api_provider_routes
 from .routes import auth, compat, containers, governance, machines, management, mcp, provider_accounts, providers, proxy, terminals
 from .runtime import LOGGER, Runtime, upstream_client
 from .ui_build import ensure_built
@@ -72,6 +74,12 @@ def create_app(
             timeout=httpx.Timeout(600, connect=10, pool=30),
             limits=httpx.Limits(max_connections=400, max_keepalive_connections=100, keepalive_expiry=30),
         )
+        # Hosted and gateway API providers (api_providers.py): public addresses only, pinned; one client verifying
+        # TLS and one for the providers a site admin set not to (verify_tls: false).
+        runtime.api_clients = {
+            verify: upstream_client(transport=ProviderTransport(verify=verify), trust_env=False, timeout=httpx.Timeout(600, connect=10, pool=30))
+            for verify in (True, False)
+        }
         if settings.intercept.enabled:
             runtime.intercept_client = upstream_client(
                 timeout=httpx.Timeout(600, connect=10), transport=InterceptTransport(), trust_env=False,
@@ -95,6 +103,8 @@ def create_app(
         await runtime.client.aclose()
         if runtime.intercept_client:
             await runtime.intercept_client.aclose()
+        for client in runtime.api_clients.values():
+            await client.aclose()
         runtime.auth.client.close()
         runtime.audit.close()
         await runtime.cluster.close()
@@ -139,6 +149,7 @@ def create_app(
     registered("provider_accounts", provider_accounts.register, runtime)
     registered("providers", providers.register, runtime)
     registered("governance", governance.register, runtime)
+    registered("api_providers", api_provider_routes.register, runtime)
     registered("management", management.register, runtime)
     registered("terminals", terminals.register, runtime)
     registered("proxy", proxy.register, runtime)

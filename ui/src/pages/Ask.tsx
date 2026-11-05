@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { Link } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { ApiError, MACHINE_TYPES, api, askModel, followReply, preferredModel, providerModels, type AskMessage } from "../api";
-import { useModels, useToast } from "../hooks";
+import { API_TYPE, ApiError, MACHINE_TYPES, api, askModel, followReply, preferredModel, providerModels, type AskMessage } from "../api";
+import { useModels, useStatus, useToast } from "../hooks";
 import { Icon } from "../components/Icon";
 import { PartTag } from "../components/PartTag";
 import { Prose } from "../components/SessionChat";
 import { providerLabel } from "../routes";
 
 // Every model server machines run (Ollama, llama.cpp, Strata, Docker Model Runner) takes OpenAI Chat from here.
-// Hosted APIs need the agent's own sign-in, which the console doesn't have.
+// Hosted APIs need the agent's own sign-in, which the console doesn't have; an API provider on a machine (LM Studio, vLLM) doesn't.
 const ASKABLE = new Set(MACHINE_TYPES);
 // What the session is called on Sessions and Traffic.
 const CLIENT = "console-chat";
@@ -27,18 +27,20 @@ interface Message extends AskMessage {
  */
 export function AskPage() {
   const models = useModels();
+  const status = useStatus();
   const notify = useToast();
   const client = useQueryClient();
   const choices = useMemo(() => {
     const result: { backend: string; type: string; models: string[] }[] = [];
     for (const [backend, listing] of Object.entries(models.data?.backends ?? {})) {
       const type = listing.type ?? "ollama";
-      if (!ASKABLE.has(type) || !listing.online) continue;
+      const onMachine = type === API_TYPE && Boolean(status.data?.backends[backend]?.machine);
+      if (!(ASKABLE.has(type) || onMachine) || !listing.online) continue;
       const names = providerModels(listing, models.data?.aliases, type);
       if (names.length) result.push({ backend, type, models: names });
     }
     return result;
-  }, [models.data]);
+  }, [models.data, status.data]);
   const [picked, setPicked] = useState<{ backend: string; model: string } | null>(null);
   const choice = picked ?? (choices[0] ? { backend: choices[0].backend, model: preferredModel(choices[0].models) } : null);
   const [system, setSystem] = useState("");

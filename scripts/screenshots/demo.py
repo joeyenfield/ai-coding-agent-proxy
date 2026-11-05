@@ -1329,6 +1329,14 @@ def main() -> None:
             # The phone's llama.cpp (FakeProviders answers for it; nothing serves agents' traffic there in the demo).
             "pocket": {"type": "llamacpp", "url": "http://127.0.0.1:9931", "machine": "pocket"},
             "anthropic": {"type": "anthropic", "url": f"http://127.0.0.1:{ANTHROPIC}"},
+            # API providers (api_providers.py): made-up keys never exist here, so they show as missing.
+            "openai": {"type": "api", "url": "https://api.openai.com/v1", "options": {
+                "category": "hosted", "protocols": ["openai-chat", "openai-responses"], "auth": "bearer", "key_env": "AI_PROXY_API_KEY_OPENAI",
+                "models": {"fast": "gpt-4.1-mini"}, "orgs": ["*"], "priority": 0}},
+            "openrouter": {"type": "api", "url": "https://openrouter.ai/api/v1", "options": {
+                "category": "gateway", "protocols": ["openai-chat"], "auth": "bearer", "key_env": "AI_PROXY_API_KEY_OPENROUTER",
+                "headers": {"X-Title": "AI Control Mesh"}, "models": {"qwen-coder": "qwen/qwen3-coder", "sonnet": "anthropic/claude-sonnet-4.5"},
+                "fallback": ["openai"], "orgs": ["*"]}},
             # Containers the machines run, answered by FakeContainers.
             **{name: {"type": spec["engine"], "url": f"http://127.0.0.1:{spec['port']}", "machine": CONTAINER_MACHINES[name], "container": spec}
                for name, spec in CONTAINERS.items()},

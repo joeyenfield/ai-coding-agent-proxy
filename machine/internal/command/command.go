@@ -441,14 +441,18 @@ func show(machine *settings.Machine) {
 	}
 	providers := presence.DetectProviders()
 	if len(providers) == 0 {
-		fmt.Println("Providers : no Ollama, llama.cpp, Strata or Docker Model Runner answering here")
+		fmt.Println("Providers : no Ollama, llama.cpp, Strata, Docker Model Runner or OpenAI-compatible server answering here")
 	}
 	for index, provider := range providers {
 		label := "Providers :"
 		if index > 0 {
 			label = "           "
 		}
-		fmt.Printf("%s %s on port %d\n", label, provider.Type, provider.Port)
+		kind := provider.Type
+		if provider.Flavor != "" {
+			kind += " (" + provider.Flavor + ")"
+		}
+		fmt.Printf("%s %s on port %d\n", label, kind, provider.Port)
 	}
 	cli := containers.CLIFor(machine)
 	how := " (found by itself; agent-machine containers cli docker|podman picks one)"

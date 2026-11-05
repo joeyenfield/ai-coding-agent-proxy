@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 
 from sqlalchemy import select
 
-from . import defaults
+from . import api_providers, defaults
 from .db import Database, kv, migrate, schema, sqlite_url
 
 
@@ -38,8 +38,10 @@ LOCAL_INTERCEPT_PORT = 8183
 LOCAL_PROXY_URL = f"http://127.0.0.1:{LOCAL_PROXY_PORT}"
 # ollama: Ollama servers, translated and tuned by the proxy. strata: a local Strata
 # server, docker: Docker Model Runner, and llamacpp: llama.cpp's llama-server (router mode);
-# all three speak the agents' APIs themselves and are passed through. anthropic: hosted pass-through.
-BACKEND_TYPES = {"ollama", "strata", "docker", "llamacpp", "anthropic"}
+# all three speak the agents' APIs themselves and are passed through. anthropic: hosted pass-through
+# with the agent's own credentials. api: any server speaking OpenAI Chat Completions, OpenAI Responses
+# or Anthropic Messages (api_providers.py), hosted or on a machine, with the server's key.
+BACKEND_TYPES = {"ollama", "strata", "docker", "llamacpp", "anthropic", "api"}
 # Agent protocols the pass-through local servers speak natively.
 NATIVE_PROTOCOLS = {
     "strata": {"openai-chat", "openai-responses", "anthropic"},
@@ -49,7 +51,10 @@ NATIVE_PROTOCOLS = {
 # Model servers run on the fleet's machines: a backend of these types is added from a machine
 # (a model server it reports, or a container it runs), never by URL alone. Hosted APIs are the exception.
 MACHINE_TYPES = {"ollama", "strata", "docker", "llamacpp"}
-PROVIDER_NAMES = {"ollama": "Ollama", "strata": "Strata", "docker": "Docker Model Runner", "llamacpp": "llama.cpp", "anthropic": "Anthropic API"}
+PROVIDER_NAMES = {
+    "ollama": "Ollama", "strata": "Strata", "docker": "Docker Model Runner", "llamacpp": "llama.cpp", "anthropic": "Anthropic API",
+    "api": "OpenAI or Anthropic-compatible API",
+}
 
 
 def serves(backend: "Backend", backend_type: str, protocol: str | None = None) -> bool:
@@ -57,8 +62,11 @@ def serves(backend: "Backend", backend_type: str, protocol: str | None = None) -
 
     Agents declared for Ollama are local-model agents; Strata, Docker Model Runner
     and llama.cpp serve them too when they speak the agent's protocol. Strata and
-    llama.cpp lack Ollama's native /api.
+    llama.cpp lack Ollama's native /api. A generic API provider serves them by the protocols it was
+    declared to speak, and only while it's enabled.
     """
+    if backend.type == "api":
+        return backend_type in ("ollama", "api") and api_providers.speaks(backend, protocol) and api_providers.enabled(backend)
     if backend.type == backend_type:
         return True
     spoken = NATIVE_PROTOCOLS.get(backend.type)
@@ -75,6 +83,8 @@ class Backend:
     machine: str | None = None
     # A container its machine runs for this backend (see containers.py); None for model servers run another way.
     container: dict[str, Any] | None = field(default=None, compare=False, hash=False)
+    # An api backend's options (api_providers.DEFAULT_OPTIONS: protocols, auth, models, ...); never its key.
+    options: dict[str, Any] | None = field(default=None, compare=False, hash=False)
 
     def public(self) -> dict[str, Any]:
         value: dict[str, Any] = {"type": self.type, "url": self.url}
@@ -82,6 +92,8 @@ class Backend:
             value["machine"] = self.machine
         if self.container:
             value["container"] = self.container
+        if self.options:
+            value["options"] = self.options
         return value
 
 
@@ -414,6 +426,8 @@ class Settings:
             raise ValueError(f"Unknown backend '{selected}'. Available: {choices}")
         if backend.type not in BACKEND_TYPES:
             raise ValueError(f"Unsupported backend type: {backend.type}")
+        if backend.type == "api" and not api_providers.enabled(backend):
+            raise ValueError(f"Backend '{selected}' is turned off (Server settings -> Providers)")
         return backend
 
     def backend_for(
@@ -423,8 +437,12 @@ class Settings:
 
         Prefers the default backend when it serves the agent, then a backend of
         exactly the declared type, then any other that serves it (Strata or
-        Docker Model Runner for a local-model agent). usable limits all of it to
-        the caller's tenant's backends (fleet.usable_by).
+        Docker Model Runner for a local-model agent), higher priority first. usable
+        limits all of it to the caller's tenant's backends (fleet.usable_by).
+
+        A hosted or gateway API provider (an api backend not on a machine) is picked only
+        when it's named or is the default backend: a local-model agent never moves to a
+        paid service because nothing local is configured.
         """
         if name:
             backend = self.backend(name, usable)
@@ -438,9 +456,18 @@ class Settings:
         default = self.backends.get(self.default_backend)
         if default and serves(default, backend_type, protocol) and (usable is None or usable(default)):
             return default
-        candidates = [backend for backend in self.backends.values() if serves(backend, backend_type, protocol) and (usable is None or usable(backend))]
+        candidates = [
+            backend for backend in self.backends.values()
+            if serves(backend, backend_type, protocol) and (usable is None or usable(backend)) and not api_providers.external(backend)
+        ]
         if candidates:
-            return min(candidates, key=lambda item: item.type != backend_type)
+            # min is stable: among equals the first configured wins, as before priorities.
+            return min(candidates, key=lambda item: (item.type != backend_type, -_priority(item)))
+        hosted = [backend for backend in self.backends.values() if serves(backend, backend_type, protocol) and (usable is None or usable(backend))]
+        if hosted:
+            raise ValueError(
+                f"No local {backend_type} backend is configured; name a hosted provider to use it (--backend {hosted[0].name})"
+            )
         raise ValueError(f"No {backend_type} backend is configured (Server settings, or a machine's model servers)")
 
     def model_name(self, name: str) -> str:
@@ -501,6 +528,15 @@ class Settings:
             value = {**value, "backends": {name: backend.public() for name, backend in self.backends.items()}}
         normalized = _validate_network_config(value)
         for name, backend in normalized["backends"].items():
+            if backend["type"] == "api":
+                current = self.backends.get(name)
+                if current is None or current.type != "api" or current.url.rstrip("/") != backend["url"]:
+                    raise ValueError(f"Backend '{name}': API providers are added and edited on Server settings -> Providers")
+                if current.machine:
+                    backend["machine"] = current.machine
+                if current.options:
+                    backend["options"] = current.options
+                continue
             if backend["type"] not in MACHINE_TYPES:
                 continue
             current = self.backends.get(name)
@@ -609,8 +645,12 @@ def checked_request_log(data: Any) -> dict[str, Any]:
     return value
 
 
+def _priority(backend: Backend) -> int:
+    return int(api_providers.options(backend)["priority"]) if backend.type == "api" else 0
+
+
 def _backend_row(backend: Backend) -> dict[str, Any]:
-    return {"type": backend.type, "url": backend.url, "machine": backend.machine, "container": backend.container}
+    return {"type": backend.type, "url": backend.url, "machine": backend.machine, "container": backend.container, "options": backend.options}
 
 
 def _replace_backends(connection: Any, backends: dict[str, dict[str, Any]]) -> None:
@@ -627,7 +667,7 @@ def stored_config(connection: Any) -> tuple[dict[str, Any], dict[str, Any]]:
     }
     rows = connection.execute(select(schema.backends).order_by(schema.backends.c.position, schema.backends.c.name)).mappings()
     document["backends"] = {
-        row["name"]: {key: row[key] for key in ("type", "url", "machine", "container") if row[key] is not None}
+        row["name"]: {key: row[key] for key in ("type", "url", "machine", "container", "options") if row[key] is not None}
         for row in rows
     }
     return document, kv.get(connection, schema.settings, "models") or {}

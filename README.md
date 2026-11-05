@@ -15,6 +15,7 @@ AIControlMesh is an open-source, self-hosted control plane for AI coding agents,
   - **Your accounts**: Claude Code, Copilot CLI and Codex on your own plans, captured in transit.
   - **Local models**: supported agents on compatible Ollama, llama.cpp, Strata or Docker Model Runner backends, with Ollama requests translated and tuned per model.
   - **Hosted API**: requests passed through to the Anthropic API unchanged.
+  - **API providers**: any OpenAI or Anthropic-compatible API: OpenAI, Anthropic, OpenRouter, LiteLLM Proxy and other hosted services with a key the server keeps, or LM Studio, vLLM and SGLang found on your machines. Requests pass through in the protocols each one speaks (Chat Completions, Responses, Messages), and hosted ones are reached only at public addresses. See [API providers](docs/providers.md#api-providers-openai-and-anthropic-compatible).
 - **A fleet of machines.** Every computer running `agent-machine` supplies its model servers, containers and MCP servers to agents anywhere, through its own connection to the server, so it needs no open port. You can also start agents and open terminals on it from the console.
 - **Agents from your phone.** Share an agent's terminal (`--control`), then watch it and type into it from a browser or the Android app, and answer its permission prompts.
 - **One person or a team.** Mandatory OIDC sign-in, organizations, teams, private or shared sessions, and access grants per machine.

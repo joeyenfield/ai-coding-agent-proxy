@@ -160,7 +160,12 @@ def _request_log(connection: Connection) -> None:
     schema.request_log_payloads.create(connection, checkfirst=True)
 
 
-API_STEPS: list[Step] = [_create(schema.api), _tenants, _provider_accounts, _access_log, _usage_limits, _scaling, _request_log]
+def _api_providers(connection: Connection) -> None:
+    """Step 8: generic API providers keep their options (protocols, auth, models, ...) with the backend."""
+    _add_column(connection, schema.backends, "options", "JSON")
+
+
+API_STEPS: list[Step] = [_create(schema.api), _tenants, _provider_accounts, _access_log, _usage_limits, _scaling, _request_log, _api_providers]
 AUTH_STEPS: list[Step] = [_create(schema.auth)]
 
 # One lock id per component, so two processes starting at once don't both migrate.

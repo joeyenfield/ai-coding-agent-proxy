@@ -9,8 +9,9 @@ Requests only name a kind, a loopback port and a model, and each op calls fixed 
 allowed; changing models needs `agent-machine servers on`.
 
 The same as the Go agent-machine's machine/internal/providers and presence/providers.go,
-op for op: Ollama, llama.cpp (llama-server's router), Docker Model Runner and Strata (its saved
-profiles and live instances read from Strata's own folders for its key and logs, its load and unload).
+op for op: Ollama, llama.cpp (llama-server's router), Docker Model Runner, Strata (its saved
+profiles and live instances read from Strata's own folders for its key and logs, its load and unload),
+and kind "api", other OpenAI-compatible servers (LM Studio, vLLM, SGLang), whose model list is only read.
 """
 
 from __future__ import annotations
@@ -41,7 +42,7 @@ from . import catalog, settings
 
 Progress = Callable[[Dict[str, Any]], None]
 
-KINDS = {"ollama": "Ollama", "strata": "Strata", "docker": "Docker Model Runner", "llamacpp": "llama.cpp"}
+KINDS = {"ollama": "Ollama", "strata": "Strata", "docker": "Docker Model Runner", "llamacpp": "llama.cpp", "api": "An OpenAI-compatible server"}
 CHANGES = {"pull", "delete", "load", "unload"}
 # Where the Ollama agent-machine starts listens (servers.py).
 OLLAMA_PORT = 11434
@@ -62,6 +63,12 @@ def llama_server_port() -> int:
 # Where each kind of model server listens by default, and the path that says it's there.
 # llama-server's router lists every model it can serve here, loaded or not (its port: llama_server_port()).
 PROBES = (("ollama", "/api/version", 11434), ("docker", "/engines/v1/models", 12434), ("strata", "/v1/models", 18500), ("llamacpp", "/models", 0))
+# Where the OpenAI-compatible servers that only serve (their models are managed in the server
+# itself) listen by default. They're reported as type "api"; only their /v1/models is read.
+API_PROBES = (("lmstudio", 1234), ("vllm", 8000), ("sglang", 30000))
+# More ports with an OpenAI-compatible server, comma separated (flavor "openai").
+API_PORTS_ENV = "AI_PROXY_API_PORTS"
+API_MANAGED = "An OpenAI-compatible server's models are managed in that server itself (LM Studio, vLLM, SGLang, ...)"
 
 MINUTE = 60.0
 
@@ -260,6 +267,10 @@ class Manager:
         if op in CHANGES and not self.machine().servers:
             raise Refused("Managing model servers is off on this machine (agent-machine servers on)")
         base = f"http://{self.host}:{port}"
+        if kind == "api":
+            if op == "status":
+                return {"state": api_status(base)}
+            raise Refused(API_MANAGED)
         model = str(request.get("model") or "").strip()
         if (op in CHANGES or op == "files") and kind != "strata" and not model:
             raise Refused("A model name is required")
@@ -1285,10 +1296,73 @@ def strata_log(port: int, source: str, size: int) -> str:
     return found.replace(instance.api_key, "<api key>") if instance.api_key else found
 
 
+# OpenAI-compatible servers (kind "api", api.go): only their model list is read.
+
+def api_status(base: str) -> Dict[str, Any]:
+    """An OpenAI-compatible server's models, from /v1/models."""
+    listed, status, error = attempt(base + "/v1/models")
+    if error is not None:
+        return {"online": False, "error": str(error), "models": []}
+    if status >= 400:
+        return {"online": False, "error": f"The OpenAI-compatible server returned {status}", "models": []}
+    data = obj(listed).get("data")
+    if not isinstance(data, list):
+        return {"online": False, "error": "It answered, but not with an OpenAI model list.", "models": []}
+    models = []
+    for raw in data:
+        item = obj(raw)
+        model_id = text(item.get("id"))
+        if not model_id:
+            continue
+        model: Dict[str, Any] = {"id": model_id, "owned_by": text(item.get("owned_by"))}
+        # vLLM says max_model_len, LM Studio loaded_context_length; others context_length.
+        for key in ("context_length", "max_model_len", "loaded_context_length"):
+            value = item.get(key)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                model["context_length"] = value
+                break
+        models.append(model)
+    return {"online": True, "version": "", "models": models}
+
+
 # Model servers running here, for the hello (presence/providers.go).
 
+def api_ports() -> List[int]:
+    """The ports named in AI_PROXY_API_PORTS; entries that aren't ports are ignored."""
+    ports = []
+    for entry in os.environ.get(API_PORTS_ENV, "").split(","):
+        entry = entry.strip()
+        # Go's Atoi: an optional sign and ASCII digits only.
+        if re.fullmatch(r"[+-]?[0-9]+", entry) and 0 < int(entry) <= 65535:
+            ports.append(int(entry))
+    return ports
+
+
+def openai_models(http: httpx.Client, port: int) -> Optional[int]:
+    """How many models an OpenAI-compatible server lists, else None. Many unrelated programs listen
+    on these ports (8000 above all), so only a 200 with an OpenAI model list counts:
+    {"data": [...]}, each item an object with an id."""
+    try:
+        response = http.get(f"http://127.0.0.1:{port}/v1/models")
+    except httpx.HTTPError:
+        return None
+    if response.status_code != 200:
+        return None
+    try:
+        data = obj(response.json()).get("data")
+    except ValueError:
+        return None
+    if not isinstance(data, list):
+        return None
+    for item in data:
+        model_id = obj(item).get("id")
+        if not isinstance(model_id, str) or not model_id:
+            return None
+    return len(data)
+
 def detect() -> List[Dict[str, Any]]:
-    """Asks each default port on loopback whether its model server answers."""
+    """Asks each default port on loopback whether its model server answers, then the
+    OpenAI-compatible servers' ports (API_PROBES and AI_PROXY_API_PORTS) not already taken."""
     found: List[Dict[str, Any]] = []
     with httpx.Client(trust_env=False, timeout=1.5) as http:
         for kind, path, port in PROBES:
@@ -1316,6 +1390,13 @@ def detect() -> List[Dict[str, Any]]:
                 if count is not None:
                     provider["models"] = count
             found.append(provider)
+        candidates = list(API_PROBES) + [("openai", port) for port in api_ports()]
+        for flavor, port in candidates:
+            if any(provider["port"] == port for provider in found):
+                continue
+            count = openai_models(http, port)
+            if count is not None:
+                found.append({"type": "api", "port": port, "models": count, "flavor": flavor})
     return found
 
 

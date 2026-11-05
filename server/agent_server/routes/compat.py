@@ -5,13 +5,14 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from typing import Any, AsyncIterator, Callable
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
-from .. import auth, model_runner, strata
+from .. import api_providers, auth, model_runner, strata
 from ..runtime import Runtime, telemetry_headers
 from ..sessions import Session
 from ..telemetry import RequestTelemetry, has_content, parse_json_line
@@ -29,8 +30,9 @@ from ..translate import (
 
 LOGGER = logging.getLogger("agent-proxy")
 NATIVE_PROFILE_PATHS = {"/api/chat", "/api/generate"}
-# Backends that speak the Anthropic Messages API themselves, so /anthropic/v1/messages passes through.
-MESSAGES_BACKENDS = {"anthropic", "strata", "docker", "llamacpp"}
+# Backends that speak the Anthropic Messages API themselves, so /anthropic/v1/messages passes through
+# (an api backend only when it was declared to: _forward checks its protocols).
+MESSAGES_BACKENDS = {"anthropic", "strata", "docker", "llamacpp", "api"}
 # The native Ollama calls agents make. The rest (pull, delete, create, copy, push, ...) manage a
 # model server, which only its machine does (agent-machine), so the server doesn't forward them.
 NATIVE_AGENT_PATHS = {"chat", "generate", "embed", "embeddings", "tags", "show", "ps", "version"}
@@ -116,7 +118,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         session_id = session_id or x_ai_proxy_session
         session = runtime.sessions.get(session_id or "")
         backend = _backend(runtime, request, x_ai_proxy_backend or (session.backend if session else None))
-        if backend.type in MESSAGES_BACKENDS:
+        if backend.type in MESSAGES_BACKENDS and (backend.type != "api" or api_providers.speaks(backend, "anthropic")):
             return await _forward(runtime, request, session_id, "/v1/messages/count_tokens", x_ai_proxy_backend)
         return {"input_tokens": estimate_tokens(_json(await request.body()))}
 
@@ -325,7 +327,8 @@ async def _forward(
     upstream_path: str,
     backend_override: str | None,
 ):
-    """Pass a request through to the backend unchanged, apart from Ollama model aliases and profiles, Strata's key and Docker Model Runner's path prefixes."""
+    """Pass a request through to the backend unchanged, apart from Ollama model aliases and profiles, Strata's key,
+    Docker Model Runner's path prefixes and, for an API provider, its key, model aliases and paths."""
     body = await request.body()
     payload = _json(body)
     original_payload = json.loads(json.dumps(payload))
@@ -334,22 +337,14 @@ async def _forward(
     backend = _backend(runtime, request, backend_override or (session.backend if session else None))
     if backend.type == "anthropic" and "/anthropic/" not in request.url.path:
         raise HTTPException(status_code=400, detail="Anthropic backends are only reachable through the /anthropic endpoints")
-    if backend.type in {"strata", "llamacpp"} and upstream_path.startswith("/api/"):
-        name = "Strata" if backend.type == "strata" else "llama.cpp"
+    if backend.type in {"strata", "llamacpp", "api"} and upstream_path.startswith("/api/"):
+        name = {"strata": "Strata", "llamacpp": "llama.cpp", "api": backend.name}[backend.type]
         raise HTTPException(status_code=400, detail=f"{name} speaks the OpenAI and Anthropic APIs, not Ollama's native /api. Point the agent at /v1 or /anthropic.")
+    protocol = _api_protocol(backend, upstream_path, request.method) if backend.type == "api" else None
     if session is None and (request.method == "GET" or (request.method == "POST" and upstream_path == "/api/show")):
-        assert runtime.client
-        target = model_runner.upstream_path(upstream_path) if backend.type == "docker" else upstream_path
-        headers = _upstream_headers(request.headers)
-        if backend.type == "strata":
-            headers = strata.with_key(backend, headers)
-        elif backend.type == "llamacpp":
-            headers = strata.with_container_key(backend, headers)
+        client, url, headers, params, extra = await _upstream_for(runtime, request, backend, upstream_path, protocol)
         try:
-            upstream = await runtime.client.request(
-                request.method, await runtime.tunnels.base_url(backend) + target,
-                headers=headers, params=request.query_params, content=body or None,
-            )
+            upstream = await client.request(request.method, url, headers=headers, params=params, content=body or None, **extra)
         except httpx.HTTPError as exc:
             raise HTTPException(status_code=502, detail="Backend unavailable") from exc
         return Response(upstream.content, status_code=upstream.status_code, media_type=upstream.headers.get("content-type"))
@@ -364,40 +359,61 @@ async def _forward(
         else:
             payload["model"] = profile.ollama_model
         body = json.dumps(payload).encode()
+    if backend.type == "api":
+        payload, body = _api_payload(backend, original_payload, body)
     telemetry = _telemetry(session, request_id, request.url.path, body, payload, model)
     telemetry.backend = backend.name
+    telemetry.protocol = protocol
+    if backend.type == "api" and payload.get("model") and payload.get("model") != model:
+        telemetry.upstream_model = str(payload["model"])
     runtime.track(telemetry)
     runtime.attach(telemetry, original_payload, payload if payload != original_payload else None)
     refused = _over_limit(runtime, request, session, telemetry, original_payload, backend)
     if refused is not None:
         return refused
-    headers = _upstream_headers(request.headers)
-    if backend.type == "strata":
-        headers = strata.with_key(backend, headers)
-    elif backend.type == "llamacpp":
-        headers = strata.with_container_key(backend, headers)
-    target = model_runner.upstream_path(upstream_path) if backend.type == "docker" else upstream_path
-    assert runtime.client
-    try:
-        upstream = await runtime.client.send(
-            runtime.client.build_request(
-                request.method, await runtime.tunnels.base_url(backend) + target,
-                content=body or None, headers=headers, params=request.query_params,
-            ),
-            stream=True,
-        )
-    except httpx.HTTPError as exc:
-        return runtime.proxy_error(session, telemetry, original_payload, exc, backend)
-    except asyncio.CancelledError:
-        _cancel_request(runtime, session, telemetry, original_payload, payload if payload != original_payload else None)
-        raise
+    tried = [backend.name]
+    while True:
+        client, url, headers, params, extra = await _upstream_for(runtime, request, backend, upstream_path, protocol)
+        started = time.perf_counter()
+        try:
+            upstream = await client.send(
+                client.build_request(request.method, url, content=body or None, headers=headers, params=params, **extra),
+                stream=True,
+            )
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+            # Nothing reached the provider, so another may take the request: only the ones a site admin listed (fallback).
+            _observe(runtime, backend, None, started, exc)
+            alternative = _fallback(runtime, request, session, backend, protocol, model, tried) if backend.type == "api" else None
+            if alternative is None:
+                return runtime.proxy_error(session, telemetry, original_payload, exc, backend)
+            _record_fallback(runtime, request, session, telemetry, backend, alternative, exc)
+            backend = alternative
+            tried.append(backend.name)
+            payload, body = _api_payload(backend, original_payload, json.dumps(original_payload).encode() if original_payload else body)
+            continue
+        except httpx.HTTPError as exc:
+            _observe(runtime, backend, None, started, exc)
+            return runtime.proxy_error(session, telemetry, original_payload, exc, backend)
+        except asyncio.CancelledError:
+            _cancel_request(runtime, session, telemetry, original_payload, payload if payload != original_payload else None)
+            raise
+        break
+    _observe(runtime, backend, upstream.status_code, started, None)
     upstream_request = payload if payload != original_payload else None
     telemetry.status = upstream.status_code
+    if upstream.status_code == 429:
+        telemetry.rate_limited = True
     content_type = upstream.headers.get("content-type", "application/json")
     response_headers = {
         name: value for name, value in upstream.headers.items()
-        if name in {"retry-after", "x-should-retry", "request-id"} or name.startswith("anthropic-ratelimit-")
+        if name in {"retry-after", "retry-after-ms", "x-should-retry", "request-id", "x-request-id"}
+        or name.startswith(("anthropic-ratelimit-", "x-ratelimit-"))
     }
+    # The upstream's own request id stays visible as upstream-request-id: X-Request-ID is this server's.
+    if "x-request-id" in response_headers:
+        response_headers["upstream-request-id"] = response_headers.pop("x-request-id")
+    if telemetry.fallback_from:
+        response_headers["x-ai-proxy-backend"] = backend.name
     is_stream = upstream.status_code < 400 and (bool(payload.get("stream")) or "ndjson" in content_type or "event-stream" in content_type)
     if upstream_path == "/api/chat" or upstream_path == "/api/generate":
         # Native Ollama streams by default when "stream" is omitted.
@@ -423,6 +439,91 @@ async def _forward(
         media_type=content_type,
         headers={**response_headers, "X-Request-ID": request_id, "X-Session-ID": session.session_id},
     )
+
+
+def _api_protocol(backend: Any, upstream_path: str, method: str) -> str:
+    """The protocol of an agent's request to an API provider, or the reason it can't take it."""
+    protocol = api_providers.protocol_for(upstream_path)
+    if protocol is None:
+        raise HTTPException(status_code=404, detail=f"{upstream_path} isn't an agent API {backend.name} is used for")
+    if not api_providers.speaks(backend, protocol):
+        spoken = ", ".join(api_providers.options(backend)["protocols"])
+        raise HTTPException(status_code=400, detail=f"{backend.name} isn't set up for {protocol} (it speaks {spoken}); choose a provider that does")
+    return protocol
+
+
+def _api_payload(backend: Any, original: dict[str, Any], body: bytes) -> tuple[dict[str, Any], bytes]:
+    """The request as an API provider gets it: the agent's own, with its model alias replaced by the provider's id."""
+    payload = json.loads(json.dumps(original))
+    model = payload.get("model")
+    if isinstance(model, str) and model:
+        mapped = api_providers.upstream_model(backend, model)
+        if mapped != model:
+            payload["model"] = mapped
+            return payload, json.dumps(payload).encode()
+    return payload, body
+
+
+async def _upstream_for(
+    runtime: Runtime, request: Request, backend: Any, upstream_path: str, protocol: str | None,
+) -> tuple[httpx.AsyncClient, str, dict[str, str], Any, dict[str, Any]]:
+    """Where a request goes and with what: client, URL, headers, query and request options."""
+    headers = _upstream_headers(request.headers)
+    if backend.type == "api":
+        from .api_providers import upstream
+
+        try:
+            client, base = await upstream(runtime, backend)
+            headers = api_providers.headers(backend, headers, runtime.api_keys.get(backend, runtime.settings.backends), protocol)
+        except api_providers.ProviderError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        url = api_providers.target(base, backend, upstream_path)
+        return client, url, headers, api_providers.query(backend, request.query_params), {"timeout": api_providers.timeout(backend)}
+    if backend.type == "strata":
+        headers = strata.with_key(backend, headers)
+    elif backend.type == "llamacpp":
+        headers = strata.with_container_key(backend, headers)
+    target = model_runner.upstream_path(upstream_path) if backend.type == "docker" else upstream_path
+    assert runtime.client
+    return runtime.client, await runtime.tunnels.base_url(backend) + target, headers, request.query_params, {}
+
+
+def _observe(runtime: Runtime, backend: Any, status: int | None, started: float, error: Exception | None) -> None:
+    """An API provider's health as this process sees it: the last answer's status and time to headers."""
+    if backend.type == "api":
+        runtime.api_health.record(backend.name, status, (time.perf_counter() - started) * 1000, runtime.unavailable(error) if error else None)
+
+
+def _fallback(runtime: Runtime, request: Request, session: Session, backend: Any, protocol: str | None, model: str, tried: list[str]) -> Any:
+    """The first of the provider's fallback list that may take this request: an enabled API provider the
+    session's person may use, speaking the protocol, knowing the model, and not over their limit there."""
+    usable = runtime.fleet.usable_by(auth.request_identity(request))
+    for name in api_providers.options(backend)["fallback"]:
+        candidate = runtime.settings.backends.get(name)
+        if candidate is None or name in tried or candidate.type != "api" or not api_providers.enabled(candidate) or not usable(candidate):
+            continue
+        configured = api_providers.options(candidate)
+        if not api_providers.speaks(candidate, protocol) or (model and model not in configured["models"] and not configured["discover"]):
+            continue
+        if runtime.over_limit(session, f"backend:{candidate.name}") is not None:
+            continue
+        return candidate
+    return None
+
+
+def _record_fallback(runtime: Runtime, request: Request, session: Session, telemetry: RequestTelemetry, failed: Any, chosen: Any, exc: Exception) -> None:
+    """A request moved to a fallback provider: on its record, in the log and in the audit log."""
+    telemetry.fallback_from = telemetry.fallback_from or failed.name
+    telemetry.routing.append({"backend": failed.name, "error": runtime.unavailable(exc), "next": chosen.name})
+    telemetry.backend = chosen.name
+    LOGGER.warning("fallback session=%s request=%s from=%s to=%s: %s", session.session_id, telemetry.request_id, failed.name, chosen.name, runtime.unavailable(exc))
+    identity = auth.request_identity(request)
+    runtime.audit.record(runtime.audit.event(
+        "backend.fallback", tenant=getattr(identity, "tenant", None), actor=getattr(identity, "user", None), via=getattr(identity, "via", None),
+        ip=request.client.host if request.client else None, user_agent=request.headers.get("user-agent"),
+        action=f"{request.method} {request.url.path}", target={"backend": failed.name, "next": chosen.name},
+        reason=runtime.unavailable(exc), request_id=telemetry.request_id, session_id=session.session_id,
+    ))
 
 
 async def _read_upstream(
@@ -502,6 +603,8 @@ async def _stream_upstream(
 
 async def _list_models(runtime: Runtime, request: Request, backend_name: str | None) -> JSONResponse:
     backend = _backend(runtime, request, backend_name)
+    if backend.type == "api":
+        return JSONResponse(await _api_model_list(runtime, backend))
     if backend.type == "anthropic":
         return JSONResponse({"object": "list", "data": [
             {"id": alias, "object": "model", "owned_by": "agent-proxy"}
@@ -529,6 +632,18 @@ async def _list_models(runtime: Runtime, request: Request, backend_name: str | N
         for alias in runtime.settings.models if alias not in known
     ]
     return JSONResponse({"object": "list", "data": models})
+
+
+async def _api_model_list(runtime: Runtime, backend: Any) -> dict[str, Any]:
+    """An API provider's models for agents: its aliases, then (with discover) what it lists itself."""
+    from .api_providers import discover
+
+    configured = api_providers.options(backend)
+    data = [{"id": alias, "object": "model", "owned_by": backend.name} for alias in configured["models"]]
+    if configured["discover"]:
+        found = await discover(runtime, backend)
+        data += [{"id": item, "object": "model", "owned_by": backend.name} for item in found.get("models") or [] if item not in configured["models"]]
+    return {"object": "list", "data": data}
 
 
 def _over_limit(runtime: Runtime, request: Request, session: Session, telemetry: RequestTelemetry, payload: Any, backend: Any) -> JSONResponse | None:

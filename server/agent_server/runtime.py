@@ -25,7 +25,7 @@ from .auth import Auth, Revocations, UserStore
 from .certs import CertificateAuthority
 from .chat import Chats
 from .config import LOCAL_INTERCEPT_PORT, Settings
-from . import strata
+from . import api_providers, strata
 from .containers import ContainerManager, KeyStore
 from .live import LiveHub
 from .provider_accounts import ProviderAccounts, Vault
@@ -96,6 +96,12 @@ class Runtime:
         self.usage = UsageLimits(self.db, cluster=self.cluster)
         self.client: httpx.AsyncClient | None = None
         self.intercept_client: httpx.AsyncClient | None = None
+        # Generic API providers (api_providers.py): clients for the external ones by verify_tls, their keys
+        # (environment or vault), what this process saw of each, and the model ids each last listed.
+        self.api_clients: dict[bool, httpx.AsyncClient] = {}
+        self.api_keys = api_providers.ApiKeys(self.db, self.provider_accounts.vault)
+        self.api_health = api_providers.Health()
+        self.api_models: dict[str, list[str]] = {}
         # Every HTTP request and WebSocket received, and how it ended (memory only, site admins).
         self.access_log = AccessLog(self.db, lambda: self.settings.retention_days)
         # Every request saved for the request_log setting's days, with payloads in its debug mode (site admins).
@@ -133,10 +139,14 @@ class Runtime:
 
         self.settings.listeners.append(changed)
         self.container_keys.listeners.append(changed)
+        self.api_keys.listeners.append(changed)
+        # A provider moved or removed here: its key is read again, bound to its address now.
+        self.settings.listeners.append(lambda what: self.api_keys.reload() if what in ("backends", "network") else None)
 
         def reload(data: dict[str, Any], _: str) -> None:
             self.settings.reload()
             self.container_keys.reload()
+            self.api_keys.reload()
 
         self.cluster.on("config.changed", reload)
         from . import access

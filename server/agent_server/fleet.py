@@ -48,7 +48,7 @@ from typing import Any
 
 from sqlalchemy import select
 
-from . import access, strata, version
+from . import access, api_providers, strata, version
 from .auth import ROOT_TENANT, Identity, same_tenant
 from .cluster import Cluster, ClusterError, LocalCluster
 from .config import MACHINE_TYPES
@@ -73,7 +73,9 @@ READ_ONLY = {
 }
 # The client a shell's session names (`agent --shell`): it stays private, as it's a remote terminal.
 SHELL_CLIENT = "shell"
-PROVIDER_TYPES = ("ollama", "docker", "strata", "llamacpp")
+# api: an OpenAI-compatible server the machine found on its loopback (LM Studio, vLLM, SGLang; its "flavor").
+PROVIDER_TYPES = ("ollama", "docker", "strata", "llamacpp", "api")
+API_FLAVORS = ("lmstudio", "vllm", "sglang", "openai")
 # A shared MCP server's name (agent-machine mcp add), and how it runs there.
 MCP_NAME = re.compile(r"[a-z0-9][a-z0-9_-]{0,39}")
 MCP_TRANSPORTS = ("stdio", "http")
@@ -786,17 +788,28 @@ class Fleet:
     def backend_tenant(self, backend: Any) -> str | None:
         """The tenant whose agents may use a backend: its machine's (nobody's once the machine is removed);
         the root's for a model server from before machines; SHARED for a hosted API, which site admins
-        set up for everyone (agents bring their own credentials to it)."""
+        set up for everyone (agents bring their own credentials to it). A generic API provider carries the
+        server's key, so it's the organizations it names (api_tenants)."""
         if backend.machine:
             machine = self.machines.get(backend.machine)
             return machine.tenant if machine else None
         return ROOT_TENANT if backend.type in MACHINE_TYPES else self.SHARED
+
+    @staticmethod
+    def api_tenants(backend: Any) -> set[str]:
+        """The organizations whose agents may use an external API provider: its orgs, "*" for every one,
+        and none listed for the site's own (the root tenant) only."""
+        orgs = set(api_providers.options(backend)["orgs"])
+        return orgs or {ROOT_TENANT}
 
     def usable_by(self, identity: Identity | None) -> Any:
         """A test of backends for identity's agents: their tenant's and the shared hosted ones. No identity, none."""
         def usable(backend: Any) -> bool:
             if identity is None:
                 return False
+            if api_providers.external(backend):
+                tenants = self.api_tenants(backend)
+                return self.SHARED in tenants or identity.site_admin or identity.tenant in tenants
             tenant = self.backend_tenant(backend)
             return tenant == self.SHARED or same_tenant(identity, tenant)
         return usable
@@ -809,11 +822,11 @@ class Fleet:
         for name, backend in backends.items():
             # A container can share a model server's address; the first backend is the server's own.
             if backend.machine == machine.id:
-                by_target.setdefault((backend.type, normal_url(backend.url)), name)
+                by_target.setdefault((backend.type, provider_address(backend.type, backend.url)), name)
         providers = []
         for provider in machine.providers:
             url = self.provider_url(machine, provider)
-            providers.append({**provider, "url": url, "backend": by_target.get((provider["type"], normal_url(url)))})
+            providers.append({**provider, "url": url, "backend": by_target.get((provider["type"], provider_address(provider["type"], url)))})
         return {
             **{key: value for key, value in machine.stored().items() if key != "history"},
             "connected": self.connected(machine.id),
@@ -962,9 +975,12 @@ class Fleet:
 def _provider(item: dict[str, Any]) -> dict[str, Any]:
     port = int(item.get("port") or 0)
     if not 0 < port < 65536:
-        port = {"ollama": 11434, "docker": 12434, "strata": 18500, "llamacpp": 9931}[item["type"]]
+        port = {"ollama": 11434, "docker": 12434, "strata": 18500, "llamacpp": 9931, "api": 1234}[item["type"]]
     models = item.get("models")
-    return {"type": item["type"], "port": port, "version": str(item.get("version") or "")[:40], "models": models if isinstance(models, int) else None}
+    provider = {"type": item["type"], "port": port, "version": str(item.get("version") or "")[:40], "models": models if isinstance(models, int) else None}
+    if item["type"] == "api":
+        provider["flavor"] = item.get("flavor") if item.get("flavor") in API_FLAVORS else "openai"
+    return provider
 
 
 def _mcp(item: Any) -> tuple[dict[str, Any], str | None]:
@@ -1080,6 +1096,14 @@ def provider_request(backend: Any, kind: str, port: int) -> dict[str, Any]:
     if kind == "llamacpp" and backend is not None and backend.container and strata.managed_keys.get(backend.name):
         fields["key"] = strata.managed_keys[backend.name]
     return fields
+
+
+def provider_address(kind: str, url: str) -> str:
+    """A machine's model server as compared with a backend: its normal URL, without an api backend's /v1 path."""
+    if kind == "api":
+        parts = urlsplit(url)
+        return normal_url(f"{parts.scheme}://{parts.netloc}")
+    return normal_url(url)
 
 
 def normal_url(url: str) -> str:

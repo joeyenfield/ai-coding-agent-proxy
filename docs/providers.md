@@ -11,8 +11,9 @@ A **provider** (a backend, one of the server's stored settings) is where the ser
 | `docker` | Docker Model Runner | Passes them through, with Model Runner's path prefixes. |
 | `llamacpp` | llama.cpp (`llama-server`) | Passes them through (a container's with the key the server gave it). |
 | `anthropic` | Anthropic API (hosted) | Passes them through unchanged, with the agent's own credentials. |
+| `api` | Any OpenAI or Anthropic-compatible API: hosted (OpenAI, OpenRouter, LiteLLM, ...) or on a machine (LM Studio, vLLM, SGLang) | Passes them through in the protocols it speaks, with the server's key and model aliases. See [API providers](#api-providers-openai-and-anthropic-compatible). |
 
-`ollama`, `llamacpp`, `strata` and `docker` are local model servers (`MACHINE_TYPES` in `config.py`). They always run on one of the fleet's [machines](machines.md).
+`ollama`, `llamacpp`, `strata` and `docker` are local model servers (`MACHINE_TYPES` in `config.py`). They always run on one of the fleet's [machines](machines.md). An `api` backend runs on a machine or is hosted elsewhere.
 
 ## Where providers come from
 
@@ -20,7 +21,7 @@ A **provider** (a backend, one of the server's stored settings) is where the ser
 
 You can't add a local provider by URL. The **Server settings** page, and `PUT /api/config` behind it, refuse a new local backend or one whose URL changed: they can only keep or remove them. That's because everything about a model server other than agents' traffic is done by its machine, so the server needs to know which machine runs it.
 
-**Hosted APIs are the exception.** Add an `anthropic` backend (`https://api.anthropic.com`) on **Server settings**. It needs no machine.
+**Hosted APIs are the exception.** Add an `anthropic` backend (`https://api.anthropic.com`) on **Server settings**, or a hosted [API provider](#api-providers-openai-and-anthropic-compatible) on **Server settings -> API providers**. They need no machine.
 
 **Older backends.** Backends set up by URL before machines did this keep working. An admin links one to a machine with **Add as a provider** on that machine's model server tab. A matching address and type reuse the existing backend's name and settings. Once linked, a backend follows its machine's address changes, on the same port.
 
@@ -53,17 +54,167 @@ The server only forwards the native Ollama calls agents make (`chat`, `generate`
 
 Each agent is declared for a backend type (`backend_type`, default `ollama`) and speaks one protocol. An agent declared for Ollama is a local-model agent, and Strata, Docker Model Runner and llama.cpp serve it too when they speak its protocol (`serves()` and `NATIVE_PROTOCOLS` in `config.py`):
 
-| Protocol | Agents | `ollama` | `strata` | `docker` | `llamacpp` | `anthropic` |
-|---|---|---|---|---|---|---|
-| `openai-chat` | Qwen Code, OpenCode, Copilot CLI (BYOK) | Yes | Yes | Yes | Yes | |
-| `anthropic` | Claude Code (Ollama) | Yes | Yes | Yes | Yes | |
-| `openai-responses` | Codex (Ollama) | Yes | Yes | Yes | Yes | |
-| `ollama` (native) | Aider, Goose | Yes | No | Yes | No | |
-| `anthropic` | Claude Code (Anthropic API pass-through) | | | | | Yes |
+| Protocol | Agents | `ollama` | `strata` | `docker` | `llamacpp` | `anthropic` | `api` |
+|---|---|---|---|---|---|---|---|
+| `openai-chat` | Qwen Code, OpenCode, Copilot CLI (BYOK) | Yes | Yes | Yes | Yes | | If it speaks `openai-chat` |
+| `anthropic` | Claude Code (Ollama) | Yes | Yes | Yes | Yes | | If it speaks `anthropic` |
+| `openai-responses` | Codex (Ollama) | Yes | Yes | Yes | Yes | | If it speaks `openai-responses` |
+| `ollama` (native) | Aider, Goose | Yes | No | Yes | No | | No |
+| `anthropic` | Claude Code (Anthropic API pass-through) | | | | | Yes | |
 
 Strata and llama.cpp don't speak Ollama's native `/api`, so Aider and Goose can't use them. Account agents (`intercept: true`) don't use a backend: their traffic goes to their vendor. See [Agents](agents.md).
 
-When a launch doesn't name a backend, the server picks one (`backend_for()`): the default backend if it serves the agent, else a backend of the agent's own type, else any other that serves it. A named backend that can't serve the agent is refused with the reason. The console and the client get the list and the choice from the server (`/api/agents`), not by working it out themselves.
+When a launch doesn't name a backend, the server picks one (`backend_for()`): the default backend if it serves the agent, else a backend of the agent's own type, else any other that serves it, higher `priority` first. It never picks a hosted API provider that way unless it's the default backend: name it (`--backend openai`). A named backend that can't serve the agent is refused with the reason. The console and the client get the list and the choice from the server (`/api/agents`), not by working it out themselves.
+
+## API providers (OpenAI and Anthropic-compatible)
+
+An `api` backend is any server that speaks one or more of these agents' APIs itself:
+
+| Protocol | Path agents use | Agents |
+|---|---|---|
+| `openai-chat` | `/v1/chat/completions` (also `/v1/completions`, `/v1/embeddings`) | Qwen Code, OpenCode, Copilot CLI (BYOK) |
+| `openai-responses` | `/v1/responses` | Codex |
+| `anthropic` | `/v1/messages`, `/v1/messages/count_tokens` | Claude Code |
+
+The server passes requests through as they are, streaming (SSE), tool calls, reasoning and thinking blocks included. It changes only three things: it puts in the provider's key in place of the agent's placeholder, it replaces a model alias with the provider's model id, and it adds the provider's extra headers. Nothing is translated between protocols. A provider is set up with the protocols it speaks, and a request in any other protocol is refused with 400, before anything goes out. Don't assume a service speaks every protocol: many OpenAI-compatible services have Chat Completions but not Responses, and few have Anthropic Messages.
+
+There are two kinds:
+
+- **Machine-hosted**: an OpenAI-compatible server on a fleet machine, such as LM Studio, vLLM or SGLang. agent-machine finds it on its loopback and reports it, and an admin adds it from the machine's page, as for other model servers. Agents' requests reach it through the machine's tunnel, and it belongs to the machine's organization like any model server. See [Model servers on a machine](#openai-compatible-servers-on-a-machine).
+- **Hosted APIs and gateways**: OpenAI, Anthropic, OpenRouter, LiteLLM Proxy, Groq and the like. A site admin adds them by URL on **Server settings -> API providers**, and the server reaches them directly. See [Hosted APIs and gateways](#hosted-apis-and-gateways).
+
+An `api` backend is not the `anthropic` backend type. `anthropic` passes Claude Code's own credentials through (a claude.ai login or the person's own key). An `api` backend uses a key the server holds, the same for everyone who may use it.
+
+### Settings
+
+![API providers on Server settings](screenshots/api-providers.png)
+
+Each provider has these settings. Only the key is secret, and it is never shown, exported or logged.
+
+| Setting | Meaning |
+|---|---|
+| `url` | The OpenAI base URL: what comes before `/chat/completions`, usually ending in `/v1`. |
+| `anthropic_url` | Where Anthropic Messages go (`<anthropic_url>/v1/messages`). It must be on the same scheme, host and port as `url`. Without it, the `url` without its `/v1`. |
+| `protocols` | Which of `openai-chat`, `openai-responses` and `anthropic` it speaks. |
+| `auth` | `bearer` (`Authorization: Bearer <key>`), `x-api-key` (Anthropic), `api-key` (Azure), `none`, or `agent` (the agent's own `Authorization` or `x-api-key` goes through and the server adds none). |
+| key | Typed once on the console, stored encrypted (it needs `AI_PROXY_VAULT_KEYS`, as [subscriptions](subscriptions.md) do). A stored key is bound to the provider's address: change the address and it must be typed again. |
+| `key_env` | Or: the name of an environment variable on the server holding the key. It must start with `AI_PROXY_API_KEY_`, so a provider can never be pointed at the server's own secrets. A stored key wins over it. |
+| `models` | Aliases agents use, mapped to the provider's model ids (`fast: gpt-4.1-mini`). An alias can be the id itself. |
+| `discover` | Also list the provider's own `GET /models` (on by default). |
+| `headers` | Extra headers, such as OpenRouter's `HTTP-Referer` and `X-Title`. Names that look like credentials (`authorization`, anything with `key`, `token`, `secret`, `cookie`, ...) and ones that change the request's framing are refused: use `auth` for the key. |
+| `connect_timeout` | Seconds to wait for a connection (default 10). A reply may take up to 600 s. |
+| `verify_tls` | Check the provider's certificate (default on). |
+| `api_version` | Sent as `?api-version=` (Azure OpenAI's older API). |
+| `priority` | Higher is preferred when the server picks among machine-hosted providers. |
+| `fallback` | Other API providers to try when this one can't be reached. See [Fallback](#fallback). |
+| `enabled` | Off: agents can't use it, and its sessions' requests are refused. |
+| `orgs` | The organizations whose agents may use a hosted provider. Empty: the site's own only. `["*"]`: every organization. A machine-hosted one is its machine's organization's. |
+
+**Test connection** on the console (`POST /api/config/providers/{name}/test`) asks the provider for its models with its key. It shows the status, the time it took and the models it lists, and you can add those to `models`. When a provider has no `/models`, add its models by hand.
+
+### Hosted APIs and gateways
+
+A hosted provider is reached directly from the server, so the server checks where it goes:
+
+- The URL must be `https://`, with no credentials, query or fragment in it.
+- **Only public addresses.** When it connects, the server resolves the host and refuses private, loopback, link-local and reserved addresses, and connects to the address it checked (a DNS answer can't change in between). So a provider can't be pointed at the cloud's metadata service, the server's own internal port or anything else on its network.
+- **Redirects are never followed.**
+- The operator can allow a private host for a gateway beside the server, such as a LiteLLM Proxy in the same cluster: list it in `AI_PROXY_API_PRIVATE_HOSTS` (hostnames, `*.suffix` patterns or CIDR networks, comma-separated). Such a host may also use `http://`. It's an environment variable, not a setting, so a console admin can't open it up.
+
+A model server on your own network belongs on a machine instead: run agent-machine there. That keeps it to its machine's organization and grants, and needs no open port.
+
+### OpenAI-compatible servers on a machine
+
+agent-machine looks for OpenAI-compatible servers on its loopback: LM Studio on port 1234, vLLM on 8000 and SGLang on 30000, and any ports listed in `AI_PROXY_API_PORTS` on the machine (comma-separated). A port counts only when `GET /v1/models` answers with a model list. The machine's page shows each one as **API** with its kind, and **Add as a provider** adds it with Chat Completions only and no key (`auth: none`). Turn on Responses or Messages on **Server settings -> API providers** if your version of the server has them. Its models are managed in that server itself (LM Studio's app, vLLM's command line): the console lists them but has no pull, delete, load or unload for them.
+
+### Fallback
+
+When a provider can't be reached, a request can go to another one, but only when a site admin listed it in the provider's `fallback`:
+
+- Only when the connection failed, so nothing reached the provider. A request that may have reached it (a timeout waiting for the reply, an error answer, a stream that stopped part way) is never sent again: the agent gets the error.
+- Only to another enabled API provider that speaks the request's protocol, knows its model (an alias, or `discover` on), may be used by the session's person, and isn't over their usage limit.
+- Only for that request. The session stays on its own provider and the next request tries it first again.
+- It's on the request's record (`fallback_from`, `routing`), in the response (`X-AI-Proxy-Backend`), in the server's log and in the audit log (`backend.fallback`).
+
+Local providers have no fallback. A local-model agent never moves to a hosted provider on its own either: when a launch names no backend, the server picks a hosted provider only if it's the default backend.
+
+### What is recorded
+
+An API provider's requests are recorded like every other: tokens in and out, cached tokens (OpenAI's `cached_tokens`, Anthropic's `cache_read_input_tokens` and `cache_creation_input_tokens`, DeepSeek's `prompt_cache_hit_tokens`), time to first token, total time, status, whether a stream finished, and the protocol (`protocol`), the provider's model id when an alias was used (`upstream_model`) and a rate limit (`rate_limited`). Tokens come from what the provider reports. When it reports none (a Chat Completions stream without `stream_options.include_usage`, say), the counts are estimates and the record says so (`tokens_estimated`). The provider's own rate-limit headers (`x-ratelimit-*`, `anthropic-ratelimit-*`, `retry-after`) are passed back to the agent, and its request id comes back as `upstream-request-id`.
+
+Each server process also keeps what it last saw of each provider (status, time, error), shown on the console as the provider's health. It's in memory only: with several processes, each shows its own.
+
+### Examples
+
+These are set on **Server settings -> API providers** (or `PUT /api/config/providers/<name>`, as below). The console has presets for each.
+
+A generic OpenAI-compatible server (on a machine, add it from the machine's page instead):
+
+```json
+PUT /api/config/providers/inference
+{"url": "https://inference.example.com/v1", "protocols": ["openai-chat"], "auth": "bearer",
+ "key_env": "AI_PROXY_API_KEY_INFERENCE", "models": {"coder": "qwen3-coder-30b"}}
+```
+
+OpenAI:
+
+```json
+PUT /api/config/providers/openai
+{"url": "https://api.openai.com/v1", "protocols": ["openai-chat", "openai-responses"],
+ "auth": "bearer", "key": "sk-...", "orgs": ["acme"]}
+```
+
+Anthropic, with the server's key:
+
+```json
+PUT /api/config/providers/claude-api
+{"url": "https://api.anthropic.com/v1", "anthropic_url": "https://api.anthropic.com",
+ "protocols": ["anthropic"], "auth": "x-api-key", "key_env": "AI_PROXY_API_KEY_ANTHROPIC"}
+```
+
+OpenRouter:
+
+```json
+PUT /api/config/providers/openrouter
+{"url": "https://openrouter.ai/api/v1", "protocols": ["openai-chat"], "auth": "bearer",
+ "key": "sk-or-...", "headers": {"X-Title": "AI Control Mesh"},
+ "models": {"sonnet": "anthropic/claude-sonnet-4.5", "qwen-coder": "qwen/qwen3-coder"}}
+```
+
+LiteLLM Proxy, in the same cluster as the server (the operator sets `AI_PROXY_API_PRIVATE_HOSTS=litellm.ai.svc.cluster.local`):
+
+```json
+PUT /api/config/providers/litellm
+{"url": "http://litellm.ai.svc.cluster.local:4000/v1", "anthropic_url": "http://litellm.ai.svc.cluster.local:4000",
+ "category": "gateway", "protocols": ["openai-chat", "anthropic"], "auth": "bearer",
+ "key_env": "AI_PROXY_API_KEY_LITELLM", "discover": true, "fallback": ["openrouter"]}
+```
+
+LM Studio or vLLM: start it on its machine, check `agent-machine status` lists it (`api (lmstudio) on port 1234`), then **Add as a provider** on the machine's page. Then launch an agent on it:
+
+```bash
+agent qwen . --backend laptop-api --model qwen/qwen3-coder-30b
+agent codex . --backend openai --model gpt-5     # needs openai-responses
+agent claude . --backend claude-api --model claude-sonnet-4-5
+```
+
+### Compatibility
+
+The protocol behaviour above (paths, keys, headers, aliases, streaming, tool calls, usage, errors, fallback) is covered by the server's tests against mock upstreams shaped like each provider's documented API. No provider was tested live by the project. What a provider supports changes with its version.
+
+| Provider | Protocols to set | State |
+|---|---|---|
+| OpenAI | `openai-chat`, `openai-responses` | Tested against mocks of the documented API |
+| Anthropic | `anthropic` | Tested against mocks of the documented API |
+| Azure OpenAI | `openai-chat` (and `openai-responses` on the v1 API); `auth: api-key`; the model is the deployment name | Untested |
+| OpenRouter | `openai-chat` | Untested |
+| LiteLLM Proxy | `openai-chat`; `openai-responses` and `anthropic` on versions that serve them | Untested |
+| Groq, Together AI, Fireworks AI | `openai-chat` | Untested |
+| DeepSeek | `openai-chat`; `anthropic` with `anthropic_url` `https://api.deepseek.com/anthropic` | Untested |
+| LM Studio, vLLM, SGLang (on a machine) | `openai-chat`; others on versions that serve them | Detection tested against mocks; untested live |
+| LocalAI and other OpenAI-compatible servers | `openai-chat` | Untested; on a machine, list its port in `AI_PROXY_API_PORTS` |
+
+Speaking a protocol isn't the same as working well with a coding agent. Agents depend on reliable tool calling, long context and, for some, reasoning: check a model with a short session (`agent ... --trace`) before relying on it.
 
 ## Ollama
 

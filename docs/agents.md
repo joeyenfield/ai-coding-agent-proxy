@@ -12,11 +12,11 @@ Each agent takes one of three routes to a model. The console colours requests, s
 |---|---|---|---|
 | **Agents** | `claude-account`, `copilot-account`, `codex-account` | `qwen`, `opencode`, `copilot`, `claude`, `codex`, `aider`, `goose` | `claude-subscription` |
 | **Set in its definition by** | `intercept: true` | `backend_type: ollama` (the default) | `backend_type: anthropic` |
-| **Model** | The vendor's, on your plan | Ollama, llama.cpp, Strata or Docker Model Runner on your machines | Anthropic's, through an `anthropic` backend |
+| **Model** | The vendor's, on your plan | Ollama, llama.cpp, Strata or Docker Model Runner on your machines, an OpenAI-compatible server on a machine (LM Studio, vLLM, SGLang), or a hosted [API provider](providers.md#api-providers-openai-and-anthropic-compatible) named with `--backend` | Anthropic's, through an `anthropic` backend |
 | **How the agent reaches the proxy** | `HTTPS_PROXY` pointing at the `agent-proxy` (`127.0.0.1:8183`) | Its API base URL points at the `agent-proxy` (`127.0.0.1:8184`) | `ANTHROPIC_BASE_URL` points at the `agent-proxy` |
-| **What the server does** | Decrypts, records and forwards unchanged | Ollama: translates to its native API and applies the model tuning. llama.cpp, Strata and Docker Model Runner: forwards unchanged | Forwards unchanged |
+| **What the server does** | Decrypts, records and forwards unchanged | Ollama: translates to its native API and applies the model tuning. llama.cpp, Strata, Docker Model Runner and API providers: forwards unchanged (an API provider with the server's key and model aliases) | Forwards unchanged |
 | **What you see** | Requests to public hosts: model calls plus sign-in, settings, MCP, telemetry | Model calls, with the exact payload sent to Ollama | Model calls and other Anthropic API calls Claude Code makes |
-| **Credentials** | The agent's own login | None needed | The agent's own login |
+| **Credentials** | The agent's own login | None needed (an API provider's key stays on the server) | The agent's own login |
 
 **Local models.** Local-model agents get API base URLs on the `agent-proxy` that contain the session id. The server sends each request to the session's backend. For an Ollama backend it translates OpenAI Chat and Anthropic Messages requests to Ollama's native `/api/chat` and applies the server's Ollama model tuning. llama.cpp, Strata and Docker Model Runner speak the agents' APIs themselves and get requests unchanged. See [Providers](providers.md).
 
@@ -413,7 +413,7 @@ agents:
 | `name` | The display name. Default: the id. |
 | `executable` | The program the launcher runs, looked up on `PATH`. Default: the id. |
 | `protocol` | The API it speaks: `openai-chat`, `openai-responses`, `anthropic` or `ollama`. Default: `openai-chat`. The server uses it to decide which backends can serve it. |
-| `backend_type` | `ollama` (default) for local models: Ollama, and llama.cpp, Strata or Docker Model Runner when they speak the protocol. `anthropic` for hosted pass-through. Ignored with `intercept`. |
+| `backend_type` | `ollama` (default) for local models: Ollama, and llama.cpp, Strata or Docker Model Runner when they speak the protocol, and API providers set up for the protocol (a hosted one only when it's named or the default backend). `anthropic` for hosted pass-through. Ignored with `intercept`. |
 | `intercept` | `true` for an agent that keeps its own login and is captured in transit. The launcher sets the HTTPS capture variables, the session's backend is `direct`, and `--model` becomes optional. |
 | `env` | Environment variables, as templates. A value written as a YAML mapping or list is rendered and passed as compact JSON (OpenCode's `OPENCODE_CONFIG_CONTENT` is one). The server adds `AI_PROXY_SESSION` (the session id) to every agent's environment. |
 | `args` | Command-line arguments, as templates. Arguments you pass after `--` come after these. |

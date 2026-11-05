@@ -382,3 +382,67 @@ def test_detection_finds_the_model_servers_and_strata_keys(tmp_path, monkeypatch
     ]}}
     found = providers.with_keys(providers.with_strata(found, serving))
     assert found[3:] == [{"type": "strata", "port": 18603, "api_key": "sk-three"}] and "api_key" not in found[2], found
+
+
+def test_detection_finds_openai_compatible_servers_by_their_model_list(monkeypatch, serve):
+    models = {"object": "list", "data": [{"id": "qwen3-coder"}, {"id": "gemma"}]}
+    ollama = serve({"GET /api/version": reply({"version": "0.12.3"})})
+    lmstudio = serve({"GET /v1/models": reply(models)})
+    # Something else on 8000: it answers, but not with a model list.
+    other = serve({"GET /v1/models": reply({"status": "ok"})})
+    not_ids = serve({"GET /v1/models": reply({"data": ["a", "b"]})})
+    refused = serve({"GET /v1/models": reply(models, 401)})
+    sglang = serve({"GET /v1/models": reply({"data": []})})
+    named = serve({"GET /v1/models": reply(models)})
+    monkeypatch.setattr(providers, "PROBES", (("ollama", "/api/version", ollama.port),))
+    monkeypatch.setattr(providers, "API_PROBES", (
+        ("lmstudio", lmstudio.port), ("vllm", other.port), ("vllm", not_ids.port), ("vllm", refused.port), ("sglang", sglang.port),
+    ))
+    # The environment's ports: bad entries are ignored, and a port already found isn't reported twice.
+    monkeypatch.setenv(providers.API_PORTS_ENV, f"nope, {named.port},70000,{lmstudio.port},{ollama.port}")
+    found = providers.detect()
+    # Ollama's model count comes from /api/tags, which this fake doesn't serve.
+    assert found == [
+        {"type": "ollama", "port": ollama.port, "version": "0.12.3"},
+        {"type": "api", "port": lmstudio.port, "flavor": "lmstudio", "models": 2},
+        {"type": "api", "port": sglang.port, "flavor": "sglang", "models": 0},
+        {"type": "api", "port": named.port, "flavor": "openai", "models": 2},
+    ], found
+
+
+def test_api_status_lists_the_models_with_their_context(serve):
+    fake = serve({"GET /v1/models": reply({"object": "list", "data": [
+        {"id": "qwen3-coder", "owned_by": "vllm", "max_model_len": 32768},
+        {"id": "gemma", "owned_by": "organization_owner", "loaded_context_length": 8192, "context_length": 4096},
+        {"id": "plain"},
+        {"owned_by": "nobody"},
+    ]})})
+    answer = handle(providers.Manager(off), request="r1", op="status", kind="api", port=fake.port)
+    assert answer["ok"] is True and answer["request"] == "r1", answer
+    assert answer["state"] == {"online": True, "version": "", "models": [
+        {"id": "qwen3-coder", "owned_by": "vllm", "context_length": 32768},
+        {"id": "gemma", "owned_by": "organization_owner", "context_length": 4096},
+        {"id": "plain", "owned_by": ""},
+    ]}, answer
+
+
+def test_api_status_offline_or_not_a_model_list(serve):
+    gone = serve()
+    port = gone.port
+    gone.close()
+    other = serve({"GET /v1/models": reply({"status": "ok"})})
+    failing = serve()
+    for each in (port, other.port, failing.port):
+        state = handle(providers.Manager(off), op="status", kind="api", port=each)["state"]
+        assert state["online"] is False and state["error"], state
+
+
+def test_api_models_are_managed_in_the_server_itself(serve):
+    fake = serve()
+    for op in ("pull", "delete", "load", "unload", "log", "files", "reload"):
+        answer = handle(providers.Manager(on), op=op, kind="api", port=fake.port, model="m")
+        assert answer["ok"] is False and "managed in that server itself" in answer["error"], (op, answer)
+    # With servers off, changing ops are refused by the gate first, as for every kind.
+    answer = handle(providers.Manager(off), op="pull", kind="api", port=fake.port, model="m")
+    assert answer["ok"] is False and "servers on" in answer["error"], answer
+    assert fake.calls == []

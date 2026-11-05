@@ -12,7 +12,7 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 
-from .. import auth, remote
+from .. import api_providers, auth, remote
 from ..config import MACHINE_TYPES, PROVIDER_NAMES
 from ..provider_accounts import PROVIDERS, WINDOWS
 from ..runtime import Runtime
@@ -35,7 +35,12 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         found = []
         for backend in runtime.settings.backends.values():
             owner = fleet.backend_tenant(backend)
-            if owner != fleet.SHARED and owner != tenant:
+            if api_providers.external(backend):
+                # It carries the server's key: only the organizations it names.
+                tenants = fleet.api_tenants(backend)
+                if fleet.SHARED not in tenants and tenant not in tenants:
+                    continue
+            elif owner != fleet.SHARED and owner != tenant:
                 continue
             machine = fleet.machines.get(backend.machine) if backend.machine else None
             found.append({

@@ -180,6 +180,7 @@ It reads these environment variables:
 | `AI_PROXY_AGENT` | The `agent` program launches and terminals run, instead of `agent` from PATH |
 | `AI_PROXY_LOCAL_PORT` | The port of this computer's agent-proxy (default 8184), to check which server it carries traffic to |
 | `AI_PROXY_LLAMACPP_PORT` | The port of the llama-server it starts and looks for (default 9931) |
+| `AI_PROXY_API_PORTS` | More loopback ports to look for OpenAI-compatible servers on, comma-separated (LM Studio's 1234, vLLM's 8000 and SGLang's 30000 are always looked at) |
 | `STRATA_API_KEY` | The key for Strata here, before the one in Strata's profile |
 | `STRATA_PROFILE_DIR`, `STRATA_RUNTIME_DIR` | Where Strata's profiles and runtime files are, instead of Strata's defaults (`LOCALAPPDATA` and `XDG_STATE_HOME` are used for those) |
 | `SUDO_USER` | The user `sudo agent-machine servers service` sets up |
@@ -233,6 +234,12 @@ agent-machine asks each default port on `127.0.0.1` whether its model server ans
 | `docker` (Docker Model Runner) | 12434 | `/engines/v1/models` |
 | `strata` | 18500 | `/v1/models` (a 401 counts: Strata asks for a key) |
 | `llamacpp` | 9931 (`AI_PROXY_LLAMACPP_PORT`) | `/models` (llama-server's router lists its models there) |
+| `api` (LM Studio) | 1234 | `/v1/models`, which must answer with a model list |
+| `api` (vLLM) | 8000 | `/v1/models`, the same |
+| `api` (SGLang) | 30000 | `/v1/models`, the same |
+| `api` (other OpenAI-compatible servers) | each port in `AI_PROXY_API_PORTS` (comma-separated) | `/v1/models`, the same |
+
+An `api` server becomes an [API provider](providers.md#openai-compatible-servers-on-a-machine) when added. The machine only reads its model list; models are managed in that server itself.
 
 With `servers on`, Strata profiles serving on other loopback ports are added too, from Strata's own state. For each Strata it finds, it reads the key from the profile serving on that port and sends it in the hello.
 

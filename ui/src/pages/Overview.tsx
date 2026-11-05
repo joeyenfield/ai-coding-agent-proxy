@@ -9,7 +9,7 @@ import { ThroughputChart } from "../components/ThroughputChart";
 import { formatBytes, formatCompact, formatDuration, formatNumber, formatRelative } from "../format";
 import { useAgents, useAuth, useMachines, useModels, useRequests, useSessions, useStatus } from "../hooks";
 import { isGroup, partsById, type NavLinkItem, type Part } from "../navigation";
-import { providerLabel, ROUTE_ORDER, ROUTES, routeOf, type RouteKind } from "../routes";
+import { isHosted, providerLabel, ROUTE_ORDER, ROUTES, routeOf, type RouteKind } from "../routes";
 
 export function OverviewPage() {
   const status = useStatus({ recent: true });
@@ -187,7 +187,7 @@ function PartCards({ status }: { status: Status }) {
                 <strong>{name}</strong>
                 <span className="subtle">
                   {providerLabel(backend.type, true)}
-                  {backend.machine_name ? ` on ${backend.machine_name}` : backend.type === "anthropic" ? ", hosted" : ""}
+                  {backend.machine_name ? ` on ${backend.machine_name}` : isHosted(backend) ? ", hosted" : ""}
                 </span>
                 <span className={`state-text ${state.tone}`}>{state.text}</span>
               </li>
@@ -268,7 +268,7 @@ function RouteSummary({ status, records }: { status: Status; records: RequestRec
   const configured = (route: RouteKind) =>
     route === "account"
       ? Boolean(status.intercept?.running)
-      : Object.values(status.backends).some((backend) => (backend.type === "anthropic" ? "hosted" : "ollama") === route);
+      : Object.values(status.backends).some((backend) => (isHosted(backend) ? "hosted" : "ollama") === route);
   return (
     <div className="route-cards">
       {ROUTE_ORDER.map((route) => {

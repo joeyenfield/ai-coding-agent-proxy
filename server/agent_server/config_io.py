@@ -86,6 +86,20 @@ def apply(settings: Settings, document: dict[str, Any], *, replace: bool = False
             if not isinstance(backend, dict) or backend.get("type", "ollama") not in BACKEND_TYPES:
                 raise ValueError(f"Backend {name}: type is one of {', '.join(sorted(BACKEND_TYPES))}")
             _validate_http_url(backend.get("url"), f"Backend {name}'s url")
+            if backend.get("type") == "api":
+                # The same checks as the console's (addresses, protocols, headers that can't be credentials);
+                # a key never travels in the document, so an imported provider's key is set again.
+                from types import SimpleNamespace
+
+                from .api_providers import ProviderError, validate
+
+                machine = backend.get("machine")
+                current = SimpleNamespace(url=str(backend.get("url")), type="api", machine=machine, options=backend.get("options") or {}) if machine else None
+                try:
+                    url, options = validate(str(name), {**(backend.get("options") or {}), "url": backend.get("url")}, current)
+                except ProviderError as exc:
+                    raise ValueError(f"Backend {name}: {exc}") from exc
+                backends[name] = {**backend, "url": url, "options": options}
         checked["backends"] = backends
     if "default_backend" in parts:
         checked["default_backend"] = str(parts["default_backend"] or "")

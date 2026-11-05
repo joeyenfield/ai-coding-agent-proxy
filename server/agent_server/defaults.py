@@ -119,6 +119,9 @@ AGENTS_YAML = r"""
 # ollama agents can also use a strata, llamacpp (llama.cpp) or docker (Docker Model Runner)
 # backend, e.g. --backend strata, unless their protocol is ollama and the backend is
 # Strata or llama.cpp: neither has a native Ollama API. Docker Model Runner has all four.
+# They can also use an api backend (an OpenAI or Anthropic-compatible API, api_providers.py)
+# set up for their protocol; a hosted one only when it's named (--backend openai) or is the
+# default backend. The server puts the provider's key in place of placeholders like local-ollama.
 #
 # install is the command that installs the agent: one string for everywhere, or one per
 # environment (linux, macos, windows, wsl; wsl falls back to linux, and default covers the

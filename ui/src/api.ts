@@ -829,7 +829,7 @@ export interface FleetMachine {
   /** The server's agents installed on it. */
   agents: string[];
   /** Model servers running on it; backend names the backend that already uses one. */
-  providers: { type: string; port: number; version: string; models: number | null; url: string; backend: string | null }[];
+  providers: { type: string; port: number; version: string; models: number | null; url: string; backend: string | null; flavor?: ApiFlavor }[];
   /** The backends it supplies: model servers added from it and containers it runs. */
   backends: string[];
   /** Whether it runs containers for the server; empty until the machine first says. */
@@ -1018,6 +1018,106 @@ export interface NetworkConfig {
   proxy: { listen_host: string; listen_port: number; url: string; public_url?: string | null };
   default_backend: string;
   backends: Record<string, Backend>;
+}
+
+/** The generic backend type for OpenAI- and Anthropic-compatible APIs, hosted or on a machine. */
+export const API_TYPE = "api";
+
+export type ApiProtocol = "openai-chat" | "openai-responses" | "anthropic";
+export type ApiAuthMode = "none" | "bearer" | "x-api-key" | "api-key" | "agent";
+export type ApiCategory = "machine" | "hosted" | "gateway";
+
+/** Whether the provider answered the server's last check. */
+export interface ApiProviderHealth {
+  ok: boolean;
+  status: number | null;
+  /** Seconds since the epoch. */
+  at: number;
+  latency_ms: number | null;
+  error: string | null;
+}
+
+/** What a site admin edits of an API provider (PUT /api/config/providers/{name}). */
+export interface ApiProviderFields {
+  url: string;
+  /** Where its Anthropic Messages API is, when that isn't at url. */
+  anthropic_url: string | null;
+  category: ApiCategory;
+  protocols: ApiProtocol[];
+  /** agent: the agent's own credentials are passed through. */
+  auth: ApiAuthMode;
+  /** An environment variable on the server holding the key; starts with AI_PROXY_API_KEY_. */
+  key_env: string | null;
+  /** The alias agents use, mapped to the provider's own model id. */
+  models: Record<string, string>;
+  /** Also list the provider's own GET /models. */
+  discover: boolean;
+  /** Extra headers, never secret ones. */
+  headers: Record<string, string>;
+  connect_timeout: number;
+  verify_tls: boolean;
+  /** Azure OpenAI's ?api-version=. */
+  api_version: string | null;
+  /** Higher is preferred when the server picks a backend by itself. */
+  priority: number;
+  /** Other API providers to try when this one can't be reached. */
+  fallback: string[];
+  enabled: boolean;
+  /** Organizations whose agents may use it: ["*"] every one, [] the site's own only. */
+  orgs: string[];
+}
+
+/** An API provider as the server reports it; the key itself is never sent back. */
+export interface ApiProvider extends ApiProviderFields {
+  name: string;
+  type: typeof API_TYPE;
+  /** The machine that runs it, or null for a hosted API or gateway. */
+  machine: string | null;
+  has_key: boolean;
+  key_source: "vault" | "env" | null;
+  health: ApiProviderHealth | null;
+  /** It's the server's default backend. */
+  default: boolean;
+}
+
+/** A starting point for adding a well-known API. */
+export interface ApiPreset {
+  id: string;
+  label: string;
+  url: string;
+  anthropic_url: string | null;
+  protocols: ApiProtocol[];
+  auth: ApiAuthMode;
+  category: ApiCategory;
+  api_version: string | null;
+  headers: Record<string, string>;
+  notes: string;
+  /** false: nobody has checked it against the real service yet. */
+  verified: boolean;
+}
+
+export interface ApiProvidersResponse {
+  providers: ApiProvider[];
+  /** Whether the server can store keys (AI_PROXY_VAULT_KEYS is set). */
+  vault: boolean;
+  presets: ApiPreset[];
+  protocols: ApiProtocol[];
+  auth_modes: ApiAuthMode[];
+}
+
+/** The body of a save: the fields, and a new key (write-only) or clear_key to remove the stored one. */
+export interface ApiProviderSave extends ApiProviderFields {
+  key?: string;
+  clear_key?: boolean;
+}
+
+/** POST /api/config/providers/{name}/test: whether it answered, and the models it lists. */
+export interface ApiProviderTest {
+  ok: boolean;
+  status: number | null;
+  latency_ms: number | null;
+  models: string[] | null;
+  error: string | null;
 }
 
 /** GET /api/requests's filters. */
@@ -1359,14 +1459,24 @@ export interface MachineProvider {
   /** The machine reports it running now. */
   detected: boolean;
   version: string | null;
+  /** How many models the machine last counted there, when it says. */
+  models: number | null;
+  /** For an OpenAI-compatible server (type "api"): which one it is. */
+  flavor: ApiFlavor | null;
 }
+
+/** Which OpenAI-compatible server a machine found (type "api"). */
+export type ApiFlavor = "lmstudio" | "vllm" | "sglang" | "openai";
+
+export const API_FLAVORS: Record<string, string> = { lmstudio: "LM Studio", vllm: "vLLM", sglang: "SGLang", openai: "OpenAI-compatible server" };
 
 /** The model servers on a machine: what it reports running, and the backends that are its (containers among them), by kind and port. */
 export function machineProviders(machine: FleetMachine, backends: Record<string, Backend> | undefined): MachineProvider[] {
   const found = new Map<string, MachineProvider>();
   for (const item of machine.providers) {
     const id = `${item.type}-${item.port}`;
-    found.set(id, { id, kind: item.type, port: item.port, url: item.url, backend: item.backend, container: false, detected: true, version: item.version || null });
+    found.set(id, { id, kind: item.type, port: item.port, url: item.url, backend: item.backend, container: false, detected: true, version: item.version || null,
+      models: item.models ?? null, flavor: item.flavor ?? null });
   }
   for (const [name, backend] of Object.entries(backends ?? {})) {
     if (backend.machine !== machine.id || !backend.provider) continue;
@@ -1377,6 +1487,7 @@ export function machineProviders(machine: FleetMachine, backends: Record<string,
     found.set(backend.provider, {
       id: backend.provider, kind, port, url: current?.url ?? backend.url, backend: current?.backend ?? name,
       container: Boolean(backend.container), detected: current?.detected ?? false, version: current?.version ?? null,
+      models: current?.models ?? null, flavor: current?.flavor ?? null,
     });
   }
   return [...found.values()].sort((a, b) => a.kind.localeCompare(b.kind) || a.port - b.port);
@@ -2168,6 +2279,12 @@ export const api = {
   modelTuningYaml: () => text("/api/config/models?format=yaml"),
   saveModelTuning: (yaml: string) =>
     request<ModelTuning>("/api/config/models", { method: "PUT", body: yaml, headers: { "content-type": "application/yaml" } }),
+  // OpenAI- and Anthropic-compatible APIs (site admins). Keys go in write-only and never come back.
+  apiProviders: () => request<ApiProvidersResponse>("/api/config/providers"),
+  saveApiProvider: (name: string, body: ApiProviderSave) =>
+    request<ApiProvider>(`/api/config/providers/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify(body) }),
+  deleteApiProvider: (name: string) => request<{ ok: boolean }>(`/api/config/providers/${encodeURIComponent(name)}`, { method: "DELETE" }),
+  testApiProvider: (name: string) => request<ApiProviderTest>(`/api/config/providers/${encodeURIComponent(name)}/test`, { method: "POST" }),
   storage: () => request<StorageInfo>("/api/config/storage"),
   saveRetention: (days: number | null) =>
     request<StorageInfo>("/api/config/storage", { method: "PUT", body: JSON.stringify({ retention_days: days }) }),

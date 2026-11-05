@@ -26,12 +26,12 @@ flowchart LR
   machine -.->|"device sign-in, refresh"| issuer
   console -.->|"PKCE sign-in, through the server"| issuer
   server -- "introspects every token" --> issuer
-  server -- "hosted API" --> hosted["Anthropic"]
+  server -- "hosted APIs (public addresses only)" --> hosted["Anthropic · OpenAI ·<br/>OpenRouter · LiteLLM ..."]
 ```
 
 - **Server**: the hub. It owns all configuration, accounts, agent definitions, backend choice and recordings, and keeps them in one database (PostgreSQL in production, a SQLite file by default).
 - **Agents** connect to it through their computer's `agent-proxy`.
-- **Machines** supply every local provider. Hosted APIs are the only providers not on a machine.
+- **Machines** supply every local provider (an OpenAI-compatible server found on a machine, such as LM Studio or vLLM, is an `api` backend with a `machine`). Hosted APIs (`anthropic`, and `api` backends without a machine) are the only providers not on a machine.
 - **Auth issuer** (`agent-auth`, `server/agent_server/issuer.py`, a separate process at `auth.aicontrolmesh.com`) issues OAuth access tokens through Authlib: device codes for `agent login` and `agent-machine login`, PKCE for the console, client credentials for provisioned service clients. It reads the server's accounts (read-only, through its own database role on PostgreSQL) but never changes them. The server introspects every token there and has no unauthenticated mode: all API traffic, including loopback and agent sessions, needs a token. Pairing and the access key are gone. See `auth.md`.
 
 ## One server, one process or many
@@ -55,6 +55,7 @@ The server is one program. Small installs run it as one process, which keeps its
 | Account | `intercept: true` (signed in to their own Claude, Copilot or ChatGPT) | `HTTPS_PROXY` → agent-proxy :8183 → `WS /api/proxy/tunnel` → decrypted with the server's CA → the vendor |
 | Local models | `backend_type: ollama` (default) | `/session/<id>/v1` etc. on agent-proxy :8184 → `routes/compat.py` → `ollama` (translated to `/api/chat`), `strata`, `docker` or `llamacpp` (passed through), via the machine's tunnel |
 | Hosted | `backend_type: anthropic` | `ANTHROPIC_BASE_URL` → passed through unchanged |
+| API providers | `backend_type: ollama` agents, by protocol | the same URLs → `routes/compat.py` `_forward` → an `api` backend (`api_providers.py`): the server's key, model aliases, extra headers; on a machine through its tunnel, hosted ones through `runtime.api_clients` (public addresses only) |
 
 ## A launch, across components
 
@@ -90,6 +91,7 @@ The agent gets URLs on its agent-proxy that carry the session id, rendered by th
 | Server files | `logs/proxy/proxy.log`, the CA's public files (`logs/ca/`), `certs/first-user-password`; an older install's `config/`, `certs/` and `logs/sessions/` files are only read once, by the import into an empty database |
 | Agent computer | `credentials.json` (+ `agent-proxy.log`), `~/.cache/agent-proxy/` (CA copy, per-session files) |
 | Server database, provider accounts | `provider_accounts` and their assignments, hourly usage and events; `provider_credentials` (Copilot tokens, AES-GCM under `AI_PROXY_VAULT_KEYS`, which never enters the database) |
+| Server database, API providers | `backends.options` (protocols, auth, models, headers, priority, fallback, orgs; API step 8); keys in `provider_credentials` as `backend:<name>` (AES-GCM under `AI_PROXY_VAULT_KEYS`, bound to the provider's origin) or an `AI_PROXY_API_KEY_*` variable; health and discovered models in each process's memory |
 | Server database, usage limits | `provider_usage` (hourly tokens and calls per organization, person and provider), `usage_limits` (an organization's token limits per person or everyone, provider and window) |
 | Server database, retention and audit | `retention_policies`, `legal_holds`; `audit_events` (append-only hash chains per tenant), `audit_chains`, `audit_checkpoints` (signed with the secret `audit-signing-key`) |
 | Blob storage (`AI_PROXY_BLOB_URL`, optional) | traces (messages once per session, by hash) and terminal chunks under `tenant/<org>/<yyyy>/<mm>/<session>/`; audit checkpoints and exports under `audit/` |
