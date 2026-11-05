@@ -97,7 +97,12 @@ function TerminalGrid({ selectionKey }: { selectionKey: string }) {
     setPage(0);
   };
   // Slimming the bar only trades page chrome for terminal space, so the page stays where it was.
-  const toggleSlim = () => setLayout((previous) => ({ ...previous, slim: !previous.slim }));
+  const toggleSlim = () => {
+    const slim = !layout.slim;
+    setLayout((previous) => ({ ...previous, slim }));
+    // The picker is below the bar, so hiding the controls hides its button too: close it with them.
+    if (slim) setChoosing(false);
+  };
 
   return (
     <div className="page wide terminal-grid-page">
