@@ -269,6 +269,18 @@ const openTerminal = async (page) => {
 };
 await shot("overview-phone", "/", { width: 412, height: 860, fullPage: true });
 await shot("terminals", "/terminals", { fullPage: true });
+const chooseGridAgents = async (page) => {
+  await page.locator(".grid-agent-option").first().waitFor();
+  for (const name of ["Claude Code", "OpenCode", "GitHub Copilot CLI", "OpenAI Codex CLI"]) {
+    await page.locator(".grid-agent-option", { hasText: name }).first().locator("input").check();
+  }
+  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await page.locator(".terminal-tile .xterm-screen").nth(3).waitFor();
+  await page.waitForTimeout(1500);
+};
+await shot("terminal-grid", "/terminals-beta", { fullPage: true, scrollTop: true, prepare: chooseGridAgents });
+await shot("terminal-grid-dark", "/terminals-beta", { theme: "dark", fullPage: true, scrollTop: true, prepare: chooseGridAgents });
+await shot("terminal-grid-phone", "/terminals-beta", { theme: "dark", width: 412, height: 860, fullPage: true, scrollTop: true, prepare: chooseGridAgents });
 // The brochure site (site/, scripts/screenshots/site-images.py) shows these on its dark page.
 await shot("terminals-dark", "/terminals", { theme: "dark", height: 1000 });
 // The first card mid-reply: it's the one in view.

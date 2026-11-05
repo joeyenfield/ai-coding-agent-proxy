@@ -54,6 +54,7 @@ export const PARTS: Part[] = [
     items: [
       { to: "/agents", label: "Start an agent", icon: "play" },
       { to: "/terminals", label: "Running agents", icon: "terminal" },
+      { to: "/terminals-beta", label: "Running agents (Beta)", icon: "grid" },
       { to: "/ask", label: "Ask a model", icon: "chat" },
       // Everywhere agents' calls go (machines' model servers, hosted APIs, subscriptions), with your usage and limits.
       { to: "/providers", label: "Providers", icon: "server" },

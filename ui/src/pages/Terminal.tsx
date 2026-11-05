@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
@@ -125,6 +125,17 @@ function cellWidth(fontSize: number) {
 
 export function TerminalPage() {
   const { sessionId = "" } = useParams();
+  const location = useLocation();
+  return <TerminalView key={sessionId} sessionId={sessionId} fromGrid={location.state?.fromGrid === true} />;
+}
+
+/** One viewer per session, shared by the full page and the terminal grid. */
+export function TerminalView({ sessionId, compact = false, gridFontSize = 9, fromGrid = false }: {
+  sessionId: string;
+  compact?: boolean;
+  gridFontSize?: number;
+  fromGrid?: boolean;
+}) {
   const notify = useToast();
   const copy = useClipboard();
   // The terminal's key handler is made once; it copies through the latest hook.
@@ -148,6 +159,7 @@ export function TerminalPage() {
 
   const send = useCallback(
     (message: { keys?: string; text?: string; enter?: boolean }) => {
+      if (watchOnlyRef.current) return false;
       if (socket.current?.readyState !== WebSocket.OPEN) {
         notify("Not connected to the terminal yet.");
         return false;
@@ -160,7 +172,8 @@ export function TerminalPage() {
 
   useEffect(() => {
     const terminal = new Terminal({
-      cols: 80, rows: 24, scrollback: 20000, fontFamily: FONT, fontSize, theme: THEMES[background],
+      cols: 80, rows: 24, scrollback: compact ? 2000 : 20000, fontFamily: FONT,
+      fontSize: compact ? gridFontSize : fontSize, theme: THEMES[background],
       cursorBlink: false, disableStdin: touch, allowProposedApi: false,
       // When the agent takes the mouse, Shift+drag selects anyway; on a Mac, Option+drag does too.
       macOptionClickForcesSelection: true,
@@ -307,8 +320,8 @@ export function TerminalPage() {
   }, [sessionId, send, touch]);
 
   useEffect(() => {
-    if (term.current) term.current.options.fontSize = fontSize;
-  }, [fontSize]);
+    if (term.current) term.current.options.fontSize = compact ? gridFontSize : fontSize;
+  }, [compact, gridFontSize, fontSize]);
   useEffect(() => {
     if (term.current) term.current.options.theme = THEMES[background];
   }, [background]);
@@ -339,10 +352,10 @@ export function TerminalPage() {
   const name = summary?.agent_name ?? info?.command ?? "Agent";
 
   return (
-    <div className="page wide terminal-page">
-      <header className="page-head">
+    <div className={compact ? "terminal-tile-view" : "page wide terminal-page"}>
+      {!compact && <header className="page-head">
         <p className="breadcrumbs">
-          <Link to="/terminals">Running agents</Link>
+          <Link to={fromGrid ? "/terminals-beta" : "/terminals"}>{fromGrid ? "Running agents (Beta)" : "Running agents"}</Link>
           <span aria-hidden="true"> › </span>
           <span>{name}</span>
         </p>
@@ -359,7 +372,7 @@ export function TerminalPage() {
           <Link to={`/sessions/${encodeURIComponent(sessionId)}`}>Session traffic</Link>
         </p>
         <SharingControl sessionId={sessionId} you={summary?.you} />
-      </header>
+      </header>}
 
       {connection === "unauthorized" && <PairPanel />}
       {connection === "missing" && (
@@ -372,7 +385,7 @@ export function TerminalPage() {
       )}
 
       <section className="terminal-view" hidden={connection === "unauthorized" || connection === "missing"} aria-label="Agent terminal">
-        <div className="terminal-toolbar">
+        {!compact && <div className="terminal-toolbar">
           <div className="row" role="group" aria-label="Text size">
             <button type="button" onClick={() => resize(-1)} aria-label="Smaller text" disabled={fontSize <= SIZES.min}>
               A−
@@ -409,25 +422,27 @@ export function TerminalPage() {
               Copy all
             </button>
           </div>
-        </div>
+        </div>}
+        {compact && connection === "connecting" && <p className="banner">Connecting…</p>}
         {connection === "retrying" && <p className="banner warn">Lost the connection to the proxy. Reconnecting…</p>}
         {connection === "waiting" && <p className="banner">Waiting for the agent to share its terminal…</p>}
         {info && !live && (
           <p className="banner">
-            {info.ended_at
+            {watchOnly ? "Shared with you to watch only." : info.ended_at
               ? "The agent has exited. This is the terminal as it was left."
               : "The launcher isn't connected right now, so typing won't reach the agent."}
           </p>
         )}
         <div className="term-screen" ref={screen} style={{ background: THEMES[background].background }} />
-        {!touch && (
+        {compact && live && <p className="subtle term-hint">{touch ? "Use fullscreen to send a message." : "Click the terminal to type."}</p>}
+        {!compact && !touch && (
           <p className="subtle term-hint">
             {live && "Click the terminal to type into it directly, or use the box below. "}
             Select text by dragging, or with Shift+drag when the agent uses the mouse (Option+drag on a Mac); Ctrl+C copies a selection.
           </p>
         )}
 
-        <div className="term-controls">
+        {!compact && <div className="term-controls">
           <form className="term-input" onSubmit={submit}>
             <textarea
               value={text}
@@ -449,7 +464,7 @@ export function TerminalPage() {
               </button>
             ))}
           </div>
-        </div>
+        </div>}
       </section>
     </div>
   );

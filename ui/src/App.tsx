@@ -36,6 +36,7 @@ import { isGroup, visibleParts, type NavLinkItem } from "./navigation";
 
 // The terminal viewer brings xterm.js; load it when visited.
 const TerminalPage = lazy(() => import("./pages/Terminal").then((module) => ({ default: module.TerminalPage })));
+const TerminalGridPage = lazy(() => import("./pages/TerminalGrid").then((module) => ({ default: module.TerminalGridPage })));
 
 // Pages from before model servers lived on their machine's page: they go to the machines.
 const MOVED = ["/models", "/hosts", "/server", "/providers", "/strata", "/docker", "/containers"];
@@ -217,6 +218,7 @@ function Shell({ identity }: { identity: Identity | null }) {
           <Route path="/sessions/:sessionId" element={<SessionPage />} />
           <Route path="/agents" element={<AgentsPage />} />
           <Route path="/terminals" element={<TerminalsPage />} />
+          <Route path="/terminals-beta" element={<Suspense fallback={<p>Loading terminals…</p>}><TerminalGridPage /></Suspense>} />
           <Route path="/ask" element={<AskPage />} />
           <Route path="/subscriptions" element={<SubscriptionsPage />} />
           <Route path="/providers" element={<ProvidersPage />} />

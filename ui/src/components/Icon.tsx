@@ -4,6 +4,8 @@ const PATHS = {
   play: "M7 4.5v15l12-7.5z",
   chat: "M4 5h16v11H9.5L5 20v-4H4z",
   terminal: "M4 5h16v14H4zM7.5 9.5 10 12l-2.5 2.5M12.5 15H16",
+  grid: "M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z",
+  expand: "M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5",
   activity: "M3 12h4l3-8 4 16 3-8h4",
   arrows: "M4 8h13l-3-3M20 16H7l3 3",
   list: "M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01",

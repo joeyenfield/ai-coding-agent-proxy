@@ -10,7 +10,7 @@ The rail on the left has three parts: the agents, the machines they and their mo
 
 | Part | Pages | What it's for |
 | --- | --- | --- |
-| **1 Agents** | Start an agent, Running agents, Ask a model, Providers, Subscriptions | Start a coding agent through the server, then watch it and type into it from any device, or ask a model a question yourself. |
+| **1 Agents** | Start an agent, Running agents, Running agents (Beta), Ask a model, Providers, Subscriptions | Start a coding agent through the server, then watch it and type into it from any device, or ask a model a question yourself. |
 | **2 Machines** | All machines, Approve a device, Add a machine | Open **All machines** to search and select a computer. Individual machines aren't listed in the rail. |
 | **3 Server** | Live, Traffic, Requests, Sessions, Server stats, Access log, API log, Audit log, Server settings, Organizations, Downloads | The hub: allowed agent requests pass through it and are recorded. |
 
@@ -100,6 +100,14 @@ A machine's own page has the same launch form (see [its Agents tab](#summary-age
 Ended terminals stay listed with their exit status until their session is deleted.
 
 A terminal that isn't connected (its launcher closed, or the agent exited) has **Remove**, for those who can control its session. It deletes the session with everything recorded for it: its terminal output, requests, traces and chats. **Remove N not connected** at the top does it for every one at once. A terminal still connected, or with a request in flight, can't be removed.
+
+**Running agents (Beta)** (`/terminals-beta`), just below Running agents in the rail, shows several terminals together. **Choose agents** opens a searchable list of shared sessions. Select up to 16, then press **Done** to give the grid more room. Choose **Rows** and **Columns** (1–4 each); the default is 2 × 2. If you select more agents than fit, **Previous** and **Next** switch grid pages. Only the visible page connects its terminals.
+
+![Four terminals in Running agents (Beta)](screenshots/terminal-grid.png)
+
+Click inside a terminal to type into that session. The focused tile has a highlighted border. Sessions shared for viewing remain watch-only. **Text size** changes the grid's text from 6px to 16px without changing the agent's terminal dimensions; scroll inside a tile to see any output that does not fit. On a phone the tiles stack in one column, and typing uses the full terminal view.
+
+The **Fullscreen** button at the top right of each tile opens the existing full terminal page, with its message box, keys, copying and text controls. Its **Running agents (Beta)** breadcrumb returns to the grid. The selection is remembered for your account in this browser tab; rows, columns and text size are remembered in this browser. **Remove from grid** only removes a tile, leaving the session running. A selected agent that exits stays in the grid until removed.
 
 ![A shared terminal](screenshots/terminal.png)
 
