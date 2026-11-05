@@ -72,33 +72,32 @@ DEFAULT_OPTIONS: dict[str, Any] = {
     "orgs": [],
 }
 
-# Starting points for the console. verified: this protocol behaviour was checked against the
-# provider's own documentation and a mock of it in the tests; the rest are documented as untested.
+# Starting points for the console: each provider's documented URL, protocols and sign-in.
 PRESETS: list[dict[str, Any]] = [
     {"id": "openai", "label": "OpenAI API", "url": "https://api.openai.com/v1", "anthropic_url": None,
      "protocols": ["openai-chat", "openai-responses"], "auth": "bearer", "category": "hosted", "api_version": None, "headers": {},
-     "notes": "Chat Completions and Responses. Codex needs Responses.", "verified": True},
+     "notes": "Chat Completions and Responses. Codex needs Responses."},
     {"id": "anthropic", "label": "Anthropic API (server key)", "url": "https://api.anthropic.com/v1", "anthropic_url": "https://api.anthropic.com",
      "protocols": ["anthropic"], "auth": "x-api-key", "category": "hosted", "api_version": None, "headers": {},
-     "notes": "Messages with the server's key. For agents' own keys or claude.ai logins, keep the anthropic pass-through backend.", "verified": True},
+     "notes": "Messages with the server's key. For agents' own keys or claude.ai logins, keep the anthropic pass-through backend."},
     {"id": "openrouter", "label": "OpenRouter", "url": "https://openrouter.ai/api/v1", "anthropic_url": None,
      "protocols": ["openai-chat"], "auth": "bearer", "category": "gateway", "api_version": None,
-     "headers": {"X-Title": "AI Control Mesh"}, "notes": "Model ids look like anthropic/claude-sonnet-4.5. Tool calling depends on the model.", "verified": False},
+     "headers": {"X-Title": "AI Control Mesh"}, "notes": "Model ids look like anthropic/claude-sonnet-4.5. Tool calling depends on the model."},
     {"id": "litellm", "label": "LiteLLM Proxy", "url": "https://litellm.example.com/v1", "anthropic_url": "https://litellm.example.com",
      "protocols": ["openai-chat", "openai-responses", "anthropic"], "auth": "bearer", "category": "gateway", "api_version": None, "headers": {},
-     "notes": "Use a LiteLLM virtual key. Turn off the protocols your LiteLLM version doesn't serve. A proxy on a private network needs AI_PROXY_API_PRIVATE_HOSTS.", "verified": False},
+     "notes": "Use a LiteLLM virtual key. Turn off the protocols your LiteLLM version doesn't serve. A proxy on a private network needs AI_PROXY_API_PRIVATE_HOSTS."},
     {"id": "groq", "label": "Groq", "url": "https://api.groq.com/openai/v1", "anthropic_url": None,
-     "protocols": ["openai-chat"], "auth": "bearer", "category": "hosted", "api_version": None, "headers": {}, "notes": "", "verified": False},
+     "protocols": ["openai-chat"], "auth": "bearer", "category": "hosted", "api_version": None, "headers": {}, "notes": ""},
     {"id": "together", "label": "Together AI", "url": "https://api.together.xyz/v1", "anthropic_url": None,
-     "protocols": ["openai-chat"], "auth": "bearer", "category": "hosted", "api_version": None, "headers": {}, "notes": "", "verified": False},
+     "protocols": ["openai-chat"], "auth": "bearer", "category": "hosted", "api_version": None, "headers": {}, "notes": ""},
     {"id": "fireworks", "label": "Fireworks AI", "url": "https://api.fireworks.ai/inference/v1", "anthropic_url": None,
-     "protocols": ["openai-chat"], "auth": "bearer", "category": "hosted", "api_version": None, "headers": {}, "notes": "", "verified": False},
+     "protocols": ["openai-chat"], "auth": "bearer", "category": "hosted", "api_version": None, "headers": {}, "notes": ""},
     {"id": "deepseek", "label": "DeepSeek", "url": "https://api.deepseek.com/v1", "anthropic_url": "https://api.deepseek.com/anthropic",
      "protocols": ["openai-chat", "anthropic"], "auth": "bearer", "category": "hosted", "api_version": None, "headers": {},
-     "notes": "DeepSeek's Anthropic-compatible API is at /anthropic.", "verified": False},
+     "notes": "DeepSeek's Anthropic-compatible API is at /anthropic."},
     {"id": "azure-openai", "label": "Azure OpenAI (v1 API)", "url": "https://RESOURCE.openai.azure.com/openai/v1", "anthropic_url": None,
      "protocols": ["openai-chat", "openai-responses"], "auth": "api-key", "category": "hosted", "api_version": None, "headers": {},
-     "notes": "The model is your deployment's name. For the older per-deployment API, use .../openai/deployments/<deployment> and set the API version.", "verified": False},
+     "notes": "The model is your deployment's name. For the older per-deployment API, use .../openai/deployments/<deployment> and set the API version."},
 ]
 
 

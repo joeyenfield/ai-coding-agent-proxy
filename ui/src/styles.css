@@ -860,13 +860,27 @@ details.collapsible > summary::-webkit-details-marker { display: none; }
 .terminal-view { display: flex; flex-direction: column; gap: 10px; }
 .terminal-view[hidden] { display: none; }
 /* Several independent viewers; their PTY dimensions always come from the launcher. */
-.page.wide.terminal-grid-page { max-width: none; gap: 18px; }
-.terminal-grid-page h1 .pill { vertical-align: middle; margin-left: 8px; letter-spacing: normal; }
-.grid-toolbar.panel { flex-direction: row; align-items: center; flex-wrap: wrap; gap: 16px; padding: 14px 16px; }
-.grid-layout-controls { display: flex; flex-wrap: wrap; gap: 14px; }
-.grid-layout-controls label { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--steel); }
-.grid-layout-controls select { width: auto; min-width: 64px; }
-.grid-capacity { margin-left: auto; font-size: 12px; }
+.page.wide.terminal-grid-page { max-width: none; gap: 10px; }
+/* The title and every control share one bar, so collapsing it hands its whole height back to the terminals. */
+.grid-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; padding: 5px 6px 5px 4px; background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); }
+.grid-bar h1 { margin: 0; font-size: 17px; line-height: 1.25; letter-spacing: -0.01em; white-space: nowrap; }
+.grid-bar h1 .pill { vertical-align: middle; margin-left: 6px; font-size: 10.5px; letter-spacing: normal; }
+.grid-bar .part-tag { margin: 0; }
+.grid-bar.slim { padding: 2px 6px 2px 4px; }
+/* A collapsed bar has no controls left to label, and its title is already in the rail and the tab. */
+.grid-bar.slim .part-tag { display: none; }
+.grid-bar.slim h1 { font-size: 15px; }
+.grid-collapse .icon { color: var(--steel); transition: transform 120ms; }
+.grid-collapse .icon.down { transform: rotate(90deg); }
+.grid-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin-left: auto; }
+.grid-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; }
+.grid-controls[hidden] { display: none; }
+.grid-pages { gap: 6px; }
+.grid-pages .mono { font-size: 12.5px; }
+.grid-layout-controls { display: flex; flex-wrap: wrap; gap: 8px; }
+.grid-layout-controls label { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--steel); }
+.grid-layout-controls select { width: auto; min-width: 52px; min-height: 30px; padding: 3px 24px 3px 8px; font-size: 12.5px; }
+.grid-capacity, .grid-hint { font-size: 12px; }
 .grid-picker { gap: 12px; }
 .grid-agent-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 8px; max-height: 280px; overflow-y: auto; }
 .grid-agent-option { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-small); cursor: pointer; }
@@ -875,35 +889,40 @@ details.collapsible > summary::-webkit-details-marker { display: none; }
 .grid-agent-name { display: flex; flex-direction: column; flex: 1; min-width: 0; gap: 2px; }
 .grid-agent-name > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .grid-agent-name .subtle { font-size: 12px; }
-.grid-status { align-items: center; font-size: 13px; }
-.terminal-grid { display: grid; grid-template-columns: repeat(var(--grid-columns), minmax(0, 1fr)); grid-template-rows: repeat(var(--grid-rows), minmax(240px, 1fr)); gap: 12px; height: max(var(--grid-height, calc(100dvh - 360px)), calc(var(--grid-rows) * 240px + (var(--grid-rows) - 1) * 12px)); }
+.terminal-grid { display: grid; grid-template-columns: repeat(var(--grid-columns), minmax(0, 1fr)); grid-template-rows: repeat(var(--grid-rows), minmax(220px, 1fr)); gap: 10px; height: max(var(--grid-height, calc(100dvh - 190px)), calc(var(--grid-rows) * 220px + (var(--grid-rows) - 1) * 10px)); }
 .terminal-tile { display: flex; flex-direction: column; min-width: 0; min-height: 0; border: 1px solid var(--line-strong); border-top: 3px solid var(--line-strong); border-radius: var(--radius); background: var(--paper); overflow: hidden; }
 .terminal-tile.tone-live { border-top-color: var(--live); }
 .terminal-tile.tone-good { border-top-color: var(--good); }
 .terminal-tile.tone-bad { border-top-color: var(--bad); }
 .terminal-tile.tone-ask { border-top-color: var(--accent); }
 .terminal-tile:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
-.terminal-tile-head { display: flex; align-items: center; gap: 6px; padding: 9px 10px; border-bottom: 1px solid var(--line); }
-.terminal-tile-head .pill { font-size: 10px; padding: 2px 6px; }
-.terminal-tile-head .icon-button { flex: none; }
+/* One clickable line per tile: its details only take room when the title is opened. */
+.terminal-tile-head { display: flex; align-items: center; gap: 2px; min-height: 28px; padding: 2px 3px 2px 4px; border-bottom: 1px solid var(--line); }
+.terminal-tile-title { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: flex-start; gap: 6px; min-height: 24px; padding: 2px 4px; border: 0; background: none; box-shadow: none; color: var(--ink); font-size: 12.5px; font-weight: 620; text-align: left; white-space: nowrap; }
+.terminal-tile-title:hover:not(:disabled) { background: var(--ground); border: 0; color: var(--ink); }
+.tile-chevron { color: var(--steel); transition: transform 120ms; }
+.tile-chevron.open { transform: rotate(90deg); }
+.terminal-tile-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.terminal-tile-head .state-dot { flex: none; }
+.terminal-tile-head .icon-button { flex: none; min-height: 26px; min-width: 26px; }
+.terminal-tile-meta { display: flex; flex-wrap: wrap; gap: 2px 16px; margin: 0; padding: 5px 9px 6px; background: var(--ground); border-bottom: 1px solid var(--line); color: var(--steel); font-size: 11.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.terminal-tile-meta b { margin-right: 4px; font-weight: 620; color: var(--ink); }
+@media (prefers-reduced-motion: reduce) { .grid-collapse .icon, .tile-chevron { transition: none; } }
 .terminal-tile-view, .terminal-tile-view .terminal-view { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; gap: 0; }
 .terminal-tile-view .terminal-view[hidden] { display: none; }
 .terminal-tile-view .term-screen { flex: 1; min-height: 0; overflow: auto; border: 0; border-radius: 0; padding: 6px; }
-.terminal-tile-view .term-hint { padding: 5px 10px; font-size: 11px; border-top: 1px solid var(--line); }
 .terminal-tile-view .banner { font-size: 12px; padding: 6px 10px; border-radius: 0; }
 .terminal-tile-view > .panel { overflow: auto; padding: 12px; }
 .grid-unavailable { padding: 18px; overflow-wrap: anywhere; }
 .grid-empty-tile { flex-direction: column; gap: 10px; border: 1px dashed var(--line-strong); background: transparent; color: var(--steel); box-shadow: none; min-width: 0; }
-@media (max-width: 1200px) and (min-width: 701px) {
-  .terminal-tile-head { flex-wrap: wrap; }
-  .terminal-tile-head .grid-agent-name { flex-basis: 100%; }
-}
 @media (max-width: 700px) {
-  .grid-toolbar.panel { gap: 12px; }
-  .grid-capacity { margin-left: 0; }
-  .grid-layout-controls { gap: 10px; }
-  .grid-layout-controls label { flex-direction: column; align-items: flex-start; gap: 4px; }
-  .terminal-grid { height: auto; grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-auto-rows: 320px; }
+  .grid-bar { padding: 4px 6px 4px 4px; }
+  .grid-actions { gap: 6px 10px; }
+  .grid-capacity { display: none; }
+  .grid-layout-controls { gap: 8px; }
+  .grid-layout-controls label { flex-direction: column; align-items: flex-start; gap: 3px; }
+  .terminal-tile-meta .meta-model { display: none; }
+  .terminal-grid { height: auto; grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-auto-rows: 300px; }
   .grid-empty-tile { min-height: 80px; }
   .grid-picker { padding: 14px; }
 }

@@ -434,7 +434,6 @@ export function TerminalView({ sessionId, compact = false, gridFontSize = 9, fro
           </p>
         )}
         <div className="term-screen" ref={screen} style={{ background: THEMES[background].background }} />
-        {compact && live && <p className="subtle term-hint">{touch ? "Use fullscreen to send a message." : "Click the terminal to type."}</p>}
         {!compact && !touch && (
           <p className="subtle term-hint">
             {live && "Click the terminal to type into it directly, or use the box below. "}

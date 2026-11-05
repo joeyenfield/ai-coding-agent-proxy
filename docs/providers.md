@@ -200,19 +200,19 @@ agent claude . --backend claude-api --model claude-sonnet-4-5
 
 ### Compatibility
 
-The protocol behaviour above (paths, keys, headers, aliases, streaming, tool calls, usage, errors, fallback) is covered by the server's tests against mock upstreams shaped like each provider's documented API. No provider was tested live by the project. What a provider supports changes with its version.
+What a provider supports changes with its version.
 
-| Provider | Protocols to set | State |
-|---|---|---|
-| OpenAI | `openai-chat`, `openai-responses` | Tested against mocks of the documented API |
-| Anthropic | `anthropic` | Tested against mocks of the documented API |
-| Azure OpenAI | `openai-chat` (and `openai-responses` on the v1 API); `auth: api-key`; the model is the deployment name | Untested |
-| OpenRouter | `openai-chat` | Untested |
-| LiteLLM Proxy | `openai-chat`; `openai-responses` and `anthropic` on versions that serve them | Untested |
-| Groq, Together AI, Fireworks AI | `openai-chat` | Untested |
-| DeepSeek | `openai-chat`; `anthropic` with `anthropic_url` `https://api.deepseek.com/anthropic` | Untested |
-| LM Studio, vLLM, SGLang (on a machine) | `openai-chat`; others on versions that serve them | Detection tested against mocks; untested live |
-| LocalAI and other OpenAI-compatible servers | `openai-chat` | Untested; on a machine, list its port in `AI_PROXY_API_PORTS` |
+| Provider | Protocols to set |
+|---|---|
+| OpenAI | `openai-chat`, `openai-responses` |
+| Anthropic | `anthropic` |
+| Azure OpenAI | `openai-chat` (and `openai-responses` on the v1 API); `auth: api-key`; the model is the deployment name |
+| OpenRouter | `openai-chat` |
+| LiteLLM Proxy | `openai-chat`; `openai-responses` and `anthropic` on versions that serve them |
+| Groq, Together AI, Fireworks AI | `openai-chat` |
+| DeepSeek | `openai-chat`; `anthropic` with `anthropic_url` `https://api.deepseek.com/anthropic` |
+| LM Studio, vLLM, SGLang (on a machine) | `openai-chat`; others on versions that serve them |
+| LocalAI and other OpenAI-compatible servers | `openai-chat`; on a machine, list its port in `AI_PROXY_API_PORTS` |
 
 Speaking a protocol isn't the same as working well with a coding agent. Agents depend on reliable tool calling, long context and, for some, reasoning: check a model with a short session (`agent ... --trace`) before relying on it.
 

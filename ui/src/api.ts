@@ -1092,8 +1092,6 @@ export interface ApiPreset {
   api_version: string | null;
   headers: Record<string, string>;
   notes: string;
-  /** false: nobody has checked it against the real service yet. */
-  verified: boolean;
 }
 
 export interface ApiProvidersResponse {

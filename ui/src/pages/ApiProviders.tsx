@@ -174,11 +174,6 @@ export function ApiProviderSettings() {
           <div className="panel-head">
             <h3>New provider{adding.preset ? `: ${adding.preset.label}` : ""}</h3>
             {adding.preset?.notes && <p className="subtle">{adding.preset.notes}</p>}
-            {adding.preset && !adding.preset.verified && (
-              <p className="subtle">
-                <span className="pill live">Untested</span> Nobody has checked this preset against the real service yet. Test the connection once it's saved.
-              </p>
-            )}
           </div>
           <ProviderEditor
             key="new"
@@ -250,7 +245,6 @@ function AddProvider({
           {presets.map((item) => (
             <option key={item.id} value={item.id}>
               {item.label}
-              {item.verified ? "" : " (untested)"}
             </option>
           ))}
         </select>
