@@ -78,7 +78,13 @@ An `api` backend is any server that speaks one or more of these agents' APIs its
 | `openai-responses` | `/v1/responses` | Codex |
 | `anthropic` | `/v1/messages`, `/v1/messages/count_tokens` | Claude Code |
 
-The server passes requests through as they are, streaming (SSE), tool calls, reasoning and thinking blocks included. It changes only three things: it puts in the provider's key in place of the agent's placeholder, it replaces a model alias with the provider's model id, and it adds the provider's extra headers. Nothing is translated between protocols. A provider is set up with the protocols it speaks, and a request in any other protocol is refused with 400, before anything goes out. Don't assume a service speaks every protocol: many OpenAI-compatible services have Chat Completions but not Responses, and few have Anthropic Messages.
+The server passes requests through as they are, streaming (SSE), tool calls, reasoning and thinking blocks included. It changes only three things:
+
+- the provider's key goes in, in place of the agent's placeholder;
+- a model alias becomes the provider's model id;
+- the provider's extra headers are added.
+
+Nothing is translated between protocols. A provider is set up with the protocols it speaks, and a request in any other protocol is refused with 400, before anything goes out. Don't assume a service speaks every protocol: many OpenAI-compatible services have Chat Completions but not Responses, and few have Anthropic Messages.
 
 There are two kinds:
 
@@ -140,7 +146,10 @@ A model server on your own network belongs on a machine instead: run agent-machi
 
 ### OpenAI-compatible servers on a machine
 
-agent-machine looks for OpenAI-compatible servers on its loopback: LM Studio on port 1234, vLLM on 8000 and SGLang on 30000, and any ports listed in `AI_PROXY_API_PORTS` on the machine (comma-separated). A port counts only when `GET /v1/models` answers with a model list. The machine's page shows each one as **API** with its kind, and **Add as a provider** adds it with Chat Completions only and no key (`auth: none`). Turn on Responses or Messages on its organization's **API providers** tab if your version of the server has them. Its models are managed in that server itself (LM Studio's app, vLLM's command line): the console lists them but has no pull, delete, load or unload for them.
+agent-machine looks for OpenAI-compatible servers on its loopback: LM Studio on port 1234, vLLM on 8000 and SGLang on 30000, and any ports listed in `AI_PROXY_API_PORTS` on the machine (comma-separated). A port counts only when `GET /v1/models` answers with a model list.
+
+- The machine's page shows each one as **API** with its kind, and **Add as a provider** adds it with Chat Completions only and no key (`auth: none`). Turn on Responses or Messages on its organization's **API providers** tab if your version of the server has them.
+- Its models are managed in that server itself (LM Studio's app, vLLM's command line): the console lists them but has no pull, delete, load or unload for them.
 
 ### Fallback
 
@@ -155,7 +164,13 @@ Local providers have no fallback. A local-model agent never moves to a hosted pr
 
 ### What is recorded
 
-An API provider's requests are recorded like every other: tokens in and out, cached tokens (OpenAI's `cached_tokens`, Anthropic's `cache_read_input_tokens` and `cache_creation_input_tokens`, DeepSeek's `prompt_cache_hit_tokens`), time to first token, total time, status, whether a stream finished, and the protocol (`protocol`), the provider's model id when an alias was used (`upstream_model`) and a rate limit (`rate_limited`). Tokens come from what the provider reports. When it reports none (a Chat Completions stream without `stream_options.include_usage`, say), the counts are estimates and the record says so (`tokens_estimated`). The provider's own rate-limit headers (`x-ratelimit-*`, `anthropic-ratelimit-*`, `retry-after`) are passed back to the agent, and its request id comes back as `upstream-request-id`.
+An API provider's requests are recorded like every other:
+
+- tokens in and out, and cached tokens (OpenAI's `cached_tokens`, Anthropic's `cache_read_input_tokens` and `cache_creation_input_tokens`, DeepSeek's `prompt_cache_hit_tokens`);
+- time to first token, total time, status, and whether a stream finished;
+- the protocol (`protocol`), the provider's model id when an alias was used (`upstream_model`) and a rate limit (`rate_limited`).
+
+Tokens come from what the provider reports. When it reports none (a Chat Completions stream without `stream_options.include_usage`, say), the counts are estimates and the record says so (`tokens_estimated`). The provider's own rate-limit headers (`x-ratelimit-*`, `anthropic-ratelimit-*`, `retry-after`) are passed back to the agent, and its request id comes back as `upstream-request-id`.
 
 Each server process also keeps what it last saw of each provider (status, time, error), shown on the console as the provider's health. It's in memory only: with several processes, each shows its own.
 
