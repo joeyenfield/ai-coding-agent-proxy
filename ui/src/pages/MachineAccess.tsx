@@ -10,7 +10,7 @@ const FALLBACK: Record<MachineFeature, string> = {
   launch: "Start agents there, and browse its launch folders",
   terminal: "Open terminals there: a shell as the user agent-machine runs as",
   models: "Pull, delete, load and unload models on its model servers",
-  servers: "Start, stop and configure the Ollama and Strata installed there",
+  servers: "Install llama.cpp; start, stop and configure the Ollama, llama.cpp and Strata installed there",
   update: "Update agent-machine and agent there to this server's build",
   mcp: "Use the MCP servers it shares in the agents they start (they run there, as its user)",
 };

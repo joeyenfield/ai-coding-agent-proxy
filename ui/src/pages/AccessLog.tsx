@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api, ApiError, type AccessEntry, type AccessLogStats } from "../api";
@@ -27,7 +27,7 @@ export const OUTCOME_LABEL: Record<AccessEntry["outcome"], string> = { ok: "OK",
 
 const clock = (seconds: number) => new Date(seconds * 1000).toLocaleTimeString();
 export const when = (seconds: number | null) => {
-  if (!seconds) return "–";
+  if (!seconds) return "â€“";
   const date = new Date(seconds * 1000);
   return date.toDateString() === new Date().toDateString() ? date.toLocaleTimeString() : date.toLocaleString();
 };
@@ -42,7 +42,7 @@ export function span(ms: number) {
   return days ? `${days} d ${hours % 24} h` : `${hours} h ${minutes % 60} min`;
 }
 
-/** Server › Access log: every request the server received, the refused ones too, for site admins. */
+/** Server â€º Access log: every request the server received, the refused ones too, for site admins. */
 export function AccessLogPage() {
   const [tab, setTab] = useTabParam(TABS);
   const stats = useQuery({
@@ -79,7 +79,7 @@ export function AccessLogPage() {
             ]}
           />
           <TabPanel idPrefix="access-" id="overview" active={tab === "overview"} className="access-panel">
-            {stats.isPending && <p className="empty">Asking the server…</p>}
+            {stats.isPending && <p className="empty">Asking the serverâ€¦</p>}
             {stats.isError && <p className="bad">Couldn't read the access log: {stats.error.message}</p>}
             {stats.data && <Overview stats={stats.data} />}
           </TabPanel>
@@ -135,7 +135,7 @@ function Overview({ stats }: { stats: AccessLogStats }) {
           </div>
           <div>
             <dt>Answer time, median / 95%</dt>
-            <dd>{durations.p50 === null ? "–" : `${formatDuration(durations.p50)} / ${formatDuration(durations.p95)}`}</dd>
+            <dd>{durations.p50 === null ? "â€“" : `${formatDuration(durations.p50)} / ${formatDuration(durations.p95)}`}</dd>
           </div>
         </dl>
       </section>
@@ -183,9 +183,9 @@ function Overview({ stats }: { stats: AccessLogStats }) {
                     <td>
                       <span className="pill good">Connected</span>
                     </td>
-                    <td className="num">–</td>
-                    <td className="num">–</td>
-                    <td className="num">–</td>
+                    <td className="num">â€“</td>
+                    <td className="num">â€“</td>
+                    <td className="num">â€“</td>
                     <td>Open since {when(socket.since)}</td>
                     <td className="num">{span(Date.now() - socket.since * 1000)}</td>
                   </tr>
@@ -318,8 +318,8 @@ function FleetName({ item }: { item: FleetKey }) {
     <>
       {item.machine_id ? <Link to={`/machines/${encodeURIComponent(item.machine_id)}`}>{item.machine_name || item.machine_id}</Link> : <span className="subtle">Before its hello</span>}
       <div className="subtle mono">
-        {item.user ?? "not signed in"} · {item.address}
-        {item.program_version && ` · ${item.program_version}`}
+        {item.user ?? "not signed in"} Â· {item.address}
+        {item.program_version && ` Â· ${item.program_version}`}
       </div>
     </>
   );
@@ -345,7 +345,7 @@ function Bars({ items, caption }: { items: { label: string; ok: number; failed: 
       <figcaption className="access-bars-caption subtle">
         <span>{items[0]?.label}</span>
         <span className="access-legend">
-          <i className="access-bar-ok" /> OK <i className="access-bar-failed" /> Failed <i className="access-bar-dropped" /> Dropped · top {formatNumber(top)}
+          <i className="access-bar-ok" /> OK <i className="access-bar-failed" /> Failed <i className="access-bar-dropped" /> Dropped Â· top {formatNumber(top)}
         </span>
         <span>{items[items.length - 1]?.label}</span>
       </figcaption>
@@ -369,9 +369,11 @@ function ThisRun() {
   const filters = useFilters();
   const [follow, setFollow] = useState(true);
   const [older, setOlder] = useState<AccessEntry[]>([]);
+  const [olderError, setOlderError] = useState<string | null>(null);
   const [exhausted, setExhausted] = useState(false);
   useEffect(() => {
     setOlder([]);
+    setOlderError(null);
     setExhausted(false);
   }, [filters.failedOnly, filters.query]);
   const log = useQuery({
@@ -381,14 +383,37 @@ function ThisRun() {
     retry: false,
   });
   const newest = log.data?.entries ?? [];
+  // Once older pages are loaded, entries that new traffic pushes off the newest window move into
+  // `older`, so following live traffic doesn't silently drop rows from the loaded list. The ref
+  // carries the query key: on a filter change the old rows are another query's, not displaced,
+  // and must not leak past the reset above.
+  const queryKey = JSON.stringify([filters.failedOnly, filters.query]);
+  const previousNewest = useRef<{ key: string; entries: AccessEntry[] }>({ key: queryKey, entries: [] });
+  useEffect(() => {
+    const before = previousNewest.current;
+    previousNewest.current = { key: queryKey, entries: newest };
+    if (before.key !== queryKey || (!older.length && !exhausted)) return;
+    const seen = new Set(newest.map((entry) => entry.id));
+    const displaced = before.entries.filter((entry) => !seen.has(entry.id));
+    if (!displaced.length) return;
+    setOlder((current) => {
+      const have = new Set(current.map((entry) => entry.id));
+      return [...displaced.filter((entry) => !have.has(entry.id)), ...current];
+    });
+  }, [newest, queryKey, older.length, exhausted]);
   const seen = new Set(newest.map((entry) => entry.id));
   const entries = [...newest, ...older.filter((entry) => !seen.has(entry.id))];
   const loadOlder = async () => {
     const last = entries[entries.length - 1];
     if (!last || typeof last.id !== "number") return;
-    const page = await api.accessLog({ failed: filters.failedOnly, q: filters.query, limit: PAGE, before: last.id });
-    setOlder((current) => [...current, ...page.entries]);
-    if (page.entries.length < PAGE) setExhausted(true);
+    setOlderError(null);
+    try {
+      const page = await api.accessLog({ failed: filters.failedOnly, q: filters.query, limit: PAGE, before: last.id });
+      setOlder((current) => [...current, ...page.entries]);
+      if (page.entries.length < PAGE) setExhausted(true);
+    } catch (error) {
+      setOlderError(error instanceof Error ? error.message : String(error));
+    }
   };
   return (
     <>
@@ -411,6 +436,7 @@ function ThisRun() {
           <button type="button" onClick={() => void loadOlder()}>
             Load older
           </button>
+          {olderError && <span className="bad"> Couldn't load older entries: {olderError}</span>}
         </p>
       )}
     </>
@@ -421,9 +447,11 @@ function Saved({ keptDays }: { keptDays?: number }) {
   const filters = useFilters();
   const [fleetOnly, setFleetOnly] = useState(false);
   const [older, setOlder] = useState<AccessEntry[]>([]);
+  const [olderError, setOlderError] = useState<string | null>(null);
   const [exhausted, setExhausted] = useState(false);
   useEffect(() => {
     setOlder([]);
+    setOlderError(null);
     setExhausted(false);
   }, [filters.failedOnly, filters.query, fleetOnly]);
   const options = { failed: filters.failedOnly, fleet: fleetOnly, q: filters.query, limit: PAGE };
@@ -434,14 +462,35 @@ function Saved({ keptDays }: { keptDays?: number }) {
     retry: false,
   });
   const newest = log.data?.entries ?? [];
+  // As above: keep entries the refreshed newest window no longer holds, once older pages are
+  // loaded, but never rows from another query's filters.
+  const queryKey = JSON.stringify([filters.failedOnly, filters.query, fleetOnly]);
+  const previousNewest = useRef<{ key: string; entries: AccessEntry[] }>({ key: queryKey, entries: [] });
+  useEffect(() => {
+    const before = previousNewest.current;
+    previousNewest.current = { key: queryKey, entries: newest };
+    if (before.key !== queryKey || (!older.length && !exhausted)) return;
+    const seen = new Set(newest.map((entry) => entry.id));
+    const displaced = before.entries.filter((entry) => !seen.has(entry.id));
+    if (!displaced.length) return;
+    setOlder((current) => {
+      const have = new Set(current.map((entry) => entry.id));
+      return [...displaced.filter((entry) => !have.has(entry.id)), ...current];
+    });
+  }, [newest, queryKey, older.length, exhausted]);
   const seen = new Set(newest.map((entry) => entry.id));
   const entries = [...newest, ...older.filter((entry) => !seen.has(entry.id))];
   const loadOlder = async () => {
     const last = entries[entries.length - 1];
     if (!last) return;
-    const page = await api.accessLogHistory({ ...options, before: last.time });
-    setOlder((current) => [...current, ...page.entries]);
-    if (page.entries.length < PAGE) setExhausted(true);
+    setOlderError(null);
+    try {
+      const page = await api.accessLogHistory({ ...options, before: last.time });
+      setOlder((current) => [...current, ...page.entries]);
+      if (page.entries.length < PAGE) setExhausted(true);
+    } catch (error) {
+      setOlderError(error instanceof Error ? error.message : String(error));
+    }
   };
   return (
     <>
@@ -462,6 +511,7 @@ function Saved({ keptDays }: { keptDays?: number }) {
           <button type="button" onClick={() => void loadOlder()}>
             Load older
           </button>
+          {olderError && <span className="bad"> Couldn't load older entries: {olderError}</span>}
         </p>
       )}
     </>
@@ -489,7 +539,7 @@ function Filters({ filters, failedLabel, children }: { filters: ReturnType<typeo
 
 function Entries({ entries, pending, filtered, withDate = false }: { entries: AccessEntry[]; pending: boolean; filtered: boolean; withDate?: boolean }) {
   const [open, setOpen] = useState<AccessEntry["id"] | null>(null);
-  if (pending) return <p className="empty">Asking the server…</p>;
+  if (pending) return <p className="empty">Asking the serverâ€¦</p>;
   if (!entries.length) return <p className="empty">{filtered ? "Nothing matches." : "Nothing yet."}</p>;
   return (
     <div className="table-scroll">
@@ -520,9 +570,9 @@ function Entries({ entries, pending, filtered, withDate = false }: { entries: Ac
                 </td>
                 <td className="mono wrap">
                   {entry.machine_name && <div>{entry.machine_name}</div>}
-                  {entry.user ?? <span className="subtle">not signed in</span>} · {entry.forwarded_for || entry.client}
+                  {entry.user ?? <span className="subtle">not signed in</span>} Â· {entry.forwarded_for || entry.client}
                 </td>
-                <td className="num">{entry.duration_ms === null ? "–" : entry.kind === "websocket" ? span(entry.duration_ms) : formatDuration(entry.duration_ms)}</td>
+                <td className="num">{entry.duration_ms === null ? "â€“" : entry.kind === "websocket" ? span(entry.duration_ms) : formatDuration(entry.duration_ms)}</td>
               </tr>
               {open === entry.id && (
                 <tr className="access-detail">
@@ -538,7 +588,7 @@ function Entries({ entries, pending, filtered, withDate = false }: { entries: Ac
                         <dt>Address</dt>
                         <dd className="mono wrap">
                           {entry.client}
-                          {entry.forwarded_for && ` (forwarded for ${entry.forwarded_for})`} to {entry.host || "–"}
+                          {entry.forwarded_for && ` (forwarded for ${entry.forwarded_for})`} to {entry.host || "â€“"}
                         </dd>
                       </div>
                       <div>
@@ -554,8 +604,8 @@ function Entries({ entries, pending, filtered, withDate = false }: { entries: Ac
                       <div>
                         <dt>Program</dt>
                         <dd className="mono wrap">
-                          {entry.user_agent || "–"}
-                          {entry.program_version && ` · version ${entry.program_version}, protocol ${entry.protocol || "?"}`}
+                          {entry.user_agent || "â€“"}
+                          {entry.program_version && ` Â· version ${entry.program_version}, protocol ${entry.protocol || "?"}`}
                         </dd>
                       </div>
                     </dl>

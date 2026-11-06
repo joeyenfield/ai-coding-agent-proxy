@@ -39,7 +39,8 @@ const TerminalPage = lazy(() => import("./pages/Terminal").then((module) => ({ d
 const TerminalGridPage = lazy(() => import("./pages/TerminalGrid").then((module) => ({ default: module.TerminalGridPage })));
 
 // Pages from before model servers lived on their machine's page: they go to the machines.
-const MOVED = ["/models", "/hosts", "/server", "/providers", "/strata", "/docker", "/containers"];
+// (/providers is a live page again and must not be here.)
+const MOVED = ["/models", "/hosts", "/server", "/strata", "/docker", "/containers"];
 
 export function App() {
   const auth = useAuth();

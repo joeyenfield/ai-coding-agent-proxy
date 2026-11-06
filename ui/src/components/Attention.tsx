@@ -20,18 +20,31 @@ export function notificationsSupported() {
   return typeof window !== "undefined" && "Notification" in window;
 }
 
+// Storage may be unavailable in private windows; treat it as unset then.
+function notifyStored(): boolean {
+  try {
+    return localStorage.getItem(NOTIFY_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 export function useNotifyChoice(): [boolean, (on: boolean) => Promise<void>] {
-  const [on, setOn] = useState(() => notificationsSupported() && Notification.permission === "granted" && localStorage.getItem(NOTIFY_KEY) === "1");
+  const [on, setOn] = useState(() => notificationsSupported() && Notification.permission === "granted" && notifyStored());
   const choose = async (value: boolean) => {
     if (value && notificationsSupported() && Notification.permission !== "granted") {
       if ((await Notification.requestPermission()) !== "granted") value = false;
     }
-    localStorage.setItem(NOTIFY_KEY, value ? "1" : "0");
+    try {
+      localStorage.setItem(NOTIFY_KEY, value ? "1" : "0");
+    } catch {
+      // Keep the in-memory choice for this page.
+    }
     setOn(value);
     window.dispatchEvent(new Event(NOTIFY_KEY));
   };
   useEffect(() => {
-    const changed = () => setOn(notificationsSupported() && Notification.permission === "granted" && localStorage.getItem(NOTIFY_KEY) === "1");
+    const changed = () => setOn(notificationsSupported() && Notification.permission === "granted" && notifyStored());
     window.addEventListener(NOTIFY_KEY, changed);
     return () => window.removeEventListener(NOTIFY_KEY, changed);
   }, []);

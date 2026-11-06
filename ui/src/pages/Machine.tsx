@@ -1268,11 +1268,13 @@ export function LaunchForm({ machine, agents, onDone, initialAgent, fixedAgent }
   );
   // "Another model…": a name typed in, for one the provider doesn't list (it may pull it on first use).
   const [typing, setTyping] = useState(false);
-  // Fill in the provider's model when none is typed, or when the one there isn't this provider's.
+  // Whether a model (including "The agent's default", "") was picked by hand: auto-fill must not override it.
+  const [chose, setChose] = useState(false);
+  // Fill in the provider's model when none was chosen or typed, or when the one there isn't this provider's.
   useEffect(() => {
-    if (typing || agent?.intercept || !available.length || available.includes(model)) return;
+    if (chose || typing || agent?.intercept || !available.length || available.includes(model)) return;
     setModel(preferredModel(available));
-  }, [agent, available, model, typing]);
+  }, [agent, available, model, typing, chose]);
   const describe = (name: string) => {
     const info = status.data?.backends[name];
     return `${name} (${providerLabel(info?.type, true)}${info?.machine_name ? ` on ${info.machine_name}` : ""})`;
@@ -1366,6 +1368,7 @@ export function LaunchForm({ machine, agents, onDone, initialAgent, fixedAgent }
               value={model}
               required={agent?.needs_model}
               onChange={(event) => {
+                setChose(true);
                 if (event.target.value === OTHER_MODEL) {
                   setTyping(true);
                   setModel("");

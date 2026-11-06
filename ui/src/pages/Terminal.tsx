@@ -99,13 +99,21 @@ function terminalText(term: Terminal, all: boolean): string {
 
 function useStored<T extends string | number>(key: string, initial: T): [T, (value: T) => void] {
   const [value, setValue] = useState<T>(() => {
-    const stored = localStorage.getItem(key);
-    if (stored == null) return initial;
-    return (typeof initial === "number" ? Number(stored) || initial : stored) as T;
+    try {
+      const stored = localStorage.getItem(key);
+      if (stored == null) return initial;
+      return (typeof initial === "number" ? Number(stored) || initial : stored) as T;
+    } catch {
+      return initial; // Storage may be unavailable in private windows.
+    }
   });
   const update = useCallback(
     (next: T) => {
-      localStorage.setItem(key, String(next));
+      try {
+        localStorage.setItem(key, String(next));
+      } catch {
+        // Storage may be unavailable in private windows.
+      }
       setValue(next);
     },
     [key],

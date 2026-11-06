@@ -54,10 +54,11 @@ export function AskPage() {
   const opened = useRef<string | null>(null);
   opened.current = sessionId;
 
-  // The session ends when you start a new chat or leave the page.
+  // The session ends when you start a new chat or leave the page. keepalive lets the
+  // request finish when the tab is closing (browsers cancel plain fetches on unload).
   useEffect(() => {
     const end = () => {
-      if (opened.current) api.endSession(opened.current).catch(() => undefined);
+      if (opened.current) api.endSession(opened.current, { keepalive: true }).catch(() => undefined);
     };
     window.addEventListener("pagehide", end);
     return () => {
@@ -91,6 +92,9 @@ export function AskPage() {
     event?.preventDefault();
     const text = draft.trim();
     if (!text || busy || !choice) return;
+    // Latch a fallback choice on first use, so a models poll reordering backends
+    // mid-conversation doesn't silently rotate the session to another model.
+    if (!picked) setPicked(choice);
     const history: Message[] = [...messages.filter((message) => !message.failed), { role: "user", content: text, at: new Date().toISOString() }];
     setMessages([...history, { role: "assistant", content: "", at: new Date().toISOString() }]);
     setDraft("");

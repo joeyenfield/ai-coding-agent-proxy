@@ -38,7 +38,7 @@ export function SessionsPage() {
     onError: (error) => notify(error.message),
   });
   const end = useMutation({
-    mutationFn: api.endSession,
+    mutationFn: (sessionId: string) => api.endSession(sessionId),
     onSuccess: () => {
       notify("Session ended");
       refresh();

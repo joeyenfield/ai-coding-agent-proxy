@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, type LoggedBody, type RequestLogEntry, type RequestLogFilters, type RequestLogPayloads } from "../api";
@@ -131,10 +131,12 @@ function Requests() {
   const { filters, ...inputs } = useFilters();
   const [follow, setFollow] = useState(true);
   const [older, setOlder] = useState<RequestLogEntry[]>([]);
+  const [olderError, setOlderError] = useState<string | null>(null);
   const [exhausted, setExhausted] = useState(false);
   const key = JSON.stringify(filters);
   useEffect(() => {
     setOlder([]);
+    setOlderError(null);
     setExhausted(false);
   }, [key]);
   const log = useQuery({
@@ -144,14 +146,36 @@ function Requests() {
     retry: false,
   });
   const newest = log.data?.entries ?? [];
+  // Once older pages are loaded, entries that new traffic pushes off the newest window move into
+  // `older`, so following live traffic doesn't silently drop rows from the loaded list. The ref
+  // carries the query key: when the filters change, the old rows are not "displaced", they're
+  // another query's, and must not leak past the reset above.
+  const previousNewest = useRef<{ key: string; entries: RequestLogEntry[] }>({ key, entries: [] });
+  useEffect(() => {
+    const before = previousNewest.current;
+    previousNewest.current = { key, entries: newest };
+    if (before.key !== key || (!older.length && !exhausted)) return;
+    const seen = new Set(newest.map((entry) => entry.id));
+    const displaced = before.entries.filter((entry) => !seen.has(entry.id));
+    if (!displaced.length) return;
+    setOlder((current) => {
+      const have = new Set(current.map((entry) => entry.id));
+      return [...displaced.filter((entry) => !have.has(entry.id)), ...current];
+    });
+  }, [newest, key, older.length, exhausted]);
   const seen = new Set(newest.map((entry) => entry.id));
   const entries = [...newest, ...older.filter((entry) => !seen.has(entry.id))];
   const loadOlder = async () => {
     const last = entries[entries.length - 1];
     if (!last) return;
-    const page = await api.requestLog({ ...filters, limit: PAGE, before: last.time });
-    setOlder((current) => [...current, ...page.entries]);
-    if (page.entries.length < PAGE) setExhausted(true);
+    setOlderError(null);
+    try {
+      const page = await api.requestLog({ ...filters, limit: PAGE, before: last.time });
+      setOlder((current) => [...current, ...page.entries]);
+      if (page.entries.length < PAGE) setExhausted(true);
+    } catch (error) {
+      setOlderError(error instanceof Error ? error.message : String(error));
+    }
   };
   const filtered = Boolean(filters.q || filters.user || filters.method || filters.status);
   return (
@@ -201,6 +225,7 @@ function Requests() {
           <button type="button" onClick={() => void loadOlder()}>
             Load older
           </button>
+          {olderError && <span className="bad"> Couldn't load older entries: {olderError}</span>}
         </p>
       )}
     </section>

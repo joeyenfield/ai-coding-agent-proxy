@@ -2257,8 +2257,8 @@ export const api = {
     request<Session>(sessionUrl(sessionId), { method: "PATCH", body: JSON.stringify({ ended: false, trace }) }),
   /** Stops the session's replies the server goes on reading for a client that dropped (Ask a model's Stop). */
   stopReplies: (sessionId: string) => request<{ stopped: number }>(`${sessionUrl(sessionId)}/stop`, { method: "POST", body: "{}" }),
-  endSession: (sessionId: string) =>
-    request<Session>(sessionUrl(sessionId), { method: "PATCH", body: JSON.stringify({ ended: true }) }),
+  endSession: (sessionId: string, init?: { keepalive?: boolean }) =>
+    request<Session>(sessionUrl(sessionId), { method: "PATCH", body: JSON.stringify({ ended: true }), ...init }),
   clearSession: (sessionId: string) => request<Session>(`${sessionUrl(sessionId)}/data`, { method: "DELETE" }),
   deleteSession: (sessionId: string) => request<{ deleted: string }>(sessionUrl(sessionId), { method: "DELETE" }),
   deleteAllSessions: () => request<{ deleted: number; cleared: number; skipped: string[] }>("/api/sessions", { method: "DELETE" }),
