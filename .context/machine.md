@@ -9,7 +9,7 @@ The machine only dials out. It holds one WebSocket to the server (`/api/machines
 ## Boundaries
 
 - Imports nothing from `client/`, `server/` or `tools/`. Dependencies: gorilla/websocket and x/sys (`go.mod` also lists x/term, which no code imports).
-- No inbound listeners except the MCP bridge on `127.0.0.1:0` (and the llama-server it starts, on `127.0.0.1:9931`). Outbound only: the server, loopback model servers, model catalogues, and GitHub's llama.cpp releases when the console installs llama.cpp.
+- No inbound listeners except the MCP bridge on `127.0.0.1:0` and the servers it starts on request: llama-server on `127.0.0.1:9931`, and Ollama on the bind its settings name (loopback by default; the console can set `0.0.0.0`). Outbound only otherwise: the server, loopback model servers, model catalogues, and GitHub's llama.cpp releases when the console installs llama.cpp.
 - `Proxy: nil` on every client (`settings.Transport`). Server calls carry the version, protocol and token headers (`settings.ServerClient`, `Identify`).
 - Its own sign-in (`agent-machine login`), apart from `agent login`.
 - Device authorization and rotating OAuth credentials mirror the client in this separate Go module (`internal/settings/oauth.go`: `DeviceLogin`, `Upstream.AccessToken`, `RejectAccessToken`, `LockCredentials`, `Revoke`). Automation sets `AI_PROXY_MACHINE_TOKEN` (never `AI_PROXY_TOKEN`, which is the agent's). Every request and socket dial (`presence.Dial`) gets a fresh access token; a close 4410 calls `RejectAccessToken` and the reconnect refreshes. `login` refuses `--user`/`--key`. Never send passwords to the API or fall back to an old key. See `auth.md`.
@@ -84,7 +84,7 @@ sequenceDiagram
 1. Every toggle defaults to off and is re-checked per request from `machine.json`.
 2. Roots are checked after resolving links (`Machine.Within`). The server checks too (`within_roots`); keep both.
 3. Container specs come only from the engine table, with each engine's own options, plain images, `gpus` all/none/numbers, and a volume name or absolute folder. **Never add free-form docker arguments**: `docker run` is root on that machine. Podman gets GPUs as CDI devices.
-4. Tunnels reach only reported provider ports, containers' ports and the bridge.
+4. Tunnels reach only reported provider ports, containers' ports and the bridge. A container's port counts only from a spec that passed `Validate` (on a start, restart or status about it); removing the container or turning containers off closes it (`containers.Manager.Ports`).
 5. Provider operations call fixed loopback paths. Ollama stop only stops the Ollama it started, and the same for llama-server, which always listens on loopback only. llama.cpp is only installed from Termux's packages or a GitHub release whose SHA-256 matches GitHub's digest, unpacked inside its own folder; its settings never turn on llama-server's tools, MCP or agent mode.
 6. Strata keys are redacted in logs. MCP commands, env and headers never leave the machine (the hello carries names). The bridge checks its per-run key in constant time and re-reads `mcp.json` on every request.
 7. A launch is refused when this computer's agent-proxy carries traffic to another server.
