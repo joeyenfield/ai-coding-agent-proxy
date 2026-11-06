@@ -88,11 +88,13 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             result["configured_listen_address"] = request.url.netloc
             for backend in result["backends"].values():
                 backend.pop("url", None)
+            if isinstance(result.get("intercept"), dict):
+                result["intercept"] = public_intercept(result["intercept"])
         return result
 
     @app.get("/api/server/stats")
     async def server_stats() -> dict[str, Any]:
-        """The server computer's CPU, memory and disk use (admins only, auth.ADMIN_ONLY)."""
+        """The server computer's CPU, memory and disk use (site admins only, auth.SITE_ADMIN_ONLY)."""
         return await asyncio.to_thread(stats.sample)
 
     @app.get("/api/server/access-log")
@@ -309,7 +311,8 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         session = controllable(session_id, request)
         runtime.require_idle(session)
         try:
-            runtime.sessions.clear_data(session)
+            # Off the event loop: clearing flushes the write queue and may touch blobs.
+            await asyncio.to_thread(runtime.sessions.clear_data, session)
         except (OSError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         runtime.chats.forget(session)
@@ -338,13 +341,15 @@ def register(app: FastAPI, runtime: Runtime) -> None:
                 skipped.append(session.session_id)
                 continue
             try:
+                # Off the event loop: each delete or clear flushes the write queue and may
+                # touch blobs, and this loops over every session.
                 if session.ended_at or _timestamp(session.last_activity_at or session.started_at) < cutoff:
-                    runtime.sessions.delete(session)
+                    await asyncio.to_thread(runtime.sessions.delete, session)
                     runtime.chats.forget(session)
                     runtime.terminals.forget(session.session_id)
                     deleted += 1
                 else:
-                    runtime.sessions.clear_data(session)
+                    await asyncio.to_thread(runtime.sessions.clear_data, session)
                     cleared += 1
             except (OSError, ValueError) as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -358,7 +363,8 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         session = controllable(session_id, request)
         runtime.require_idle(session)
         try:
-            runtime.sessions.delete(session)
+            # Off the event loop: deleting flushes the write queue and may touch blobs.
+            await asyncio.to_thread(runtime.sessions.delete, session)
             runtime.chats.forget(session)
         except (OSError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -384,7 +390,9 @@ def register(app: FastAPI, runtime: Runtime) -> None:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             # People who can't see it any more stop watching its terminal now.
             runtime.terminals.drop_viewers(session.session_id, lambda viewer: access.can_view(viewer, session))
-        if data.get("ended", not any(key in data for key in ("visibility", "access", "team", "org"))):
+        # "ended" is explicit; for compatibility an empty body (or exit_status alone, as old
+        # launchers sent) still ends the session, but a sharing or capture change alone never does.
+        if data.get("ended", not any(key in data for key in ("visibility", "access", "team", "org", "trace"))):
             runtime.sessions.end(session, data.get("exit_status"))
             # Replies still being read for a client that went (the console's chat) end with it.
             runtime.stop_finishing(session.session_id)
@@ -406,7 +414,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
     async def download_telemetry(session_id: str, request: Request) -> PlainTextResponse:
         session = viewable(session_id, request)
         return PlainTextResponse(
-            runtime.sessions.telemetry(session),
+            await asyncio.to_thread(runtime.sessions.telemetry, session),
             media_type="application/x-ndjson",
             headers={"Content-Disposition": f'attachment; filename="{session_id}-requests.jsonl"'},
         )
@@ -428,11 +436,12 @@ def register(app: FastAPI, runtime: Runtime) -> None:
 
     @app.get("/api/sessions/{session_id}/traces")
     async def list_traces(session_id: str, request: Request) -> list[str]:
-        return runtime.sessions.traces(viewable(session_id, request))
+        # Off the event loop: reading traces flushes the write queue and may fetch blobs.
+        return await asyncio.to_thread(runtime.sessions.traces, viewable(session_id, request))
 
     @app.get("/api/sessions/{session_id}/traces/{request_id}")
     async def get_trace(session_id: str, request_id: str, request: Request) -> dict[str, Any]:
-        trace = runtime.sessions.read_trace(viewable(session_id, request), request_id)
+        trace = await asyncio.to_thread(runtime.sessions.read_trace, viewable(session_id, request), request_id)
         if trace is None:
             raise HTTPException(status_code=404, detail="Trace not found")
         return trace
@@ -585,7 +594,13 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             tags = {**access.client_tags(data.get("tags")), "prepared_by": "agent" if data.get("launcher") else "ui"}
             # A launch the console sent to a machine runs under the machine's sign-in: its usage, and the
             # check, are for whoever asked (routes/machines.launch), not the machine's owner.
-            refused = None if tags.get("launch") else runtime.launch_blocked(auth.request_identity(request), agent, backend)
+            # A console launch was already checked by routes/machines.py for whoever asked, so its
+            # session isn't checked again — but only for a launch some process is really waiting on
+            # (this one's own, or the grant the cluster holds): the tag is client-sent, and a
+            # made-up value must not skip the limit.
+            launch = str(tags.get("launch") or "")
+            granted = bool(launch) and await asyncio.to_thread(runtime.fleet.pending_launch, launch)
+            refused = None if granted else runtime.launch_blocked(auth.request_identity(request), agent, backend)
             if refused:
                 raise HTTPException(status_code=429, detail=refused)
             if project_path:
@@ -629,9 +644,17 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             "shell": {"bash": _bash(launch), "powershell": _powershell(launch)},
         }
 
+    def public_intercept(info: dict[str, Any]) -> dict[str, Any]:
+        """Launchers need the state, url and CA fingerprint; the server's own file paths
+        and listen address are site-admin detail (as /api/status strips addresses)."""
+        return {key: value for key, value in info.items() if key in ("enabled", "running", "error", "url", "ca_fingerprint")}
+
     @app.get("/api/intercept")
-    async def intercept() -> dict[str, Any]:
-        return runtime.intercept_info()
+    async def intercept(request: Request) -> dict[str, Any]:
+        info = runtime.intercept_info()
+        if not auth.request_identity(request).site_admin:
+            info = public_intercept(info)
+        return info
 
     @app.get("/api/intercept/ca.pem")
     async def intercept_ca() -> PlainTextResponse:

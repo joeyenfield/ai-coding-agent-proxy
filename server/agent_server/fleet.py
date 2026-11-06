@@ -152,7 +152,7 @@ FEATURES: dict[str, str] = {
     "launch": "Start agents there, and browse its launch folders",
     "terminal": "Open terminals there: a shell as the user agent-machine runs as",
     "models": "Pull, delete, load and unload models on its model servers",
-    "servers": "Start, stop and configure the Ollama and Strata installed there",
+    "servers": "Install llama.cpp; start, stop and configure the Ollama, llama.cpp and Strata installed there",
     "update": "Update agent-machine and agent there to this server's build",
     "mcp": "Use the MCP servers it shares in the agents they start (they run there, as its user)",
 }
@@ -938,6 +938,18 @@ class Fleet:
         message = {"type": "shell", "launch": launch_id, "project": project}
         return await self._start(machine, socket, identity, message, SHELL_CLIENT, project)
 
+    # The grant another process can check while a launch runs (the session POST may land
+    # on a gateway pod while the fleet pod holds the launch).
+    GRANT_PREFIX = "fleet:launch-grant:"
+
+    def pending_launch(self, launch_id: str) -> bool:
+        """Whether a launch some process sent to a machine is still running: what makes a
+        session's launch tag believable (the id is server-generated and secret). This
+        process's own launches are known directly; others' through the cluster's grant."""
+        if not launch_id:
+            return False
+        return launch_id in self._asked or bool(self.cluster.get(self.GRANT_PREFIX + launch_id))
+
     async def _start(self, machine: Machine, socket: Any, identity: Identity | None, message: dict[str, Any], agent: str, project: str) -> dict[str, Any]:
         """Sends a launch or shell to the machine and waits for the session it opens, recording it in the machine's history."""
         launch_id = message["launch"]
@@ -947,6 +959,8 @@ class Fleet:
         self._waiting[launch_id] = future
         self._asked[launch_id] = machine.id
         self._via[launch_id] = socket
+        # The grant other processes check (pending_launch) while this launch runs.
+        await asyncio.to_thread(self.cluster.set, self.GRANT_PREFIX + launch_id, machine.id, LAUNCH_TIMEOUT + 60)
         try:
             await socket.send_text(json.dumps(message))
             answer = await asyncio.wait_for(future, LAUNCH_TIMEOUT)
@@ -958,6 +972,7 @@ class Fleet:
             self._waiting.pop(launch_id, None)
             self._asked.pop(launch_id, None)
             self._via.pop(launch_id, None)
+            await asyncio.to_thread(self.cluster.delete, self.GRANT_PREFIX + launch_id)
         if answer.get("type") == "launched" and answer.get("session_id"):
             session = self.sessions.get(str(answer["session_id"])) if self.sessions else None
             if (

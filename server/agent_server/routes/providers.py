@@ -8,6 +8,8 @@ the providers their organization may use with their own usage and limits; an org
 
 from __future__ import annotations
 
+import asyncio
+
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
@@ -67,22 +69,27 @@ def register(app: FastAPI, runtime: Runtime) -> None:
     async def providers(request: Request) -> dict[str, Any]:
         """The providers you can use, your usage of each and the limits on you there."""
         identity = identity_of(request)
-        mine = usage.windows(identity.tenant, identity.user)
-        accounts = [account for account in runtime.provider_accounts.listed(identity) if account.owner == identity.user or runtime.provider_accounts.may_use(identity, account)]
-        listed = []
-        for provider in providers_for(identity.tenant, fleet.usable_by(identity)):
-            limits = usage.status(identity.tenant, identity.user, provider["id"])
-            reached = [item for item in limits if item["reached"]]
-            extra: dict[str, Any] = {}
-            if provider["kind"] == "subscription":
-                extra["accounts"] = sum(1 for account in accounts if account.provider == provider["type"])
-            listed.append({
-                **provider, **extra,
-                "usage": mine.get((identity.user, provider["id"])) or zero(),
-                "limits": limits,
-                "blocked": max(reached, key=lambda item: item["until"] or 0) if reached else None,
-            })
-        return {"providers": listed, "windows": [{"id": window, "label": WINDOW_LABELS[window]} for window in WINDOWS], "user": identity.user, "tenant": identity.tenant}
+
+        def build() -> dict[str, Any]:
+            # On a thread: reading usage flushes the write queue and reads the database.
+            mine = usage.windows(identity.tenant, identity.user)
+            accounts = [account for account in runtime.provider_accounts.listed(identity) if account.owner == identity.user or runtime.provider_accounts.may_use(identity, account)]
+            listed = []
+            for provider in providers_for(identity.tenant, fleet.usable_by(identity)):
+                limits = usage.status(identity.tenant, identity.user, provider["id"])
+                reached = [item for item in limits if item["reached"]]
+                extra: dict[str, Any] = {}
+                if provider["kind"] == "subscription":
+                    extra["accounts"] = sum(1 for account in accounts if account.provider == provider["type"])
+                listed.append({
+                    **provider, **extra,
+                    "usage": mine.get((identity.user, provider["id"])) or zero(),
+                    "limits": limits,
+                    "blocked": max(reached, key=lambda item: item["until"] or 0) if reached else None,
+                })
+            return {"providers": listed, "windows": [{"id": window, "label": WINDOW_LABELS[window]} for window in WINDOWS], "user": identity.user, "tenant": identity.tenant}
+
+        return await asyncio.to_thread(build)
 
     def org_visible(request: Request, org: str) -> tuple[Any, bool]:
         """The organization's usage is its admins' (and site admins') to see whole; a member sees their own. Others: 404."""
@@ -127,7 +134,8 @@ def register(app: FastAPI, runtime: Runtime) -> None:
     async def org_usage(org: str, request: Request) -> dict[str, Any]:
         """Each person's usage of each provider in every window, the limits on them and who's blocked."""
         identity, manager = org_visible(request, org)
-        return report(org, identity, manager)
+        # On a thread: reading usage flushes the write queue and reads the database.
+        return await asyncio.to_thread(report, org, identity, manager)
 
     def administered(request: Request, org: str) -> Any:
         identity, manager = org_visible(request, org)

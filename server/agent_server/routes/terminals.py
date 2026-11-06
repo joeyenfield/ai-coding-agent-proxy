@@ -77,7 +77,10 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         agents = runtime.agents()
         identity = auth.request_identity(request)
         terminals = []
-        for summary in hub.summaries():
+        # Off the event loop: summaries flush the write queue and read the terminals table,
+        # and the console's header polls this route.
+        summaries = await asyncio.to_thread(hub.summaries)
+        for summary in summaries:
             session = runtime.sessions.get(summary["session_id"])
             if session is None or not sharing.can_view(identity, session):
                 continue
