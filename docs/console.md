@@ -106,11 +106,19 @@ A terminal that isn't connected (its launcher closed, or the agent exited) has *
 
 ### Live agent view
 
-**Live agent view** (`/live-agents`), the first page under Agents in the rail, shows several terminals together. Old `/terminals-beta` links open it. The title and every control share one narrow bar, so the terminals take the rest of the screen. **Choose agents** opens a searchable list of shared sessions. Select up to 16, then press **Done** to give the grid more room. Choose **Rows** and **Columns** (1–4 each); the default is 2 × 2. If you select more agents than fit, **Previous** and **Next** switch grid pages. Only the visible page connects its terminals. The button at the left of the bar hides those controls and closes the chooser along with them, leaving one line of chrome: the grid grows into the room and stays that way until you show the controls again.
+**Live agent view** (`/live-agents`), the first page under Agents in the rail, shows several terminals together. Old `/terminals-beta` links open it. The title and every control share one narrow bar, so the terminals take the rest of the screen.
+
+- **Choose agents** opens a searchable list of shared sessions. Select up to 16, then press **Done** to give the grid more room.
+- **Rows** and **Columns** set the grid (1–4 each; the default is 2 × 2). With more agents than fit, **Previous** and **Next** switch grid pages; only the visible page connects its terminals.
+- The button at the left of the bar hides the controls and closes the chooser, leaving one line of chrome: the grid grows into the room until you show the controls again.
 
 ![Four terminals in the Live agent view](screenshots/terminal-grid.png)
 
-Click inside a terminal to type into that session. The focused tile has a highlighted border. Sessions shared for viewing remain watch-only. Each tile is headed by one short line: its state as a coloured dot and the agent's name. Press that title to open the details underneath — its type, machine, folder, status, model and session id — and press it again to hide them; on a phone the model is left out. **Text size** changes the grid's text from 6px to 16px without changing the agent's terminal dimensions; scroll inside a tile to see any output that does not fit. Opening a tile's details shrinks only what you see of that terminal: the agent's terminal keeps its own size. On a phone the tiles stack in one column; type a message in the full terminal view.
+Click inside a terminal to type into that session; the focused tile has a highlighted border, and sessions shared for viewing remain watch-only.
+
+- Each tile is headed by one short line: its state as a coloured dot and the agent's name. Press that title for the details underneath — its type, machine, folder, status, model and session id — and again to hide them; on a phone the model is left out.
+- **Text size** changes the grid's text from 6px to 16px without changing the agent's terminal dimensions; scroll inside a tile to see output that doesn't fit. A tile's open details shrink only what you see: the agent's terminal keeps its own size.
+- On a phone the tiles stack in one column; type a message in the full terminal view.
 
 **Quick keys** run along the bottom of the page: Esc, Enter, the arrows, Scroll ↑/↓, PgUp/PgDn, Tab, ⇧Tab, Ctrl+C, and 1, 2, 3, y, n, as on the full terminal page. They go to the selected tile, named at the start of the bar: click or tap a tile to select it (with several tiles, it gets a highlighted border). They are off for a tile shared with you to watch only, or whose agent has ended. On a phone they stay at the bottom of the screen as you scroll, so you can answer a prompt without opening the terminal.
 
@@ -264,7 +272,12 @@ It has three tabs:
 - **Since this start**: every request, newest first, from memory. **Failed and dropped** shows only those, and **Follow** refreshes it every 3 seconds. The newest 5,000 requests are kept, and the newest 2,000 failures apart from them, so busy console traffic doesn't push a refusal out.
 - **Saved history**: what's saved in the database, across restarts: every failure, every dropped WebSocket and every fleet connection, however it ended. **Fleet connections only** narrows it to those. The console's own successful calls aren't saved, which is most of the traffic.
 
-In both lists, **Answer** is the HTTP status, or for a WebSocket **Open**, its close code and which side closed it, or *Refused* with the status and the server's close code. **Failed** marks answers of 400 and above, refused WebSockets and ones the server closed with an error code. **From** is the machine (for a fleet connection), the user it signed in as (or *not signed in*) and its address (the forwarded one, behind nginx or Cloudflare). Select a row for the reason (the error's message or the close reason), the address it asked for, how long it took, and the program and its version (`agent` and `agent-machine` send theirs). The search matches words in the path, address, user, machine, user agent, status and reason.
+In both lists:
+
+- **Answer** is the HTTP status, or for a WebSocket **Open**, its close code and which side closed it, or *Refused* with the status and the server's close code. **Failed** marks answers of 400 and above, refused WebSockets and ones the server closed with an error code.
+- **From** is the machine (for a fleet connection), the user it signed in as (or *not signed in*) and its address (the forwarded one, behind nginx or Cloudflare).
+- Select a row for the reason (the error's message or the close reason), the address it asked for, how long it took, and the program and its version (`agent` and `agent-machine` send theirs).
+- The search matches words in the path, address, user, machine, user agent, status and reason.
 
 Saved entries are deleted after the days set under **Storage** on [Server settings](#server-settings), or after 30 days when recordings are kept forever. Query strings show their parameter names only, never their values. The log's own requests aren't listed, nor the console's `/assets/`.
 
@@ -298,7 +311,10 @@ The log's own requests aren't listed, nor the console's `/assets/`. Requests tha
 - **Providers**: every backend, with its type, address and machine. Choose the **Default**, or remove one. **Add hosted API** adds an Anthropic API backend (name, type, URL). Local providers can't be added here: they come from machines (see [Providers](providers.md)). API providers are listed here too, and can be the default, but are edited on their organization's **API providers** tab (**Organizations**). **Save changes** saves this section and the one above.
 - **Agents**: every agent launchers can start, each marked **Shipped**, **Shipped, changed** or **Added here**. **Edit** opens its definition as YAML; **Add an agent** takes an id and a definition; **Remove** stops launchers offering it. **Reset to the shipped one** undoes changes to an agent that ships with the server. Shipped agents follow the server's upgrades until you change them. See [Adding a new agent](agents.md#adding-a-new-agent).
 - **Ollama model tuning**: the `defaults`, `profiles` and `aliases` the server applies to requests it sends to Ollama, as one YAML document. **Save tuning** applies it to new requests. See [Model tuning](providers.md#model-tuning).
-- **Storage**: which database the server uses (SQLite or PostgreSQL, its address without the password, and its size), and the server's [retention policy](retention.md): which trace modes organizations may choose and the default one, whether account agents' traffic and terminal output are recorded, and for each kind (traces, terminal output, request records, sessions, the audit log) how long it's kept and the least and most organizations may set. Empty means forever, or no bound. On a phone each kind is a block of its own. **API log** turns on saving every request for the [API log](#api-log) (off by default) and says for how many days (7 by default), and whether debug mode saves headers and bodies too, and for how many days (1).
+- **Storage**: which database the server uses (SQLite or PostgreSQL, its address without the password, and its size), and the server's [retention policy](retention.md):
+  - which trace modes organizations may choose and the default one, and whether account agents' traffic and terminal output are recorded;
+  - for each kind (traces, terminal output, request records, sessions, the audit log) how long it's kept and the least and most organizations may set — empty means forever, or no bound (on a phone each kind is a block of its own);
+  - **API log**: saving every request for the [API log](#api-log) (off by default) and for how many days (7 by default), and whether debug mode saves headers and bodies too, and for how many days (1).
 - **Audit**: the key checkpoints are signed with (its id, and the public key to copy), how many events exports haven't sent yet, the checkpoint interval, and the [exports](audit.md#exports): add, edit or remove one (name, kind, URL or blob folder, the environment variable holding its secret, which organizations, on or off).
 - **Restart the proxy…** (shown when the server can restart itself, which it can't when started with `--reload`): restarts it once requests in flight finish, and says where it comes back. It picks up a new listen address, and settings changed from the command line (`agent-server config import`).
 

@@ -19,7 +19,9 @@ flowchart TD
 
 - **A user belongs to one organization, for good.** They're made in it and can't join another or be moved. To give someone access to another organization, add them there as a new user.
 - **A machine belongs to the organization of the user who signed it in** (`agent-machine login`), from the first time it connects. Another organization's user can't take over its id.
-- **A provider belongs to its machine's organization.** A model server added as a provider, and a container a machine runs, can only be used by that organization's agents. Other organizations don't see it in their agents' backends, `/api/models` or `/api/status`, and naming it (`--backend`, `X-AI-Proxy-Backend`) answers as an unknown backend. Hosted API providers (OpenAI, OpenRouter, a LiteLLM Proxy, ...) belong to the organization whose admins added them, on its **API providers** tab, and they choose which of its teams may use each; only a site admin can share one with other organizations. The `anthropic` pass-through is the exception: site admins add it in **Server settings** for everyone, and agents bring their own credentials to it. A model server added before machines did this belongs to the root.
+- **A provider belongs to its machine's organization.** A model server added as a provider, and a container a machine runs, can only be used by that organization's agents. Other organizations don't see it in their agents' backends, `/api/models` or `/api/status`, and naming it (`--backend`, `X-AI-Proxy-Backend`) answers as an unknown backend.
+  - Hosted API providers (OpenAI, OpenRouter, a LiteLLM Proxy, ...) belong to the organization whose admins added them, on its **API providers** tab, and they choose which of its teams may use each; only a site admin can share one with other organizations.
+  - The `anthropic` pass-through is the exception: site admins add it in **Server settings** for everyone, and agents bring their own credentials to it. A model server added before machines did this belongs to the root.
 - **A session belongs to its owner's organization**, and so do its request records, traces, chats, live traffic and terminal. The server sets it; clients can't. Nobody outside it sees or controls the session, except site admins.
 
 ## Users, roles and teams
@@ -58,7 +60,11 @@ The full list of commands is on [Configuration](configuration.md#users-organizat
 
 How a computer's device sign-in works, and what keeps it safe, is on [Security](security.md).
 
-**Several accounts in one browser.** The console can be signed in to up to five accounts at once, for example a site admin and an organization's user. Choose your name at the bottom of the menu: **Switch to** another account (no password), **Add another account** (the sign-in page again), **Sign out** of the active one or of one of the others, or **Sign out of every account**. Only one account is active at a time, and the console shows only what that account may see: switching to an account of another organization is switching organization. When you sign out of the active account, the next one becomes active. Other console tabs follow a switch. `agent login` and `agent-machine login` still hold one account per server.
+**Several accounts in one browser.** The console can be signed in to up to five accounts at once, for example a site admin and an organization's user. Choose your name at the bottom of the menu:
+
+- **Switch to** another account (no password), **Add another account** (the sign-in page again), **Sign out** of the active one or of one of the others, or **Sign out of every account**. When you sign out of the active account, the next one becomes active.
+- Only one account is active at a time, and the console shows only what that account may see: switching to an account of another organization is switching organization. Other console tabs follow a switch.
+- `agent login` and `agent-machine login` still hold one account per server.
 
 | Who | How | What it carries |
 |---|---|---|

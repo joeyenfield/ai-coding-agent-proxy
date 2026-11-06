@@ -168,7 +168,11 @@ agent-machine keeps everything in one folder:
 
 Files are written readable by this user only. The machine's id is made the first time it's needed. A `machine.json` from before agent-machine existed (in the client's `agent-proxy` folder) is carried over once, so the server still knows the machine by its id. That doesn't happen when `AI_PROXY_MACHINE_HOME` is set.
 
-**The data folder.** The large files, llama.cpp's builds and models (gigabytes), go in the data folder: `AI_PROXY_MACHINE_DATA` when it's set, else agent-machine's folder. Set it where the sign-in's folder is small, or where the only writable space is `/tmp` or a scratch volume, as in a pod under OpenShift's restricted policy: `AI_PROXY_MACHINE_DATA=/tmp/agent-data`. The sign-in and settings stay in agent-machine's folder. With it set, an Ollama agent-machine starts keeps its models in `ollama-models` there too, unless Ollama's **Models directory** setting names a folder. Without it, Ollama keeps them where it always does (`~/.ollama/models`). Moving it doesn't move files already downloaded: they're downloaded again.
+**The data folder.** The large files, llama.cpp's builds and models (gigabytes), go in the data folder: `AI_PROXY_MACHINE_DATA` when it's set, else agent-machine's folder.
+
+- Set it where the sign-in's folder is small, or where the only writable space is `/tmp` or a scratch volume, as in a pod under OpenShift's restricted policy: `AI_PROXY_MACHINE_DATA=/tmp/agent-data`. The sign-in and settings stay in agent-machine's folder.
+- With it set, an Ollama agent-machine starts keeps its models in `ollama-models` there too, unless Ollama's **Models directory** setting names a folder. Without it, Ollama keeps them where it always does (`~/.ollama/models`).
+- Moving it doesn't move files already downloaded: they're downloaded again.
 
 It reads these environment variables:
 
@@ -438,7 +442,11 @@ docker compose --profile sandbox up -d
 docker compose logs -f agent-sandbox
 ```
 
-**More than one sandbox on a computer.** The console's **Add a machine** (System: **Docker container**) has an optional **Name** that adds to `agent-sandbox` and names the container and both of its volumes; do the same by hand. `work` gives `--name agent-sandbox-work --hostname agent-sandbox-work` with `agent-sandbox-work-home` and `agent-sandbox-work-workspace`, so each sandbox keeps its own sign-ins, models, llama.cpp and workspace and none of them shares another's. Names are lower-case letters, digits and dashes. The machine is named after the container's hostname, which is the container's id unless `--hostname` sets it, so give it the container's name (`AI_PROXY_MACHINE_NAME` still overrides it). `--network`, the model-server settings and the rest are the same for each; nothing else about a sandbox is shared between them.
+**More than one sandbox on a computer.** The console's **Add a machine** (System: **Docker container**) has an optional **Name** that adds to `agent-sandbox` and names the container and both of its volumes; do the same by hand.
+
+- `work` gives `--name agent-sandbox-work --hostname agent-sandbox-work` with `agent-sandbox-work-home` and `agent-sandbox-work-workspace`, so each sandbox keeps its own sign-ins, models, llama.cpp and workspace. Names are lower-case letters, digits and dashes.
+- The machine is named after the container's hostname, which is the container's id unless `--hostname` sets it, so give it the container's name (`AI_PROXY_MACHINE_NAME` still overrides it).
+- `--network`, the model-server settings and the rest are the same for each; nothing else about a sandbox is shared between them.
 
 | Setting | What it does |
 |---|---|
@@ -493,6 +501,13 @@ Strata isn't in the image, and the sandbox can't run model server containers (co
 
 ## The Python agent-machine
 
-The Python package (`python/`, `agent_py`) installs an `agent-machine` with the same name, protocol, files and ports, for computers without a Go build. It does everything the Go one does: every command (`login`/`logout`, `run`/`start`/`stop`, the status display, `launches`, `roots`, `commands`, `name`, `address`, `servers` and `servers service`, `containers`, `mcp`, `update` and `updates`), the same hello, launches and terminals, folders, tunnels, shared MCP servers, containers (Docker or Podman), starting and stopping Ollama (or its systemd `ollama.service`), llama.cpp and Strata's profiles, installing llama.cpp, every model server question (Ollama, llama.cpp, Docker Model Runner and Strata, with Strata's key read from its profile), catalogue searches and the machine's load. Ollama runs on Termux on Android too (`pkg install ollama`), and so does llama.cpp, with the phone's GPU through OpenCL.
+The Python package (`python/`, `agent_py`) installs an `agent-machine` with the same name, protocol, files and ports, for computers without a Go build. It does everything the Go one does:
+
+- every command: `login`/`logout`, `run`/`start`/`stop`, the status display, `launches`, `roots`, `commands`, `name`, `address`, `servers` and `servers service`, `containers`, `mcp`, `update` and `updates`;
+- the same hello, launches and terminals, folders, tunnels, shared MCP servers, and containers (Docker or Podman);
+- starting and stopping Ollama (or its systemd `ollama.service`), llama.cpp and Strata's profiles, and installing llama.cpp;
+- every model server question (Ollama, llama.cpp, Docker Model Runner and Strata, with Strata's key read from its profile), catalogue searches and the machine's load.
+
+Ollama runs on Termux on Android too (`pkg install ollama`), and so does llama.cpp, with the phone's GPU through OpenCL.
 
 Its `update` pip-installs the server's wheel, checked against its SHA-256; `--with-agent` runs `AI_PROXY_AGENT update` first when that names the agent command, and otherwise stops the agent-proxy, as the Python agent is the same package. A launch runs `AI_PROXY_AGENT` if it's set, otherwise the Python `agent` with the same Python. Installed with pip, `sudo agent-machine servers service` may not find the program on sudo's `secure_path`: run `sudo "$(which agent-machine)" servers service`.
