@@ -258,8 +258,9 @@ class UserStore:
             row = connection.execute(locked).scalar()
             if row is None:
                 # Seed the row so there is something to lock: without it, two processes
-                # bootstrapping a fresh database could both pass the check below.
-                kv.put_meta(connection, "accounts_version", 0)
+                # bootstrapping a fresh database could both pass the check below. Insert-if-
+                # absent, never an update: a rival's just-committed version must stand.
+                kv.upsert_absent(connection, schema.meta, {"key": "accounts_version", "value": 0})
                 row = connection.execute(locked).scalar()
             current = int(row or 0)
             if self._version is not None and current != self._version:

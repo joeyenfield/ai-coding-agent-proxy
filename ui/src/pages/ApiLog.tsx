@@ -5,7 +5,7 @@ import { api, ApiError, type LoggedBody, type RequestLogEntry, type RequestLogFi
 import { PartTag } from "../components/PartTag";
 import { formatDuration, formatNumber } from "../format";
 import { answer, OUTCOME_CLASS, OUTCOME_LABEL, span, when } from "./AccessLog";
-import { useDisplaced } from "../hooks";
+import { useOlderPages } from "../hooks";
 
 const apiLogId = (entry: RequestLogEntry) => entry.id;
 
@@ -133,15 +133,7 @@ function useFilters() {
 function Requests() {
   const { filters, ...inputs } = useFilters();
   const [follow, setFollow] = useState(true);
-  const [older, setOlder] = useState<RequestLogEntry[]>([]);
-  const [olderError, setOlderError] = useState<string | null>(null);
-  const [exhausted, setExhausted] = useState(false);
   const key = JSON.stringify(filters);
-  useEffect(() => {
-    setOlder([]);
-    setOlderError(null);
-    setExhausted(false);
-  }, [key]);
   const log = useQuery({
     queryKey: ["request-log", key],
     queryFn: () => api.requestLog({ ...filters, limit: PAGE }),
@@ -149,22 +141,8 @@ function Requests() {
     retry: false,
   });
   const newest = log.data?.entries ?? [];
-  // Entries that new traffic pushes off the newest window move into older, per query key.
-  useDisplaced(key, newest, apiLogId, older.length > 0 || exhausted, setOlder);
-  const seen = new Set(newest.map((entry) => entry.id));
-  const entries = [...newest, ...older.filter((entry) => !seen.has(entry.id))];
-  const loadOlder = async () => {
-    const last = entries[entries.length - 1];
-    if (!last) return;
-    setOlderError(null);
-    try {
-      const page = await api.requestLog({ ...filters, limit: PAGE, before: last.time });
-      setOlder((current) => [...current, ...page.entries]);
-      if (page.entries.length < PAGE) setExhausted(true);
-    } catch (error) {
-      setOlderError(error instanceof Error ? error.message : String(error));
-    }
-  };
+  const { entries, loadOlder, olderError, exhausted } = useOlderPages(key, newest, apiLogId,
+    async (last) => (await api.requestLog({ ...filters, limit: PAGE, before: last.time })).entries, PAGE);
   const filtered = Boolean(filters.q || filters.user || filters.method || filters.status);
   return (
     <section className="section" aria-labelledby="api-log-requests">

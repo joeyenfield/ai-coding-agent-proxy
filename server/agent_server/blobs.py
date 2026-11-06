@@ -88,14 +88,24 @@ class FileBlobs(Blobs):
                 # block two traces share). A key's content never differs, so the rival's
                 # file is as good as ours — but probing it can hit the same lock mid-replace,
                 # which must mean another attempt, never a lost trace.
+                stored = False
                 try:
-                    if path.is_file() and path.read_bytes() == data:
-                        temporary.unlink(missing_ok=True)
-                        return
+                    stored = path.is_file() and path.read_bytes() == data
                 except OSError:
                     pass
+                if stored:
+                    # The data is in place; a .part that can't be removed right now
+                    # mustn't turn that into a failure.
+                    try:
+                        temporary.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                    return
                 if attempt == 5:
-                    temporary.unlink(missing_ok=True)
+                    try:
+                        temporary.unlink(missing_ok=True)
+                    except OSError:
+                        pass
                     raise
                 time.sleep(0.02 * (attempt + 1))
 

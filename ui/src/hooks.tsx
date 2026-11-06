@@ -173,3 +173,46 @@ export function useDisplaced<T>(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [newest, key, active]);
 }
+
+/**
+ * The "Load older" scaffolding over a polled newest-first window: the accumulated older
+ * pages, the load error and exhaustion, the merged list, and useDisplaced's guarantee
+ * that rows the refreshed window no longer holds stay in it. The key names the query
+ * (filters, and the server run where ids reset): changing it starts the list over.
+ */
+export function useOlderPages<T>(
+  key: string,
+  newest: T[],
+  idOf: (entry: T) => string | number,
+  fetchPage: (last: T) => Promise<T[]>,
+  pageSize: number,
+) {
+  const [older, setOlder] = useState<T[]>([]);
+  const [olderError, setOlderError] = useState<string | null>(null);
+  const [exhausted, setExhausted] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  useEffect(() => {
+    setOlder([]);
+    setOlderError(null);
+    setExhausted(false);
+  }, [key]);
+  useDisplaced(key, newest, idOf, older.length > 0 || exhausted, setOlder);
+  const seen = new Set(newest.map(idOf));
+  const entries = [...newest, ...older.filter((entry) => !seen.has(idOf(entry)))];
+  const loadOlder = async () => {
+    const last = entries[entries.length - 1];
+    if (!last) return;
+    setLoadingOlder(true);
+    setOlderError(null);
+    try {
+      const page = await fetchPage(last);
+      setOlder((current) => [...current, ...page]);
+      if (page.length < pageSize) setExhausted(true);
+    } catch (error) {
+      setOlderError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setLoadingOlder(false);
+    }
+  };
+  return { entries, loadOlder, loadingOlder, olderError, exhausted };
+}

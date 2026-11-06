@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api, ApiError, type AccessEntry, type AccessLogStats } from "../api";
 import { PartTag } from "../components/PartTag";
 import { TabBar, TabPanel, useTabParam } from "../components/Tabs";
-import { useDisplaced } from "../hooks";
+import { useOlderPages } from "../hooks";
 import { formatDuration, formatNumber } from "../format";
 
 const POLL_MS = 3000;
@@ -371,9 +371,6 @@ function useFilters() {
 function ThisRun() {
   const filters = useFilters();
   const [follow, setFollow] = useState(true);
-  const [older, setOlder] = useState<AccessEntry[]>([]);
-  const [olderError, setOlderError] = useState<string | null>(null);
-  const [exhausted, setExhausted] = useState(false);
   const log = useQuery({
     queryKey: ["access-log", filters.failedOnly, filters.query],
     queryFn: () => api.accessLog({ failed: filters.failedOnly, q: filters.query, limit: PAGE }),
@@ -383,27 +380,10 @@ function ThisRun() {
   const newest = log.data?.entries ?? [];
   // A restart is a new run: its ids start over, so the loaded list starts over with it.
   const run = JSON.stringify([filters.failedOnly, filters.query, log.data?.started_at]);
-  useEffect(() => {
-    setOlder([]);
-    setOlderError(null);
-    setExhausted(false);
-  }, [run]);
-  // Entries that new traffic pushes off the newest window move into older, per query and run.
-  useDisplaced(run, newest, entryId, older.length > 0 || exhausted, setOlder);
-  const seen = new Set(newest.map((entry) => entry.id));
-  const entries = [...newest, ...older.filter((entry) => !seen.has(entry.id))];
-  const loadOlder = async () => {
-    const last = entries[entries.length - 1];
-    if (!last || typeof last.id !== "number") return;
-    setOlderError(null);
-    try {
-      const page = await api.accessLog({ failed: filters.failedOnly, q: filters.query, limit: PAGE, before: last.id });
-      setOlder((current) => [...current, ...page.entries]);
-      if (page.entries.length < PAGE) setExhausted(true);
-    } catch (error) {
-      setOlderError(error instanceof Error ? error.message : String(error));
-    }
-  };
+  const { entries, loadOlder, olderError, exhausted } = useOlderPages(run, newest, entryId, async (last) => {
+    if (typeof last.id !== "number") return [];
+    return (await api.accessLog({ failed: filters.failedOnly, q: filters.query, limit: PAGE, before: last.id })).entries;
+  }, PAGE);
   return (
     <>
       {log.data && (
@@ -435,14 +415,6 @@ function ThisRun() {
 function Saved({ keptDays }: { keptDays?: number }) {
   const filters = useFilters();
   const [fleetOnly, setFleetOnly] = useState(false);
-  const [older, setOlder] = useState<AccessEntry[]>([]);
-  const [olderError, setOlderError] = useState<string | null>(null);
-  const [exhausted, setExhausted] = useState(false);
-  useEffect(() => {
-    setOlder([]);
-    setOlderError(null);
-    setExhausted(false);
-  }, [filters.failedOnly, filters.query, fleetOnly]);
   const options = { failed: filters.failedOnly, fleet: fleetOnly, q: filters.query, limit: PAGE };
   const log = useQuery({
     queryKey: ["access-log-history", filters.failedOnly, fleetOnly, filters.query],
@@ -451,22 +423,9 @@ function Saved({ keptDays }: { keptDays?: number }) {
     retry: false,
   });
   const newest = log.data?.entries ?? [];
-  // As above: keep entries the refreshed newest window no longer holds, per query.
-  useDisplaced(JSON.stringify([filters.failedOnly, filters.query, fleetOnly]), newest, entryId, older.length > 0 || exhausted, setOlder);
-  const seen = new Set(newest.map((entry) => entry.id));
-  const entries = [...newest, ...older.filter((entry) => !seen.has(entry.id))];
-  const loadOlder = async () => {
-    const last = entries[entries.length - 1];
-    if (!last) return;
-    setOlderError(null);
-    try {
-      const page = await api.accessLogHistory({ ...options, before: last.time });
-      setOlder((current) => [...current, ...page.entries]);
-      if (page.entries.length < PAGE) setExhausted(true);
-    } catch (error) {
-      setOlderError(error instanceof Error ? error.message : String(error));
-    }
-  };
+  const { entries, loadOlder, olderError, exhausted } = useOlderPages(
+    JSON.stringify([filters.failedOnly, filters.query, fleetOnly]), newest, entryId,
+    async (last) => (await api.accessLogHistory({ ...options, before: last.time })).entries, PAGE);
   return (
     <>
       <p className="subtle">

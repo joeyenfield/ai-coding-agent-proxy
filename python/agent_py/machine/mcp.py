@@ -186,10 +186,14 @@ class Bridge:
 
     def close(self) -> None:
         """Ends every stdio session (waiting a little for them) and stops listening."""
-        self.closing = True
-        if self.loop and self.server:
-            ending = [asyncio.run_coroutine_threadsafe(session.close(), self.loop) for session in list(self.sessions.values())]
+        with self.lock:
+            # Under the lock open() holds for its check-and-insert: a session must never
+            # land in a dict this sweep has already replaced.
+            self.closing = True
+            held = list(self.sessions.values())
             self.sessions = {}
+        if self.loop and self.server:
+            ending = [asyncio.run_coroutine_threadsafe(session.close(), self.loop) for session in held]
             deadline = time.monotonic() + 5
             for future in ending:
                 try:
@@ -283,14 +287,19 @@ class Bridge:
             program, *server.command[1:], cwd=server.dir or None, env={**os.environ, **server.env},
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, limit=MAX_BODY, **flags,
         )
-        if self.closing:
+        session = Session(secrets.token_hex(16), server.name, process)
+        with self.lock:
+            # The check and the insert hold the lock close() takes, as Go's open() holds
+            # b.mu: a session must never land in a dict close() already swept.
+            closing = self.closing
+            if not closing:
+                self.sessions[session.id] = session
+        if closing:
             # close() ran while the process was starting: nothing would reap it, so end it now.
             with contextlib.suppress(ProcessLookupError):
                 process.kill()
             await process.wait()
             raise ValueError("the MCP bridge is shutting down")
-        session = Session(secrets.token_hex(16), server.name, process)
-        self.sessions[session.id] = session
         session.tasks = [asyncio.ensure_future(session.read()), asyncio.ensure_future(session.errors())]
 
         async def ended() -> None:

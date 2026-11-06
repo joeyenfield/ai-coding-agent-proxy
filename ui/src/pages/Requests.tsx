@@ -4,7 +4,7 @@ import { api, isFailure, isModelCall, outcomeLabel, requestKey, tokens, type Req
 import { Inspector } from "../components/Inspector";
 import { RouteBadge } from "../components/RouteBadge";
 import { endpointPath, formatDuration, formatNumber, formatRelative, shortId } from "../format";
-import { REQUEST_WINDOW, useDisplaced, useRequests, useSessions, useStatus } from "../hooks";
+import { REQUEST_WINDOW, useOlderPages, useRequests, useSessions, useStatus } from "../hooks";
 import { ROUTE_ORDER, ROUTES, routeOf, type RouteKind } from "../routes";
 import { PartTag } from "../components/PartTag";
 
@@ -24,35 +24,13 @@ export function RequestsPage() {
   const includeOther = params.get("other") === "1";
   const selectedKey = params.get("request");
 
-  // Older pages, fetched on demand (the newest REQUEST_WINDOW come with useRequests).
-  const [older, setOlder] = useState<RequestRecord[]>([]);
-  const [loadingOlder, setLoadingOlder] = useState(false);
-  const [olderError, setOlderError] = useState<string | null>(null);
-  const [exhausted, setExhausted] = useState(false);
+  // Older pages, fetched on demand (the newest REQUEST_WINDOW come with useRequests);
+  // entries new traffic pushes off the newest window stay in the loaded list.
   const newest = requests.data ?? [];
-  // Entries that new traffic pushes off the newest window move into older, so nothing
-  // silently vanishes from "the requests loaded so far".
-  useDisplaced("", newest, requestKey, older.length > 0 || exhausted, setOlder);
-  const records = useMemo(() => {
-    const seen = new Set(newest.map(requestKey));
-    return [...newest, ...older.filter((record) => !seen.has(requestKey(record)))];
-  }, [newest, older]);
+  const { entries: records, loadOlder, loadingOlder, olderError, exhausted } = useOlderPages(
+    "", newest, requestKey,
+    (oldest) => api.requests({ limit: REQUEST_WINDOW, before: oldest.timestamp }), REQUEST_WINDOW);
   const mayHaveMore = !exhausted && newest.length >= REQUEST_WINDOW;
-  const loadOlder = async () => {
-    const oldest = records[records.length - 1];
-    if (!oldest) return;
-    setLoadingOlder(true);
-    setOlderError(null);
-    try {
-      const page = await api.requests({ limit: REQUEST_WINDOW, before: oldest.timestamp });
-      setOlder((current) => [...current, ...page]);
-      if (page.length < REQUEST_WINDOW) setExhausted(true);
-    } catch (error) {
-      setOlderError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setLoadingOlder(false);
-    }
-  };
   const matches = useMemo(() => {
     const text = query.trim().toLowerCase();
     return records.filter(

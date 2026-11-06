@@ -13,7 +13,7 @@ def anthropic_to_ollama(payload: dict[str, Any], profile: ModelProfile) -> dict[
     system = payload.get("system")
     if system:
         if isinstance(system, list):
-            system = "".join(part.get("text", "") for part in system if isinstance(part, dict))
+            system = "".join(str(part.get("text") or "") for part in system if isinstance(part, dict))
         messages.append({"role": "system", "content": system})
     tool_names: dict[str, str] = {}
     given = payload.get("messages", [])
@@ -27,7 +27,9 @@ def anthropic_to_ollama(payload: dict[str, Any], profile: ModelProfile) -> dict[
             messages.append({"role": message.get("role", "user"), "content": content})
             continue
         content = [part for part in content if isinstance(part, dict)]
-        text = "".join(part.get("text", "") for part in content if part.get("type") == "text")
+        # str(... or "") also covers a malformed null or numeric "text": the caller's
+        # own request stays wrong without becoming a 500.
+        text = "".join(str(part.get("text") or "") for part in content if part.get("type") == "text")
         images = [
             part["source"]["data"] for part in content
             if part.get("type") == "image" and isinstance(part.get("source"), dict)
@@ -40,7 +42,7 @@ def anthropic_to_ollama(payload: dict[str, Any], profile: ModelProfile) -> dict[
             result_content = part.get("content", "")
             if isinstance(result_content, list):
                 result_content = "".join(
-                    block.get("text", "") for block in result_content
+                    str(block.get("text") or "") for block in result_content
                     if isinstance(block, dict) and block.get("type") == "text"
                 )
             result: dict[str, Any] = {"role": "tool", "content": result_content}

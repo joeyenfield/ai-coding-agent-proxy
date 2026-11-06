@@ -65,9 +65,15 @@ spec:
           args:
             # requirepass goes through a config file on a private emptyDir, never argv:
             # anyone who can exec into the pod can read /proc/1/cmdline. The value is
-            # conf-quoted (backslashes and quotes escaped) so any password works.
+            # conf-quoted (backslashes and quotes escaped); a control character (a newline
+            # in an existingSecret) can't be quoted into one conf line, so it's refused
+            # loudly rather than starting a server whose password isn't what was set.
             - >-
               umask 077 &&
+              clean=$(printf '%s' "$VALKEY_PASSWORD" | LC_ALL=C tr -d '[:cntrl:]') &&
+              if [ -z "$VALKEY_PASSWORD" ] || [ "$clean" != "$VALKEY_PASSWORD" ]; then
+                echo 'valkey: the password is empty or contains control characters (a newline?); fix the secret' >&2; exit 1;
+              fi &&
               escaped=$(printf '%s' "$VALKEY_PASSWORD" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g') &&
               printf 'requirepass "%s"\n' "$escaped" > /conf/valkey.conf &&
               exec valkey-server /conf/valkey.conf --port 6379 --dir /data
