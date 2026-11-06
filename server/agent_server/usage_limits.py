@@ -314,6 +314,17 @@ class UsageLimits:
             self.cluster.publish("usage.limits", {"tenant": tenant})
         return removed
 
+    def remove_user(self, tenant: str, user: str) -> None:
+        """Every limit on one person, as the database holds them (not this process's cache): a
+        removed user's name must not pass a limit to a later account of the same name."""
+        table = schema.usage_limits
+        with self.db.write() as connection:
+            connection.execute(table.delete().where((table.c.tenant == tenant) & (table.c.user == user)))
+        # A fresh dict, never a mutation another thread could be iterating.
+        self.limits = {key: limit for key, limit in self.limits.items() if not (limit.tenant == tenant and limit.user == user)}
+        if self.cluster is not None:
+            self.cluster.publish("usage.limits", {"tenant": tenant})
+
     def tenant_limits(self, tenant: str) -> list[Limit]:
         return sorted((limit for limit in self.limits.values() if limit.tenant == tenant), key=lambda item: (item.provider, item.user != EVERYONE, item.user, list(WINDOWS).index(item.window)))
 

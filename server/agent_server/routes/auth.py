@@ -624,19 +624,11 @@ def register(app: FastAPI, runtime: Runtime) -> None:
 
         await offboard(identity, name, lambda owner, of: owner == name and of == tenant, disowned)
 
-        def forget_limits() -> None:
-            # Their own limits are keyed by name: a recreated user mustn't start blocked (or raised).
-            for limit in runtime.usage.tenant_limits(tenant):
-                if limit.user == name:
-                    try:
-                        runtime.usage.remove_limit(tenant, name, limit.provider, limit.window)
-                    except Exception:  # noqa: BLE001
-                        LOGGER.exception("offboarding %s: couldn't remove a usage limit", name)
-
         try:
-            await asyncio.to_thread(forget_limits)
+            # Their own limits are keyed by name: a recreated user mustn't start blocked (or raised).
+            await asyncio.to_thread(runtime.usage.remove_user, tenant, name)
         except Exception:  # noqa: BLE001
-            LOGGER.exception("offboarding %s: couldn't read its usage limits", name)
+            LOGGER.exception("offboarding %s: couldn't remove its usage limits", name)
         return answer
 
 

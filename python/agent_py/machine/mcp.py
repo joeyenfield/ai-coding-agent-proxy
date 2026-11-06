@@ -319,7 +319,17 @@ class Stream:
         # reading can't grow memory without bound.
         self.queue: asyncio.Queue = asyncio.Queue(64)
         self.events = events
-        self.closed = False
+        # An event rather than a flag, so a blocked route can wait on it (Go's out.closed).
+        self.ended = asyncio.Event()
+
+    @property
+    def closed(self) -> bool:
+        return self.ended.is_set()
+
+    @closed.setter
+    def closed(self, value: bool) -> None:
+        if value:
+            self.ended.set()
 
 
 class Session:
@@ -481,18 +491,18 @@ class Session:
             if len(self.backlog) < BACKLOG:
                 self.backlog.append(message)
             return
-        # A full queue (a consumer that stopped reading) holds this session's routing, as
-        # the Go bridge's channel does, so memory stays bounded and no reply is lost — but
-        # a stream that closes, or a session that ends, releases it (Go selects on
-        # out.closed and s.done; here the wait wakes regularly to look at both).
-        while not out.closed and not self.done.is_set():
-            try:
-                await asyncio.wait_for(out.queue.put(message), 0.5)
-                return
-            except asyncio.TimeoutError:
-                continue
-        if len(self.backlog) < BACKLOG:
-            self.backlog.append(message)
+        # A full queue (a consumer that stopped reading) holds this session's routing, as the
+        # Go bridge's channel does, so memory stays bounded; but, as with Go's select on
+        # out.closed and s.done, a stream that closes or a session that ends releases it, and
+        # the message is dropped (its stream is gone).
+        put = asyncio.ensure_future(out.queue.put(message))
+        released = [asyncio.ensure_future(out.ended.wait()), asyncio.ensure_future(self.done.wait())]
+        try:
+            await asyncio.wait([put, *released], return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            for task in (put, *released):
+                if not task.done():
+                    task.cancel()
 
     async def close(self) -> None:
         """Its stdin first, so it can stop by itself, then the process and what it started."""

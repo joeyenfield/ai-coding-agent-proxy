@@ -121,14 +121,20 @@ async def dial(upstream: common.Upstream, server: str, path: str):
     return (await dial_with_token(upstream, server, path))[0]
 
 
-async def dial_with_token(upstream: common.Upstream, server: str, path: str, passed: Optional[Dict[str, str]] = None):
+async def dial_with_token(upstream: common.Upstream, server: str, path: str, passed: Optional[Dict[str, str]] = None,
+                          subprotocols: Optional[List[str]] = None):
     """dial, also returning the access token the socket was opened with. passed are an agent's own
-    headers to carry on (its Authorization, x-api-key, session and backend headers)."""
-    headers = {**(passed or {}), **common.identify({}, settings.PROGRAM)}
+    headers to carry on (its Authorization, x-api-key, session and backend headers); like Go's
+    rewriteAgent, the agent keeps its own User-Agent when it sent one."""
+    headers = common.identify({}, settings.PROGRAM)
+    given = {name.lower() for name in (passed or {})}
+    headers = {name: value for name, value in headers.items() if name.lower() not in given}
+    headers.update(passed or {})
     token = await asyncio.to_thread(upstream.token, server)
     headers[common.TOKEN_HEADER] = token
     conn = await common.signed_connect(common.websocket_url(server, path), additional_headers=headers, proxy=None, open_timeout=10, max_size=None,
-                                       compression=None, user_agent_header=None, ping_interval=KEEPALIVE, ping_timeout=KEEPALIVE)
+                                       compression=None, user_agent_header=None, ping_interval=KEEPALIVE, ping_timeout=KEEPALIVE,
+                                       subprotocols=subprotocols or None)
     return conn, token
 
 
@@ -358,20 +364,28 @@ class AgentProxy:
 
     async def agent_websocket(self, agent: WebSocket) -> None:
         """An agent's WebSocket on /session/, /v1/ or /anthropic/: the same checks and headers as
-        its HTTP calls (rewriteAgent in Go), signed as this machine, bytes relayed both ways."""
-        await agent.accept()
+        its HTTP calls (rewriteAgent in Go), signed as this machine, bytes relayed both ways. The
+        server is dialled before the agent's handshake is answered, so its chosen subprotocol
+        goes back. Unlike the terminal relay, nothing is injected to renew the token: the bytes
+        are the agent's own protocol (as with Go's ReverseProxy), so a 4410 instead rejects the
+        token and the agent's reconnect dials with a fresh one."""
         if not local(agent.headers):
+            await agent.accept()
             await agent.close(4403, "agent-proxy only serves programs on this computer")
             return
+        # Sec-WebSocket-Protocol goes on as the dial's subprotocols; the other handshake headers
+        # are this hop's own.
         passed = {
             name: value for name, value in agent.headers.items()
             if name.lower() not in SKIPPED and name.lower() not in FORWARDING and not name.lower().startswith("sec-websocket-")
         }
+        offered = [item.strip() for item in agent.headers.get("sec-websocket-protocol", "").split(",") if item.strip()]
         query = agent.url.query
         server = self.upstream.server()
         try:
-            remote, _ = await dial_with_token(self.upstream, server, agent.url.path + (f"?{query}" if query else ""), passed)
+            remote, token = await dial_with_token(self.upstream, server, agent.url.path + (f"?{query}" if query else ""), passed, offered)
         except Exception as error:
+            await agent.accept()
             status = refused_status(error)
             if getattr(error, "code", "") == "login_required":
                 await agent.close(4401, "OAuth sign-in required: run `agent login`")
@@ -380,8 +394,15 @@ class AgentProxy:
             else:
                 await agent.close(1011, f"couldn't reach the agent-server at {server}: {error}"[:120])
             return
+        await agent.accept(subprotocol=remote.subprotocol)
         code, reason = await relay(agent, remote)
         await remote.close()
+        if code == 4410:
+            try:
+                # Only the token this socket was opened with: another socket may have refreshed it already.
+                await asyncio.to_thread(self.upstream.reject_access_token, server, token)
+            except (RuntimeError, ValueError, OSError) as error:
+                reason = str(error)
         if code in RESERVED_CLOSE:
             code = 1011
         try:

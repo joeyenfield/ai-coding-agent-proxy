@@ -30,6 +30,7 @@ from .routes import api_providers as api_provider_routes
 from .routes import auth, compat, containers, governance, machines, management, mcp, provider_accounts, providers, proxy, terminals
 from .runtime import LOGGER, Runtime, upstream_client
 from .ui_build import ensure_built
+from .usage_limits import UsageLimits
 
 
 UI_MISSING = """<!doctype html><html lang="en"><head><meta charset="utf-8"><title>AI Control Mesh</title>
@@ -569,9 +570,13 @@ def account_command(kind: str, argv: list[str]) -> int:
             users = store.user_list()
             print("\n".join(f"{user['name']} ({user['role']}) {' '.join(user['orgs'] + user['teams'])}".rstrip() for user in users) if users else "No users yet: the server makes an admin on its first start, or add one.")
         elif args.action == "remove":
-            if not store.remove_user(args.name):
+            record = store.user(args.name)
+            if record is None or not store.remove_user(args.name):
                 print(f"No user called {args.name}", file=sys.stderr)
                 return 1
+            # Limits are keyed by name in the database, so they go here too; machines, provider
+            # accounts and session ownership need the running server (remove in the console).
+            UsageLimits(store.db).remove_user(record["tenant"], args.name)
             print(f"Removed {args.name}." + ("" if store.users() else " No users are left: nobody can sign in until you add one."))
         else:
             if args.action == "passwd" and args.name not in store.users():

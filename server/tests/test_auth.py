@@ -17,6 +17,7 @@ from agent_server.app import FIRST_USER, account_command, create_app, ensure_fir
 from agent_server.auth import UserStore
 from agent_server.config import Backend, Settings
 from agent_server.db import legacy, schema
+from agent_server.usage_limits import UsageLimits
 from oidc_helpers import OAuthTestClient, access_token, issuer, plant_legacy_credentials
 
 
@@ -558,7 +559,12 @@ def test_account_commands_create_the_first_admin(tmp_path, monkeypatch, capsys):
         ("joey", "admin", ["pockets"], ["pockets/core"]), ("sam", "member", ["other"], ["other/ops"]),
     ]
     assert account_command("org", ["remove", "other"]) == 1  # sam is still in it
+    # Removing a user from the command line takes their own usage limits too.
+    UsageLimits(store.db).set_limit("other", "sam", "backend:hosted", "24h", 0, "joey")
     assert account_command("user", ["remove", "sam"]) == 0 and account_command("org", ["remove", "other"]) == 0
+    leftover = UsageLimits(store.db)
+    leftover.reload_limits()
+    assert not [limit for limit in leftover.limits.values() if limit.user == "sam"]
     assert account_command("user", ["add", "ops", "--admin"]) == 0 and store.user("ops")["tenant"] == "root"
     assert store.verify("joey", PASSWORD) and not store.verify("joey", "wrong")
     monkeypatch.setenv("AI_PROXY_NEW_PASSWORD", "short")

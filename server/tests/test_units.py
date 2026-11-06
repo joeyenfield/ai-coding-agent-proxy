@@ -49,6 +49,9 @@ def test_a_malformed_anthropic_payload_reads_as_missing_parts_not_a_500():
     # The system blocks read as empty text; the bare string, null text and the stray message are skipped.
     assert [(message["role"], message["content"]) for message in result["messages"]] == [("system", ""), ("user", "5"), ("tool", "")]
     assert [tool["function"]["name"] for tool in result["tools"]] == ["real"]
+    # A "tools" that isn't a list reads as no tools.
+    for odd in (5, True, "tools", {"name": "x"}):
+        assert "tools" not in anthropic_to_ollama({"model": "m", "messages": [], "tools": odd}, settings.profile("m"))
 
 
 def test_anthropic_translation_preserves_tool_calls_and_results():

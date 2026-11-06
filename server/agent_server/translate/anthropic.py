@@ -77,7 +77,7 @@ def anthropic_to_ollama(payload: dict[str, Any], profile: ModelProfile) -> dict[
     thinking = payload.get("thinking")
     if isinstance(thinking, dict) and thinking.get("type") in {"enabled", "disabled"}:
         result["think"] = thinking["type"] == "enabled"
-    if payload.get("tools"):
+    if isinstance(payload.get("tools"), list) and payload["tools"]:
         result["tools"] = [
             {
                 "type": "function",

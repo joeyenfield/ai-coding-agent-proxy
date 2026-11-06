@@ -444,23 +444,28 @@ def test_an_agents_websocket_is_signed_and_passed_through(tmp_path, monkeypatch)
     def handler(connection) -> None:
         seen["path"] = connection.request.path
         seen["headers"] = {name.lower(): value for name, value in connection.request.headers.raw_items()}
+        seen["user_agents"] = [value for name, value in connection.request.headers.raw_items() if name.lower() == "user-agent"]
         for message in connection:
             connection.send(f"echo:{message}")
 
-    with serve(handler, "127.0.0.1", 0) as upstream:
+    with serve(handler, "127.0.0.1", 0, subprotocols=["realtime"]) as upstream:
         threading.Thread(target=upstream.serve_forever, daemon=True).start()
         port = upstream.socket.getsockname()[1]
         proxy = proxy_for(f"http://127.0.0.1:{port}", tmp_path)
         monkeypatch.setattr(proxy.upstream, "token", lambda server: "machine-token")
         client = TestClient(proxy, base_url="http://127.0.0.1:8184")
-        local_headers = {"host": "127.0.0.1:8184", "authorization": "Bearer agent-key", "cookie": "secret=1"}
-        with client.websocket_connect("/v1/realtime?model=m", headers=local_headers) as socket:
+        local_headers = {"host": "127.0.0.1:8184", "authorization": "Bearer agent-key", "cookie": "secret=1", "user-agent": "some-agent/1.0"}
+        with client.websocket_connect("/v1/realtime?model=m", headers=local_headers, subprotocols=["realtime"]) as socket:
+            # The server's chosen subprotocol comes back through the proxy.
+            assert socket.accepted_subprotocol == "realtime"
             socket.send_text("hi")
             assert socket.receive_text() == "echo:hi"
         assert seen["path"] == "/v1/realtime?model=m"
         assert seen["headers"]["authorization"] == "Bearer agent-key"
         assert seen["headers"][common.TOKEN_HEADER.lower()] == "machine-token"
         assert "cookie" not in seen["headers"] and "origin" not in seen["headers"]
+        # The agent keeps its own User-Agent, once, as with Go's rewriteAgent.
+        assert seen["user_agents"] == ["some-agent/1.0"]
         # Another site's page is refused before anything is dialled.
         seen.clear()
         with client.websocket_connect("/v1/realtime", headers={"host": "127.0.0.1:8184", "origin": "https://evil.test"}) as socket:
@@ -468,6 +473,35 @@ def test_an_agents_websocket_is_signed_and_passed_through(tmp_path, monkeypatch)
                 socket.receive_text()
         assert getattr(closed.value, "code", None) == 4403 and not seen
         upstream.shutdown()
+
+
+def test_mcp_routing_is_released_when_a_full_stream_closes():
+    """machine/internal/mcp bridge.go: route selects on out.closed and s.done, so a reply blocked
+    on a stream whose consumer went away never wedges the session's routing."""
+
+    async def scenario() -> None:
+        session = mcp.Session("s1", "server", None)  # type: ignore[arg-type]
+        out = mcp.Stream(True)
+        session.posts.append(out)
+        for number in range(64):
+            out.queue.put_nowait(b"filler")
+        routing = asyncio.ensure_future(session.route(b'{"jsonrpc":"2.0","method":"notify"}'))
+        await asyncio.sleep(0.05)
+        assert not routing.done()  # held: the queue is full, as Go's channel would be
+        session.forget(out, [])
+        await asyncio.wait_for(routing, 2)  # released at once by the close, no polling
+        assert out.queue.qsize() == 64 and session.backlog == []  # dropped, as Go drops it
+        # A session that ends releases a blocked route too.
+        other = mcp.Stream(True)
+        session.posts.append(other)
+        for number in range(64):
+            other.queue.put_nowait(b"filler")
+        blocked = asyncio.ensure_future(session.route(b'{"jsonrpc":"2.0","method":"notify"}'))
+        await asyncio.sleep(0.05)
+        session.done.set()
+        await asyncio.wait_for(blocked, 2)
+
+    asyncio.run(scenario())
 
 
 def test_presence_renews_its_token_over_the_open_connection(tmp_path, monkeypatch):
