@@ -42,6 +42,9 @@ PASSWORD = "correct horse"
 # The client's own variables, and proxies an outer agent may have set: none may leak in.
 CLEARED = (
     "AI_PROXY_URL", "AI_PROXY_TOKEN", "AI_PROXY_MACHINE_TOKEN", "AI_PROXY_USERNAME", "AI_PROXY_PASSWORD", "AI_PROXY_PASSWORD_INPUT", "AI_PROXY_CONTROL",
+    # A coding agent working on this repository runs inside a launch, whose setup-code and
+    # machine variables must not reach the real programs these tests run.
+    "AI_PROXY_SETUP_CODE", "AI_PROXY_MACHINE_SETUP_CODE", "AI_PROXY_MACHINE_ENABLE", "AI_PROXY_MACHINE_ID", "AI_PROXY_MACHINE_NAME", "AI_PROXY_SESSION",
     "HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy", "ALL_PROXY", "all_proxy",
 )
 

@@ -1088,10 +1088,13 @@ def create_auth_app(settings: Settings | None = None) -> FastAPI:
             key = digest(data.get("token", ""))
             record = service.state.get("refresh", key) or service.state.get("access", key)
             if record and record["client_id"] == client.client_id:
+                # The family row may already be pruned (its tokens expired); RFC 7009 says
+                # revocation answers 200 either way, so there is nothing left to mark then.
                 family = service.state.get("family", record["family"])
-                family["revoked"] = True
-                service.state.put("family", record["family"], family)
-                service.revoked("family", record["family"])
+                if family:
+                    family["revoked"] = True
+                    service.state.put("family", record["family"], family)
+                    service.revoked("family", record["family"])
             return {}
 
     @app.api_route("/userinfo", methods=["GET", "POST"])

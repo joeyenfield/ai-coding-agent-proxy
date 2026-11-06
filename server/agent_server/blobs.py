@@ -79,17 +79,25 @@ class FileBlobs(Blobs):
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_name(path.name + f".{os.getpid()}.{threading.get_ident()}.part")
         temporary.write_bytes(data)
-        for attempt in range(5):
+        for attempt in range(6):
             try:
                 os.replace(temporary, path)
                 return
             except PermissionError:
-                # Windows: another thread is replacing or reading the same key (a message block two traces share).
-                if path.is_file() and path.read_bytes() == data:
+                # Windows: another thread is replacing or reading the same key (a message
+                # block two traces share). A key's content never differs, so the rival's
+                # file is as good as ours — but probing it can hit the same lock mid-replace,
+                # which must mean another attempt, never a lost trace.
+                try:
+                    if path.is_file() and path.read_bytes() == data:
+                        temporary.unlink(missing_ok=True)
+                        return
+                except OSError:
+                    pass
+                if attempt == 5:
                     temporary.unlink(missing_ok=True)
-                    return
+                    raise
                 time.sleep(0.02 * (attempt + 1))
-        os.replace(temporary, path)
 
     def get(self, key: str) -> bytes | None:
         try:

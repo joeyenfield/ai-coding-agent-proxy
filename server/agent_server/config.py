@@ -531,7 +531,7 @@ class Settings:
             if backend["type"] == "api":
                 current = self.backends.get(name)
                 if current is None or current.type != "api" or current.url.rstrip("/") != backend["url"]:
-                    raise ValueError(f"Backend '{name}': API providers are added and edited on Server settings -> Providers")
+                    raise ValueError(f"Backend '{name}': API providers are added and edited on the organization's API providers page")
                 if current.machine:
                     backend["machine"] = current.machine
                 if current.options:

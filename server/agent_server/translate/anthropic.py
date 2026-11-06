@@ -16,15 +16,22 @@ def anthropic_to_ollama(payload: dict[str, Any], profile: ModelProfile) -> dict[
             system = "".join(part.get("text", "") for part in system if isinstance(part, dict))
         messages.append({"role": "system", "content": system})
     tool_names: dict[str, str] = {}
-    for message in payload.get("messages", []):
+    given = payload.get("messages", [])
+    # A malformed payload (a string message, a bare string content part) answers like a
+    # missing part, not a 500: only this caller's own request is wrong.
+    for message in given if isinstance(given, list) else []:
+        if not isinstance(message, dict):
+            continue
         content = message.get("content", "")
         if not isinstance(content, list):
             messages.append({"role": message.get("role", "user"), "content": content})
             continue
+        content = [part for part in content if isinstance(part, dict)]
         text = "".join(part.get("text", "") for part in content if part.get("type") == "text")
         images = [
             part["source"]["data"] for part in content
-            if part.get("type") == "image" and (part.get("source") or {}).get("type") == "base64"
+            if part.get("type") == "image" and isinstance(part.get("source"), dict)
+            and part["source"].get("type") == "base64" and "data" in part["source"]
         ]
         tool_uses = [part for part in content if part.get("type") == "tool_use"]
         tool_results = [part for part in content if part.get("type") == "tool_result"]
@@ -33,7 +40,8 @@ def anthropic_to_ollama(payload: dict[str, Any], profile: ModelProfile) -> dict[
             result_content = part.get("content", "")
             if isinstance(result_content, list):
                 result_content = "".join(
-                    block.get("text", "") for block in result_content if block.get("type") == "text"
+                    block.get("text", "") for block in result_content
+                    if isinstance(block, dict) and block.get("type") == "text"
                 )
             result: dict[str, Any] = {"role": "tool", "content": result_content}
             name = tool_names.get(part.get("tool_use_id", ""))

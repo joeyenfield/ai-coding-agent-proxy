@@ -316,7 +316,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         value: dict[str, Any] = {"type": kind, "url": url, "machine": target.id}
         if kind == "api":
             # Only Chat Completions is assumed: LM Studio, vLLM and SGLang all have it. Responses and Messages
-            # depend on the server's version, so a site admin turns them on (Server settings -> Providers).
+            # depend on the server's version, so an admin turns them on (the organization's API providers page).
             value["options"] = {"category": "machine", "protocols": ["openai-chat"], "auth": "none", "discover": True}
         async with runtime.config_lock:
             runtime.settings.save_backend(name, value)

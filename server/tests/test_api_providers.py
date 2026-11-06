@@ -516,7 +516,7 @@ def test_settings_page_keeps_providers_and_cant_add_them(tmp_path):
     settings.update_network_config({"proxy": proxy, "default_backend": "openai", "backends": {"openai": {"type": "api", "url": "https://api.openai.test/v1"}}})
     assert settings.backends["openai"].options["models"] == {"fast": "gpt-test-mini"}
     assert stored_backends(settings)["openai"]["options"]["protocols"] == ["openai-chat", "openai-responses"]
-    with pytest.raises(ValueError, match="Providers"):
+    with pytest.raises(ValueError, match="API providers page"):
         settings.update_network_config({"proxy": proxy, "default_backend": "openai", "backends": {
             "openai": {"type": "api", "url": "https://api.openai.test/v1"}, "new": {"type": "api", "url": "https://x.test/v1"}}})
 

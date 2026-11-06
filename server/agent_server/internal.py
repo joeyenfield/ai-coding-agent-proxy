@@ -66,7 +66,8 @@ class InternalEntry:
         if scope["type"] not in ("http", "websocket"):
             return
         if scope["path"] == "/metrics" and scope["type"] == "http":
-            body = metrics(self.runtime).encode()
+            # Off the event loop: the audit backlog gauge reads the database.
+            body = (await asyncio.to_thread(metrics, self.runtime)).encode()
             await send({"type": "http.response.start", "status": 200, "headers": [(b"content-type", b"text/plain; version=0.0.4")]})
             await send({"type": "http.response.body", "body": body})
             return
