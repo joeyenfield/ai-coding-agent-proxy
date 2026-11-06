@@ -1,10 +1,13 @@
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, type LoggedBody, type RequestLogEntry, type RequestLogFilters, type RequestLogPayloads } from "../api";
 import { PartTag } from "../components/PartTag";
 import { formatDuration, formatNumber } from "../format";
 import { answer, OUTCOME_CLASS, OUTCOME_LABEL, span, when } from "./AccessLog";
+import { useDisplaced } from "../hooks";
+
+const apiLogId = (entry: RequestLogEntry) => entry.id;
 
 const PAGE = 100;
 const POLL_MS = 5000;
@@ -146,23 +149,8 @@ function Requests() {
     retry: false,
   });
   const newest = log.data?.entries ?? [];
-  // Once older pages are loaded, entries that new traffic pushes off the newest window move into
-  // `older`, so following live traffic doesn't silently drop rows from the loaded list. The ref
-  // carries the query key: when the filters change, the old rows are not "displaced", they're
-  // another query's, and must not leak past the reset above.
-  const previousNewest = useRef<{ key: string; entries: RequestLogEntry[] }>({ key, entries: [] });
-  useEffect(() => {
-    const before = previousNewest.current;
-    previousNewest.current = { key, entries: newest };
-    if (before.key !== key || (!older.length && !exhausted)) return;
-    const seen = new Set(newest.map((entry) => entry.id));
-    const displaced = before.entries.filter((entry) => !seen.has(entry.id));
-    if (!displaced.length) return;
-    setOlder((current) => {
-      const have = new Set(current.map((entry) => entry.id));
-      return [...displaced.filter((entry) => !have.has(entry.id)), ...current];
-    });
-  }, [newest, key, older.length, exhausted]);
+  // Entries that new traffic pushes off the newest window move into older, per query key.
+  useDisplaced(key, newest, apiLogId, older.length > 0 || exhausted, setOlder);
   const seen = new Set(newest.map((entry) => entry.id));
   const entries = [...newest, ...older.filter((entry) => !seen.has(entry.id))];
   const loadOlder = async () => {

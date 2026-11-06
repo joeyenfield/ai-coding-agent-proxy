@@ -274,10 +274,12 @@ func llamaPull(base, key, model string, progress Progress) error {
 	reader := bufio.NewReader(events.Body)
 	for {
 		line, err := reader.ReadBytes('\n')
-		watchdog.Reset(llamaPullIdle)
 		if text := strings.TrimSpace(string(line)); strings.HasPrefix(text, "data:") {
 			var event map[string]any
 			if json.Unmarshal([]byte(strings.TrimSpace(strings.TrimPrefix(text, "data:"))), &event) == nil && sameModel(str(event["model"]), model) {
+				// Only this model's events count as progress: another model's download
+				// (or heartbeats) must not keep a stalled pull alive forever.
+				watchdog.Reset(llamaPullIdle)
 				switch str(event["event"]) {
 				case "download_progress":
 					var done, total float64

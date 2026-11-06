@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, isFailure, isModelCall, outcomeLabel, requestKey, tokens, type RequestRecord } from "../api";
 import { Inspector } from "../components/Inspector";
 import { RouteBadge } from "../components/RouteBadge";
 import { endpointPath, formatDuration, formatNumber, formatRelative, shortId } from "../format";
-import { REQUEST_WINDOW, useRequests, useSessions, useStatus } from "../hooks";
+import { REQUEST_WINDOW, useDisplaced, useRequests, useSessions, useStatus } from "../hooks";
 import { ROUTE_ORDER, ROUTES, routeOf, type RouteKind } from "../routes";
 import { PartTag } from "../components/PartTag";
 
@@ -30,21 +30,9 @@ export function RequestsPage() {
   const [olderError, setOlderError] = useState<string | null>(null);
   const [exhausted, setExhausted] = useState(false);
   const newest = requests.data ?? [];
-  // Once older pages are loaded, entries that new traffic pushes off the newest window move into
-  // `older`, so nothing silently vanishes from "the requests loaded so far".
-  const previousNewest = useRef<RequestRecord[]>([]);
-  useEffect(() => {
-    const before = previousNewest.current;
-    previousNewest.current = newest;
-    if (!older.length && !exhausted) return;
-    const seen = new Set(newest.map(requestKey));
-    const displaced = before.filter((record) => !seen.has(requestKey(record)));
-    if (!displaced.length) return;
-    setOlder((current) => {
-      const have = new Set(current.map(requestKey));
-      return [...displaced.filter((record) => !have.has(requestKey(record))), ...current];
-    });
-  }, [newest, older.length, exhausted]);
+  // Entries that new traffic pushes off the newest window move into older, so nothing
+  // silently vanishes from "the requests loaded so far".
+  useDisplaced("", newest, requestKey, older.length > 0 || exhausted, setOlder);
   const records = useMemo(() => {
     const seen = new Set(newest.map(requestKey));
     return [...newest, ...older.filter((record) => !seen.has(requestKey(record)))];

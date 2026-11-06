@@ -16,6 +16,7 @@ machine/bin/
 .history/
 .playwright-mcp/
 .qwen/
+*.stackdump
 scripts/deploy.sh
 scripts/deploy.ps1
 scripts/deploy-remote.sh

@@ -959,9 +959,10 @@ class Fleet:
         self._waiting[launch_id] = future
         self._asked[launch_id] = machine.id
         self._via[launch_id] = socket
-        # The grant other processes check (pending_launch) while this launch runs.
-        await asyncio.to_thread(self.cluster.set, self.GRANT_PREFIX + launch_id, machine.id, LAUNCH_TIMEOUT + 60)
         try:
+            # The grant other processes check (pending_launch) while this launch runs;
+            # inside the try, so a failed write still cleans the registrations up.
+            await asyncio.to_thread(self.cluster.set, self.GRANT_PREFIX + launch_id, machine.id, LAUNCH_TIMEOUT + 60)
             await socket.send_text(json.dumps(message))
             answer = await asyncio.wait_for(future, LAUNCH_TIMEOUT)
         except asyncio.TimeoutError:

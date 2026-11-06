@@ -502,12 +502,18 @@ def register(app: FastAPI, runtime: Runtime) -> None:
                         runtime.provider_accounts.delete(identity, account)
                     except Exception:  # noqa: BLE001
                         LOGGER.exception("removing %s: couldn't delete provider account %s", org, account.id)
-            for limit in runtime.usage.tenant_limits(org):
-                runtime.usage.remove_limit(org, limit.user, limit.provider, limit.window)
-            runtime.retention.remove_org(org)
+            try:
+                for limit in runtime.usage.tenant_limits(org):
+                    runtime.usage.remove_limit(org, limit.user, limit.provider, limit.window)
+                runtime.retention.remove_org(org)
+            except Exception:  # noqa: BLE001
+                LOGGER.exception("removing %s: couldn't remove its limits or retention policy", org)
             for session in runtime.sessions.list():
                 if session.tags.get("tenant") == org:
-                    runtime.sessions.update_tags(session, {"tenant": None})
+                    try:
+                        runtime.sessions.update_tags(session, {"tenant": None})
+                    except Exception:  # noqa: BLE001
+                        LOGGER.exception("removing %s: couldn't detach session %s", org, session.session_id)
 
         await asyncio.to_thread(clean)
         return answer
@@ -603,7 +609,10 @@ def register(app: FastAPI, runtime: Runtime) -> None:
                     continue
                 cleared = {key: None for key in ("owner", "launched_by") if tags.get(key) == name}
                 if cleared:
-                    runtime.sessions.update_tags(session, cleared)
+                    try:
+                        runtime.sessions.update_tags(session, cleared)
+                    except Exception:  # noqa: BLE001
+                        LOGGER.exception("offboarding %s: couldn't disown session %s", name, session.session_id)
 
         await asyncio.to_thread(disown)
 

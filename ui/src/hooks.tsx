@@ -143,3 +143,33 @@ export function download(content: string, filename: string, type = "application/
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+/**
+ * Keeps "Load older" rows under a polled newest-first window: entries the refreshed window
+ * no longer holds move into older (once older pages were loaded), so following live traffic
+ * drops nothing from the loaded list. The key names the query: on a filter change the old
+ * rows are another query's, not displaced, and never leak past the page's reset.
+ */
+export function useDisplaced<T>(
+  key: string,
+  newest: T[],
+  idOf: (entry: T) => string | number,
+  active: boolean,
+  setOlder: (update: (current: T[]) => T[]) => void,
+) {
+  const previous = useRef({ key, entries: newest });
+  useEffect(() => {
+    const before = previous.current;
+    previous.current = { key, entries: newest };
+    if (before.key !== key || !active) return;
+    const seen = new Set(newest.map(idOf));
+    const displaced = before.entries.filter((entry) => !seen.has(idOf(entry)));
+    if (!displaced.length) return;
+    setOlder((current) => {
+      const have = new Set(current.map(idOf));
+      return [...displaced.filter((entry) => !have.has(idOf(entry))), ...current];
+    });
+    // idOf and setOlder are stable accessors from the caller.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newest, key, active]);
+}

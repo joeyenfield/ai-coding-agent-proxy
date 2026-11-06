@@ -250,8 +250,14 @@ class UserStore:
         with self.db.write() as connection:
             # The whole directory is rewritten from memory, so a version another process
             # committed since this one's read would be silently overwritten (its new user
-            # or team would vanish). Refuse instead: the caller repeats the change.
-            current = int(kv.get_meta(connection, "accounts_version", 0) or 0)
+            # or team would vanish). Refuse instead: the caller repeats the change. The
+            # version row is read FOR UPDATE, so on PostgreSQL two writers serialize on it
+            # and the second really sees the first's version (SQLite's write lock already
+            # serializes whole transactions).
+            row = connection.execute(
+                select(schema.meta.c.value).where(schema.meta.c.key == "accounts_version").with_for_update()
+            ).scalar()
+            current = int(row or 0)
             if self._version is not None and current != self._version:
                 self._data = None  # the next read is fresh
                 raise ValueError("The account directory changed in another process; repeat the change.")

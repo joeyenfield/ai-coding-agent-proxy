@@ -632,8 +632,13 @@ def llama_pull(base: str, key: str, model: str, progress: Progress) -> None:
                 raise llama_no_downloads(base, key, events.status_code)
             llama_call("POST", base + "/models", key, {"model": model}, MINUTE)
             progress({"status": "pulling " + model})
+            # Only this model's events count as progress: another model's download (or
+            # heartbeats) keeping the stream busy must not keep a stalled pull alive.
+            quiet = time.monotonic()
             try:
                 for raw in events.iter_lines():
+                    if time.monotonic() - quiet > PULL_IDLE:
+                        raise Refused("llama-server reported no download progress for 10 minutes; giving up")
                     line = raw.strip()
                     if not line.startswith("data:"):
                         continue
@@ -643,6 +648,7 @@ def llama_pull(base: str, key: str, model: str, progress: Progress) -> None:
                         continue
                     if not isinstance(event, dict) or not same_model(text(event.get("model")), model):
                         continue
+                    quiet = time.monotonic()
                     kind = text(event.get("event"))
                     if kind == "download_progress":
                         files = obj(event.get("data")).values()
