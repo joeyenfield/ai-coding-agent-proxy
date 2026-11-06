@@ -21,6 +21,8 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import quote
 
+import httpx
+
 from .. import common
 
 PROVIDERS = ("claude", "codex", "copilot")
@@ -146,7 +148,9 @@ def main(args: List[str]) -> int:
         else:
             print(f"agent accounts: no command {args[0]}\n\n{USAGE}", end="", file=sys.stderr)
             return 2
-    except (ValueError, APIError, LaunchError, OSError) as error:
+    except (ValueError, APIError, LaunchError, OSError, httpx.HTTPError) as error:
+        # httpx transport errors aren't OSErrors: the agent-proxy stopping between calls
+        # must print a one-line error, as the Go client does, not a traceback.
         print(f"agent accounts: {error}", file=sys.stderr)
         return 1
     return 0

@@ -13,6 +13,7 @@ import (
 func TestDeviceLoginAndRevocation(t *testing.T) {
 	t.Setenv("AI_PROXY_CREDENTIALS", filepath.Join(t.TempDir(), "credentials.json"))
 	t.Setenv(settings.TokenEnvironment, "")
+	t.Setenv(settings.SetupCodeEnvironment, "")
 	t.Setenv("AI_PROXY_URL", "")
 	var issuer string
 	revoked := ""

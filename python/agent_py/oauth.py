@@ -120,7 +120,7 @@ def credential_lock(path: Path):
     # The directory name and acquisition rules match Go. A timed-out lock isn't stolen (another
     # process might still be exchanging a rotating refresh credential), only one past STALE_LOCK.
     lock = path.with_name(path.name + ".lock")
-    lock.parent.mkdir(parents=True, exist_ok=True)
+    lock.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     deadline = time.monotonic() + 30
     while True:
         try:
@@ -128,9 +128,13 @@ def credential_lock(path: Path):
             break
         except FileExistsError:
             if _stale(lock):
-                # Left by a process that died holding it: take it over.
+                # Left by a process that died holding it: take it over. Rename it aside first,
+                # so of two waiters that both saw it stale only one wins; removing in place
+                # could delete the other waiter's fresh lock and let both hold it at once.
+                stale = lock.with_name(f"{lock.name}.stale-{time.time_ns()}")
                 with contextlib.suppress(OSError):
-                    lock.rmdir()
+                    lock.rename(stale)
+                    stale.rmdir()
                 continue
             if time.monotonic() >= deadline:
                 raise OAuthError("credentials are locked; another sign-in or refresh is in progress (remove a stale credentials.json.lock only after stopping clients)")
@@ -144,7 +148,10 @@ def credential_lock(path: Path):
     try:
         yield
     finally:
-        lock.rmdir()
+        # A failed unlock (an antivirus holding the directory for a moment) mustn't fail
+        # an operation that already succeeded; the stale takeover reclaims it, as in Go.
+        with contextlib.suppress(OSError):
+            lock.rmdir()
 
 
 def access_token(upstream: common.Upstream, server: str) -> str:

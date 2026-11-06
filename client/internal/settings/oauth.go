@@ -187,8 +187,13 @@ func LockCredentials() (func(), error) {
 			return func() { _ = os.Remove(path) }, nil
 		}
 		if info, statErr := os.Stat(path); statErr == nil && time.Since(info.ModTime()) > StaleLock {
-			// Left by a process that died holding it: take it over.
-			_ = os.Remove(path)
+			// Left by a process that died holding it: take it over. Rename it aside first,
+			// so of two waiters that both saw it stale only one wins; removing in place
+			// could delete the other waiter's fresh lock and let both hold it at once.
+			stale := fmt.Sprintf("%s.stale-%d", path, time.Now().UnixNano())
+			if os.Rename(path, stale) == nil {
+				_ = os.Remove(stale)
+			}
 			continue
 		}
 		// On Windows, creating the directory while another process is removing it is refused

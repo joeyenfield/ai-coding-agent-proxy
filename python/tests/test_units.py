@@ -278,6 +278,9 @@ def test_launcher_calls_are_signed_and_the_health_is_the_go_ones(tmp_path, monke
 def test_login_saves_a_token_and_logout_revokes_it(tmp_path, monkeypatch, capsys):
     credentials = tmp_path / "credentials.json"
     monkeypatch.delenv("AI_PROXY_TOKEN", raising=False)
+    # A coding agent working on this repository runs inside a launch whose setup code
+    # must not steer this login onto the setup-code path (as in the Go login test).
+    monkeypatch.delenv("AI_PROXY_SETUP_CODE", raising=False)
     monkeypatch.setattr(oauth.time, "sleep", lambda wait: None)
     revoked: List[str] = []
 

@@ -2,6 +2,7 @@ package launcher
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"os/exec"
@@ -12,6 +13,22 @@ import (
 	"ai-coding-agent-proxy/client/internal/process"
 	"ai-coding-agent-proxy/client/internal/settings"
 )
+
+// listening says whether anything accepts connections at the url's address: after the
+// child exited, a bound port means another copy won the race to start, so health is
+// worth a short wait; a refused connection means the start genuinely failed.
+func listening(address string) bool {
+	parsed, err := url.Parse(address)
+	if err != nil || parsed.Host == "" {
+		return false
+	}
+	conn, err := net.DialTimeout("tcp", parsed.Host, 300*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
+}
 
 // EnsureProxy starts this machine's agent-proxy if it isn't running, and the agent-server
 // too when it's this computer and down. It returns the agent-proxy's /health: its server
@@ -107,6 +124,8 @@ func proxyReviver() func() {
 
 func start(program string, args []string, url, name, manual string, timeout time.Duration) error {
 	cmd := exec.Command(program, args...)
+	// All nil on purpose: a pipe here would hit the detached child with EPIPE/SIGPIPE
+	// on a stderr write after this launcher exits.
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
 	process.Detach(cmd)
 	if err := cmd.Start(); err != nil {
@@ -121,6 +140,14 @@ func start(program string, args []string, url, name, manual string, timeout time
 	for time.Now().Before(deadline) {
 		select {
 		case <-exited:
+			// Two launches can race to start it: the loser exits over the taken port
+			// while the winner is coming up. Something listening there means exactly
+			// that, so give health a moment; a dead port is a genuine failure.
+			for grace := time.Now().Add(2 * time.Second); listening(url) && time.Now().Before(grace); time.Sleep(200 * time.Millisecond) {
+				if api.Health(url) != nil {
+					return nil
+				}
+			}
 			return fmt.Errorf("%s exited while starting. Run `%s` in a terminal to see why", name, manual)
 		default:
 		}

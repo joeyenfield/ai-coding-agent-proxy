@@ -228,12 +228,33 @@ def start(command: List[str], url: str, name: str, manual: str, timeout: float) 
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if process.poll() is not None:
+            # Two launches can race to start it: the loser exits over the taken port
+            # while the winner is coming up. Something listening there means exactly
+            # that, so give health a moment; a dead port is a genuine failure.
+            grace = time.monotonic() + 2
+            while _listening(url) and time.monotonic() < grace:
+                if common.health(url) is not None:
+                    return
+                time.sleep(0.2)
             raise LaunchError(f"{name} exited while starting. Run `{manual}` in a terminal to see why")
         if common.health(url) is not None:
             return
         time.sleep(0.2)
     process.kill()
     raise LaunchError(f"{name} didn't become ready at {url}")
+
+
+def _listening(url: str) -> bool:
+    """Whether anything accepts connections at the url's address: after the child exited,
+    a bound port means another copy won the race to start; a refusal, a real failure."""
+    parsed = urlparse(url)
+    if not parsed.hostname or not parsed.port:
+        return False
+    try:
+        with socket.create_connection((parsed.hostname, parsed.port), timeout=0.3):
+            return True
+    except OSError:
+        return False
 
 
 def proxy_reviver() -> Callable[[], None]:

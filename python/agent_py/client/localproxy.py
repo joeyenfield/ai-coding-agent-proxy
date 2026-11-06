@@ -304,6 +304,9 @@ class AgentProxy:
         # Host and Origin are checked after accepting, so a refusal reaches the launcher as a close code it can show.
         await launcher.accept()
         if not match:
+            # Parity note: the Go proxy's ReverseProxy also passes WebSocket upgrades through
+            # on /session/, /v1/ and /anthropic/; no server route needs that today, but the
+            # first agent protocol that streams over WS will need a forwarding branch here.
             await launcher.close(4404, "Not found")
             return
         if not local(launcher.headers):
@@ -443,18 +446,26 @@ class TunnelServer:
             done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             if pending:  # both may end at once; asyncio.wait refuses an empty set
                 await asyncio.wait(pending, timeout=0.05)
-            for task in pending:
-                task.cancel()
-            for task in done:
-                if not task.cancelled():
-                    task.exception()
+            # Retrieve every finished task's exception, including one that finished during
+            # the grace wait, so asyncio never logs "Task exception was never retrieved".
+            for task in tasks:
+                if task.done():
+                    if not task.cancelled():
+                        task.exception()
+                else:
+                    task.cancel()
         finally:
             side.close()
         code, reason = remote.close_code or 0, remote.close_reason or ""
         await remote.close()
         if code == 4410:
-            # Only the token this socket last held: another socket may have refreshed it already.
-            await asyncio.to_thread(self.upstream.reject_access_token, server, side.token)
+            try:
+                # Only the token this socket last held: another socket may have refreshed it already.
+                await asyncio.to_thread(self.upstream.reject_access_token, server, side.token)
+            except (RuntimeError, ValueError, OSError) as error:
+                # A locked or unwritable credentials file mustn't drop the agent's CONNECT
+                # without an answer: fold it into the refusal below instead.
+                reason = str(error)
         if not state["answered"] and code >= 4000:
             await refuse_tunnel(reader, writer, 407 if code in (4401, 4403) else 502, reason or "the agent-server refused")
 

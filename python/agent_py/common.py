@@ -16,6 +16,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -187,14 +188,19 @@ def expand_home(path: str) -> Path:
 
 
 def write_json(path: Path, value: Any) -> None:
-    """Replaces path in one step, readable by this user only."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
-    try:
-        os.chmod(temporary, 0o600)
-    except OSError:
-        pass
+    """Replaces path in one step, readable by this user only.
+
+    The folder is 0700 and the temporary file is born 0600 (as in the Go client), so a
+    refresh token is never readable by other users, even for a moment mid-write.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    # A name of this process's own, so a .tmp another run left behind (a crash, an
+    # antivirus holding it) can never block the write or be picked up half-written.
+    temporary = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    temporary.unlink(missing_ok=True)
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        handle.write(json.dumps(value, indent=2) + "\n")
     replace_file(temporary, path)
 
 
