@@ -378,6 +378,11 @@ func (m *Manager) stopOllama() error {
 			break
 		}
 	}
+	if process.Alive(pid) {
+		// Keep the PID: clearing it would make a later stop say Ollama was started
+		// outside agent-machine, for a process this machine itself started.
+		return errors.New("Ollama is still running after being asked to stop; try again")
+	}
 	_ = withOllama(0, "", nil, false).save()
 	if m.ollamaVersion() != "" {
 		return errors.New("Ollama is still answering after being stopped")

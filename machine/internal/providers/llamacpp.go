@@ -27,6 +27,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"ai-coding-agent-proxy/machine/internal/settings"
@@ -265,9 +266,15 @@ func llamaPull(base, key, model string, progress Progress) error {
 		return err
 	}
 	progress(map[string]any{"status": "pulling " + model})
+	// A router that stops reporting, or never reports this model, must not hold the
+	// connection and its worker forever: give up after llamaPullIdle without any event.
+	var timedOut atomic.Bool
+	watchdog := time.AfterFunc(llamaPullIdle, func() { timedOut.Store(true); events.Body.Close() })
+	defer watchdog.Stop()
 	reader := bufio.NewReader(events.Body)
 	for {
 		line, err := reader.ReadBytes('\n')
+		watchdog.Reset(llamaPullIdle)
 		if text := strings.TrimSpace(string(line)); strings.HasPrefix(text, "data:") {
 			var event map[string]any
 			if json.Unmarshal([]byte(strings.TrimSpace(strings.TrimPrefix(text, "data:"))), &event) == nil && sameModel(str(event["model"]), model) {
@@ -298,6 +305,9 @@ func llamaPull(base, key, model string, progress Progress) error {
 			}
 		}
 		if err != nil {
+			if timedOut.Load() {
+				return errors.New("llama-server reported no download progress for 10 minutes; giving up")
+			}
 			if err == io.EOF {
 				return errors.New("llama-server stopped before the download finished")
 			}
@@ -305,6 +315,9 @@ func llamaPull(base, key, model string, progress Progress) error {
 		}
 	}
 }
+
+// llamaPullIdle ends a pull whose progress stream has gone quiet.
+const llamaPullIdle = 10 * time.Minute
 
 func llamaDelete(base, key, model string) error {
 	return llamaCall(http.MethodDelete, base+"/models?model="+url.QueryEscape(model), key, nil, time.Minute)

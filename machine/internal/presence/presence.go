@@ -761,10 +761,17 @@ func (p *Presence) runHeadless(machine *settings.Machine, project string, args [
 			SessionID string `json:"session_id"`
 		}
 		if ok && json.Unmarshal([]byte(line), &opened) == nil && opened.SessionID != "" {
-			_ = cmd.Process.Release()
+			// The Wait goroutine reaps the agent when it exits; Release would race it.
 			return opened.SessionID, nil
 		}
-		<-exited
+		// The first line wasn't the session JSON: the agent is broken or chatty. Give it a
+		// moment to exit with its error, then kill it so the launch fails promptly.
+		select {
+		case <-exited:
+		case <-time.After(launchTimeout):
+			_ = cmd.Process.Kill()
+			<-exited
+		}
 		return "", fmt.Errorf("the agent didn't start: %s", strings.TrimSpace(stderr.String()))
 	case err := <-exited:
 		return "", fmt.Errorf("the agent exited (%v): %s", err, strings.TrimSpace(stderr.String()))

@@ -404,6 +404,10 @@ def stop(port: int) -> None:
     deadline = time.monotonic() + 20
     while time.monotonic() < deadline and (settings.alive(started) or running(port)):
         time.sleep(0.2)
+    if settings.alive(started):
+        # Keep the PID: clearing it would make a later stop say llama-server was
+        # started outside agent-machine, for a process this machine itself started.
+        raise Refused("llama-server is still running after being asked to stop; try again")
     saved = servers.load_state()
     saved.update(llamacpp_pid=0, llamacpp_env=None)
     servers.save_state(saved)

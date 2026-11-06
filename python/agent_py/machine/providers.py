@@ -609,6 +609,10 @@ def llama_no_downloads(base: str, key: str, status: int) -> Refused:
     return Refused(f"llama-server answered {status} to /models/sse, so it can't report a download's progress")
 
 
+# Ends a pull whose progress stream has gone quiet, as the Go machine does.
+PULL_IDLE = 10 * 60
+
+
 def llama_pull(base: str, key: str, model: str, progress: Progress) -> None:
     """Starts the router's download and relays its progress, Ollama's style, until it finishes."""
     llama_model_name(model)
@@ -616,7 +620,11 @@ def llama_pull(base: str, key: str, model: str, progress: Progress) -> None:
     with local() as http:
         # Listen first, so no event is missed between starting the download and listening.
         try:
-            events = http.send(http.build_request("GET", base + "/models/sse", headers=headers), stream=True)
+            # A read timeout bounds a router that stops reporting (or never reports this
+            # model), so the pull doesn't hold its worker and connection forever.
+            request = http.build_request("GET", base + "/models/sse", headers=headers,
+                                         timeout=httpx.Timeout(PULL_IDLE, connect=10))
+            events = http.send(request, stream=True)
         except httpx.HTTPError as error:
             raise unavailable("llama-server", error)
         try:
@@ -651,6 +659,8 @@ def llama_pull(base: str, key: str, model: str, progress: Progress) -> None:
                         message = text(data.get("error")) or text(data.get("message")) or "the download failed"
                         progress({"status": "error", "error": message})
                         raise Refused(message)
+            except httpx.ReadTimeout:
+                raise Refused("llama-server reported no download progress for 10 minutes; giving up")
             except httpx.HTTPError as error:
                 raise unavailable("llama-server", error)
             raise Refused("llama-server stopped before the download finished")

@@ -136,6 +136,9 @@ func TestJobsStartSwitchAndStopContainersWithTheCLI(t *testing.T) {
 	if started["ok"] != true {
 		t.Fatalf("start %v", started)
 	}
+	if ports := manager.Ports(); len(ports) != 1 || ports[0] != 18080 {
+		t.Fatalf("a started container's port should be open to tunnels: %v", ports)
+	}
 	item := wait("s1")
 	job := item["job"].(map[string]any)
 	if job["state"] != "done" || item["outdated"] != false || !strings.Contains(item["command"].(string), "<api key>") {
@@ -279,5 +282,39 @@ func TestALlamaCppContainerServesItsRouterWithTheServersKey(t *testing.T) {
 	}
 	if shown := CommandLine("docker", args, "s3cret"); strings.Contains(shown, "s3cret") {
 		t.Fatalf("the key is shown: %s", shown)
+	}
+}
+
+func TestTunnelsReachOnlyValidatedContainerPorts(t *testing.T) {
+	command, _ := json.Marshal([]string{"agent-test-no-such-cli"})
+	t.Setenv(CommandEnv, string(command))
+	enabled := true
+	manager := &Manager{Machine: func() *settings.Machine { return &settings.Machine{Containers: enabled} }}
+	// A spec that doesn't validate (an unknown engine, a privileged port, a bad name)
+	// must not open its port to tunnels, whatever op carries it.
+	for name, spec := range map[string]map[string]any{
+		"bad-engine": {"engine": "nope", "port": float64(18080)},
+		"low-port":   {"engine": "strata", "port": float64(80)},
+	} {
+		manager.Handle(Request{Op: "status", Containers: map[string]Target{name: {Spec: spec, Key: "k1"}}})
+		if ports := manager.Ports(); len(ports) != 0 {
+			t.Fatalf("%s opened ports %v", name, ports)
+		}
+	}
+	// A validated status target opens its port, under its container's name.
+	good := map[string]any{"engine": "strata", "port": float64(18080)}
+	manager.Handle(Request{Op: "status", Containers: map[string]Target{"ok": {Spec: good, Key: "k1"}}})
+	if ports := manager.Ports(); len(ports) != 1 || ports[0] != 18080 {
+		t.Fatalf("a validated spec should open its port: %v", ports)
+	}
+	// Turning containers off closes every port; forgetting the container does too.
+	enabled = false
+	if ports := manager.Ports(); len(ports) != 0 {
+		t.Fatalf("containers off should close ports: %v", ports)
+	}
+	enabled = true
+	manager.forget("ok")
+	if ports := manager.Ports(); len(ports) != 0 {
+		t.Fatalf("a removed container should close its port: %v", ports)
 	}
 }

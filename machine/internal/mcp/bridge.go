@@ -239,8 +239,14 @@ func (b *Bridge) stdio(w http.ResponseWriter, r *http.Request, server Server) {
 // open starts a stdio server's process for a new MCP session.
 func (b *Bridge) open(server Server) (*session, error) {
 	b.mu.Lock()
-	full := len(b.sessions) >= maxSessions
+	closed := b.sessions == nil
+	full := !closed && len(b.sessions) >= maxSessions
 	b.mu.Unlock()
+	if closed {
+		// The bridge was closed while this request was in flight; starting the
+		// process now would leave it running with nothing to reap it.
+		return nil, errors.New("the MCP bridge is shutting down")
+	}
 	if full {
 		return nil, fmt.Errorf("this machine already runs %d MCP sessions; end some agents first", maxSessions)
 	}
@@ -277,6 +283,16 @@ func (b *Bridge) open(server Server) (*session, error) {
 		waiting: map[string]*stream{}, done: make(chan struct{}), used: time.Now(),
 	}
 	b.mu.Lock()
+	if b.sessions == nil {
+		// Closed while the process was starting: nothing will reap it, so end it now.
+		b.mu.Unlock()
+		_ = stdin.Close()
+		if process.StopTree(cmd.Process.Pid) != nil {
+			_ = cmd.Process.Kill()
+		}
+		_ = cmd.Wait()
+		return nil, errors.New("the MCP bridge is shutting down")
+	}
 	b.sessions[s.id] = s
 	b.mu.Unlock()
 	go s.read(stdout)

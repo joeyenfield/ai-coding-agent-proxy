@@ -213,3 +213,27 @@ def test_settings_commands_change_machine_json(tmp_path, monkeypatch):
     # Go leaves an empty container_cli out of machine.json.
     assert "container_cli" not in json.loads((tmp_path / "home" / "machine.json").read_text())
     assert command.main(["roots", "remove", str(root)]) == 0 and settings.Machine.load().roots == []
+
+
+def test_tunnels_reach_only_validated_container_ports(monkeypatch):
+    # machine/internal/containers/containers_test.go TestTunnelsReachOnlyValidatedContainerPorts
+    monkeypatch.setenv(containers.COMMAND_ENV, json.dumps(["agent-test-no-such-cli"]))
+    machine = settings.Machine(id="m", containers=True)
+    manager = Manager(machine=lambda: machine)
+    # A spec that doesn't validate (an unknown engine, a privileged port) must not open
+    # its port to tunnels, whatever op carries it.
+    for name, spec in {
+        "bad-engine": {"engine": "nope", "port": 18080},
+        "low-port": {"engine": "strata", "port": 80},
+    }.items():
+        manager.handle({"op": "status", "containers": {name: {"spec": spec, "key": "k1"}}})
+        assert manager.ports() == set(), name
+    # A validated status target opens its port, under its container's name.
+    manager.handle({"op": "status", "containers": {"ok": {"spec": {"engine": "strata", "port": 18080}, "key": "k1"}}})
+    assert manager.ports() == {18080}
+    # Turning containers off closes every port; forgetting the container does too.
+    machine.containers = False
+    assert manager.ports() == set()
+    machine.containers = True
+    manager.forget("ok")
+    assert manager.ports() == set()

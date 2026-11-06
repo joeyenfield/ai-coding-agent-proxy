@@ -99,33 +99,40 @@ type Manager struct {
 
 	mu   sync.Mutex
 	jobs map[string]*Job
-	// The ports of the containers the server has named, which its tunnels may reach (presence/tunnel.go).
-	ports map[int]bool
+	// Each named container's validated port, which the server's tunnels may reach (presence/tunnel.go).
+	ports map[string]int
 }
 
-// Ports are the ports of the containers the server has asked about: where they serve on this machine.
+// Ports are the validated ports of the containers the server has named, while containers are on.
+// Only ports from specs that passed Validate count, so a bogus spec can't open a loopback port
+// to tunnels, and turning containers off closes them all.
 func (m *Manager) Ports() []int {
+	if !m.machine().Containers {
+		return nil
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	ports := make([]int, 0, len(m.ports))
-	for port := range m.ports {
+	for _, port := range m.ports {
 		ports = append(ports, port)
 	}
 	return ports
 }
 
-// remember keeps a container spec's port, from any request that carries one.
-func (m *Manager) remember(spec map[string]any) {
-	port, ok := spec["port"].(float64)
-	if !ok || port < 1 || port > 65535 {
-		return
-	}
+// remember keeps a container's validated port under its name; forget drops it with the container.
+func (m *Manager) remember(name string, port int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.ports == nil {
-		m.ports = map[int]bool{}
+		m.ports = map[string]int{}
 	}
-	m.ports[int(port)] = true
+	m.ports[name] = port
+}
+
+func (m *Manager) forget(name string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.ports, name)
 }
 
 func (m *Manager) machine() *settings.Machine {
@@ -162,12 +169,6 @@ func (m *Manager) Describe() map[string]any {
 
 // Handle answers one request, as the container_result to send back.
 func (m *Manager) Handle(request Request) map[string]any {
-	if m.machine().Containers {
-		m.remember(request.Spec)
-		for _, target := range request.Containers {
-			m.remember(target.Spec)
-		}
-	}
 	result, err := m.handle(request)
 	if err != nil {
 		result = map[string]any{"ok": false, "error": err.Error()}
@@ -197,6 +198,7 @@ func (m *Manager) handle(request Request) (map[string]any, error) {
 		if err != nil {
 			return nil, err
 		}
+		m.remember(request.Name, spec.Port)
 		others := []Other{}
 		if request.Op == "start" {
 			for _, other := range request.StopFirst {
@@ -236,6 +238,7 @@ func (m *Manager) handle(request Request) (map[string]any, error) {
 		m.mu.Lock()
 		delete(m.jobs, request.Name)
 		m.mu.Unlock()
+		m.forget(request.Name)
 		return map[string]any{}, nil
 	case "logs":
 		if err := checkKey(request.Key); err != nil {
@@ -294,9 +297,14 @@ func (m *Manager) status(cli CLI, targets map[string]Target) map[string]any {
 		if job := m.job(name); job != nil {
 			item["job"] = job.Public()
 		}
-		if _, args, err := prepare(cli, name, target); err != nil {
+		if spec, args, err := prepare(cli, name, target); err != nil {
 			item["problem"] = err.Error()
 		} else {
+			// A validated status target opens its port to tunnels: the machine learns its
+			// containers' ports from the server's requests about them, and a container
+			// backend serves agents from its first launch, before its container exists.
+			// Only validated specs count, and remove/containers-off closes the port again.
+			m.remember(name, spec.Port)
 			digest := strings.TrimPrefix(args[len(args)-2], "ai-proxy.spec=")
 			item["outdated"] = exists && state.Spec != digest
 			item["command"] = CommandLine(cli.Name, args, target.Key)

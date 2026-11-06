@@ -12,6 +12,7 @@ The Go agent-machine's is machine/internal/mcp.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hmac
 import json
 import logging
@@ -136,6 +137,7 @@ class Bridge:
         self.port = 0
         self.key = ""
         self.sessions: Dict[str, "Session"] = {}
+        self.closing = False
         self.loop: Optional[asyncio.AbstractEventLoop] = None
         self.server: Optional[uvicorn.Server] = None
         self.lock = threading.Lock()
@@ -184,6 +186,7 @@ class Bridge:
 
     def close(self) -> None:
         """Ends every stdio session (waiting a little for them) and stops listening."""
+        self.closing = True
         if self.loop and self.server:
             ending = [asyncio.run_coroutine_threadsafe(session.close(), self.loop) for session in list(self.sessions.values())]
             self.sessions = {}
@@ -267,6 +270,9 @@ class Bridge:
         return error(405, "POST, GET or DELETE")
 
     async def open(self, server: Server) -> "Session":
+        if self.closing:
+            # The bridge is shutting down; a session opened now would never be closed.
+            raise ValueError("the MCP bridge is shutting down")
         if len(self.sessions) >= MAX_SESSIONS:
             raise ValueError(f"this machine already runs {MAX_SESSIONS} MCP sessions; end some agents first")
         program = common.look_path(server.command[0])
@@ -277,6 +283,12 @@ class Bridge:
             program, *server.command[1:], cwd=server.dir or None, env={**os.environ, **server.env},
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, limit=MAX_BODY, **flags,
         )
+        if self.closing:
+            # close() ran while the process was starting: nothing would reap it, so end it now.
+            with contextlib.suppress(ProcessLookupError):
+                process.kill()
+            await process.wait()
+            raise ValueError("the MCP bridge is shutting down")
         session = Session(secrets.token_hex(16), server.name, process)
         self.sessions[session.id] = session
         session.tasks = [asyncio.ensure_future(session.read()), asyncio.ensure_future(session.errors())]
@@ -294,7 +306,9 @@ class Bridge:
 
 class Stream:
     def __init__(self, events: bool) -> None:
-        self.queue: asyncio.Queue = asyncio.Queue()
+        # Bounded like the Go bridge's 64-slot channel, so a consumer that stopped
+        # reading can't grow memory without bound.
+        self.queue: asyncio.Queue = asyncio.Queue(64)
         self.events = events
         self.closed = False
 
@@ -392,7 +406,8 @@ class Session:
         """The session's GET stream: what the server says outside any request's reply."""
         if self.listening is not None:
             self.listening.closed = True
-            self.listening.queue.put_nowait(None)
+            with contextlib.suppress(asyncio.QueueFull):
+                self.listening.queue.put_nowait(None)
         out = Stream(True)
         self.listening = out
         backlog, self.backlog = self.backlog, []
@@ -435,7 +450,7 @@ class Session:
             except ValueError:
                 log.info("mcp %s: not JSON on stdout: %.200s", self.server, line)
                 continue
-            self.route(line)
+            await self.route(line)
 
     async def errors(self) -> None:
         assert self.process.stderr
@@ -445,7 +460,7 @@ class Session:
                 return
             log.info("mcp %s: %s", self.server, line.decode("utf-8", "replace").rstrip())
 
-    def route(self, message: bytes) -> None:
+    async def route(self, message: bytes) -> None:
         """A response to its request's stream; anything else to the newest open event stream, the GET
         stream, or the backlog for the next GET."""
         out = None
@@ -457,7 +472,9 @@ class Session:
             if len(self.backlog) < BACKLOG:
                 self.backlog.append(message)
             return
-        out.queue.put_nowait(message)
+        # A full queue (a consumer that stopped reading) holds this session's routing,
+        # as the Go bridge's channel does, so memory stays bounded and no reply is lost.
+        await out.queue.put(message)
 
     async def close(self) -> None:
         """Its stdin first, so it can stop by itself, then the process and what it started."""

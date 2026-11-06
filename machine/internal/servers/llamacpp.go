@@ -312,6 +312,11 @@ func (m *Manager) stopLlama() error {
 			break
 		}
 	}
+	if process.Alive(pid) {
+		// Keep the PID: clearing it would make a later stop say llama-server was
+		// started outside agent-machine, for a process this machine itself started.
+		return errors.New("llama-server is still running after being asked to stop; try again")
+	}
 	saved := loadState()
 	saved.LlamaPID, saved.LlamaEnv = 0, nil
 	_ = saved.save()

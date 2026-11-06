@@ -605,21 +605,28 @@ class Manager:
         self.machine = machine or settings.Machine.load
         self.lock = threading.Lock()
         self.jobs: Dict[str, Job] = {}
-        # The ports of the containers the server has named, which its tunnels may reach.
-        self._ports: set = set()
+        # Each named container's validated port, which the server's tunnels may reach.
+        self._ports: Dict[str, int] = {}
 
     def ports(self) -> set:
-        """The ports of the containers the server has asked about: where they serve on this machine."""
-        with self.lock:
-            return set(self._ports)
+        """The validated ports of the containers the server has named, while containers are on.
 
-    def remember(self, spec: Any) -> None:
-        """Keeps a container spec's port, from any request that carries one."""
-        port = spec.get("port") if isinstance(spec, dict) else None
-        if isinstance(port, bool) or not isinstance(port, (int, float)) or not 1 <= port <= 65535:
-            return
+        Only ports from specs that passed validation count, so a bogus spec can't open a
+        loopback port to tunnels, and turning containers off closes them all.
+        """
+        if not self.machine().containers:
+            return set()
         with self.lock:
-            self._ports.add(int(port))
+            return set(self._ports.values())
+
+    def remember(self, name: str, port: int) -> None:
+        """Keeps a container's validated port under its name."""
+        with self.lock:
+            self._ports[name] = port
+
+    def forget(self, name: str) -> None:
+        with self.lock:
+            self._ports.pop(name, None)
 
     def describe(self) -> Dict[str, Any]:
         """What the hello says about containers: whether they're on, the CLI, and the engines."""
@@ -637,10 +644,6 @@ class Manager:
         """Answers one {"type": "container"} request, as the container_result to send back."""
         machine = self.machine()
         targets = request.get("containers") if isinstance(request.get("containers"), dict) else {}
-        if machine.containers:
-            self.remember(request.get("spec"))
-            for value in targets.values():
-                self.remember(target(value)["spec"])
         try:
             result = self._handle(machine, request, targets)
             result["ok"] = True
@@ -661,6 +664,7 @@ class Manager:
         check_name(name)
         if op in ("start", "restart"):
             spec, args = prepare(cli, name, target(request))
+            self.remember(name, spec.port)
             others: List[Dict[str, str]] = []
             if op == "start":
                 listed = request.get("stop_first")
@@ -684,6 +688,7 @@ class Manager:
                 raise SpecError(error_text.strip() or f"{cli.name} rm failed")
             with self.lock:
                 self.jobs.pop(name, None)
+            self.forget(name)
             return {}
         if op == "logs":
             key = as_text(request.get("key"))
@@ -716,10 +721,15 @@ class Manager:
                 item["job"] = job.public()
             wanted = target(value)
             try:
-                _, args = prepare(cli, name, wanted)
+                spec, args = prepare(cli, name, wanted)
             except SpecError as error:
                 item["problem"] = str(error)
                 continue
+            # A validated status target opens its port to tunnels: the machine learns its
+            # containers' ports from the server's requests about them, and a container
+            # backend serves agents from its first launch, before its container exists.
+            # Only validated specs count, and remove/containers-off closes the port again.
+            self.remember(name, spec.port)
             digest = args[-2][len("ai-proxy.spec="):]
             item["outdated"] = state is not None and state["spec"] != digest
             item["command"] = command_line(cli.name, args, wanted["key"])

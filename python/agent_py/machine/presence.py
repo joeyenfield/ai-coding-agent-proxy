@@ -325,10 +325,13 @@ def run_headless(machine: settings.Machine, project: str, args: List[str], serve
         session_id = ""
     if session_id:
         return session_id
+    # The first line wasn't the session JSON: the agent is broken or chatty. Give it a
+    # moment to exit with its error, then kill it so the launch fails promptly.
     try:
-        process.wait(5)
+        process.wait(LAUNCH_TIMEOUT)
     except subprocess.TimeoutExpired:
-        pass
+        process.kill()
+        process.wait()
     raise Refused(f"the agent didn't start: {errors.decode('utf-8', 'replace').strip()}")
 
 
@@ -467,17 +470,24 @@ class Presence:
                 asyncio.run_coroutine_threadsafe(send(value), loop).result(30)
 
             async def keep_up() -> None:
-                since_update = 0
                 while True:
                     await asyncio.sleep(PING_EVERY)
-                    since_update += PING_EVERY
                     # One failure (a slow probe, a send that failed and ended the connection) mustn't end
                     # the loop silently: a failed send has already closed the connection, and the session ends.
                     try:
                         await send({"type": "ping"})
-                        if since_update >= UPDATE_EVERY:
-                            since_update = 0
-                            await send(await asyncio.to_thread(self.describe, server, "update"))
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as error:  # noqa: BLE001
+                        log.info("fleet: couldn't send a ping: %s", error)
+
+            async def send_updates() -> None:
+                # Its own loop, as in the Go machine's separate ticker, so updates really go
+                # every UPDATE_EVERY seconds (piggybacking on 25 s pings would make it 75 s).
+                while True:
+                    await asyncio.sleep(UPDATE_EVERY)
+                    try:
+                        await send(await asyncio.to_thread(self.describe, server, "update"))
                     except asyncio.CancelledError:
                         raise
                     except Exception as error:  # noqa: BLE001
@@ -518,7 +528,7 @@ class Presence:
                         except Exception as error:  # noqa: BLE001
                             log.info("fleet: couldn't send an update: %s", error)
 
-            tasks = {asyncio.ensure_future(keep_up()), asyncio.ensure_future(renew()), asyncio.ensure_future(report_accounts())}
+            tasks = {asyncio.ensure_future(keep_up()), asyncio.ensure_future(send_updates()), asyncio.ensure_future(renew()), asyncio.ensure_future(report_accounts())}
             try:
                 async for raw in conn:
                     try:

@@ -118,7 +118,11 @@ class Machine:
         data = None
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+        except ValueError:
+            # A corrupt machine.json regenerates, as in Go: it must not silently
+            # resurrect the pre-agent-machine file's id, roots and toggles.
+            data = None
+        except OSError:
             if not os.environ.get("AI_PROXY_MACHINE_HOME"):
                 # Carry the old file over once: the server knows the machine (and its backends) by its id.
                 former = common.config_dir() / "agent-proxy" / "machine.json"

@@ -1092,6 +1092,11 @@ class Manager:
                 os.killpg(pid, signal.SIGKILL)
             except (ProcessLookupError, PermissionError):
                 pass
+            time.sleep(0.2)
+        if settings.alive(pid):
+            # Keep the PID: clearing it would make a later stop say Ollama was started
+            # outside agent-machine, for a process this machine itself started.
+            raise Refused("Ollama is still running after being asked to stop; try again")
         save_state(with_ollama(0, "", None, False))
         if self.ollama_version():
             raise Refused("Ollama is still answering after being stopped")
