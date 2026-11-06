@@ -304,6 +304,7 @@ The WebSocket close codes, and who retries after each:
 | `4409` | terminal host, fleet | Replaced by the same launcher or machine reconnecting | nobody (the new one carries on) |
 | `4410` | every signed-in socket | The access token expired or was revoked while connected (agent-machine and agent-proxy renew theirs over their open sockets first) | the client, after renewing its token |
 | `4426` | every socket | Protocol out of range: update the program | nobody |
+| `4502` | tunnels (closed by the machine) | The model server behind the tunnel isn't answering | the agent's next request opens a new tunnel |
 
 ## Behind a reverse proxy
 

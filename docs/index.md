@@ -1,10 +1,10 @@
 # AI Control Mesh: documentation
 
-Run terminal coding agents (Claude Code, GitHub Copilot CLI, OpenAI Codex, Qwen Code, OpenCode, Aider, Goose) through one server and see their requests. Model-call metadata, tokens and timing are recorded; turn on full tracing to save prompts and replies. For agents signed in to their own accounts, allowed requests to public services are recorded too: sign-in, settings, MCP, telemetry, update checks. Private and reserved IP destinations are refused. The same server gives agents your own models on your own machines, shares MCP servers between machines, and lets you watch and type into running agents from a browser or a phone.
+Run terminal coding agents — Claude Code, Codex, Copilot CLI, Qwen Code, OpenCode, Aider, Goose — through one server you host, and see everything they do. The server records every model call's tokens and timings (and, with tracing on, the full prompts and replies), routes agents to your own models or your own vendor plans, shares your machines' MCP servers, and shows you running agents' terminals, so you can watch and answer them from a browser or a phone. Agents on their own vendor accounts are recorded in transit too: sign-in, settings, MCP, telemetry and update checks, to public destinations only.
 
 ![The console's Overview](screenshots/overview.png)
 
-New here? Try it on your computer with the [Quickstart with Docker or Podman](quickstart.md) or the [Quickstart on Kubernetes](quickstart-kubernetes.md), then follow [Getting started](getting-started.md) for a real install.
+New here? Try it on your computer with the [Quickstart with Docker or Podman](quickstart.md) or the [Quickstart on Kubernetes](quickstart-kubernetes.md), then follow [Getting started](getting-started.md) for a real install. The pages are layered: **Start here** and **Use it** stay practical, **Run a server** is for whoever operates one, and **How it works** has the technical depth (architecture, protocols, every endpoint).
 
 ## How it fits together
 
@@ -81,7 +81,7 @@ A computer can be all three. How an agent's request reaches a model depends on t
 | The vault for managed tokens | `agent-server vault key\|status\|rotate`, `AI_PROXY_VAULT_KEYS` | | [Subscriptions](subscriptions.md#the-vault) |
 | Record account agents' HTTPS | `agent claude-account` and the other `-account` agents | Traffic | [Agents](agents.md#your-accounts-https-capture) |
 | Local models on Ollama, llama.cpp, Strata, Docker | `--model`, `--backend` | Start an agent, a machine's model server tabs | [Providers](providers.md) |
-| Tune Ollama per model | `agent-server config import` | Server settings › Ollama model tuning, a model server's Aliases tab | [Providers](providers.md#model-tuning) |
+| Tune Ollama per model | `agent-server config import` | Server settings › Model tuning, a model server's Aliases tab | [Providers](providers.md#model-tuning) |
 | Add or change an agent | `PUT /api/config/agents/<id>` | Server settings › Agents | [Agents](agents.md#adding-a-new-agent) |
 | Hosted API pass-through | `agent claude-subscription` | Server settings › Add hosted API | [Providers](providers.md#backend-types) |
 | OpenAI or Anthropic-compatible APIs and gateways (OpenAI, OpenRouter, LiteLLM, ...) | `--backend <name>` | Organizations › API providers | [Providers](providers.md#api-providers-openai-and-anthropic-compatible) |

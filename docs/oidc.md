@@ -4,9 +4,9 @@ Authentication is required on every API interface, including loopback. The platf
 
 | Host | Responsibility |
 | --- | --- |
-| `auth.aicontrolmesh.com` | Sign-in, authorization, device approval, token issuance, refresh, revocation and discovery. |
-| `api.aicontrolmesh.com` | The resource API. Validates access tokens with authenticated introspection; enforces roles, sharing and machine grants. |
-| `console.aicontrolmesh.com` | The console. Redirects sign-in through the API to the issuer; never collects your password. |
+| `auth.example.com` | Sign-in, authorization, device approval, token issuance, refresh, revocation and discovery. |
+| `api.example.com` | The resource API. Validates access tokens with authenticated introspection; enforces roles, sharing and machine grants. |
+| `console.example.com` | The console. Redirects sign-in through the API to the issuer; never collects your password. |
 
 OIDC identifies people; OAuth **access tokens** authorize API requests. An ID token is not an API credential. Session ids identify agent sessions but no longer authenticate requests.
 
@@ -23,13 +23,13 @@ Set `AI_PROXY_OIDC_INTROSPECTION_SECRET` to a strong random secret on both servi
 For the public deployment, configure:
 
 ```dotenv
-VITE_API_URL=https://api.aicontrolmesh.com
+VITE_API_URL=https://api.example.com
 AI_PROXY_SERVE_UI=0
-AI_PROXY_CONSOLE_ORIGINS=https://console.aicontrolmesh.com
-AI_PROXY_OIDC_ISSUER=https://auth.aicontrolmesh.com
-AI_PROXY_OIDC_AUDIENCE=https://api.aicontrolmesh.com
-AI_PROXY_OIDC_REDIRECT_URIS=https://api.aicontrolmesh.com/api/auth/callback
-AI_PROXY_OIDC_BROWSER_ORIGINS=https://console.aicontrolmesh.com
+AI_PROXY_CONSOLE_ORIGINS=https://console.example.com
+AI_PROXY_OIDC_ISSUER=https://auth.example.com
+AI_PROXY_OIDC_AUDIENCE=https://api.example.com
+AI_PROXY_OIDC_REDIRECT_URIS=https://api.example.com/api/auth/callback
+AI_PROXY_OIDC_BROWSER_ORIGINS=https://console.example.com
 ```
 
 Then run `docker compose --profile console up -d --build`, with the introspection secret supplied in the environment. Compose adds `agent-auth` on **host loopback port 10000**, keeping its state in the same PostgreSQL as the API, in its own schema (`mesh_auth`) and through its own role (`AI_PROXY_AUTH_DATABASE_URL`). The issuer reads the API's accounts read-only (that role can only `SELECT` them); the API still owns account, organization and team administration. Both services must use the same database. Do not run multiple independent copies of it.
@@ -68,8 +68,8 @@ The Android WebView keeps the explicitly discovered HTTPS issuer and API sign-in
 ## CLI sign-in
 
 ```bash
-agent login https://api.aicontrolmesh.com
-agent-machine login https://api.aicontrolmesh.com
+agent login https://api.example.com
+agent-machine login https://api.example.com
 ```
 
 The command prints the issuer's verification address and a short user code. Open it in your browser, sign in, check the code and approve **only a sign-in you started**. To reject a code, sign in on that page and choose **Deny device sign-in**. Denial is final for that code; the CLI receives `access_denied` and no tokens are issued. Start a new CLI sign-in if needed. Already signed in to the console? Enter the code on **Machines › Approve a device** instead: the console shows what asked and when, and you approve or deny without your password. The API passes your console access token to the issuer (`POST /device/console`, authenticated as `mesh-api`), which accepts only console sign-ins, so a CLI or service token can't approve devices. The command polls the token endpoint until approved, denied or expired. No password is read by the CLI or sent to the API. [Security](security.md#device-approval) walks through the whole flow, what protects a code, and how to approve safely.
@@ -89,7 +89,7 @@ agent-auth client add build-bot --user automation
 `agent-auth client remove build-bot` revokes it. Keep the generated client secret in your secret manager. Request an access token using HTTP Basic client authentication and a form:
 
 ```text
-POST https://auth.aicontrolmesh.com/token
+POST https://auth.example.com/token
 Authorization: Basic <client credentials>
 Content-Type: application/x-www-form-urlencoded
 
@@ -136,8 +136,8 @@ Mutations and WebSocket connections with an `Origin` header require the API's or
 
 | Variable | Default / meaning |
 | --- | --- |
-| `AI_PROXY_OIDC_ISSUER` | `https://auth.aicontrolmesh.com`; HTTPS required, except explicit loopback development issuers. |
-| `AI_PROXY_OIDC_AUDIENCE` | `https://api.aicontrolmesh.com`. |
+| `AI_PROXY_OIDC_ISSUER` | `https://auth.example.com`; HTTPS required, except explicit loopback development issuers. |
+| `AI_PROXY_OIDC_AUDIENCE` | `https://api.example.com`. |
 | `AI_PROXY_OIDC_CONSOLE_CLIENT` | `mesh-console`; public code/refresh client. |
 | `AI_PROXY_OIDC_CLI_CLIENT` | `mesh-cli`; public device/refresh client. |
 | `AI_PROXY_OIDC_INTROSPECTION_CLIENT` | `mesh-api`; confidential resource client. |

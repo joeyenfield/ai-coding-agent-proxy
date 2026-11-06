@@ -25,10 +25,15 @@ With [separate hosting](deployment.md#separate-console-and-api-domains), all the
 | **Admin** | Signed in as an admin of an organization, and only for that organization's things (site admins: also the users and teams of any organization); enforced by `auth.ADMIN_ONLY` and the route. |
 | **Trusted** | Signed in. Loopback and old access keys confer no privilege. |
 | **Same origin** | Unsafe methods and WebSockets require the request's host or an exact console origin in `AI_PROXY_CONSOLE_ORIGINS`. Other origins are refused. |
-| **Machine feature** | The fleet's grants, `fleet.allowed(identity, machine, feature)`, only ever inside the machine's organization: the machine's owner always; its organization's admins for `view`, `models` and `update`; the organization or teams the owner granted the feature. See [Machines](machines.md). |
+| **Machine feature** | The fleet's grants, `fleet.allowed(identity, machine, feature)`, only ever inside the machine's organization: the machine's owner always; its organization's admins for `view`, `models` and `update`; the organization or teams the owner granted the feature. Site admins have every feature on every machine. See [Machines](machines.md). |
 | **Machine owner** | The machine's owner, or an admin of its organization where it says so. |
 
-Every protected path requires authentication, including agent session paths and loopback. Exceptions are `/health` and `/api/auth/{status,login,callback,refresh,logout}`. Refused credentials get 401; forbidden origins/roles get 403; issuer failures get 503. WebSockets initially close 4401/4403 and close 4410 when an established credential needs renewal. The fleet socket, machine tunnels, HTTPS tunnels (`/api/proxy/tunnel`) and terminal hosts take a renewed token over the open socket instead: a text frame `{"type": "token", "token": "<access token>"}`, accepted if it's valid and the same user's. When it rechecks an open connection the server reuses the issuer's answer about a token for up to 10 seconds (a new request always asks), and when the issuer can't be reached it keeps accepting a token it confirmed until that token expires.
+Every protected path requires authentication, including agent session paths and loopback. Exceptions are `/health` and `/api/auth/{status,login,callback,refresh,logout,accounts,switch}` (the last two read and change only the browser's own sign-ins).
+
+- Refused credentials get 401; forbidden origins/roles get 403; issuer failures get 503.
+- A WebSocket refused at the door closes with 4400 plus the HTTP status's last two digits — 4401, 4403, and 4403 for an unavailable issuer (503) too — and closes 4410 when an established credential needs renewal.
+- The fleet socket, machine tunnels, HTTPS tunnels (`/api/proxy/tunnel`) and terminal hosts take a renewed token over the open socket instead: a text frame `{"type": "token", "token": "<access token>"}`, accepted if it's valid and the same user's.
+- When it rechecks an open connection the server reuses the issuer's answer about a token for up to 10 seconds (a new request always asks), and when the issuer can't be reached it keeps accepting a token it confirmed until that token expires.
 
 Everything belongs to one organization (tenant): users, machines, providers, sessions and their records. No endpoint reaches another organization's; they answer `404` as if missing, and lists leave them out. Site admins are the exception: they see and control everything in every organization, private sessions included. Every endpoint that touches a session checks its sharing (see [Accounts](accounts.md)). A session you can't see answers `404`.
 
@@ -68,7 +73,7 @@ its in-flight entry and records `client_closed`.
 | GET | `/api/status` | Signed in | Totals, requests in flight, recent requests (the last 100 records; `?recent=0` leaves them out, for frequent polling), intercept state, `default_backend`, whether a restart is needed for the listen address, and each machine backend's `provider`. Only sessions you can see (their token totals too), and only the backends your organization's agents may use. |
 | GET | `/api/config` | Site admin | The editable network settings (`proxy.listen_host`, `listen_port`, `url`, `public_url`, `default_backend`, `backends`) and `restart_required`. |
 | PUT | `/api/config` | Site admin | Stores them. Can remove local backends and add or edit hosted ones; refuses new or moved local ones. Without `backends`, leaves them alone; without `proxy.public_url`, leaves it as it is (`null` clears it). See [Configuration](configuration.md). |
-| GET | `/api/config/export` | Site admin | Every setting as one YAML document (`proxy`, `default_backend`, `intercept`, `retention_days`, `backends`, `models`, `agents`); `?format=json` for JSON. |
+| GET | `/api/config/export` | Site admin | Every setting as one YAML document (`proxy`, `default_backend`, `intercept`, `retention_days`, `request_log`, `backends`, `models`, `agents`); `?format=json` for JSON. |
 | POST | `/api/config/import` | Site admin | Stores a settings document (YAML or JSON body): the parts it has, or with `?replace=true` every part. Everything is checked first. Answers `changed` and `restart_required`. |
 | GET | `/api/config/agents` | Site admin | Every stored agent: `id`, `definition`, `yaml` (the definition as YAML, to edit), `builtin` (it ships with the server) and `edited` (changed since). |
 | PUT | `/api/config/agents/{agent_id}` | Site admin | Adds or changes an agent; the body is its definition, YAML or JSON. A shipped one stops following the server's updates. `400` with the reason when it isn't valid. |
@@ -93,7 +98,7 @@ its in-flight entry and records `client_closed`.
 | GET | `/api/server/request-log` | Site admin | The API log: every saved request, newest first. `q` matches words in the path, query names, address, user, machine, user agent, status and reason; `method` (`GET`, `POST`, ..., `WS`); `status` (`2xx`, `3xx`, `4xx`, `5xx`, `failed`, `websocket`; `400` for anything else); `user`; `limit` (1 to 500, default 100); `before` and `since` (times). Entries as the access log's, with a string `id` and `payload` (debug mode saved its headers and bodies). Also `settings` (the `request_log` setting). |
 | GET | `/api/server/request-log/summary` | Site admin | `count` and `oldest` of the saved requests, `payloads` and `oldest_payload` of their saved payloads, and `settings`. |
 | GET | `/api/server/request-log/{id}` | Site admin | One saved request, and `payloads`: `request` (`query` with secret-named values replaced, `headers`, `body`) and `response` (`headers`, `body`), or null when debug mode was off or the payload has expired. A `body` has `bytes`, `truncated` (only the first 64 KB is kept), and `json`, `text` or `omitted` (a binary body's type). Credential headers and secret-named fields read `[redacted]`. `404` when it's gone. |
-| POST | `/api/server/restart` | Site admin | Restarts with the stored settings once in-flight requests finish (up to 30 s). Answers `202` with `waiting_for` and the address it comes back on. `409` when the server can't restart itself (`--reload`). |
+| POST | `/api/server/restart` | Site admin | Restarts with the stored settings once in-flight requests finish (up to 30 s). Answers `202` with `waiting_for` and the address it comes back on. `409` when the server can't restart itself (`--reload`); `401` from an untrusted or cross-origin caller. |
 
 ## Sessions and requests
 
@@ -229,21 +234,21 @@ What's recorded and for how long, legal holds, and the audit log. See [Retention
 
 ## Containers
 
-Containers the fleet's machines run as backends. See [Machines](machines.md). Changes also need **Same origin**.
+Containers the fleet's machines run as backends. See [Machines](machines.md). Changes also need **Same origin** (a cross-origin or untrusted change answers `401`).
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
 | GET | `/api/containers` | Trusted | The machines you can see that could run containers (their CLI, whether it answers, the engines they offer), and the state of the containers on them. Another organization's containers answer `404` everywhere. |
 | GET | `/api/containers/{name}` | Trusted | One container's state. |
-| POST | `/api/containers` | Admin, machine owner | Creates one on a connected machine with `agent-machine containers on`: `name`, `machine`, `engine`, and `image`, `port`, `gpus`, `env`, `volume`. Saves it as a backend. |
-| PUT | `/api/containers/{name}` | Admin, machine owner | Changes its settings; they apply when it next starts. The engine can't change. |
-| DELETE | `/api/containers/{name}` | Admin, machine owner | Removes it from its machine and from the server's backends. |
-| POST | `/api/containers/{name}/{action}` | Trusted | `start`, `stop` or `restart`. Answers `202` with the job. `409` with `conflicts` when other containers hold the GPU it needs; send `{"switch": true}` to stop them first. |
-| GET | `/api/containers/{name}/log` | Trusted | Its container log, `?tail=` lines (10 to 5000, default 400). |
+| POST | `/api/containers` | A site admin, or an admin who owns the machine | Creates one on a connected machine with `agent-machine containers on`: `name`, `machine`, `engine`, and `image`, `port`, `gpus`, `env`, `volume`. Saves it as a backend. |
+| PUT | `/api/containers/{name}` | A site admin, or an admin who owns the machine | Changes its settings; they apply when it next starts. The engine can't change. |
+| DELETE | `/api/containers/{name}` | A site admin, or an admin who owns the machine | Removes it from its machine and from the server's backends. |
+| POST | `/api/containers/{name}/{action}` | Trusted, sees the machine | `start`, `stop` or `restart`. Answers `202` with the job. `409` with `conflicts` when other containers hold the GPU it needs; send `{"switch": true}` to stop them first. |
+| GET | `/api/containers/{name}/log` | Trusted, sees the machine | Its container log, `?tail=` lines (10 to 5000, default 400). |
 
 ## Terminals and pairing
 
-Shared terminals are a remote shell, so these routes need **Trusted** and **Same origin**. See [Accounts](accounts.md).
+Shared terminals are a remote shell, so these routes need **Trusted** and **Same origin** (except the fixed answers below: `/api/remote*` and the removed pairing stubs answer the same to anyone signed in). See [Accounts](accounts.md).
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
@@ -274,11 +279,12 @@ See [Accounts](accounts.md). Changes answer with the directory (`orgs` and `user
 | DELETE | `/api/auth/setup-codes/{id}` | Signed in (console), Same origin | Revokes one before it expires; what it already signed in stays signed in. `404` no such open code. |
 | POST | `/api/auth/login` | Public | 410; password sign-in moved to the issuer. |
 | POST | `/api/auth/token`, `/api/auth/password` | Signed in | 410; legacy password grants and account password changes removed. |
-| GET, POST, DELETE | `/api/auth/tokens`, `/api/auth/tokens/{token_id}` | Signed in | 410; launcher keys replaced by OAuth grants. |
+| GET, POST | `/api/auth/tokens` | Signed in | 410; launcher keys replaced by OAuth grants. |
+| DELETE | `/api/auth/tokens/{token_id}` | Signed in | 410; launcher keys replaced by OAuth grants. |
 | GET | `/api/orgs` | Signed in | Organizations with their teams and members (the users whose organization it is), each with `root` and `parent` (`"root"`, or `null` for the root itself). You see your own; site admins see every one, the root first. |
 | POST | `/api/orgs` | Site admin | `{"id", "name"}`: adds an organization (a tenant, under the root). |
 | PUT | `/api/orgs/{org}` | Admin | `{"name"}`: renames it. |
-| DELETE | `/api/orgs/{org}` | Site admin | Removes an organization with no users left (`400` otherwise), and its hosted API providers with their keys. The root can't be removed. |
+| DELETE | `/api/orgs/{org}` | Site admin | Removes an organization with no users left (`400` otherwise, also when one of its API providers is the default backend or it has legal holds). Its hosted API providers (with their keys), machines, usage limits and retention policy go with it, and its sessions become site-admin-only, so a recreated name inherits nothing. The root can't be removed. |
 | PUT / DELETE | `/api/orgs/{org}/members/{name}` | Admin | Users can't join or leave organizations: `400`, except a `PUT` for the user's own organization, which changes nothing. |
 | POST | `/api/orgs/{org}/teams` | Admin | `{"id", "name"}`: adds a team. |
 | PUT | `/api/orgs/{org}/teams/{team}` | Admin | `{"name"}`: changes the display name, keeping its id and sharing key. |
@@ -287,7 +293,7 @@ See [Accounts](accounts.md). Changes answer with the directory (`orgs` and `user
 | GET | `/api/users` | Signed in | Users with their `role`, `tenant` (their organization; `orgs` is `[tenant]`) and `teams`. You see the people in your organization; site admins see everyone. |
 | POST | `/api/users` | Admin | `{"name", "password", "role", "tenant", "teams"}`: adds a user to one organization, for good. An organization's admin adds to their own (`tenant` may be left out); a site admin names any, and without one makes a site admin (`role: "admin"` only). `orgs: [one]` still works for `tenant`. |
 | PUT | `/api/users/{name}` | Admin | Changes `role`, `teams` or `password` together, only if all changes are valid. `orgs` may only repeat the user's own organization. An organization's last admin can't be made a member; root users stay admins. |
-| DELETE | `/api/users/{name}` | Admin | Removes a user. You can't remove yourself. |
+| DELETE | `/api/users/{name}` | Admin | Removes a user. Their machines leave the fleet, their provider accounts (and stored credentials) are deleted, and their sessions become ownerless, kept for the organization's admins: a recreated name inherits nothing. You can't remove yourself. |
 
 ## Downloads and installers
 
@@ -333,28 +339,9 @@ OpenAPI can't describe these. All need **Trusted** (a sign-in; machines send the
 | `/api/machines/connect` | `agent-machine run`, with its token | One machine in the fleet, for as long as it runs. In: its `hello` (id, name, installed agents, model servers, containers and engines, launch and server settings, shared MCP servers), then `update` every minute, `ping`, `token` (its new access token before the old one expires, so the server keeps the socket open; ignored unless valid and the same user's), and answers (`launched`, `launch_failed`, `container_result`, `server_result`, `provider_result`, `provider_progress`, `folders_result`, `update_result`). Out: `welcome`, then requests: `launch`, `shell`, `tunnel`, and `container`, `server`, `provider`, `folders` and `update` requests with an `op`. A removed machine is closed with `4403`. |
 | `/api/machines/tunnel/{tunnel_id}` | `agent-machine`, with its token, when the server asks | One connection of agents' traffic (or MCP traffic) to a port on that machine: raw bytes both ways. Closed with `4404` for an unknown tunnel. |
 | `/api/proxy/tunnel` | `agent-proxy`, with its machine's token | One account agent's HTTPS connection, which the server decrypts and records with its CA. Binary frames both ways. Closed with `4404` when capture is off. |
-| `/api/terminals/{session_id}/host` | The launcher (`--control`), relayed by its `agent-proxy` | The launcher sends a hello, then the agent's output as binary frames and `resize`, `gap` and `exit` messages. The server sends `resume` (where to resend from) and `input` (`parts` to type, sent a short gap apart). Only someone who can control the session may host it. |
-| `/api/terminals/{session_id}/view` | The console's terminal page | `?from=<offset>` (optional): the byte offset of the output the viewer already has. The server sends `state`, `{"type": "replay", "start": <offset>, "resumed": <bool>}` (resumed: what follows continues from `from`, so nothing is redrawn), the history as binary frames, `replayed`, `gap` (`{"type": "gap", "to": <offset>}`: output the launcher skipped), then live output and `state`, `resize` and `error` messages. The viewer sends `{"type": "input", "text": "...", "enter": true}` or `{"type": "input", "keys": "\u001b"}`; typing needs control of the session, checked on every message. `{"type": "token", "token": "..."}` renews the viewer's access token in place (the same user's, in the same tenant; anything else is ignored), so it isn't closed with `4410` when the token it opened with expires. A viewer that falls behind is closed with `4408`, and a missing terminal with `4404`. |
+| `/api/terminals/{session_id}/host` | The launcher (`--control`), relayed by its `agent-proxy` | The launcher sends a hello, then the agent's output as binary frames and `resize`, `gap` and `exit` messages. The server sends `resume` (where to resend from) and `input` (`parts` to type, sent a short gap apart). Only someone who can control the session may host it; a missing session closes `4404`, a credential that may not `4401`. |
+| `/api/terminals/{session_id}/view` | The console's terminal page | `?from=<offset>` (optional): the byte offset of the output the viewer already has. The server sends `state`, `{"type": "replay", "start": <offset>, "resumed": <bool>}` (resumed: what follows continues from `from`, so nothing is redrawn), the history as binary frames, `replayed`, `gap` (`{"type": "gap", "to": <offset>}`: output the launcher skipped), then live output and `state`, `resize` and `error` messages. The viewer sends `{"type": "input", "text": "...", "enter": true}` or `{"type": "input", "keys": "\u001b"}`; typing needs control of the session, checked on every message. `{"type": "token", "token": "..."}` renews the viewer's access token in place (the same user's, in the same tenant; anything else is ignored), so it isn't closed with `4410` when the token it opened with expires. A viewer that falls behind is closed with `4408`, and a missing terminal with `4404`. A viewer whose access ends mid-stream (sharing narrowed, the session made private) is closed with `4403`, and `4410` also closes a viewer whose credential can't be rechecked because the issuer is unreachable. |
 
 ## Check
 
-This page lists all 125 routes the app registers, from `app.routes` of a server built in a temporary folder: 120 HTTP routes, the 5 WebSockets above, plus the `/assets` static mount.
-
-| Area | Routes |
-|---|---|
-| Agent-facing | 10 (5 paths, each unscoped and under `/session/{session_id}/`) plus the MCP relay |
-| Health and the server | 16 |
-| Sessions and requests | 13 |
-| Live traffic | 2 |
-| Agents and models | 4 (with `/api/mcp`) |
-| HTTPS capture | 3 |
-| Machines and providers | 18, plus 2 WebSockets |
-| Containers | 7 |
-| Terminals and pairing | 6, plus 2 WebSockets |
-| Accounts | 27 |
-| Downloads | 6 |
-| Console | 3 (with the documentation's files) |
-| OpenAPI | 4 |
-| Proxy tunnel | 1 WebSocket |
-
-That is 10 + 1 + 16 + 13 + 2 + 4 + 3 + 20 + 7 + 8 + 27 + 6 + 3 + 4 + 1 = 125. Each is in a table above.
+These tables aim to cover every route the app registers on its public port (compare `app.routes` of a server built in a temporary folder). Not listed: the `/assets` static mount, and the internal port's own routes (`POST /internal/fleet/{machine_id}/{action}`, `GET /internal/live`, `GET /metrics` and `WS /internal/tunnels/{tunnel_id}`), which only the server's other processes reach ([Running several server processes](scaling.md)). When a route is added or removed, change its table here in the same change.

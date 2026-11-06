@@ -2,7 +2,7 @@
 
 How to run the server for other machines and people, put HTTPS in front of it, and get `agent` and `agent-machine` onto the computers that use it.
 
-**Authentication is mandatory.** For public deployments, run `agent-auth` separately at **auth.aicontrolmesh.com**, register API callbacks, configure the shared introspection secret and provide HTTPS. The root Compose includes the issuer on host loopback :10000, with its state in its own PostgreSQL schema. See [OIDC authentication](oidc.md) before starting or upgrading public services.
+**Authentication is mandatory.** For public deployments, run `agent-auth` separately at your own issuer hostname (`auth.example.com` below), register API callbacks, configure the shared introspection secret and provide HTTPS. The root Compose includes the issuer on host loopback :10000, with its state in its own PostgreSQL schema. See [OIDC authentication](oidc.md) before starting or upgrading public services.
 
 **To try it first**, run the self-contained demo stack on your own computer: [Quickstart with Docker or Podman](quickstart.md), or [Quickstart on Kubernetes](quickstart-kubernetes.md). The demo has its own loopback issuer, signs its machines in through normal device authorization, and mounts no host project folders or Docker socket; `quickstart/README.md` explains how its local sign-in and Podman setup work. For a public install, follow this page and the [OIDC deployment guide](oidc.md).
 
@@ -141,17 +141,17 @@ The console can run as static files, independently of `agent-server`:
 
 | Hostname | Service |
 |---|---|
-| `aicontrolmesh.com`, `www.aicontrolmesh.com` | Brochure (`marketing-site`, loopback port 8080). |
-| `console.aicontrolmesh.com` | Static console (`console`, loopback port 8081). No API forwarding. |
-| `api.aicontrolmesh.com` | `agent-server` (port 9999): API, WebSockets, live streams, documentation files, downloads and installers. |
-| `auth.aicontrolmesh.com` | `agent-auth` (loopback port 10000): OIDC sign-in, device approval and OAuth endpoints. |
+| `example.com`, `www.example.com` | Brochure (`marketing-site`, loopback port 8080). |
+| `console.example.com` | Static console (`console`, loopback port 8081). No API forwarding. |
+| `api.example.com` | `agent-server` (port 9999): API, WebSockets, live streams, documentation files, downloads and installers. |
+| `auth.example.com` | `agent-auth` (loopback port 10000): OIDC sign-in, device approval and OAuth endpoints. |
 
 Set these variables for Compose (or put them in the root `.env`, which is ignored by git), then run `docker compose --profile console up -d --build` (`--build` builds only the console, with its API's address; the rest are pulled):
 
 ```dotenv
-VITE_API_URL=https://api.aicontrolmesh.com
+VITE_API_URL=https://api.example.com
 AI_PROXY_SERVE_UI=0
-AI_PROXY_CONSOLE_ORIGINS=https://console.aicontrolmesh.com
+AI_PROXY_CONSOLE_ORIGINS=https://console.example.com
 AI_PROXY_OIDC_INTROSPECTION_SECRET=<a long random secret>
 # Optional: lets people store Copilot tokens for their subscriptions (agent-server vault key makes one).
 # Keep it out of database backups; losing it makes stored tokens unreadable.
@@ -169,7 +169,7 @@ On the API server, `AI_PROXY_SERVE_UI=0` disables console routes, static assets 
 
 Keep the console and API on HTTPS subdomains of the **same site**. Sign-in sets an HttpOnly, host-only cookie on the API domain; the console includes credentials on requests and live streams, and browsers send that cookie on API WebSockets. The cookie is not shared with the brochure or console hosts. Unrelated registrable domains are not supported by this SameSite=Lax cookie setup. Moving an existing console to the API host's cookie requires signing in again.
 
-Set `proxy.public_url` to the console's HTTPS address. CLI installation/login uses `https://api.aicontrolmesh.com`; OIDC uses `https://auth.aicontrolmesh.com`. Include all hostnames in DNS and TLS. With Cloudflare, use Full (strict), and never cache API or auth responses.
+Set `proxy.public_url` to the console's HTTPS address. CLI installation and login use the API hostname (`https://api.example.com`); OIDC uses the issuer hostname (`https://auth.example.com`). Include all hostnames in DNS and TLS. With Cloudflare, use Full (strict), and never cache API or auth responses.
 
 ### nginx and Let's Encrypt on Windows
 

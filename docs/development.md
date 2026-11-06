@@ -7,7 +7,7 @@ A guide for changing this repository. [`AGENTS.md`](../AGENTS.md) at the root ha
 The components live in a folder each and talk only over HTTP and WebSockets, never by importing each other.
 
 ```text
-server/          The server, in Python (FastAPI): agent-server and agent-benchmark, its Dockerfile
+server/          The server, in Python (FastAPI): agent-server, agent-auth and agent-benchmark, its Dockerfile
   agent_server/  The package: app.py, config.py, runtime.py, auth.py, fleet.py, routes/, translate/, ...
     db/          The database: tables, numbered migrations, the import of an older install
     defaults.py  What a new server starts with: the shipped agents, Ollama model tuning, its address
@@ -30,10 +30,10 @@ VERSION          The project's one hand-written version
 
 ## Setup and running
 
-You need Python 3.13 or later, Node with npm, and Go (the modules stay at Go 1.24; build with `GOTOOLCHAIN=local` so Go doesn't download another toolchain).
+You need Python 3.11 or later (3.13 recommended), Node with npm, and Go (the modules stay at Go 1.24; build with `GOTOOLCHAIN=local` so Go doesn't download another toolchain).
 
 ```bash
-cd server && pip install -e ".[dev]"    # agent-server and agent-benchmark, plus pytest and friends
+cd server && pip install -e ".[dev]"    # agent-server, agent-auth and agent-benchmark, plus pytest and friends
 cd ui && npm install
 ./scripts/build-client.sh               # agent and agent-proxy into client/bin
 ./scripts/build-machine.sh              # agent-machine into machine/bin

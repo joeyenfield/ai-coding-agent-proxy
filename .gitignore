@@ -15,6 +15,7 @@ client/bin/
 machine/bin/
 .history/
 .playwright-mcp/
+.qwen/
 scripts/deploy.sh
 scripts/deploy.ps1
 scripts/deploy-remote.sh

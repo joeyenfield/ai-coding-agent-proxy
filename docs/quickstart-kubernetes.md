@@ -51,7 +51,7 @@ kubectl -n mesh apply -f quickstart/kubernetes/machine.yaml
 kubectl -n mesh get pods -w        # wait until both pods are Running (the first pull takes a few minutes)
 ```
 
-Keep the release name `mesh`: the machine's relays name its Services. The images are `latest`, the newest build of master, as in the Compose quickstart; `--set image.tag=<tag>` picks another (a release, `2.0.1`, or a commit, `sha-<commit>`), as `AI_PROXY_IMAGE_TAG` does there.
+Keep the release name `mesh`: the machine's relays name its Services. The images are `latest`, the newest build of master, as in the Compose quickstart; `--set image.tag=<tag>` picks another (a release, `2.1.20`, or a commit, `sha-<commit>`), as `AI_PROXY_IMAGE_TAG` does there.
 
 Then, in a terminal of its own that you leave open, forward the two ports:
 
@@ -77,18 +77,18 @@ On Windows PowerShell, run the two `port-forward` commands in two windows instea
    kubectl -n mesh logs deploy/quickstart-machine -c machine -f
    ```
 
-   For each code, open **Machines › Approve a device** in the console, type the code and approve it. Within a minute **k8s-machine** shows as connected on **Machines**.
+   For each code, open **Machines › Approve a device** in the console, type the code and approve it. Within a minute **k8s-machine** shows as **Online** on **Machines**.
 3. **Check the console can manage its Ollama.** `machine.yaml` sets `AGENT_SERVERS=on`, so the machine lets the console pull models. A sandbox image pulled before that setting existed ignores it: `kubectl -n mesh rollout restart deploy/quickstart-machine` pulls the newest, or turn it on there once by hand:
 
    ```bash
    kubectl -n mesh exec deploy/quickstart-machine -c machine -- agent-machine servers on
    ```
 
-4. **Add its Ollama as a provider.** Open **k8s-machine**, then its **Model servers** tab: it found Ollama on its own `127.0.0.1:11434`. Choose **Add as a provider**.
+4. **Add its Ollama as a provider.** Open **k8s-machine**, then its **Providers** tab: it found Ollama on its own `127.0.0.1:11434`. Choose **Add as a provider**.
 5. **Pull a model.** On the new provider's tab, open **Find and pull** and pull something small (a 1 to 4 billion parameter model): it runs on the cluster's CPU.
 6. **Start an agent.** On the machine's **Agents** tab, choose **Start an agent**, pick **OpenCode** or **Qwen Code**, your provider and model, the folder `/workspace`, tick **Capture full request and response payloads**, and start it. Its terminal opens in the console: type a task, choose **Send**, and watch **Live**, **Requests** and **Sessions** fill in.
 
-Everything the [Docker or Podman quickstart](quickstart.md#try-it-step-by-step) suggests trying next works here too.
+Most of what the [Docker or Podman quickstart](quickstart.md#try-it-step-by-step) suggests trying next works here too. The Compose-only tips (machine-2, `podman compose exec`) don't apply, and a terminal on the machine needs `kubectl -n mesh exec deploy/quickstart-machine -c machine -- agent-machine commands on` first (remote terminals are off by default).
 
 ## Stop and clean up
 
@@ -108,7 +108,7 @@ The database, the machine's sign-ins and Ollama's models are on volumes, so they
 | Sign-in fails, or says the address isn't allowed | Use `http://localhost:19999`, not `127.0.0.1`, and check both ports are forwarded. |
 | No password in the server's log | It's printed only on the first start against an empty database. Delete the namespace and install again, or set an admin of your own with `auth.bootstrapAdmin.existingSecret`. |
 | The machine doesn't show up | Its log (step 2) says what it's waiting for: the server's `/health`, or a device code to approve. |
-| The machine's model server tab has no **Find and pull** | Run step 3, then reload the page. |
+| The machine's provider tab has no **Find and pull** | Run step 3, then reload the page. |
 
 ## From here to a real cluster
 

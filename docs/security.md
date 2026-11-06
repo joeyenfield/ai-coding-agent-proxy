@@ -4,10 +4,6 @@ How each device pairs with the server, how computers sign in without passwords, 
 
 ## Pairing: how each device joins
 
-The built-in console server and standalone nginx images send framing protection (`frame-ancestors 'none'` and `X-Frame-Options: DENY`), `nosniff` and a `same-origin` referrer policy. They disable object embedding and restrict base URLs to the same origin. Standalone nginx images hide their version. Rebuild and redeploy those images to apply the headers; changing the API alone does not update a separately hosted console.
-
-The Helm chart trusts forwarded headers from loopback by default. Set `server.forwardedAllowIps` to the trusted ingress or gateway addresses or CIDRs. Only use `*` when `networkPolicy.publicFrom` and external firewall rules restrict direct access to trusted proxies. An unrestricted public pod port does not make arbitrary forwarded headers trustworthy.
-
 There is no separate pairing step any more. Every device pairs with the server by signing in through the issuer (agent-auth), as a person, and the server then decides what that person may do. What differs is how each kind of device signs in:
 
 | Device | How it pairs | What it gets | What it's tied to |
@@ -181,6 +177,11 @@ These can send something in the clear if you set things up that way. Each has a 
 | **Serving HTTPS yourself without a proxy** | `AI_PROXY_TLS_CERT`/`KEY` on the server itself. | Fine, but you also have to look after renewal and HSTS that nginx would add. |
 
 Plain HTTP between computers isn't blocked outright everywhere: a LAN-only install without certificates still works for browsing the public pages and downloads. It's never used for anything signed in.
+
+### Response headers and forwarded addresses
+
+- The built-in console server and the standalone nginx images send framing protection (`frame-ancestors 'none'` and `X-Frame-Options: DENY`), `nosniff` and a `same-origin` referrer policy. They disable object embedding and restrict base URLs to the same origin, and the nginx images hide their version. Rebuild and redeploy those images to apply header changes; changing the API alone does not update a separately hosted console.
+- The Helm chart trusts forwarded headers from loopback by default. Set `server.forwardedAllowIps` to your trusted ingress or gateway addresses or CIDRs. Only use `*` when `networkPolicy.publicFrom` and external firewall rules restrict direct access to trusted proxies. An unrestricted public pod port does not make arbitrary forwarded headers trustworthy.
 
 ## A checklist for a public server
 

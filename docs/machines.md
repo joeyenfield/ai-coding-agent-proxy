@@ -7,10 +7,12 @@ A **machine** is a computer that has joined the server's **fleet** with `agent-m
 
 `agent-machine` is its own program, apart from the `agent` client. It has its own sign-in and its own folder, so a machine can supply models to one server (or as one account) while its agents use another. It shares no code with `agent`. When it starts an agent, it runs `agent` as a program.
 
+[Quick start](#quick-start) and [Commands](#commands) are all most setups need; [What a machine runs for you](#what-a-machine-runs-for-you) and [Who may use a machine](#who-may-use-a-machine) cover launches, terminals, updates and access. The rest is reference: the fleet protocol, every file on disk, running it as a service, and [the sandbox](#a-sandbox-machine-in-docker).
+
 ## Quick start
 
 ```bash
-agent-machine login https://api.aicontrolmesh.com # approve its device code
+agent-machine login https://api.example.com # approve its device code
 agent-machine start                      # join the fleet in the background
 agent-machine                            # how the fleet sees this machine
 ```
@@ -72,7 +74,7 @@ The machine belongs to whoever signed it in: that user is its **owner**. A machi
 Where nobody is at a browser (a container, a script, a computer you set up remotely), a setup code approves the sign-in for you. Create one in the console on **Machines**: **Add a machine**, then **Create a setup code**. A code starts with `msc_`, expires after a while and can be used a limited number of times. The machine it signs in belongs to you, as if you had approved the device code yourself. Treat it as a password: agent-machine never prints or logs it.
 
 ```bash
-agent-machine login https://api.aicontrolmesh.com --code msc_... --enable launches,commands
+agent-machine login https://api.example.com --code msc_... --enable launches,commands
 ```
 
 - `--code CODE` uses the setup code instead of printing a device code to approve. Without `--code`, `login` uses `AI_PROXY_MACHINE_SETUP_CODE` when it's set; otherwise it's the browser sign-in.
@@ -173,6 +175,7 @@ It reads these environment variables:
 | Variable | What it does |
 |---|---|
 | `AI_PROXY_MACHINE_HOME` | agent-machine's folder |
+| `AI_PROXY_MACHINE_TOKEN` | A pre-issued OAuth access token, over the stored sign-in (automation; obtain a replacement before it expires) |
 | `AI_PROXY_MACHINE_DATA` | The data folder: llama.cpp's builds and models, and the models of an Ollama it starts (default: agent-machine's folder, and Ollama's own for Ollama's models) |
 | `AI_PROXY_MACHINE_SETUP_CODE` | A setup code for `login` without `--code`, and for `start` and `run` to sign in with when there's no sign-in yet ([Signing in with a setup code](#signing-in-with-a-setup-code)) |
 | `AI_PROXY_MACHINE_ENABLE` | Toggles to turn on after such a sign-in, comma-separated, for `login` without `--enable` |
@@ -294,7 +297,7 @@ It runs, detached and with no window:
 
 ```text
 agent <agent> <folder> --headless --launch-id <id> --share private|team|org
-      [--model M] [--backend B] [--trace] [--team T] [--let-others-type] [--mcp NAMES]
+      [--model M] [--backend B] [--trace] [--team T] [--let-others-type] [--mcp NAMES] [--account ID]
 ```
 
 with `AI_PROXY_URL` set to its server, and `AI_PROXY_MACHINE_ID` and `AI_PROXY_MACHINE_NAME` to tag the session with the machine. The program is `AI_PROXY_AGENT`, or `agent` from PATH. In headless mode `agent` prints `{"session_id": ...}` as its only line of output and runs the agent in a pseudo-terminal shared with the server. agent-machine waits up to 50 seconds for that line, and the server up to 60.
@@ -410,14 +413,14 @@ The `agent-machine` deb, rpm and Arch packages include a systemd user unit, not 
 2. signs both agent-machine and agent in to the server, unless their credentials already name it. A sign-in that fails (nobody approved the code in time, a used-up setup code) is tried again after 30 seconds, then a wait that doubles up to 15 minutes, until it works; `docker logs agent-sandbox` shows each new code. It doesn't exit, so a restart policy can't make it ask for codes over and over;
 3. copies SSH keys from `/ssh`, sets git's user, and clones `AGENT_REPOS`;
 4. relays the model servers named by `AGENT_OLLAMA` and `AGENT_LLAMACPP` to its own loopback (see [Model servers for a sandbox](#model-servers-for-a-sandbox));
-5. sets the machine's name, turns launches on with the workspace as its only root, turns containers off, and turns servers on unless `AGENT_SERVERS=off`;
+5. sets the machine's name, turns launches on and adds the workspace as a launch root (roots persist on the home volume, so a fresh volume has only the workspace), turns containers off, and turns servers on unless `AGENT_SERVERS=off`;
 6. runs `agent-machine run` with rotating OAuth credentials.
 
 Agents you start on it run inside the container, so they can't touch the computer it runs on beyond `/workspace`.
 
 ```bash
 docker run -d --name agent-sandbox --hostname agent-sandbox --restart unless-stopped \
-  -e AI_PROXY_SERVER=https://api.aicontrolmesh.com \
+  -e AI_PROXY_SERVER=https://api.example.com \
   -v agent-sandbox-home:/home/agent -v agent-sandbox-workspace:/workspace \
   ghcr.io/joeyenfield/agent-sandbox:latest
 ```
@@ -476,7 +479,7 @@ docker run -d --name ollama --network agent-models -v ollama-models:/root/.ollam
 docker run -d --name llamacpp --network agent-models -v ./models:/models \
   ghcr.io/ggml-org/llama.cpp:server -m /models/Llama-3.2-1B-Instruct-Q4_K_M.gguf --host 0.0.0.0 --port 8080
 docker run -d --name agent-sandbox --hostname agent-sandbox --network agent-models --restart unless-stopped \
-  -e AI_PROXY_SERVER=https://api.aicontrolmesh.com \
+  -e AI_PROXY_SERVER=https://api.example.com \
   -e AGENT_OLLAMA=ollama -e AGENT_LLAMACPP=llamacpp:8080 \
   -v agent-sandbox-home:/home/agent -v agent-sandbox-workspace:/workspace \
   ghcr.io/joeyenfield/agent-sandbox:latest

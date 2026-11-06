@@ -2,7 +2,7 @@
 
 **Your AI agents. Your machines. One control plane.**
 
-AIControlMesh is an open-source, self-hosted control plane for AI coding agents, LLM providers, MCP tools, and distributed machine fleets. Route supported agents to compatible local or hosted models, share tools, manage machines, and follow sessions from one console. Enable tracing to save full prompts and responses; request metadata, tokens, and timings are recorded separately.
+AI Control Mesh is an open-source, self-hosted control plane for AI coding agents. Every agent's traffic goes through one server you run: point agents at your own models or your own vendor plans, share machines and MCP tools across your fleet, and watch and answer running agents from any device. Request metadata, tokens and timings are always recorded; turn on tracing to keep full prompts and responses.
 
 ![The console's Overview: agents, the server and the machines that answer them](docs/screenshots/overview.png)
 
@@ -30,36 +30,32 @@ cd ai-coding-agent-proxy
 docker compose -f quickstart/compose.yaml up -d
 ```
 
-For Podman, replace `docker compose` with `podman compose`. This starts the server and console, sign-in service, PostgreSQL, two fleet machines, and Ollama using the project's published images from ghcr.io. Open http://localhost:19999 and sign in with **admin** / **secret**. Add machine-1's Ollama as a provider, pull a model, and launch an agent using the [guided quickstart](docs/quickstart.md).
+For Podman, replace `docker compose` with `podman compose`. One command starts the whole system in containers on your computer: the server and console, the sign-in service, PostgreSQL, two fleet machines with coding agents installed, and Ollama, from the project's published images. Open http://localhost:19999, sign in with **admin** / **secret**, and follow the [guided quickstart](docs/quickstart.md): add a provider, pull a model, start an agent and watch it work, in about ten minutes. There's a [Kubernetes version](docs/quickstart-kubernetes.md) too.
 
-**Local demo only:** known credentials, loopback ports 19999/20000, and no model downloaded automatically. For a real install, configure your own credentials, HTTPS and OIDC using [Deployment](docs/deployment.md) and [Security](docs/security.md). The public website's existing console link requires an account for that deployment; it is not the local quickstart.
+**It's a local demo**: known credentials, ports on localhost only, nothing downloaded for you. Delete it with `docker compose -f quickstart/compose.yaml down -v`.
 
-On the server's computer, from this checkout (Python 3.13+, Node 20+), or with `docker compose up -d`:
+## A real install
 
-First configure the separate **`agent-auth`** service at your own issuer URL, HTTPS, callbacks and the shared introspection secret: [OIDC authentication](docs/oidc.md). API access requires OAuth access tokens, including on loopback. Replace `api.example.com` below with your server's HTTPS address.
+Four steps, walked through in [Getting started](docs/getting-started.md):
 
-```bash
-pip install -e "./server[dev]"
-agent-server                         # the console on http://127.0.0.1:9999
-```
+1. **Run the sign-in service and the server.** Set up `agent-auth` (the OIDC issuer) with HTTPS and your callback URLs ([OIDC authentication](docs/oidc.md)), then run `agent-server`: from a checkout with `pip install -e ./server`, or in containers with `docker compose up -d` ([Deployment](docs/deployment.md)). Sign-in is mandatory everywhere, loopback included.
+2. **Install `agent` where you run coding agents**, from the server's **Downloads** page or its one-line installer, and sign each computer in once:
 
-On each computer where you run agents, install `agent` from the server's **Downloads** page (`http://<server>:9999/get`), or with the one-line installer it serves, then:
+   ```bash
+   agent login https://your-server.example.com   # approve the device code in your browser
+   agent --list                      # the server's agents, and which are installed here
+   agent claude-account .            # Claude Code on your claude.ai login, recorded
+   agent qwen . --model qwen3:8b     # Qwen Code on a local model
+   ```
 
-```bash
-agent login https://api.example.com       # approve the device code; required on every computer
-agent --list                         # the server's agents, and which are installed here
-agent claude-account .               # Claude Code on your claude.ai login, everything recorded
-agent qwen . --model qwen3.6:35b     # Qwen Code on a local model
-```
+3. **Join machines to the fleet** on each computer that runs models or MCP servers for agents:
 
-On each computer that runs models (or MCP servers) for agents:
+   ```bash
+   agent-machine login https://your-server.example.com
+   agent-machine start
+   ```
 
-```bash
-agent-machine login https://api.example.com
-agent-machine start
-```
-
-Then open the console, add its model server with **Add as a provider**, and start agents against it. [Getting started](docs/getting-started.md) walks through all of it.
+4. **Add providers in the console**: open the machine, choose **Add as a provider**, pull a model, and start agents against it from anywhere.
 
 ## Documentation
 

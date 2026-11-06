@@ -1,5 +1,7 @@
 # Local AI Agent Framework
 
+> **Historical document.** This is the original design sketch the project grew from, kept for reference. It is out of date in places: the current design is in [`.context/`](.context/overview.md) and the user documentation in [`docs/`](docs/index.md).
+
 ## 1. Overview
 
 The goal of this project is to provide a lightweight framework for running and evaluating AI coding agents against local or remotely hosted Ollama models.

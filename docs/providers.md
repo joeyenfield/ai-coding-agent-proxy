@@ -2,6 +2,8 @@
 
 A **provider** (a backend, one of the server's stored settings) is where the server sends an agent's model requests. Agents never talk to a provider directly: their requests go to the server, which records them and forwards them.
 
+Start with [where providers come from](#where-providers-come-from) and [managing models](#managing-models); [API providers](#api-providers-openai-and-anthropic-compatible) covers OpenAI and Anthropic-compatible services. The sections from [Ollama](#ollama) down are the per-engine reference: read the one your models run on.
+
 ## Backend types
 
 | Type | Provider | What the server does with agents' requests |
@@ -38,7 +40,7 @@ You can't add a local provider by URL. The **Server settings** page, and `PUT /a
 
 In the console, all of it is on the machine's page, a tab per model server. A model server is named `<type>-<port>`, such as `ollama-11434`. A model server that isn't a provider yet is managed the same way, with **Add as a provider** at its top for admins. What each kind's tab offers is under its section below: [Ollama](#models-on-ollama), [Strata](#strata), [llama.cpp](#models-on-llamacpp) and [Docker Model Runner](#docker-model-runner).
 
-Reading is always allowed for those who can see the machine. Changing anything needs `agent-machine servers on` on the machine, and the right [feature](machines.md#who-may-use-a-machine):
+Reading is always allowed for those who can see the machine. Changing anything needs `agent-machine servers on` on the machine, and the right [feature](machines.md#who-may-use-a-machine) (site admins have every feature on every machine):
 
 | Action | Feature | Owner | Admins | Others |
 |---|---|---|---|---|
@@ -107,6 +109,7 @@ Each provider has these settings. Only the key is secret, and it is never shown,
 | `anthropic_url` | Where Anthropic Messages go (`<anthropic_url>/v1/messages`). It must be on the same scheme, host and port as `url`. Without it, the `url` without its `/v1`. |
 | `protocols` | Which of `openai-chat`, `openai-responses` and `anthropic` it speaks. |
 | `auth` | `bearer` (`Authorization: Bearer <key>`), `x-api-key` (Anthropic), `api-key` (Azure), `none`, or `agent` (the agent's own `Authorization` or `x-api-key` goes through and the server adds none). |
+| `category` | How the console groups it: `hosted` (the default), `gateway` (LiteLLM, OpenRouter and other aggregators), or `machine` (set when a machine's server is adopted). |
 | key | Typed once on the console, stored encrypted (it needs `AI_PROXY_VAULT_KEYS`, as [subscriptions](subscriptions.md) do). A stored key is bound to the provider's address: change the address and it must be typed again. |
 | `key_env` | Or: the name of an environment variable on the server holding the key. It must start with `AI_PROXY_API_KEY_`, so a provider can never be pointed at the server's own secrets. A stored key wins over it. |
 | `models` | Aliases agents use, mapped to the provider's model ids (`fast: gpt-4.1-mini`). An alias can be the id itself. |
@@ -141,7 +144,7 @@ agent-machine looks for OpenAI-compatible servers on its loopback: LM Studio on 
 
 ### Fallback
 
-When a provider can't be reached, a request can go to another one, but only when a site admin listed it in the provider's `fallback`:
+When a provider can't be reached, a request can go to another one, but only when an admin listed it in the provider's `fallback` (site admins on Server settings, or the organization's own admins on its API providers page):
 
 - Only when the connection failed, so nothing reached the provider. A request that may have reached it (a timeout waiting for the reply, an error answer, a stream that stopped part way) is never sent again: the agent gets the error.
 - Only to another enabled API provider that speaks the request's protocol, knows its model (an alias, or `discover` on), may be used by the session's person, and isn't over their usage limit.
@@ -241,7 +244,7 @@ Native `/api/chat` and `/api/generate` get the same settings. Other paths, such 
 
 ### Model tuning
 
-The server's Ollama model tuning holds the settings for Ollama, in three layers, applied in order. Admins edit it on **Server settings** → **Ollama model tuning**, as one YAML document; `GET` and `PUT /api/config/models` read and replace it, and it's the `models` part of a settings document for `agent-server config export` and `import` (see [Configuration](configuration.md)). New requests use a change at once.
+The server's Ollama model tuning holds the settings for Ollama, in three layers, applied in order. Admins edit it on **Server settings** → **Model tuning**, as one YAML document; `GET` and `PUT /api/config/models` read and replace it, and it's the `models` part of a settings document for `agent-server config export` and `import` (see [Configuration](configuration.md)). New requests use a change at once.
 
 1. `defaults`, for every model.
 2. The first entry under `profiles` whose `match` (shell-style patterns) matches the Ollama model name, case-insensitively.
@@ -478,8 +481,8 @@ The machine then reports its engines, and its **Containers** tab offers them.
 
 | Action | Who |
 |---|---|
-| Create, change or delete a container | The machine's owner, who must also be an admin |
-| Start, stop, restart, read its log | Anyone signed in (the launcher starts containers for `agent --backend <container>`) |
+| Create, change or delete a container | An admin who owns the machine, or a site admin |
+| Start, stop, restart, read its log | Anyone who can see the machine (the launcher starts containers for `agent --backend <container>`) |
 
 ### Engines
 

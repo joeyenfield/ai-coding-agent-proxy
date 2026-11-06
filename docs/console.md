@@ -4,6 +4,8 @@ The console is the server's web app. Open the server's address in a browser (`ht
 
 The screenshots come from the demo (`python scripts/screenshots/demo.py`), which runs a server with made-up machines, agents and traffic.
 
+The page follows the rail, top to bottom: [Agents](#agents), [the server's traffic and sessions](#server-traffic-and-sessions), [running the server](#server-running-it) (admin pages), then [Machines](#machines) and [a machine's page](#a-machines-page). Dip into the section for the page you're on; nothing here needs reading in order.
+
 ## Layout
 
 The rail on the left has three parts: the agents, the machines they and their model servers run on, and the server every request passes through.
@@ -15,11 +17,11 @@ The rail on the left has three parts: the agents, the machines they and their mo
 | **3 Server** | Live, Traffic, Requests, Sessions, Server stats, Access log, API log, Audit log, Server settings, Organizations, Downloads | The hub: allowed agent requests pass through it and are recorded. |
 
 - The small label above each page's title is its breadcrumb ("Machines › build-box").
-- The footer of the rail links to **Downloads** and **Documentation**, and shows how many sessions are open, the server's address and its version.
-- A badge on **Running agents** counts agents waiting for you. A badge on **Live** counts requests in flight. A badge next to a machine means it runs an older agent-machine than the server.
+- The footer of the rail links to the downloads (**Get the apps**) and **Documentation**, shows how many sessions are open, the server's address and its version, and has a System/Light/Dark theme switch.
+- A badge on **Running agents** counts agents waiting for you (or, when none wait, the connected terminals). A badge on **Live** counts requests in flight. A badge on **All machines** counts connected machines; a machine running an older agent-machine shows **Update available** on its row.
 - When an agent asks a question (a permission prompt, say), a banner at the top of every page shows it. **Answer** opens its terminal; **Later** hides it until the agent asks something new.
 - Below 900 px wide the rail becomes a top bar with a menu. Opening the menu adds a history entry, so Back (Android's included) closes it.
-- The console follows your system's light or dark theme.
+- The console follows your system's light or dark theme, unless the rail's theme switch forces one.
 
 ![The Overview in a phone-sized window](screenshots/overview-phone.png)
 
@@ -41,7 +43,7 @@ If the console can't reach the server, the page says so (**Can't reach the proxy
 
 ## Signing in
 
-The console always requires sign-in. **Sign in** redirects to the separate OIDC issuer using authorization code + PKCE; passwords are entered only there. Access renews automatically through host-only HttpOnly cookies. **Downloads** and documentation remain public.
+The console always requires sign-in. **Continue to sign in** redirects to the separate OIDC issuer using authorization code + PKCE; passwords are entered only there. Access renews automatically through host-only HttpOnly cookies. The page also offers **Continue as …** for accounts this browser still holds, and **Sign in to another account**. **Downloads** and documentation remain public.
 
 An unavailable authentication service shows an error, never an unsigned console. If a sign-in can't be completed (it took more than 10 minutes, or the sign-in service isn't answering), you come back to this page with a message saying so; press **Continue to sign in** again. See [OIDC authentication](oidc.md).
 
@@ -91,13 +93,14 @@ A machine's own page has the same launch form (see [its Agents tab](#summary-age
 
 | State | Meaning |
 | --- | --- |
-| **Working** | The agent is printing output. |
+| **Working** | The agent is printing output, or waiting on the model. |
 | **Waiting** | It's quiet, probably waiting for your next prompt. |
 | **Needs you** | It asked a question, such as a permission prompt. The question is shown. |
 | **Not connected** | The launcher's connection dropped; the terminal's history is still there. |
 | **Connecting** | The viewer is joining. |
+| **Exited** | The agent ended, with its exit status when it wasn't 0. |
 
-Ended terminals stay listed with their exit status until their session is deleted.
+Finished sessions collapse behind **Show … finished sessions** and stay readable until their session is deleted. **Remove … not connected** (shown when more than one launcher dropped) clears dead rows, and **Notify me when an agent is waiting** turns on system notifications.
 
 A terminal that isn't connected (its launcher closed, or the agent exited) has **Remove**, for those who can control its session. It deletes the session with everything recorded for it: its terminal output, requests, traces and chats. **Remove N not connected** at the top does it for every one at once. A terminal still connected, or with a request in flight, can't be removed.
 
@@ -121,7 +124,7 @@ The **Fullscreen** button at the top right of each tile opens the existing full 
 - **Keys** for phones: Esc, Enter, arrows, Scroll ↑/↓, PgUp/PgDn, Tab, ⇧Tab, Ctrl+C, and 1, 2, 3, y, n for answering prompts. Scroll ↑/↓ scroll the agent's own history in full-screen agents (Claude Code, OpenCode, Qwen Code) and the terminal's elsewhere.
 - **A−/A+** change the font size; **Fit width** sizes it to the window; **Light** switches the terminal's colours; **Latest** jumps to the bottom.
 - **Copying**: drag over the terminal to select text, then Ctrl+C (or Ctrl+Shift+C, or Cmd+C on a Mac) copies it; with nothing selected, Ctrl+C still goes to the agent. Full-screen agents that use the mouse (Claude Code, OpenCode, Qwen Code) take a plain drag themselves: hold Shift while dragging (Option on a Mac). **Copy** copies the selection, or else what's on the screen, and **Copy all** the whole terminal with its history, which also works on phones.
-- **Session traffic** opens the session's requests on Traffic.
+- **Session traffic** opens the session's page, with its requests and chat.
 - If the session is shared with you to watch only, the input is off.
 - If the connection drops (a phone changing networks, the server restarting, the sign-in renewing), the page reconnects by itself and carries on from the last output it showed, rather than redrawing the whole history. A server from before this redraws it, as before. If the sign-in has run out, the page renews it once before asking you to sign in again.
 
@@ -133,7 +136,7 @@ The **Fullscreen** button at the top right of each tile opens the existing full 
 
 `/ask` is a plain chat with one of your models, without an agent: pick a model, type, and the answer streams in.
 
-- **Model** lists the models of every Ollama, llama.cpp, Strata and Docker Model Runner backend that's online, by backend. Hosted APIs aren't offered: they need an agent's own sign-in. Choosing another model starts a new chat.
+- **Model** lists the models of every online backend on a machine, by backend: Ollama, llama.cpp, Strata, Docker Model Runner, and OpenAI-compatible servers a machine hosts (LM Studio, vLLM). Hosted APIs and subscriptions aren't offered: they need an agent's own sign-in or key. Choosing another model starts a new chat.
 - **Enter** sends; **Shift+Enter** starts a new line. **Stop** stops the answer. A model that thinks shows its thinking folded above the answer.
 - If the connection drops while the answer is coming in (a phone changing networks), the server keeps reading it and records it in full, and the page picks the rest up when it's back. Only **Stop**, **New chat** or leaving the page stop it on the server.
 - **System prompt** (optional) is sent before the conversation with every question.
@@ -141,11 +144,19 @@ The **Fullscreen** button at the top right of each tile opens the existing full 
 
 ### Providers and subscriptions
 
-**Providers** (`/providers`) lists everywhere your agents' calls can go: model servers on machines (with the machine and whether it's connected), hosted APIs, and the kinds of subscription (with how many of yours the server has). Each card shows your calls and tokens in the window you choose, every limit your organization put on you there with how much of it you've used, and **Blocked** until when, once you've reached one. A banner above them names the providers you're blocked on. Links beside the window go to your organization's usage and to your organization's page; for its admins, **Hosted APIs** links to the organization's **API providers** tab, where they add them and choose the teams that may use each. See [Providers and usage limits](usage-limits.md).
+**Providers** (`/providers`) lists everywhere your agents' calls can go: model servers on machines (with the machine and whether it's connected), hosted APIs, and the kinds of subscription (with how many of yours the server has). See [Providers and usage limits](usage-limits.md).
+
+- Each card shows your calls and tokens in the window you choose, every limit your organization put on you there with how much of it you've used, and **Blocked** until when, once you've reached one. A banner above them names the providers you're blocked on.
+- Links beside the window go to your organization's usage and to its page; for its admins, **Hosted APIs** links to the organization's **API providers** tab, where they add them and choose the teams that may use each.
 
 ![Subscriptions](screenshots/subscriptions.png)
 
-**Subscriptions** (`/subscriptions`) lists your own AI plans (Claude, ChatGPT through Codex, GitHub Copilot): each with its state, the machines it runs on and whether each is ready, and when it last answered. **Add a subscription** names its provider, plan and how it signs in. **Usage and settings** shows what went through the server in the last 5 hours, 24 hours, 7 days and this month, the remaining balance against a limit you declare (an estimate, said as one; unknown without a limit), and limits the provider was seen enforcing; then the machines (assign one of yours, remove, and for a token whether each gets it), the token (store, replace, revoke; never shown again), priority, who else may start agents with it, the declared limit, **Turn off**, **Remove** and its **History**. Admins of its organization see its metadata and can turn it off. See [Subscriptions](subscriptions.md).
+**Subscriptions** (`/subscriptions`) lists your own AI plans (Claude, ChatGPT through Codex, GitHub Copilot): each with its state, the machines it runs on and whether each is ready, and when it last answered. See [Subscriptions](subscriptions.md).
+
+- **Add a subscription** names its provider, plan and how it signs in.
+- **Usage and settings** shows what went through the server in the last 5 hours, 24 hours, 7 days and this month, the remaining balance against a limit you declare (an estimate, said as one; unknown without a limit), and limits the provider was seen enforcing.
+- Below that: the machines (assign one of yours, remove, and for a token whether each gets it), the token (store, replace, revoke; never shown again), priority, who else may start agents with it, the declared limit, **Turn off**, **Remove** and its **History**.
+- Admins of its organization see its metadata and can turn it off.
 
 ## Server: traffic and sessions
 
@@ -170,7 +181,7 @@ Account agents' other calls (sign-in, telemetry, MCP) aren't shown here; they're
 - **Group repeats** folds back-to-back identical requests (agents poll some endpoints) into one row.
 - Each row shows the type, service, method and path, the session, its status, timing and size; requests in flight are marked **pending**.
 - Selecting a row opens the inspector on the right: timings, tokens and sizes, and tabs for the **Conversation** (a readable view of the messages), the **Request**, the **Response**, what was **Sent to Ollama** (for translated calls), the request and response **Headers** (credentials redacted) for captured HTTPS, and **Metadata**. **Full screen** opens it alone; **Download full trace** saves the JSON.
-- **Still in memory** lists requests from before the page loaded that the server still holds in memory.
+- **Still in memory**, in the inspector, marks a request whose session doesn't save payloads while the server still holds them live: read them now or they're gone when the request leaves memory.
 
 ![Traffic: the headers of a captured request, credentials redacted](screenshots/traffic-headers.png)
 
@@ -201,12 +212,12 @@ Account agents' other calls (sign-in, telemetry, MCP) aren't shown here; they're
 - **End session**: closes an open session; its agent can no longer use it.
 - **Clear data**: deletes its recorded requests and payloads but keeps the session.
 - **Delete**: deletes the session and everything recorded for it. A session with requests in flight can't be cleared or deleted.
-- **Delete all sessions** deletes ended sessions, empties open sessions idle for more than 15 minutes, and leaves recently active ones running. Only your own.
+- **Delete all sessions** deletes ended sessions and open ones idle for more than 15 minutes (their agent most likely exited); recently active open sessions keep running but lose their saved data, and sessions with requests in flight are skipped. Only your own; admins also clear ownerless sessions in their organization.
 - **Open a session manually**: for other tools. Name the agent, model and backend, choose whether to capture payloads, and **Open session**; it shows the OpenAI, Anthropic and Ollama URLs to point the tool at.
 
 ![A session](screenshots/session.png)
 
-**A session's page** (`/sessions/<id>`) shows its details (agent, model, provider, machine, project, started, last traffic, tokens read and written, payloads, its OpenAI and Anthropic URLs), its sharing for its owner, and two tabs: **Chat**, the session's captured model calls read back as a chat (it needs payload capture, `--trace`; see [The chat view](#the-chat-view)), and **Requests**, its requests as on Traffic.
+**A session's page** (`/sessions/<id>`) shows the session, when it started, its last traffic, requests, tokens read and written, a **Payloads** switch (when the organization's policy allows choosing), and its OpenAI and Anthropic URLs. Two tabs: **Requests** (the default), its requests as on Traffic, with **Model calls only**, **Group repeats** and **Open in Traffic**; and **Chat**, the session's captured model calls read back as a chat (it needs payload capture, `--trace`; see [The chat view](#the-chat-view)).
 
 ### The chat view
 
@@ -220,7 +231,6 @@ Agents send their model far more as "the user" than you type: system reminders, 
 - **What the agent added itself** shows as small grey notes in the middle, never as a message: an interruption, a command's output, the summary a compacted conversation goes on from, and a marker where it was compacted. Reminders and other context it injects are hidden. **Show what … added** shows them.
 - **In a sub-agent**, what it was asked is on the right as **Main agent**, not you. **In a background call**, the agent's instruction is on the right, marked as the agent's, with the model's **Answer** below. The conversation a sub-agent or background call was handed is hidden behind **Show the … messages it was handed** (or **sent with**).
 - **My previous** and **Next** jump between your own messages. **Newest** (or **New messages**) goes back to the end. The chat opens at the newest messages, loads older ones as you scroll up, and follows new ones while you're at the bottom. Long texts load in full when you open them.
-- **Open in Traffic** shows its requests there, and **Streaming now** shows what's in flight.
 
 Claude Code signed in to its account sends most calls with only what's new, naming the call before. The server follows that chain, and Claude Code's request headers say which calls are the main chat, a sub-agent or a background call. For other agents the server matches each call's messages to the conversation they continue, and calls without tools that aren't the main conversation count as background calls.
 
@@ -272,7 +282,11 @@ The log's own requests aren't listed, nor the console's `/assets/`. Requests tha
 
 ### Audit log
 
-`/audit` (admins: their organization's events; site admins: everyone's) is the [audit log](audit.md): who did what, to what, and whether it worked, newest first. Filter by type (a category like `machines` or `machines.launch`), person, outcome, organization (site admins) and a day to start from; **Load 100 older** pages back. Open an event for its reason, the fields it changed, its place in its organization's chain and its whole record as JSON. **Download CSV** and **Download NDJSON** save the events shown by the filters (up to 5000). **Verify chain** checks every chain against the signed checkpoints and lists any problem; site admins can **Sign checkpoint now**. On a phone the person is shown with each event. Members don't see the page.
+`/audit` (admins: their organization's events; site admins: everyone's; members don't see the page) is the [audit log](audit.md): who did what, to what, and whether it worked, newest first.
+
+- Filter by type (a category like `machines` or `machines.launch`), person, outcome, organization (site admins) and a day to start from; **Load 100 older** pages back. On a phone the person is shown with each event.
+- Open an event for its reason, the fields it changed, its place in its organization's chain and its whole record as JSON.
+- **Download CSV** and **Download NDJSON** save the events shown by the filters (up to 5000). **Verify chain** checks every chain against the signed checkpoints and lists any problem; site admins can **Sign checkpoint now**.
 
 ### Server settings
 
@@ -286,7 +300,7 @@ The log's own requests aren't listed, nor the console's `/assets/`. Requests tha
 - **Ollama model tuning**: the `defaults`, `profiles` and `aliases` the server applies to requests it sends to Ollama, as one YAML document. **Save tuning** applies it to new requests. See [Model tuning](providers.md#model-tuning).
 - **Storage**: which database the server uses (SQLite or PostgreSQL, its address without the password, and its size), and the server's [retention policy](retention.md): which trace modes organizations may choose and the default one, whether account agents' traffic and terminal output are recorded, and for each kind (traces, terminal output, request records, sessions, the audit log) how long it's kept and the least and most organizations may set. Empty means forever, or no bound. On a phone each kind is a block of its own. **API log** turns on saving every request for the [API log](#api-log) (off by default) and says for how many days (7 by default), and whether debug mode saves headers and bodies too, and for how many days (1).
 - **Audit**: the key checkpoints are signed with (its id, and the public key to copy), how many events exports haven't sent yet, the checkpoint interval, and the [exports](audit.md#exports): add, edit or remove one (name, kind, URL or blob folder, the environment variable holding its secret, which organizations, on or off).
-- **Restart the server** (shown when the server can restart itself, which it can't when started with `--reload`): restarts it once requests in flight finish, and says where it comes back. It picks up a new listen address, and settings changed from the command line (`agent-server config import`).
+- **Restart the proxy…** (shown when the server can restart itself, which it can't when started with `--reload`): restarts it once requests in flight finish, and says where it comes back. It picks up a new listen address, and settings changed from the command line (`agent-server config import`).
 
 To copy the settings to another server or keep them in version control, use `agent-server config export` and `import` (see [Configuration](configuration.md)). **API reference** links to the server's OpenAPI pages (`/docs`).
 
@@ -296,8 +310,18 @@ To copy the settings to another server or keep them in version control, use `age
 
 `/organization` separates the directory from your own account. Each organization is a tenant: everything in it (people, machines, providers, sessions) is its own, and nothing is shared with another one ([Accounts](accounts.md#organizations-are-tenants)). Its tabs and selected organization and team stay in the URL, so you can link to them:
 
-- **Your organization** (site admins: **Organizations**): its **Teams** tab lists its teams; open one to put its people in or out of it, create a user in it, or rename or delete it. **People** lists everyone in the organization and, for its admins, creates users there. **API providers** (its admins, and site admins) holds the organization's [OpenAI and Anthropic-compatible providers](providers.md#api-providers-openai-and-anthropic-compatible), grouped as hosted APIs, gateways and machine-hosted ones. Each shows its address, protocols, how it authenticates, where its key comes from (stored, an environment variable, missing, or the agent's own; never the key), its models, priority, fallbacks, who may use it and its health. **Add a provider** starts from a preset (OpenAI, Anthropic, OpenRouter, LiteLLM, Groq, Together, Fireworks, DeepSeek, Azure OpenAI) or a blank one. **Edit** changes every setting: the key is a write-only field (**Remove key** deletes a stored one), models are aliases mapped to the provider's ids, extra headers can't be credentials, and **Teams that may use it** limits it to some of the organization's teams (none chosen: everyone in it; its admins always may). Site admins also see **Also share with**, to share it with other organizations whole. **Test connection** asks the provider for its models and offers to add the ones it lists. **Turn off** stops agents using it; **Remove** deletes it and its key. A machine-hosted one keeps its machine's address. Storing a key needs `AI_PROXY_VAULT_KEYS` on the server; without it, name an `AI_PROXY_API_KEY_*` variable instead. **Usage** shows each person's calls and tokens on each provider in a window you choose, with their limits and who's blocked (members: only their own); its admins set and remove limits there (**Limits**: a person or Everyone, a provider, a window, and tokens such as `1m` or `100k`; see [Usage limits](usage-limits.md#setting-limits)). **Data** (its admins, and site admins) shows the [retention policy](retention.md) its sessions start under, marking what's the server's and what's its own; sets its own within the server's bounds (shown beside each), or goes back to the server's with **Use the server's**; and lists its [legal holds](retention.md#legal-holds): place one on the whole organization, a person or a session, with a reason, or lift one. **Settings** renames it. Site admins see every organization (the root as **Site administration**), create organizations, and delete one once it has no users left.
-- **People**: search the people you can see (your organization's; site admins: everyone). Admins can create accounts in their organization (site admins: in any; the root takes only site admins), **Edit user** to change their role, teams or password, and **Delete account**. People belong to one organization and can't be moved: to give someone access to another, add them there as a new user.
+- **Your organization** (site admins: **Organizations**, every one, the root as **Site administration**; they also create organizations, and delete one once it has no users left). Its tabs:
+  - **Teams** lists its teams; open one to put its people in or out of it, create a user in it, or rename or delete it.
+  - **People** lists everyone in the organization and, for its admins, creates users there.
+  - **API providers** (its admins, and site admins) holds the organization's [OpenAI and Anthropic-compatible providers](providers.md#api-providers-openai-and-anthropic-compatible), grouped as hosted APIs, gateways and machine-hosted ones. Each shows its address, protocols, how it authenticates, where its key comes from (stored, an environment variable, missing, or the agent's own; never the key), its models, priority, fallbacks, who may use it and its health.
+    - **Add a provider** starts from a preset (OpenAI, Anthropic, OpenRouter, LiteLLM, Groq, Together, Fireworks, DeepSeek, Azure OpenAI) or a blank one. A machine-hosted one keeps its machine's address.
+    - **Edit** changes every setting: the key is a write-only field (**Remove key** deletes a stored one), models are aliases mapped to the provider's ids, extra headers can't be credentials, and **Teams that may use it** limits it to some of the organization's teams (none chosen: everyone in it; its admins always may). Site admins also see **Also share with**, to share it with other organizations whole.
+    - **Test connection** asks the provider for its models and offers to add the ones it lists. **Turn off** stops agents using it; **Remove** deletes it and its key.
+    - Storing a key needs `AI_PROXY_VAULT_KEYS` on the server; without it, name an `AI_PROXY_API_KEY_*` variable instead.
+  - **Usage** shows each person's calls and tokens on each provider in a window you choose, with their limits and who's blocked (members: only their own). Its admins set and remove limits there (**Limits**: a person or Everyone, a provider, a window, and tokens such as `1m` or `100k`; see [Usage limits](usage-limits.md#setting-limits)).
+  - **Data** (its admins, and site admins) shows the [retention policy](retention.md) its sessions start under, marking what's the server's and what's its own; sets its own within the server's bounds (shown beside each), or goes back to the server's with **Use the server's**. It also lists its [legal holds](retention.md#legal-holds): place one on the whole organization, a person or a session, with a reason, or lift one.
+  - **Settings** renames it.
+- **People**: search the people you can see (your organization's; site admins: everyone). The root organization is the site's own: it has no Teams tab, and its People tab is **Site admins**. Admins can create accounts in their organization (site admins: in any; the root takes only site admins), **Edit user** to change their role, teams or password, and **Delete account**. People belong to one organization and can't be moved: to give someone access to another, add them there as a new user.
 - **Your account**: your identity, role and organization, and OIDC sign-in instructions. To use another account, choose your name at the bottom of the menu: it switches between the accounts this browser is signed in to, adds one, or signs out of one or all ([Accounts](accounts.md#signing-in)). CLI sign-in uses device approval; scripts use explicitly provisioned service clients ([OIDC](oidc.md)). Admins reset account passwords in People or with `agent-server user passwd`.
 
 Members see their organization and its people, read-only. Its admins manage them; site admins manage organizations and server settings, but don't see what's inside another organization. Removing someone from a team keeps their account. Deleting a team keeps its people. Destructive changes ask for confirmation. See [Accounts and sharing](accounts.md).
@@ -320,15 +344,19 @@ If nothing has been built (`scripts/build-dist`), it says **Nothing built yet**.
 
 ![Machines](screenshots/machines.png)
 
-`/machines` lists the fleet in rows: **Name** (with online/offline state and owner), **Architecture** (with operating system), **Last contact** (hover for the full date and time), and **Functions**. Open a machine's name to manage it.
+`/machines` opens with totals (Connected, Model servers, Taking launches, Need an update) and lists the fleet in rows: **Name** (with online/offline state and owner), **Architecture** (with operating system), **Last contact** (hover for the full date and time), and **Functions**. Open a machine's name to manage it.
 
 Each row marks **Agents**, **Terminals**, **Model servers**, **Server management**, **Containers**, **Updates**, **Tunnel** and **MCP servers** as Enabled or Disabled. These are the machine's reported settings, not your personal permissions or a promise that an offline machine is usable. Model servers and MCP servers are enabled when the machine reports servers; the other functions follow its switches. An update badge shows when a newer build is available. Narrow screens show the same fields stacked.
 
 - **Search machines**: filter by name, machine id, hostname, address or owner. Search ignores case; clearing it shows the whole list again.
-- **Add a machine**: pick the computer's **System**: Linux, macOS, FreeBSD; Windows; **Python** (the Python versions through pip, for any computer with Python 3.9 or later); or **Docker container** (a machine of its own in Docker or Podman, with the coding agents installed, which can only touch its `/workspace`). Then pick what to **Install**: **agent-machine** (a computer that supplies models) or **agent-machine and agent** (one you also start coding agents from). A Docker container has both, so it shows its engine and shell switches, an optional **Name** and its two steps instead. A name adds to `agent-sandbox` and names the container and both of its volumes, so `work` gives `agent-sandbox-work`, `agent-sandbox-work-home` and `agent-sandbox-work-workspace`: several sandboxes can run on one computer, each with its own sign-ins and workspace. Each choice says what it is. The page then shows the one command to run there, a checkbox to start agent-machine by itself (at boot, or when you sign in to Windows), and what the command does, step by step. **Let the server do more there** lists the switches for model servers, containers and launches, and **Install it by hand** points to Downloads. **Remove it again** gives the matching way to take the machine off again: the uninstaller for Linux, macOS and FreeBSD or Windows (`/uninstall.sh`, `/uninstall.ps1`, with `--only agent-machine` when that's all you installed), `pip uninstall` for Python, or removing the container. **Also sign out and delete its settings** adds signing out (which revokes its tokens) and deleting its settings, or the container's volumes. Then remove the machine from the fleet on its page. The system and install choices are remembered in the browser. **Add another machine** shows it again when the fleet isn't empty.
+- **Add a machine**: two choices, then one command to run there (the choices are remembered in the browser; **Add another machine** shows the page again when the fleet isn't empty).
+  - **System**: Linux, macOS, FreeBSD; Windows; **Python** (the Python versions through pip, for any computer with Python 3.9 or later); or **Docker container** (a machine of its own in Docker or Podman, with the coding agents installed, which can only touch its `/workspace`). Each choice says what it is.
+  - **Install**: **agent-machine** (a computer that supplies models) or **agent-machine and agent** (one you also start coding agents from). A Docker container has both, so it shows its engine and shell switches, an optional **Name** and its two steps instead. A name adds to `agent-sandbox` and names the container and both of its volumes, so `work` gives `agent-sandbox-work`, `agent-sandbox-work-home` and `agent-sandbox-work-workspace`: several sandboxes can run on one computer, each with its own sign-ins and workspace.
+  - The page then shows the command, a checkbox to start agent-machine by itself (at boot, or when you sign in to Windows), and what the command does, step by step. **Let the server do more there** lists the switches for model servers, containers and launches, and **Install it by hand** points to Downloads.
+  - **Remove it again** gives the matching way to take the machine off: the uninstaller for Linux, macOS and FreeBSD or Windows (`/uninstall.sh`, `/uninstall.ps1`, with `--only agent-machine` when that's all you installed), `pip uninstall` for Python, or removing the container. **Also sign out and delete its settings and sign-ins** adds signing out (which revokes its tokens) and deleting its settings, or the container's volumes. Then remove the machine from the fleet on its page.
 
   ![Add a machine](screenshots/add-machine.png)
-- **Or run a sandbox machine in a container**: the Docker or Podman command for the sandbox image, which runs agents in a container (see [Machines](machines.md#a-sandbox-machine-in-docker)).
+- **Skip approving: use a setup code**: makes a code (lasting 15 minutes, an hour or a day, for one or more machines) that signs a computer in as you with nothing to approve, and can turn switches on at sign-in; open codes are listed with **Revoke**. See [Machines](machines.md#signing-in-with-a-setup-code).
 - **Removed**: machines taken off the server, which you (their owner or an admin of their organization) can allow back.
 
 ### Approve a device
@@ -347,7 +375,7 @@ Only approve a code from a sign-in you started yourself: approving lets that com
 
 ![A machine's summary](screenshots/machine.png)
 
-`/machines/<id>` has a header with the machine's name, state and system, **Start an agent** and **Open a terminal** (when you may use them), and, when the machine runs another build than the server, **Update now** (with **Update agent there too**) for its owner or an admin. Below it, a tab per function: **Summary**, **Agents**, **Terminal**, **Providers** (everything about its model servers and containers), **Load**, **MCP servers** (for its owner or when it shares some), **Agent accounts** and **Access** (for those who manage it).
+`/machines/<id>` has a header with the machine's name, state and system, **Start an agent** and **Open a terminal** (when you may use them), and, when the machine runs another build than the server, **Update now** (with **Update agent there too**) for its owner or an admin. Below it, a tab per function: **Summary**, **Agents**, **Terminal**, **Providers** (everything about its model servers and containers), **Load**, **MCP servers** (for its owner or when it shares some), **Agent accounts**, and **Access** (for those who manage it).
 
 ### Summary, agents and terminal
 
@@ -355,7 +383,9 @@ Only approve a code from a sign-in you started yourself: approving lets that com
 
 ![A machine's Agents tab](screenshots/machine-agents.png)
 
-**Agents**: **Running agents** on the machine (launched from here or started there by hand), **Installed there** (the server's agents found on its `PATH`), **Start an agent** and **Started from here** (each launch: who, which agent, which folder, its session or why it failed). **Start an agent** picks the agent, the provider and model, the folder (browse the folders inside its launch folders, or name a new one), MCP servers, sharing and payload capture, then starts it in a shared terminal and opens it. It needs `agent-machine launches on` and a launch folder there. For an account agent, **Subscription** picks which of your [subscriptions](subscriptions.md) it runs with: the machine's own sign-in (its owner only), **Choose automatically**, or one by name.
+**Agents** has four parts: **Running agents** on the machine (launched from here or started there by hand), **Installed there** (the server's agents found on its `PATH`), **Start an agent**, and **Started from here** (each launch: who, which agent, which folder, its session or why it failed).
+
+**Start an agent** picks the agent, the provider and model, the folder (browse the folders inside its launch folders, or name a new one), MCP servers, sharing and payload capture, then starts it in a shared terminal and opens it. It needs `agent-machine launches on` and a launch folder there. For an account agent, **Subscription** picks which of your [subscriptions](subscriptions.md) it runs with: the machine's own sign-in (its owner only), **Choose automatically**, or one by name.
 
 **Agent accounts**: the provider CLIs the machine found (Claude Code, Codex, Copilot CLI), their versions and whether each is signed in, as its agent-machine reports them (never a sign-in itself), and the subscriptions you can see that run there, with their state.
 

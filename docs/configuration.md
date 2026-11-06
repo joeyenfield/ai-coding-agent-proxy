@@ -55,7 +55,7 @@ agent-auth imports its `issuer.sqlite3` and `signing-key.pem` the same way, so e
 | `proxy` | The server's address, its public address and HTTPS | **Server settings** → **Server**, `PUT /api/config` |
 | `default_backend`, `backends` | The LLM providers | **Server settings** → **Providers**, adopting a model server, the containers API |
 | `intercept` | HTTPS capture | `agent-server config import`, `POST /api/config/import` |
-| `models` | Tuning applied to requests sent to Ollama | **Server settings** → **Ollama model tuning**, `PUT /api/config/models` |
+| `models` | Tuning applied to requests sent to Ollama | **Server settings** → **Model tuning**, `PUT /api/config/models` |
 | `agents` | Every coding agent the server can launch | **Server settings** → **Agents**, `PUT /api/config/agents/<id>` |
 | `retention_days` | How long payloads and terminals are kept, and the access log's saved failures and fleet connections (30 days when unset) | **Server settings** → **Storage**, `PUT /api/config/storage` |
 | `request_log` | The API log: `enabled` (save every request; off until you turn it on), `days` (7), `payloads` (debug mode: headers and bodies too, off) and `payload_days` (1) | **Server settings** → **Storage**, `PUT /api/config/storage` |
@@ -148,7 +148,7 @@ The server connects only to public IP addresses for intercepted traffic. It refu
 
 ### models: Ollama tuning
 
-Tuning for Ollama backends only. The server applies it when it translates OpenAI and Anthropic requests to Ollama's native `/api/chat`, and to native `/api/chat` and `/api/generate` calls. Strata, Docker Model Runner and llama.cpp get requests unchanged. Edit it as one YAML document on **Server settings** → **Ollama model tuning**.
+Tuning for Ollama backends only. The server applies it when it translates OpenAI and Anthropic requests to Ollama's native `/api/chat`, and to native `/api/chat` and `/api/generate` calls. Strata, Docker Model Runner and llama.cpp get requests unchanged. Edit it as one YAML document on **Server settings** → **Model tuning**.
 
 Settings are layered, in this order:
 

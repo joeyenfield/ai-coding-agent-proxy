@@ -20,7 +20,7 @@ The server is `agent-server`, a Python program. It holds the API, the web consol
 
 ### From a checkout
 
-You need Python 3.13 or later, and Node.js with npm to build the console.
+You need Python 3.11 or later (3.13 recommended), and Node.js with npm to build the console.
 
 ```bash
 git clone <this repository> ai-coding-agent-proxy
@@ -44,7 +44,7 @@ Other options:
 
 ### In Docker
 
-`compose.yaml` builds the server's image from the repository root, with the console inside. Before the first start, put these in a `.env` file beside it: `AI_PROXY_POSTGRES_PASSWORD`, `AI_PROXY_DB_API_PASSWORD` and `AI_PROXY_DB_AUTH_PASSWORD` (letters and digits), and `AI_PROXY_OIDC_INTROSPECTION_SECRET`. Compose refuses to start without them.
+`compose.yaml` pulls the project's published images, with the console inside the server's; add `-f compose.build.yaml` to build them from the checkout instead (see [Deployment](deployment.md)). Before the first start, put these in a `.env` file beside it: `AI_PROXY_POSTGRES_PASSWORD`, `AI_PROXY_DB_API_PASSWORD` and `AI_PROXY_DB_AUTH_PASSWORD` (letters and digits), and `AI_PROXY_OIDC_INTROSPECTION_SECRET`. Compose refuses to start without them.
 
 ```bash
 docker compose up -d                  # console on http://<this host>:9999
@@ -55,7 +55,7 @@ Compose runs PostgreSQL beside the API and the issuer (`agent-auth`, on `127.0.0
 
 ## 2. Sign in to the console
 
-The console always requires OIDC sign-in. **Sign in** redirects to `auth.aicontrolmesh.com`; enter your password only there.
+The console always requires OIDC sign-in. **Sign in** redirects to your sign-in service (the `agent-auth` issuer you set up above); enter your password only there.
 
 On first start, including loopback, the API creates `admin` if accounts were never set up in its database and there is no environment account. Its random password is printed and saved in the file `first-user-password` (in `certs/` normally).
 
@@ -127,7 +127,7 @@ A computer without a Go build can use the Python port instead. It installs the s
 On every computer where you run agents, the server's own included, sign in once:
 
 ```bash
-agent login https://api.aicontrolmesh.com
+agent login https://your-server.example.com
 ```
 
 Open the printed OIDC verification URL in your browser and approve the device code, or, if you're signed in to the console, type the code on **Machines › Approve a device**. Access refreshes automatically; legacy access-key and password options are removed.
@@ -168,7 +168,7 @@ The launcher gives only the agent's own processes the server's CA, so nothing is
 Local models come from **machines**: computers in the server's fleet, running `agent-machine`. On the computer that runs Ollama (it can be the server's, or the one you work on):
 
 ```bash
-agent-machine login https://api.aicontrolmesh.com # approve its separate device code
+agent-machine login https://your-server.example.com   # approve its separate device code
 agent-machine start                         # join the fleet in the background
 agent-machine                               # how the fleet sees this machine
 ```

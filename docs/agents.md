@@ -2,7 +2,7 @@
 
 You start every coding agent with the `agent` command on the computer where you work. It asks the server for a session and runs the agent pointed at this computer's `agent-proxy`. The `agent-proxy` carries everything the agent sends to the server, which records it and passes it on.
 
-This page covers the `agent` command, the `agent-proxy`, the agents the server knows, what their requests are, sharing an agent's terminal, and adding a new agent. To put a computer in the server's fleet (its model servers, containers, launches from the console) you use a different program, `agent-machine`: see [Machines](machines.md).
+Day to day you need the first half of this page: [the three routes](#the-three-routes), [the agent command](#the-agent-command), [signing in](#signing-in-agent-login-and-agent-logout), [the supported agents](#supported-agents) and [sharing a terminal](#sharing-a-terminal-with---control). The rest is reference: how the `agent-proxy` keeps itself safe, what every recorded request is, and [adding an agent of your own](#adding-a-new-agent). To put a computer in the server's fleet (its model servers, containers, launches from the console) you use a different program, `agent-machine`: see [Machines](machines.md).
 
 ## The three routes
 
@@ -159,7 +159,7 @@ sequenceDiagram
   participant L as agent login
   participant S as OIDC issuer
   participant P as agent-proxy
-  U->>L: agent login https://api.aicontrolmesh.com
+  U->>L: agent login https://api.example.com
   L->>S: Begin device authorization
   S-->>L: Verification URL and short code
   U->>S: Sign in and approve code in browser
@@ -170,7 +170,7 @@ sequenceDiagram
 ```
 
 ```bash
-agent login https://api.aicontrolmesh.com # approve the device code, once per computer
+agent login https://api.example.com # approve the device code, once per computer
 agent logout                               # the server signed in to last
 agent logout http://server:9999
 ```
@@ -286,6 +286,33 @@ Sign each one in with its own client first. The account agents get the HTTPS cap
   - Each Codex conversation opens with a *prewarm* turn (`generate: false`), which shows up as a model call with no output.
   - Codex may print `[UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental` when it picks up the proxy settings. It's harmless.
 
+## Sharing a terminal with --control
+
+```bash
+agent claude-account . --control
+agent qwen . --model qwen3.6:35b --control --share team --team pockets/core --let-others-type
+```
+
+With `--control`, the launcher runs the agent in a pseudo-terminal (ConPTY on Windows, a POSIX pty elsewhere) and shares it with the server through the `agent-proxy`, a bit like a one-window tmux. The agent draws in your terminal as usual. The console's **Running agents** page shows the same screen, scrollback included, and can type into it, from a computer or a phone. The launcher prints the address of the agent's terminal in the console.
+
+- **It's off unless you ask.** Without `--control`, the agent runs directly and only its traffic is recorded. `AI_PROXY_CONTROL=1` makes `--control` a computer's default.
+- **It needs an interactive terminal.** On Windows that's Windows Terminal, PowerShell or cmd, not Git Bash's mintty. Otherwise the launcher prints why sharing is off and runs the agent directly.
+- **Your window stays the main one.** Its size sets the terminal's size, and closing it ends the agent.
+- **History is saved** in the server's database (up to 64 MB per terminal), so finished sessions stay readable. If the launcher loses the server, it keeps trying and resends what the server missed when it reconnects; if this computer's `agent-proxy` has stopped (`agent update` stops it), the launcher starts it again.
+- **Agents on other computers** can be shared once signed in with `agent login <server>`. `AI_PROXY_TOKEN` accepts a pre-issued OAuth access token, not a legacy key.
+
+Typing into an agent's terminal is as good as a shell on that computer. Viewers need an active OIDC sign-in and session permission. See [Console](console.md) and [Accounts](accounts.md).
+
+**Who can see a session.** Every session belongs to whoever started it and is private until they share it. The launcher's sharing flags set it when the session starts:
+
+| `--share` | Who sees it |
+|---|---|
+| `private` (default) | Only you. Your organization's admins can't either; site admins, who look after the whole server, can. |
+| `team` | The members of one of your teams. Name it with `--team org/team` if you're in several. |
+| `org` | Everyone in one of your organizations. Name it with `--team org` if you're in several. |
+
+Shared sessions are watch-only unless you add `--let-others-type`: then the people it's shared with can also type into its terminal and end it. You can change the sharing later on the session's row or its terminal page. See [Accounts](accounts.md).
+
 ## What the requests are
 
 Every request is recorded with timing, sizes and status, and labelled with the service it went to and what it was for. For account agents, model calls are usually a small part of the traffic: most of it is what the agent does around them. See [Console](console.md) for the pages that show them.
@@ -329,33 +356,6 @@ Back-to-back identical requests (same session, method, host and path) are folded
 | Headers | Request and response headers, credentials redacted. |
 | Request, response, conversation | Full bodies and a readable conversation (system prompt, messages, reasoning, reply, tool calls), when capture is on. |
 | Sent to Ollama | For local models, the exact payload after translation and model settings. |
-
-## Sharing a terminal with --control
-
-```bash
-agent claude-account . --control
-agent qwen . --model qwen3.6:35b --control --share team --team pockets/core --let-others-type
-```
-
-With `--control`, the launcher runs the agent in a pseudo-terminal (ConPTY on Windows, a POSIX pty elsewhere) and shares it with the server through the `agent-proxy`, a bit like a one-window tmux. The agent draws in your terminal as usual. The console's **Running agents** page shows the same screen, scrollback included, and can type into it, from a computer or a phone. The launcher prints the address of the agent's terminal in the console.
-
-- **It's off unless you ask.** Without `--control`, the agent runs directly and only its traffic is recorded. `AI_PROXY_CONTROL=1` makes `--control` a computer's default.
-- **It needs an interactive terminal.** On Windows that's Windows Terminal, PowerShell or cmd, not Git Bash's mintty. Otherwise the launcher prints why sharing is off and runs the agent directly.
-- **Your window stays the main one.** Its size sets the terminal's size, and closing it ends the agent.
-- **History is saved** in the server's database (up to 64 MB per terminal), so finished sessions stay readable. If the launcher loses the server, it keeps trying and resends what the server missed when it reconnects; if this computer's `agent-proxy` has stopped (`agent update` stops it), the launcher starts it again.
-- **Agents on other computers** can be shared once signed in with `agent login <server>`. `AI_PROXY_TOKEN` accepts a pre-issued OAuth access token, not a legacy key.
-
-Typing into an agent's terminal is as good as a shell on that computer. Viewers need an active OIDC sign-in and session permission. See [Console](console.md) and [Accounts](accounts.md).
-
-**Who can see a session.** Every session belongs to whoever started it and is private until they share it. The launcher's sharing flags set it when the session starts:
-
-| `--share` | Who sees it |
-|---|---|
-| `private` (default) | Only you. Your organization's admins can't either; site admins, who look after the whole server, can. |
-| `team` | The members of one of your teams. Name it with `--team org/team` if you're in several. |
-| `org` | Everyone in one of your organizations. Name it with `--team org` if you're in several. |
-
-Shared sessions are watch-only unless you add `--let-others-type`: then the people it's shared with can also type into its terminal and end it. You can change the sharing later on the session's row or its terminal page. See [Accounts](accounts.md).
 
 ## Adding a new agent
 

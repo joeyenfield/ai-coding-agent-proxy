@@ -5,7 +5,7 @@ A **provider** is anywhere agents' model calls go. The server treats each one as
 | Provider | What it is | Its id |
 | --- | --- | --- |
 | A model server on a machine | Ollama, llama.cpp, Strata, Docker Model Runner or a container, added as a provider from its machine's page | `backend:<name>` |
-| A hosted API | The Anthropic API (Server settings) | `backend:<name>` |
+| A hosted API | The Anthropic API (Server settings), and every hosted or gateway [API provider](providers.md#api-providers-openai-and-anthropic-compatible) (OpenAI, OpenRouter, LiteLLM, ...). Machine-hosted OpenAI-compatible servers (LM Studio, vLLM, SGLang) count here too, as `api` backends. | `backend:<name>` |
 | A kind of subscription | Claude, ChatGPT (Codex) or GitHub Copilot: account agents' calls to that provider's own hosts, whichever plan or sign-in carried them | `subscription:claude`, `subscription:codex`, `subscription:copilot` |
 
 The server counts each person's usage of each provider and lets an organization's admins put token limits on it. For example, in organization `pockets`:
@@ -20,7 +20,7 @@ Once joey has used 1,000,000 tokens on Claude this month, the server refuses the
 
 ## The Providers page
 
-**Agents › Providers** (`/providers`) lists every provider your organization can use: **On machines** (with the machine, whether it's connected, and a link to its page), **Hosted APIs** and **Subscriptions** (with how many of your subscriptions the server has, and a link to [Subscriptions](subscriptions.md)). Each card shows your calls and tokens in the window you choose (the last 5 hours, 24 hours, 7 days, 30 days, or this month in UTC), every limit on you there with how much of it you've used, and **Blocked** with when it frees up once you've reached one.
+**Agents › Providers** (`/providers`) lists every provider you can use (team-restricted ones others may use aren't shown): **On machines** (with the machine, whether it's connected, and a link to its page), **Hosted APIs** and **Subscriptions** (with how many of your subscriptions the server has, and a link to [Subscriptions](subscriptions.md)). Each card shows your calls and tokens in the window you choose (the last 5 hours, 24 hours, 7 days, 30 days, or this month in UTC), every limit on you there with how much of it you've used, and **Blocked** with when it frees up once you've reached one.
 
 ## How usage is counted
 
