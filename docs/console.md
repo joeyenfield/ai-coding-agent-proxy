@@ -4,7 +4,7 @@ The console is the server's web app. Open the server's address in a browser (`ht
 
 The screenshots come from the demo (`python scripts/screenshots/demo.py`), which runs a server with made-up machines, agents and traffic.
 
-The page follows the rail, top to bottom: [Agents](#agents), [the server's traffic and sessions](#server-traffic-and-sessions), [running the server](#server-running-it) (admin pages), then [Machines](#machines) and [a machine's page](#a-machines-page). Dip into the section for the page you're on; nothing here needs reading in order.
+The page follows the rail, top to bottom: [Agents](#agents), [the server's traffic and sessions](#server-traffic-and-sessions), [running the server](#server-running-it) (admin pages), then [Machines](#machines) and [a machine's page](#a-machines-page). Dip into the section for the page you're on.
 
 ## Layout
 
@@ -25,7 +25,7 @@ The rail on the left has three parts: the agents, the machines they and their mo
 
 ![The Overview in a phone-sized window](screenshots/overview-phone.png)
 
-**Documentation** (`/help`) shows this documentation in the console: the pages of `docs/` on the server, with their pictures, and **API reference (OpenAPI)** for the server's `/docs`. Links between pages stay in the console, and each heading has its own address (`/help/mcp#how-it-works`). Diagrams are drawn from the pages' Mermaid blocks, in the console's light or dark theme. Like Downloads it's public, so it can be read before signing in; the sign-in page links to it. The server reads the pages from the `docs` folder of its checkout (the Docker image has them in `/app/docs`), or `AI_PROXY_DOCS_DIR`. A server installed without them says so on the page.
+**Documentation** (`/help`) shows this documentation in the console: the pages of `docs/` on the server, with their pictures, and **API reference (OpenAPI)** for the server's `/docs`. Links between pages stay in the console, and each heading has its own address (`/help/mcp#how-it-works`). Diagrams are drawn from the pages' Mermaid blocks, in the console's light or dark theme. Public, like Downloads; the sign-in page links to it. The server reads the pages from the `docs` folder of its checkout (the Docker image has them in `/app/docs`), or `AI_PROXY_DOCS_DIR`. A server installed without them says so on the page.
 
 ### The overview
 
@@ -45,13 +45,13 @@ If the console can't reach the server, the page says so (**Can't reach the proxy
 
 The console always requires sign-in. **Continue to sign in** redirects to the separate OIDC issuer using authorization code + PKCE; passwords are entered only there. Access renews automatically through host-only HttpOnly cookies. The page also offers **Continue as …** for accounts this browser still holds, and **Sign in to another account**. **Downloads** and documentation remain public.
 
-An unavailable authentication service shows an error, never an unsigned console. If a sign-in can't be completed (it took more than 10 minutes, or the sign-in service isn't answering), you come back to this page with a message saying so; press **Continue to sign in** again. See [OIDC authentication](oidc.md).
+An unavailable authentication service shows an error, never an unsigned console. A sign-in that can't finish (more than 10 minutes, or the service isn't answering) returns here with a message; press **Continue to sign in** again. See [OIDC authentication](oidc.md).
 
 ![OIDC sign-in](screenshots/login.png)
 
 ![Sign-in on a phone](screenshots/login-phone.png)
 
-**On a phone**, open the console and sign in through OIDC, as on a computer. Pairing keys and legacy pairing codes no longer grant access; terminal access follows session sharing. Old `/pair` links redirect to Running agents after sign-in. See [Security](security.md#pairing-how-each-device-joins) for how phones, the Android app and computers join now.
+**On a phone**, open the console and sign in through OIDC, as on a computer. Pairing keys and legacy pairing codes no longer grant access; terminal access follows session sharing. Old `/pair` links redirect to Running agents after sign-in. See [Security](security.md#pairing-how-each-device-joins).
 
 In the Android app, a server that can't be reached, or that answers with a server error (5xx), shows **Can't reach** with **Try again** and **Servers**. **Try again** reloads the page you were on. When the phone's network comes back while that panel is up, the app tries again by itself.
 
@@ -102,7 +102,7 @@ A machine's own page has the same launch form (see [its Agents tab](#summary-age
 
 Finished sessions collapse behind **Show … finished sessions** and stay readable until their session is deleted. **Remove … not connected** (shown when more than one launcher dropped) clears dead rows, and **Notify me when an agent is waiting** turns on system notifications.
 
-A terminal that isn't connected (its launcher closed, or the agent exited) has **Remove**, for those who can control its session. It deletes the session with everything recorded for it: its terminal output, requests, traces and chats. **Remove N not connected** at the top does it for every one at once. A terminal still connected, or with a request in flight, can't be removed.
+A terminal that isn't connected (its launcher closed, or the agent exited) has **Remove**, for those who can control its session. It deletes the session with everything recorded for it: its terminal output, requests, traces and chats. A terminal still connected, or with a request in flight, can't be removed.
 
 ### Live agent view
 
@@ -120,21 +120,21 @@ Click inside a terminal to type into that session; the focused tile has a highli
 - **Text size** changes the grid's text from 6px to 16px without changing the agent's terminal dimensions; scroll inside a tile to see output that doesn't fit. A tile's open details shrink only what you see: the agent's terminal keeps its own size.
 - On a phone the tiles stack in one column; type a message in the full terminal view.
 
-**Quick keys** run along the bottom of the page: Esc, Enter, the arrows, Scroll ↑/↓, PgUp/PgDn, Tab, ⇧Tab, Ctrl+C, and 1, 2, 3, y, n, as on the full terminal page. They go to the selected tile, named at the start of the bar: click or tap a tile to select it (with several tiles, it gets a highlighted border). They are off for a tile shared with you to watch only, or whose agent has ended. On a phone they stay at the bottom of the screen as you scroll, so you can answer a prompt without opening the terminal.
+**Quick keys** run along the bottom of the page: Esc, Enter, the arrows, Scroll ↑/↓, PgUp/PgDn, Tab, ⇧Tab, Ctrl+C, and 1, 2, 3, y, n, as on the full terminal page. They go to the selected tile, named at the start of the bar. They are off for a tile shared with you to watch only, or whose agent has ended. On a phone they stay at the bottom of the screen as you scroll, so you can answer a prompt without opening the terminal.
 
-The **Fullscreen** button at the top right of each tile opens the existing full terminal page, with its message box, keys, copying and text controls. Its back button returns to the Live agent view. The selection is remembered for your account in this browser tab; rows, columns and text size are remembered in this browser. **Remove from grid** only removes a tile, leaving the session running. A selected agent that exits stays in the grid until removed.
+**Fullscreen** on each tile opens the full terminal page (message box, keys, copying and text controls); its back button returns here. The selection is remembered for your account in this browser tab; rows, columns and text size are remembered in this browser. **Remove from grid** only removes a tile, leaving the session running. A selected agent that exits stays in the grid until removed.
 
 ![A shared terminal](screenshots/terminal.png)
 
-**A terminal.** Opening one (`/terminals/<session>`) shows the agent's live terminal (xterm.js) with its history. One line sits above it: a back button (to Running agents, or to the Live agent view when you came from there), the agent's state as a coloured dot, its name and folder, its state, and the text controls. Press the name to open the details underneath: the state's detail, **Session traffic**, sharing and hints. Press it again to hide them. On narrow screens the text controls move into the details too.
+**A terminal.** Opening one (`/terminals/<session>`) shows the agent's live terminal (xterm.js) with its history. One line sits above it: a back button (to Running agents, or the Live agent view when you came from there), its state as a coloured dot, its name and folder, and the text controls. Press the name to open the details underneath: the state's detail, **Session traffic**, sharing and hints. Press it again to hide them. On narrow screens the text controls move into the details too.
 
-- **Type into it** in the message box and **Send**. On a phone, tapping the terminal brings up the keyboard in the message box. Text and Enter go as separate keystrokes, and multi-line text is sent as a paste, so agents read it the way they would from a keyboard.
+- **Type into it** in the message box and **Send**. On a phone, tapping the terminal brings up the keyboard in the message box. Text and Enter go as separate keystrokes, and multi-line text is sent as a paste, so agents read it as if typed.
 - **Keys** for phones: Esc, Enter, arrows, Scroll ↑/↓, PgUp/PgDn, Tab, ⇧Tab, Ctrl+C, and 1, 2, 3, y, n for answering prompts. Scroll ↑/↓ scroll the agent's own history in full-screen agents (Claude Code, OpenCode, Qwen Code) and the terminal's elsewhere.
 - **A−/A+** change the font size; **Fit width** sizes it to the window; **Light** switches the terminal's colours; **Latest** jumps to the bottom.
-- **Copying**: drag over the terminal to select text, then Ctrl+C (or Ctrl+Shift+C, or Cmd+C on a Mac) copies it; with nothing selected, Ctrl+C still goes to the agent. Full-screen agents that use the mouse (Claude Code, OpenCode, Qwen Code) take a plain drag themselves: hold Shift while dragging (Option on a Mac). **Copy** copies the selection, or else what's on the screen, and **Copy all** the whole terminal with its history, which also works on phones.
+- **Copying**: drag over the terminal to select text, then Ctrl+C (or Ctrl+Shift+C, or Cmd+C on a Mac) copies it; with nothing selected, Ctrl+C still goes to the agent. Full-screen agents that use the mouse (Claude Code, OpenCode, Qwen Code) take a plain drag themselves: hold Shift while dragging (Option on a Mac). **Copy** copies the selection, or else what's on the screen, and **Copy all** the whole terminal with its history (both work on phones).
 - **Session traffic** opens the session's page, with its requests and chat.
 - If the session is shared with you to watch only, the input is off.
-- If the connection drops (a phone changing networks, the server restarting, the sign-in renewing), the page reconnects by itself and carries on from the last output it showed, rather than redrawing the whole history. A server from before this redraws it, as before. If the sign-in has run out, the page renews it once before asking you to sign in again.
+- If the connection drops (a phone changing networks, the server restarting, the sign-in renewing), the page reconnects by itself and carries on from the last output it showed (an older server redraws the history). If the sign-in has run out, the page renews it once before asking you to sign in again.
 
 ![A shared terminal on a phone](screenshots/terminal-phone.png)
 
@@ -148,7 +148,7 @@ The **Fullscreen** button at the top right of each tile opens the existing full 
 - **Enter** sends; **Shift+Enter** starts a new line. **Stop** stops the answer. A model that thinks shows its thinking folded above the answer.
 - If the connection drops while the answer is coming in (a phone changing networks), the server keeps reading it and records it in full, and the page picks the rest up when it's back. Only **Stop**, **New chat** or leaving the page stop it on the server.
 - **System prompt** (optional) is sent before the conversation with every question.
-- Each chat is a session of its own (client `console-chat`, payloads captured), so every question goes through the server like an agent's call: on Ollama it's translated and gets the model tuning, and it's recorded on **Traffic**, **Requests** and **Sessions**. **Open as a session** shows it there, in its chat view. The session ends when you start a **New chat** or leave the page; the conversation isn't kept on the page after that, only in the session.
+- Each chat is a session of its own (client `console-chat`, payloads captured), so every question goes through the server like an agent's call: on Ollama it's translated and gets the model tuning, and it's recorded on **Traffic**, **Requests** and **Sessions**. **Open as a session** shows its chat view. The session ends with **New chat** or leaving the page; the conversation then lives only in the session.
 
 ### Providers and subscriptions
 
@@ -202,7 +202,7 @@ Account agents' other calls (sign-in, telemetry, MCP) aren't shown here; they're
 `/requests` is the model-call history across all sessions: model, agent, provider, duration, output tokens and speed.
 
 - **Search** by model, agent, endpoint or ID; filter by **session**, **route** (accounts, local models, hosted) and **With payload**, **Without payload** or **Failed**.
-- **Include non-model requests from account agents** adds their sign-in, telemetry and MCP calls, which are hidden by default (Traffic shows them too).
+- **Include non-model requests from account agents** adds their sign-in, telemetry and MCP calls (hidden by default; Traffic shows them too).
 - It loads the newest 2,000 requests. **Load 2,000 older** fetches the next ones; search and filters cover the requests loaded so far.
 - Selecting a row shows the same inspector as Traffic. Each request also has its own page (`/requests/<session>/<request>`):
 
@@ -233,7 +233,7 @@ Account agents' other calls (sign-in, telemetry, MCP) aren't shown here; they're
 
 Agents send their model far more as "the user" than you type: system reminders, tool output, notes about images, and whole calls of their own. The chat view keeps what you wrote apart from all of that.
 
-- **The list on the side** has the session's conversations. **Main conversation** is the one going on. Below it are other conversations (for example one from before `/clear`), **Sub-agents** (helpers the agent started for one task) and **Background calls**: calls the agent made by itself, such as naming the session, a recap for when you come back, suggesting your next prompt, compacting the conversation or checking that an action is safe. Each background call is named by what it was for. On a narrow screen the list is a menu above the chat.
+- **The list on the side** has the session's conversations. **Main conversation** is the one going on. Below it are other conversations (for example one from before `/clear`), **Sub-agents** (helpers the agent started for one task) and **Background calls**: calls the agent made by itself, such as naming the session, a recap for when you come back, suggesting your next prompt, compacting the conversation or checking an action is safe — each named by what it was for. On a narrow screen the list is a menu above the chat.
 - **Your messages are on the right**, in the accent colour, with the time you sent them. A message typed while the agent was working says so, and slash and `!` commands show as commands. Pasted text is folded. On a session someone shared with you, the owner's name replaces **You**.
 - **The agent's replies are on the left**: its text, its thinking (folded), and its tool calls. More than three tool calls in a row fold into one line, such as "Used 7 tools: Bash ×5 · Read ×2". Open a tool call for its input, result and request. Under each reply are its request, tokens and time.
 - **What the agent added itself** shows as small grey notes in the middle, never as a message: an interruption, a command's output, the summary a compacted conversation goes on from, and a marker where it was compacted. Reminders and other context it injects are hidden. **Show what … added** shows them.
@@ -253,7 +253,7 @@ Claude Code signed in to its account sends most calls with only what's new, nami
 - **The computer**: its name, system, how long it's been up and how long the server has been running.
 - **CPU and memory**: charts of the computer's CPU (with the load average outside Windows) and memory, and of the server's own share of the CPU. Bars show the server's own memory and, when there is one, swap.
 - **Disks**: each disk the server keeps its files on, with how much is used and free and which of its folders are there.
-- **What the server keeps**: the size of its database (SQLite or PostgreSQL: settings, accounts, machines and every session's requests, payloads and terminals), its log folder (`logs/`, where the SQLite file is too) and the builds it hands out (`dist/`), measured every five minutes. Deleting sessions on the [Sessions](#sessions) page, or fewer days under **Storage** on [Server settings](#server-settings), removes recorded traffic; old builds (folders named like `1.2.0+abc1234`) can be deleted by hand, since the server only hands out its own version's.
+- **What the server keeps**: the size of its database (SQLite or PostgreSQL: settings, accounts, machines and every session's requests, payloads and terminals), its log folder (`logs/`, where the SQLite file is too) and the builds it hands out (`dist/`), measured every five minutes. Deleting sessions on the [Sessions](#sessions) page, or fewer days under **Storage** on [Server settings](#server-settings), removes recorded traffic; old build folders can be deleted by hand (the server hands out only its own version's).
 
 ### Access log
 
