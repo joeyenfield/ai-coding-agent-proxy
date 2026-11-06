@@ -38,9 +38,11 @@ spec:
   {{- range $fn := list "gateway" "mcp" "intercept" "fleet" "realtime" "api" }}
   {{- $matches := list }}
   {{- range $r := $table }}{{ if eq $r.fn $fn }}{{ $matches = append $matches $r }}{{ end }}{{ end }}
-  {{- if $matches }}
+  {{- /* Gateway API v1.0/v1.1 CRDs allow at most 8 matches per rule, so a function with
+         more gets several rules with the same backend. */}}
+  {{- range $start := untilStep 0 (len $matches) 8 }}
     - matches:
-        {{- range $r := $matches }}
+        {{- range $r := slice $matches $start (min (add $start 8) (len $matches)) }}
         - path: {type: {{ $r.type }}, value: {{ $r.path | quote }}}
         {{- end }}
       backendRefs:

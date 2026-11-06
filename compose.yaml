@@ -13,7 +13,7 @@
 #
 # The images come from the GitHub Container Registry, built by .github/workflows/images.yml:
 # AI_PROXY_IMAGE_TAG picks the version (default latest, the newest build of master or a
-# release; 2.0.1 for a release, or sha-<commit> for a commit of master), AI_PROXY_IMAGES another registry or owner. To build
+# release; 2.1.20 for a release, or sha-<commit> for a commit of master), AI_PROXY_IMAGES another registry or owner. To build
 # them from this checkout instead: docker compose -f compose.yaml -f compose.build.yaml up -d --build
 services:
   postgres:
@@ -47,6 +47,9 @@ services:
       AI_PROXY_AUTH_DATABASE_URL: postgresql+psycopg://mesh_auth:${AI_PROXY_DB_AUTH_PASSWORD}@postgres:5432/mesh
       AI_PROXY_AUTH_HOST: 0.0.0.0
       AI_PROXY_AUTH_PORT: 10000
+      # The OIDC addresses default to the project's reference deployment: set all four
+      # (here and on agent-server below) to YOUR OWN hostnames, or sign-in redirects to
+      # a server that isn't yours. See docs/oidc.md.
       AI_PROXY_OIDC_ISSUER: ${AI_PROXY_OIDC_ISSUER:-https://auth.aicontrolmesh.com}
       AI_PROXY_OIDC_AUDIENCE: ${AI_PROXY_OIDC_AUDIENCE:-https://api.aicontrolmesh.com}
       AI_PROXY_OIDC_REDIRECT_URIS: ${AI_PROXY_OIDC_REDIRECT_URIS:-https://api.aicontrolmesh.com/api/auth/callback}
@@ -96,6 +99,7 @@ services:
       AI_PROXY_DATABASE_URL: postgresql+psycopg://mesh_api:${AI_PROXY_DB_API_PASSWORD}@postgres:5432/mesh
       AI_PROXY_SERVE_UI: ${AI_PROXY_SERVE_UI:-1}
       AI_PROXY_CONSOLE_ORIGINS: ${AI_PROXY_CONSOLE_ORIGINS:-}
+      # Set the four OIDC addresses to your own hostnames (see the agent-auth service above).
       AI_PROXY_OIDC_ISSUER: ${AI_PROXY_OIDC_ISSUER:-https://auth.aicontrolmesh.com}
       AI_PROXY_OIDC_AUDIENCE: ${AI_PROXY_OIDC_AUDIENCE:-https://api.aicontrolmesh.com}
       AI_PROXY_OIDC_REDIRECT_URIS: ${AI_PROXY_OIDC_REDIRECT_URIS:-https://api.aicontrolmesh.com/api/auth/callback}
@@ -140,6 +144,8 @@ services:
     depends_on: [agent-server]
     hostname: agent-sandbox
     environment:
+      # Set AI_PROXY_SERVER to your own server, or the sandbox asks the project's
+      # reference deployment for device codes.
       AI_PROXY_SERVER: ${AI_PROXY_SERVER:-https://api.aicontrolmesh.com}
       AI_PROXY_MACHINE_NAME: ${AI_PROXY_MACHINE_NAME:-agent-sandbox}
       GIT_USER_NAME: ${GIT_USER_NAME:-}

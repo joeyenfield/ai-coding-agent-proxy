@@ -131,7 +131,7 @@ services:
   # Only machine-1 reaches Ollama: start.py relays its loopback port 11434 here, where
   # agent-machine discovers it. Its own network namespace lets Compose recreate either.
   ollama:
-    image: docker.io/ollama/ollama:latest
+    image: docker.io/ollama/ollama:0.40.14
     restart: unless-stopped
     environment:
       OLLAMA_HOST: 0.0.0.0:11434

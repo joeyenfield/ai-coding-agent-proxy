@@ -51,7 +51,7 @@ spec:
           resources:
             requests: {cpu: 250m, memory: 512Mi}
         - name: ollama
-          image: docker.io/ollama/ollama:latest
+          image: docker.io/ollama/ollama:0.40.14
           env:
             - {name: OLLAMA_HOST, value: "127.0.0.1:11434"}
           volumeMounts:

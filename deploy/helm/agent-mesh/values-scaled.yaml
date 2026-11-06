@@ -32,7 +32,7 @@ console:
   host: console.mesh.example.com
   image:
     # docker build -f ui/Dockerfile --build-arg VITE_API_URL=https://api.mesh.example.com \
-    #   -t registry.example.com/mesh/console:2.1.19 .
+    #   -t registry.example.com/mesh/console:2.1.47 .
     repository: registry.example.com/mesh/console
 
 roles:

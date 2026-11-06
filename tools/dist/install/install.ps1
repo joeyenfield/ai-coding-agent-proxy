@@ -10,7 +10,8 @@ param([string]$Prefix = "", [switch]$Service, [switch]$Uninstall)
 $ErrorActionPreference = "Stop"
 
 $programs = @("agent.exe", "agent-proxy.exe", "agent-machine.exe")
-$task = "agent-machine"
+# AI_PROXY_SCHEDULED_TASK names another task, for tests on a computer that has the real one.
+$task = if ($env:AI_PROXY_SCHEDULED_TASK) { $env:AI_PROXY_SCHEDULED_TASK } else { "agent-machine" }
 if (-not $Prefix) { $Prefix = Join-Path $env:LOCALAPPDATA "Programs\agent-proxy" }
 $Prefix = [IO.Path]::GetFullPath($Prefix)
 

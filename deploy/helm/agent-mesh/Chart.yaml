@@ -6,9 +6,10 @@ description: >-
   Kubernetes. One pod with every role (mode single) or a Deployment per role (mode scaled).
 type: application
 # The chart's own version. appVersion follows the repository's VERSION file: the image tag
-# used when image.tag is empty.
+# used when image.tag is empty. Raise it with VERSION on release, or the default install
+# deploys an image older than the chart's own features.
 version: 0.1.0
-appVersion: "2.1.19"
+appVersion: "2.1.47"
 kubeVersion: ">=1.25.0-0"
 home: https://github.com/joeyenfield/ai-coding-agent-proxy
 sources:

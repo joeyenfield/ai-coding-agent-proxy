@@ -63,9 +63,14 @@ spec:
           image: {{ $r.image }}
           command: ["sh", "-c"]
           args:
+            # requirepass goes through a config file on a private emptyDir, never argv:
+            # anyone who can exec into the pod can read /proc/1/cmdline. The value is
+            # conf-quoted (backslashes and quotes escaped) so any password works.
             - >-
-              exec valkey-server --port 6379 --dir /data
-              --requirepass "$VALKEY_PASSWORD"
+              umask 077 &&
+              escaped=$(printf '%s' "$VALKEY_PASSWORD" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g') &&
+              printf 'requirepass "%s"\n' "$escaped" > /conf/valkey.conf &&
+              exec valkey-server /conf/valkey.conf --port 6379 --dir /data
               --appendonly {{ ternary "yes" "no" $r.persistence.enabled }}
               --maxmemory {{ $r.maxmemory }} --maxmemory-policy noeviction
           env:
@@ -81,7 +86,8 @@ spec:
             periodSeconds: 10
           readinessProbe:
             exec:
-              command: ["sh", "-c", 'valkey-cli -a "$VALKEY_PASSWORD" --no-auth-warning ping | grep -q PONG']
+              # REDISCLI_AUTH instead of -a, so the password never shows in the probe's argv.
+              command: ["sh", "-c", 'REDISCLI_AUTH="$VALKEY_PASSWORD" valkey-cli --no-auth-warning ping | grep -q PONG']
             periodSeconds: 5
           resources:
             {{- toYaml $r.resources | nindent 12 }}
@@ -91,8 +97,11 @@ spec:
             capabilities: {drop: [ALL]}
           volumeMounts:
             - {name: data, mountPath: /data}
-      {{- if not $r.persistence.enabled }}
+            - {name: conf, mountPath: /conf}
       volumes:
+        - name: conf
+          emptyDir: {medium: Memory}
+      {{- if not $r.persistence.enabled }}
         - name: data
           emptyDir: {}
       {{- end }}

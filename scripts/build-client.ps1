@@ -16,7 +16,9 @@ if (-not $version) {
     # The checkout's version, as the server and tools\dist work it out (VERSION, plus the commit).
     Push-Location (Join-Path $PSScriptRoot "..\tools")
     try { $version = go run ./dist -print-version } finally { Pop-Location }
-    if (-not $version) { $version = "dev" }
+    # A broken tools module must fail the build, as build-*.sh does, not stamp "dev":
+    # a "dev" binary never matches the server's dist folder or update checks.
+    if ($LASTEXITCODE -ne 0 -or -not $version) { throw "couldn't work out the version (go run ./dist -print-version failed)" }
 }
 $flags = "-s -w -X main.version=$version"
 function Build($os, $arch, $out) {
