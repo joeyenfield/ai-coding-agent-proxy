@@ -7,6 +7,7 @@
   --line: #354157;
   --mint: #8ce9c5;
   --lavender: #b4a6ff;
+  --indigo: #4f46e5;
   --mono: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
   font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: var(--text);
@@ -38,9 +39,10 @@ img { display: block; width: 100%; height: auto; }
 .skip-link:focus { top: 10px; }
 .site-header { min-height: 90px; display: flex; justify-content: space-between; align-items: center; gap: 28px; border-bottom: 1px solid var(--line); }
 .brand { display: inline-flex; align-items: center; gap: 12px; text-decoration: none; font-size: 19px; font-weight: 650; white-space: nowrap; }
-.brand-mark { display: inline-flex; align-items: center; gap: 4px; height: 30px; width: 29px; }
-.brand-mark i { width: 5px; height: 18px; background: var(--lavender); border-radius: 3px; transform: rotate(-25deg); }
-.brand-mark i:nth-child(2) { height: 29px; background: var(--mint); }
+.brand-mark { display: inline-flex; align-items: center; height: 30px; width: 30px; }
+.brand-mark svg { width: 30px; height: 30px; }
+.brand-mark rect { fill: var(--indigo); }
+.brand-mark path { stroke: #fff; stroke-width: 3; fill: none; stroke-linecap: round; stroke-linejoin: round; }
 .site-header nav { display: flex; gap: 28px; align-items: center; font-size: 14px; }
 .site-header nav > a:not(.button) { padding-block: 12px; text-decoration: none; color: var(--muted); }
 .site-header nav > a:hover { color: var(--text); }
