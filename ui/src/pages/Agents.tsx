@@ -4,7 +4,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { api, preferredModel, providerModels, type Agent, type FleetMachine, type InstallEnvironment, type PreparedSession } from "../api";
 import { CodeLine } from "../components/CodeLine";
 import { McpChoice, McpUrls, mcpArgs } from "../components/McpChoice";
-import { useAgents, useAuth, useClipboard, useMachines, useModels, useStatus } from "../hooks";
+import { remember, remembered, useAgents, useAuth, useClipboard, useMachines, useModels, useStatus } from "../hooks";
 import { PartTag } from "../components/PartTag";
 import { ShareChoice, shareArgs } from "../components/Sharing";
 import { providerLabel, ROUTE_ORDER, ROUTES, type RouteKind } from "../routes";
@@ -25,21 +25,6 @@ const START_ON_KEY = "ai-proxy-start-on";
 
 const routeOfAgent = (agent: Agent): RouteKind => agent.route ?? (agent.intercept ? "account" : "ollama");
 
-function remembered(key: string): string | null {
-  try {
-    return localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-
-function remember(key: string, value: string) {
-  try {
-    localStorage.setItem(key, value);
-  } catch {
-    // Private windows can refuse storage; the choice just isn't kept.
-  }
-}
 
 /** Why no agent can be started on the machine now, or null when it can take launches. */
 function machineBlocker(machine: FleetMachine): string | null {

@@ -272,8 +272,12 @@ def test_a_removed_users_name_inherits_nothing(tmp_path):
     alice, dave = signed_in(app, "alice"), signed_in(app, "dave")
     with alice, dave:
         session_id = alice.post("/api/sessions", json={"client": "x"}).json()["session_id"]
+        usage = app.state.runtime.usage
+        usage.set_limit("acme", "alice", "backend:hosted", "24h", 0, "dave")
         removed = dave.delete("/api/users/alice")
         assert removed.status_code == 200, removed.text
+        # Their own usage limit goes with them, so a new alice doesn't start blocked.
+        assert not [limit for limit in usage.tenant_limits("acme") if limit.user == "alice"]
         # The session is now ownerless: the organization's admins look after it.
         assert dave.get(f"/api/sessions/{session_id}").status_code == 200
         # A new user of the same name doesn't inherit it.

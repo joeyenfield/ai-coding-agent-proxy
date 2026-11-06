@@ -481,9 +481,18 @@ class Session:
             if len(self.backlog) < BACKLOG:
                 self.backlog.append(message)
             return
-        # A full queue (a consumer that stopped reading) holds this session's routing,
-        # as the Go bridge's channel does, so memory stays bounded and no reply is lost.
-        await out.queue.put(message)
+        # A full queue (a consumer that stopped reading) holds this session's routing, as
+        # the Go bridge's channel does, so memory stays bounded and no reply is lost — but
+        # a stream that closes, or a session that ends, releases it (Go selects on
+        # out.closed and s.done; here the wait wakes regularly to look at both).
+        while not out.closed and not self.done.is_set():
+            try:
+                await asyncio.wait_for(out.queue.put(message), 0.5)
+                return
+            except asyncio.TimeoutError:
+                continue
+        if len(self.backlog) < BACKLOG:
+            self.backlog.append(message)
 
     async def close(self) -> None:
         """Its stdin first, so it can stop by itself, then the process and what it started."""

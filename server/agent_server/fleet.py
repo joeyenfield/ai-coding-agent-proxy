@@ -49,8 +49,6 @@ from typing import Any
 
 from sqlalchemy import select
 
-LOGGER = logging.getLogger("agent-proxy")
-
 from . import access, api_providers, strata, version
 from .auth import ROOT_TENANT, Identity, same_tenant
 from .cluster import Cluster, ClusterError, LocalCluster
@@ -59,6 +57,7 @@ from .provider_accounts import reported_clis
 from .db import Database, kv, schema
 from .sessions import SessionStore
 
+LOGGER = logging.getLogger("agent-proxy")
 
 # Launch records kept per machine, newest last.
 LAUNCH_HISTORY = 30

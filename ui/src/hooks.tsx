@@ -1,6 +1,24 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, ApiError } from "./api";
+
+/** A value kept in this browser, or null. Private windows can refuse storage: never throws. */
+export function remembered(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+/** Keeps a value in this browser when it can; a refusal just means it isn't kept. */
+export function remember(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Private windows can refuse storage; the choice just isn't kept.
+  }
+}
 
 /**
  * A refetchInterval that keeps polling after an error, more slowly, so a page recovers by itself
@@ -197,8 +215,13 @@ export function useOlderPages<T>(
     setExhausted(false);
   }, [key]);
   useDisplaced(key, newest, idOf, older.length > 0 || exhausted, setOlder);
-  const seen = new Set(newest.map(idOf));
-  const entries = [...newest, ...older.filter((entry) => !seen.has(idOf(entry)))];
+  // Memoized: pages using this poll and re-render per keystroke, over thousands of rows.
+  const entries = useMemo(() => {
+    const seen = new Set(newest.map(idOf));
+    return [...newest, ...older.filter((entry) => !seen.has(idOf(entry)))];
+    // idOf is a stable accessor from the caller.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newest, older]);
   const loadOlder = async () => {
     const last = entries[entries.length - 1];
     if (!last) return;

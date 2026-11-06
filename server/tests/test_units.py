@@ -33,6 +33,24 @@ def test_anthropic_translation_handles_system_blocks():
     assert result["messages"] == [{"role": "system", "content": "Rules"}, {"role": "user", "content": "Hello"}]
 
 
+def test_a_malformed_anthropic_payload_reads_as_missing_parts_not_a_500():
+    """Only the caller's own request is wrong: odd shapes are skipped, never raised on."""
+    settings = Settings(models={"m": {"ollama_model": "real"}})
+    result = anthropic_to_ollama({
+        "model": "m",
+        "system": [{"type": "text", "text": None}, "stray"],
+        "messages": [
+            "not a message",
+            {"role": "user", "content": ["bare string", {"type": "text", "text": None}, {"type": "text", "text": 5}]},
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": ["unhashable"], "content": [{"type": "text", "text": None}]}]},
+        ],
+        "tools": ["not a tool", {"name": "real", "input_schema": {}}],
+    }, settings.profile("m"))
+    # The system blocks read as empty text; the bare string, null text and the stray message are skipped.
+    assert [(message["role"], message["content"]) for message in result["messages"]] == [("system", ""), ("user", "5"), ("tool", "")]
+    assert [tool["function"]["name"] for tool in result["tools"]] == ["real"]
+
+
 def test_anthropic_translation_preserves_tool_calls_and_results():
     settings = Settings()
     result = anthropic_to_ollama({"model": "model", "messages": [

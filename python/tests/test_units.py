@@ -433,6 +433,43 @@ def test_a_cmd_agent_runs_in_comspec_in_the_conpty(monkeypatch, tmp_path):
     assert child.wait() == 3
 
 
+def test_an_agents_websocket_is_signed_and_passed_through(tmp_path, monkeypatch):
+    """client/internal/localproxy: agents' routes pass WebSocket upgrades through, as Go's
+    ReverseProxy does: the agent's own headers go on, cookies and origin don't, the machine signs."""
+    from starlette.testclient import TestClient
+    from websockets.sync.server import serve
+
+    seen: Dict[str, Any] = {}
+
+    def handler(connection) -> None:
+        seen["path"] = connection.request.path
+        seen["headers"] = {name.lower(): value for name, value in connection.request.headers.raw_items()}
+        for message in connection:
+            connection.send(f"echo:{message}")
+
+    with serve(handler, "127.0.0.1", 0) as upstream:
+        threading.Thread(target=upstream.serve_forever, daemon=True).start()
+        port = upstream.socket.getsockname()[1]
+        proxy = proxy_for(f"http://127.0.0.1:{port}", tmp_path)
+        monkeypatch.setattr(proxy.upstream, "token", lambda server: "machine-token")
+        client = TestClient(proxy, base_url="http://127.0.0.1:8184")
+        local_headers = {"host": "127.0.0.1:8184", "authorization": "Bearer agent-key", "cookie": "secret=1"}
+        with client.websocket_connect("/v1/realtime?model=m", headers=local_headers) as socket:
+            socket.send_text("hi")
+            assert socket.receive_text() == "echo:hi"
+        assert seen["path"] == "/v1/realtime?model=m"
+        assert seen["headers"]["authorization"] == "Bearer agent-key"
+        assert seen["headers"][common.TOKEN_HEADER.lower()] == "machine-token"
+        assert "cookie" not in seen["headers"] and "origin" not in seen["headers"]
+        # Another site's page is refused before anything is dialled.
+        seen.clear()
+        with client.websocket_connect("/v1/realtime", headers={"host": "127.0.0.1:8184", "origin": "https://evil.test"}) as socket:
+            with pytest.raises(Exception) as closed:
+                socket.receive_text()
+        assert getattr(closed.value, "code", None) == 4403 and not seen
+        upstream.shutdown()
+
+
 def test_presence_renews_its_token_over_the_open_connection(tmp_path, monkeypatch):
     """machine/internal/presence: TestPresenceRenewsItsTokenOverTheOpenConnection."""
     from websockets.asyncio.server import serve

@@ -5,7 +5,7 @@ import { api, machineProviders, type FleetMachine, type RemovedMachine } from ".
 import { CodeLine } from "../components/CodeLine";
 import { PartTag } from "../components/PartTag";
 import { StateDot } from "../components/ProviderState";
-import { useClipboard, useMachines, useStatus, useToast } from "../hooks";
+import { remember, remembered, useClipboard, useMachines, useStatus, useToast } from "../hooks";
 import { formatDate, formatRelative } from "../format";
 import { OS_LABELS, machinePath } from "./Machine";
 import { browserPlatform, installLine, serverAddress } from "./Downloads";
@@ -652,22 +652,12 @@ function Switch<T extends string>({ label, options, value, onChange }: { label: 
 
 /** A choice kept in the browser, so the page comes back with it. */
 function useRemembered<T extends string>(key: string, options: readonly { id: T }[], fallback: T): [T, (value: T) => void] {
-  const [value, setValue] = useState<T>(() => {
-    try {
-      return options.find((item) => item.id === localStorage.getItem(key))?.id ?? fallback;
-    } catch {
-      return fallback; // Storage may be unavailable in private windows.
-    }
-  });
+  const [value, setValue] = useState<T>(() => options.find((item) => item.id === remembered(key))?.id ?? fallback);
   return [
     value,
     (next: T) => {
       setValue(next);
-      try {
-        localStorage.setItem(key, next);
-      } catch {
-        // Storage may be unavailable in private windows.
-      }
+      remember(key, next);
     },
   ];
 }

@@ -46,7 +46,8 @@ def anthropic_to_ollama(payload: dict[str, Any], profile: ModelProfile) -> dict[
                     if isinstance(block, dict) and block.get("type") == "text"
                 )
             result: dict[str, Any] = {"role": "tool", "content": result_content}
-            name = tool_names.get(part.get("tool_use_id", ""))
+            # str(): a malformed non-string id must read as unknown, not raise unhashable.
+            name = tool_names.get(str(part.get("tool_use_id") or ""))
             if name:
                 result["tool_name"] = name
             messages.append(result)
@@ -60,7 +61,7 @@ def anthropic_to_ollama(payload: dict[str, Any], profile: ModelProfile) -> dict[
                     for part in tool_uses
                 ]
                 for part in tool_uses:
-                    tool_names[part.get("id", "")] = part.get("name", "")
+                    tool_names[str(part.get("id") or "")] = part.get("name", "")
             messages.append(converted)
     result: dict[str, Any] = {
         "model": payload.get("model", ""),
@@ -87,7 +88,7 @@ def anthropic_to_ollama(payload: dict[str, Any], profile: ModelProfile) -> dict[
                 },
             }
             for tool in payload["tools"]
-            if tool.get("name")
+            if isinstance(tool, dict) and tool.get("name")
         ]
     return apply_profile(result, profile)
 

@@ -60,6 +60,9 @@ LAUNCHER_API: List[Tuple[str, "re.Pattern[str]"]] = [
 
 TERMINAL_HOST = re.compile(r"^/api/terminals/([^/]+)/host$")
 
+# Agents' own routes: their HTTP calls and WebSockets are signed and passed to the server.
+AGENT_PREFIXES = ("/session/", "/v1/", "/anthropic/")
+
 # Not passed on: hop-by-hop headers, and a browser's own credentials and origin (the proxy signs instead).
 SKIPPED = {
     "host", "connection", "keep-alive", "transfer-encoding", "te", "trailer", "upgrade", "content-length",
@@ -118,9 +121,10 @@ async def dial(upstream: common.Upstream, server: str, path: str):
     return (await dial_with_token(upstream, server, path))[0]
 
 
-async def dial_with_token(upstream: common.Upstream, server: str, path: str):
-    """dial, also returning the access token the socket was opened with."""
-    headers = common.identify({}, settings.PROGRAM)
+async def dial_with_token(upstream: common.Upstream, server: str, path: str, passed: Optional[Dict[str, str]] = None):
+    """dial, also returning the access token the socket was opened with. passed are an agent's own
+    headers to carry on (its Authorization, x-api-key, session and backend headers)."""
+    headers = {**(passed or {}), **common.identify({}, settings.PROGRAM)}
     token = await asyncio.to_thread(upstream.token, server)
     headers[common.TOKEN_HEADER] = token
     conn = await common.signed_connect(common.websocket_url(server, path), additional_headers=headers, proxy=None, open_timeout=10, max_size=None,
@@ -213,7 +217,7 @@ class AgentProxy:
             return self.stop(request)
         if path.startswith("/api/"):
             return await self.launcher_api(request)
-        if path.startswith(("/session/", "/v1/", "/anthropic/")):
+        if path.startswith(AGENT_PREFIXES):
             if not local(request.headers):
                 return refuse()
             return await self.agent(request)
@@ -299,14 +303,16 @@ class AgentProxy:
         return StreamingResponse(chunks(), status_code=answer.status_code, headers=kept)
 
     async def websocket(self, launcher: WebSocket) -> None:
-        """A terminal shared with --control, relayed to the server signed as this machine."""
-        match = TERMINAL_HOST.match(launcher.url.path)
+        """A terminal shared with --control, relayed to the server signed as this machine; and an
+        agent's own WebSocket on its routes, passed through as Go's ReverseProxy passes upgrades."""
+        path = launcher.url.path
+        if path.startswith(AGENT_PREFIXES):
+            await self.agent_websocket(launcher)
+            return
+        match = TERMINAL_HOST.match(path)
         # Host and Origin are checked after accepting, so a refusal reaches the launcher as a close code it can show.
         await launcher.accept()
         if not match:
-            # Parity note: the Go proxy's ReverseProxy also passes WebSocket upgrades through
-            # on /session/, /v1/ and /anthropic/; no server route needs that today, but the
-            # first agent protocol that streams over WS will need a forwarding branch here.
             await launcher.close(4404, "Not found")
             return
         if not local(launcher.headers):
@@ -347,6 +353,39 @@ class AgentProxy:
         try:
             # Pass the server's close on, so the launcher sees a refusal (4401, 4404) for what it is.
             await launcher.close(code or 1000, (reason or "")[:120])
+        except RuntimeError:
+            pass
+
+    async def agent_websocket(self, agent: WebSocket) -> None:
+        """An agent's WebSocket on /session/, /v1/ or /anthropic/: the same checks and headers as
+        its HTTP calls (rewriteAgent in Go), signed as this machine, bytes relayed both ways."""
+        await agent.accept()
+        if not local(agent.headers):
+            await agent.close(4403, "agent-proxy only serves programs on this computer")
+            return
+        passed = {
+            name: value for name, value in agent.headers.items()
+            if name.lower() not in SKIPPED and name.lower() not in FORWARDING and not name.lower().startswith("sec-websocket-")
+        }
+        query = agent.url.query
+        server = self.upstream.server()
+        try:
+            remote, _ = await dial_with_token(self.upstream, server, agent.url.path + (f"?{query}" if query else ""), passed)
+        except Exception as error:
+            status = refused_status(error)
+            if getattr(error, "code", "") == "login_required":
+                await agent.close(4401, "OAuth sign-in required: run `agent login`")
+            elif status in (401, 403, 404):
+                await agent.close(4400 + status % 100, f"the agent-server answered HTTP {status}")
+            else:
+                await agent.close(1011, f"couldn't reach the agent-server at {server}: {error}"[:120])
+            return
+        code, reason = await relay(agent, remote)
+        await remote.close()
+        if code in RESERVED_CLOSE:
+            code = 1011
+        try:
+            await agent.close(code or 1000, (reason or "")[:120])
         except RuntimeError:
             pass
 

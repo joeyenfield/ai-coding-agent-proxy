@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import type { TerminalSummary } from "../api";
-import { useToast } from "../hooks";
+import { remember, remembered, useToast } from "../hooks";
 
 /** Whether this browser shows a system notification when an agent starts waiting, kept per browser. */
 const NOTIFY_KEY = "ai-proxy-notify";
@@ -20,14 +20,7 @@ export function notificationsSupported() {
   return typeof window !== "undefined" && "Notification" in window;
 }
 
-// Storage may be unavailable in private windows; treat it as unset then.
-function notifyStored(): boolean {
-  try {
-    return localStorage.getItem(NOTIFY_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
+const notifyStored = () => remembered(NOTIFY_KEY) === "1";
 
 export function useNotifyChoice(): [boolean, (on: boolean) => Promise<void>] {
   const [on, setOn] = useState(() => notificationsSupported() && Notification.permission === "granted" && notifyStored());
@@ -35,11 +28,7 @@ export function useNotifyChoice(): [boolean, (on: boolean) => Promise<void>] {
     if (value && notificationsSupported() && Notification.permission !== "granted") {
       if ((await Notification.requestPermission()) !== "granted") value = false;
     }
-    try {
-      localStorage.setItem(NOTIFY_KEY, value ? "1" : "0");
-    } catch {
-      // Keep the in-memory choice for this page.
-    }
+    remember(NOTIFY_KEY, value ? "1" : "0");
     setOn(value);
     window.dispatchEvent(new Event(NOTIFY_KEY));
   };

@@ -6,7 +6,7 @@ import "@xterm/xterm/css/xterm.css";
 import { api, onRenewed, renewSignIn, terminalSocketUrl, type TerminalInfo } from "../api";
 import { Icon } from "../components/Icon";
 import { SharingControl } from "../components/Sharing";
-import { useClipboard, useToast } from "../hooks";
+import { remember, remembered, useClipboard, useToast } from "../hooks";
 import { PairPanel, terminalState } from "./Terminals";
 
 type Connection = "connecting" | "open" | "retrying" | "waiting" | "unauthorized" | "missing";
@@ -99,21 +99,13 @@ function terminalText(term: Terminal, all: boolean): string {
 
 function useStored<T extends string | number>(key: string, initial: T): [T, (value: T) => void] {
   const [value, setValue] = useState<T>(() => {
-    try {
-      const stored = localStorage.getItem(key);
-      if (stored == null) return initial;
-      return (typeof initial === "number" ? Number(stored) || initial : stored) as T;
-    } catch {
-      return initial; // Storage may be unavailable in private windows.
-    }
+    const stored = remembered(key);
+    if (stored == null) return initial;
+    return (typeof initial === "number" ? Number(stored) || initial : stored) as T;
   });
   const update = useCallback(
     (next: T) => {
-      try {
-        localStorage.setItem(key, String(next));
-      } catch {
-        // Storage may be unavailable in private windows.
-      }
+      remember(key, String(next));
       setValue(next);
     },
     [key],
