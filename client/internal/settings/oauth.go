@@ -194,6 +194,13 @@ func LockCredentials() (func(), error) {
 			if os.Rename(path, stale) == nil {
 				_ = os.Remove(stale)
 			}
+			// A remove an antivirus blocked for a moment leaves a .stale-* behind;
+			// sweep leftovers here, the only place that makes them.
+			if leftovers, _ := filepath.Glob(path + ".stale-*"); leftovers != nil {
+				for _, leftover := range leftovers {
+					_ = os.Remove(leftover)
+				}
+			}
 			continue
 		}
 		// On Windows, creating the directory while another process is removing it is refused

@@ -5,11 +5,11 @@ import { api, ApiError, type AccessEntry, type AccessLogStats } from "../api";
 import { PartTag } from "../components/PartTag";
 import { TabBar, TabPanel, useTabParam } from "../components/Tabs";
 import { useDisplaced } from "../hooks";
-
-const entryId = (entry: AccessEntry) => entry.id;
 import { formatDuration, formatNumber } from "../format";
 
 const POLL_MS = 3000;
+const entryId = (entry: AccessEntry) => entry.id;
+
 const PAGE = 200;
 const TABS = ["overview", "run", "saved"] as const;
 const FLEET_PATH = "/api/machines/connect";
@@ -374,11 +374,6 @@ function ThisRun() {
   const [older, setOlder] = useState<AccessEntry[]>([]);
   const [olderError, setOlderError] = useState<string | null>(null);
   const [exhausted, setExhausted] = useState(false);
-  useEffect(() => {
-    setOlder([]);
-    setOlderError(null);
-    setExhausted(false);
-  }, [filters.failedOnly, filters.query]);
   const log = useQuery({
     queryKey: ["access-log", filters.failedOnly, filters.query],
     queryFn: () => api.accessLog({ failed: filters.failedOnly, q: filters.query, limit: PAGE }),
@@ -386,8 +381,15 @@ function ThisRun() {
     retry: false,
   });
   const newest = log.data?.entries ?? [];
-  // Entries that new traffic pushes off the newest window move into older, per query.
-  useDisplaced(JSON.stringify([filters.failedOnly, filters.query]), newest, entryId, older.length > 0 || exhausted, setOlder);
+  // A restart is a new run: its ids start over, so the loaded list starts over with it.
+  const run = JSON.stringify([filters.failedOnly, filters.query, log.data?.started_at]);
+  useEffect(() => {
+    setOlder([]);
+    setOlderError(null);
+    setExhausted(false);
+  }, [run]);
+  // Entries that new traffic pushes off the newest window move into older, per query and run.
+  useDisplaced(run, newest, entryId, older.length > 0 || exhausted, setOlder);
   const seen = new Set(newest.map((entry) => entry.id));
   const entries = [...newest, ...older.filter((entry) => !seen.has(entry.id))];
   const loadOlder = async () => {

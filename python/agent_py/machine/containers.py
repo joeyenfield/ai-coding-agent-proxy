@@ -614,10 +614,14 @@ class Manager:
         Only ports from specs that passed validation count, so a bogus spec can't open a
         loopback port to tunnels, and turning containers off closes them all.
         """
-        if not self.machine().containers:
-            return set()
         with self.lock:
-            return set(self._ports.values())
+            known = set(self._ports.values())
+        # Nothing known is the common case, and skips reading the settings file on the
+        # tunnel hot path; with ports known, the toggle is read fresh so `containers off`
+        # closes them at once.
+        if not known or not self.machine().containers:
+            return set()
+        return known
 
     def remember(self, name: str, port: int) -> None:
         """Keeps a container's validated port under its name."""

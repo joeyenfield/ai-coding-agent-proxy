@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import logging
 import json
 import re
 import secrets
@@ -47,6 +48,8 @@ from urllib.parse import urlsplit
 from typing import Any
 
 from sqlalchemy import select
+
+LOGGER = logging.getLogger("agent-proxy")
 
 from . import access, api_providers, strata, version
 from .auth import ROOT_TENANT, Identity, same_tenant
@@ -960,9 +963,13 @@ class Fleet:
         self._asked[launch_id] = machine.id
         self._via[launch_id] = socket
         try:
-            # The grant other processes check (pending_launch) while this launch runs;
-            # inside the try, so a failed write still cleans the registrations up.
-            await asyncio.to_thread(self.cluster.set, self.GRANT_PREFIX + launch_id, machine.id, LAUNCH_TIMEOUT + 60)
+            # The grant other processes check (pending_launch) while this launch runs.
+            # Best effort: in-process launches are known through _asked either way, and a
+            # cluster blip must not fail the launch itself.
+            try:
+                await asyncio.to_thread(self.cluster.set, self.GRANT_PREFIX + launch_id, machine.id, LAUNCH_TIMEOUT + 60)
+            except Exception:  # noqa: BLE001
+                LOGGER.warning("couldn't write the launch grant for %s; other processes will re-check the limit", launch_id)
             await socket.send_text(json.dumps(message))
             answer = await asyncio.wait_for(future, LAUNCH_TIMEOUT)
         except asyncio.TimeoutError:
@@ -973,7 +980,12 @@ class Fleet:
             self._waiting.pop(launch_id, None)
             self._asked.pop(launch_id, None)
             self._via.pop(launch_id, None)
-            await asyncio.to_thread(self.cluster.delete, self.GRANT_PREFIX + launch_id)
+            try:
+                # Best effort: the grant's TTL cleans it up anyway, and a cluster blip
+                # here must not turn a successful launch into an error.
+                await asyncio.to_thread(self.cluster.delete, self.GRANT_PREFIX + launch_id)
+            except Exception:  # noqa: BLE001
+                LOGGER.warning("couldn't delete the launch grant for %s; its TTL will", launch_id)
         if answer.get("type") == "launched" and answer.get("session_id"):
             session = self.sessions.get(str(answer["session_id"])) if self.sessions else None
             if (

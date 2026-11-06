@@ -135,6 +135,11 @@ def credential_lock(path: Path):
                 with contextlib.suppress(OSError):
                     lock.rename(stale)
                     stale.rmdir()
+                # A remove an antivirus blocked for a moment leaves a .stale-* behind;
+                # sweep leftovers here, the only place that makes them.
+                for leftover in lock.parent.glob(lock.name + ".stale-*"):
+                    with contextlib.suppress(OSError):
+                        leftover.rmdir()
                 continue
             if time.monotonic() >= deadline:
                 raise OAuthError("credentials are locked; another sign-in or refresh is in progress (remove a stale credentials.json.lock only after stopping clients)")

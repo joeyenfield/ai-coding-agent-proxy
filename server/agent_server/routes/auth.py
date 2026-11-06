@@ -488,34 +488,21 @@ def register(app: FastAPI, runtime: Runtime) -> None:
                 settings.remove_backend(name)
                 runtime.api_keys.clear(name)
                 runtime.api_models.pop(name, None)
-        for machine_id, machine in list(runtime.fleet.machines.items()):
-            if machine.tenant == org:
-                try:
-                    await runtime.fleet.remove(machine_id, identity)
-                except Exception:  # noqa: BLE001 - logged; the rest still offboards
-                    LOGGER.exception("removing %s: couldn't remove machine %s", org, machine_id)
+        await offboard(identity, org, lambda owner, of: of == org,
+                       lambda tags: {"tenant": None} if tags.get("tenant") == org else {})
 
         def clean() -> None:
-            for account in list(runtime.provider_accounts.accounts.values()):
-                if account.tenant == org:
-                    try:
-                        runtime.provider_accounts.delete(identity, account)
-                    except Exception:  # noqa: BLE001
-                        LOGGER.exception("removing %s: couldn't delete provider account %s", org, account.id)
-            try:
-                for limit in runtime.usage.tenant_limits(org):
+            for limit in runtime.usage.tenant_limits(org):
+                try:
                     runtime.usage.remove_limit(org, limit.user, limit.provider, limit.window)
-                runtime.retention.remove_org(org)
-            except Exception:  # noqa: BLE001
-                LOGGER.exception("removing %s: couldn't remove its limits or retention policy", org)
-            for session in runtime.sessions.list():
-                if session.tags.get("tenant") == org:
-                    try:
-                        runtime.sessions.update_tags(session, {"tenant": None})
-                    except Exception:  # noqa: BLE001
-                        LOGGER.exception("removing %s: couldn't detach session %s", org, session.session_id)
+                except Exception:  # noqa: BLE001
+                    LOGGER.exception("removing %s: couldn't remove a usage limit", org)
+            runtime.retention.remove_org(org)
 
-        await asyncio.to_thread(clean)
+        try:
+            await asyncio.to_thread(clean)
+        except Exception:  # noqa: BLE001
+            LOGGER.exception("removing %s: couldn't remove its limits or retention policy", org)
         return answer
 
     @app.post("/api/orgs/{org}/teams", status_code=201)
@@ -583,38 +570,38 @@ def register(app: FastAPI, runtime: Runtime) -> None:
 
         return change(request, update, "No such user")
 
-    async def offboard_user(identity: Any, name: str, tenant: str) -> None:
-        """A removed user's name must grant nothing to a later account of the same name:
-        their machines leave the fleet (allowed back explicitly), their provider accounts
-        and stored credentials are deleted, and their sessions become ownerless, kept for
-        the tenant's admins under its retention policy. One resource failing mustn't stop
-        the rest (the account itself is already gone), so each is its own try."""
+    async def offboard(identity: Any, what: str, mine: Any, session_change: Any) -> None:
+        """What a removed user's or organization's name must not pass to a later one of the
+        same name: their machines leave the fleet (allowed back explicitly), their provider
+        accounts and stored credentials are deleted, and their sessions are retagged, kept
+        under retention. The removal already happened, so nothing here may stop the rest:
+        every step is guarded and failures are logged for an admin to finish by hand."""
         for machine_id, machine in list(runtime.fleet.machines.items()):
-            if machine.owner == name and machine.tenant == tenant:
+            if mine(machine.owner, machine.tenant):
                 try:
                     await runtime.fleet.remove(machine_id, identity)
                 except Exception:  # noqa: BLE001 - logged; the rest still offboards
-                    LOGGER.exception("offboarding %s: couldn't remove machine %s", name, machine_id)
+                    LOGGER.exception("offboarding %s: couldn't remove machine %s", what, machine_id)
 
         def disown() -> None:
             for account in list(runtime.provider_accounts.accounts.values()):
-                if account.owner == name and account.tenant == tenant:
+                if mine(account.owner, account.tenant):
                     try:
                         runtime.provider_accounts.delete(identity, account)
                     except Exception:  # noqa: BLE001
-                        LOGGER.exception("offboarding %s: couldn't delete provider account %s", name, account.id)
+                        LOGGER.exception("offboarding %s: couldn't delete provider account %s", what, account.id)
             for session in runtime.sessions.list():
-                tags = session.tags
-                if tags.get("tenant") != tenant:
-                    continue
-                cleared = {key: None for key in ("owner", "launched_by") if tags.get(key) == name}
+                cleared = session_change(session.tags)
                 if cleared:
                     try:
                         runtime.sessions.update_tags(session, cleared)
                     except Exception:  # noqa: BLE001
-                        LOGGER.exception("offboarding %s: couldn't disown session %s", name, session.session_id)
+                        LOGGER.exception("offboarding %s: couldn't retag session %s", what, session.session_id)
 
-        await asyncio.to_thread(disown)
+        try:
+            await asyncio.to_thread(disown)
+        except Exception:  # noqa: BLE001 - even the listing failing mustn't 500 a removal that happened
+            LOGGER.exception("offboarding %s: couldn't walk the provider accounts or sessions", what)
 
     @app.delete("/api/users/{name}")
     async def remove_user(name: str, request: Request) -> dict[str, Any]:
@@ -628,7 +615,14 @@ def register(app: FastAPI, runtime: Runtime) -> None:
                 raise KeyError(name)
 
         answer = change(request, remove, "No such user")
-        await offboard_user(identity, name, record["tenant"])
+        tenant = record["tenant"]
+
+        def disowned(tags: dict[str, Any]) -> dict[str, Any]:
+            if tags.get("tenant") != tenant:
+                return {}
+            return {key: None for key in ("owner", "launched_by") if tags.get(key) == name}
+
+        await offboard(identity, name, lambda owner, of: owner == name and of == tenant, disowned)
         return answer
 
 

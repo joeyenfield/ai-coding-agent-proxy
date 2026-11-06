@@ -248,10 +248,11 @@ def _listening(url: str) -> bool:
     """Whether anything accepts connections at the url's address: after the child exited,
     a bound port means another copy won the race to start; a refusal, a real failure."""
     parsed = urlparse(url)
-    if not parsed.hostname or not parsed.port:
+    if not parsed.hostname:
         return False
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
     try:
-        with socket.create_connection((parsed.hostname, parsed.port), timeout=0.3):
+        with socket.create_connection((parsed.hostname, port), timeout=0.3):
             return True
     except OSError:
         return False

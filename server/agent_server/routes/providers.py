@@ -69,27 +69,24 @@ def register(app: FastAPI, runtime: Runtime) -> None:
     async def providers(request: Request) -> dict[str, Any]:
         """The providers you can use, your usage of each and the limits on you there."""
         identity = identity_of(request)
-
-        def build() -> dict[str, Any]:
-            # On a thread: reading usage flushes the write queue and reads the database.
-            mine = usage.windows(identity.tenant, identity.user)
-            accounts = [account for account in runtime.provider_accounts.listed(identity) if account.owner == identity.user or runtime.provider_accounts.may_use(identity, account)]
-            listed = []
-            for provider in providers_for(identity.tenant, fleet.usable_by(identity)):
-                limits = usage.status(identity.tenant, identity.user, provider["id"])
-                reached = [item for item in limits if item["reached"]]
-                extra: dict[str, Any] = {}
-                if provider["kind"] == "subscription":
-                    extra["accounts"] = sum(1 for account in accounts if account.provider == provider["type"])
-                listed.append({
-                    **provider, **extra,
-                    "usage": mine.get((identity.user, provider["id"])) or zero(),
-                    "limits": limits,
-                    "blocked": max(reached, key=lambda item: item["until"] or 0) if reached else None,
-                })
-            return {"providers": listed, "windows": [{"id": window, "label": WINDOW_LABELS[window]} for window in WINDOWS], "user": identity.user, "tenant": identity.tenant}
-
-        return await asyncio.to_thread(build)
+        # Only the usage read goes to a thread (it flushes the write queue and reads the
+        # database); the settings and account dicts are the event loop's to iterate.
+        mine = await asyncio.to_thread(usage.windows, identity.tenant, identity.user)
+        accounts = [account for account in runtime.provider_accounts.listed(identity) if account.owner == identity.user or runtime.provider_accounts.may_use(identity, account)]
+        listed = []
+        for provider in providers_for(identity.tenant, fleet.usable_by(identity)):
+            limits = usage.status(identity.tenant, identity.user, provider["id"])
+            reached = [item for item in limits if item["reached"]]
+            extra: dict[str, Any] = {}
+            if provider["kind"] == "subscription":
+                extra["accounts"] = sum(1 for account in accounts if account.provider == provider["type"])
+            listed.append({
+                **provider, **extra,
+                "usage": mine.get((identity.user, provider["id"])) or zero(),
+                "limits": limits,
+                "blocked": max(reached, key=lambda item: item["until"] or 0) if reached else None,
+            })
+        return {"providers": listed, "windows": [{"id": window, "label": WINDOW_LABELS[window]} for window in WINDOWS], "user": identity.user, "tenant": identity.tenant}
 
     def org_visible(request: Request, org: str) -> tuple[Any, bool]:
         """The organization's usage is its admins' (and site admins') to see whole; a member sees their own. Others: 404."""
@@ -98,11 +95,10 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             raise HTTPException(status_code=404, detail="No such organization")
         return identity, auth.administers(identity, org)
 
-    def report(org: str, identity: Any, manager: bool) -> dict[str, Any]:
+    def report(org: str, identity: Any, manager: bool, totals: dict[tuple[str, str], Any]) -> dict[str, Any]:
         people = [user["name"] for user in store.user_list() if user["tenant"] == org]
         if not manager:
             people = [name for name in people if name == identity.user]
-        totals = usage.windows(org, None if manager else identity.user)
         known = providers_for(org)
         ids = {item["id"] for item in known}
         # Usage of a backend that's gone (or moved to another organization) still shows, by its id.
@@ -134,8 +130,10 @@ def register(app: FastAPI, runtime: Runtime) -> None:
     async def org_usage(org: str, request: Request) -> dict[str, Any]:
         """Each person's usage of each provider in every window, the limits on them and who's blocked."""
         identity, manager = org_visible(request, org)
-        # On a thread: reading usage flushes the write queue and reads the database.
-        return await asyncio.to_thread(report, org, identity, manager)
+        # Only the usage read goes to a thread (it flushes the write queue and reads the
+        # database); the report then iterates the loop's own dicts on the loop.
+        totals = await asyncio.to_thread(usage.windows, org, None if manager else identity.user)
+        return report(org, identity, manager, totals)
 
     def administered(request: Request, org: str) -> Any:
         identity, manager = org_visible(request, org)
@@ -161,7 +159,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             usage.set_limit(org, user, provider, window, data.get("tokens"), identity.user)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return report(org, identity, True)
+        return report(org, identity, True, await asyncio.to_thread(usage.windows, org, None))
 
     @app.delete("/api/orgs/{org}/limits")
     async def remove_limit(org: str, user: str, provider: str, window: str, request: Request) -> dict[str, Any]:
@@ -169,4 +167,4 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         identity = administered(request, org)
         if not usage.remove_limit(org, user, provider, window):
             raise HTTPException(status_code=404, detail="No such limit")
-        return report(org, identity, True)
+        return report(org, identity, True, await asyncio.to_thread(usage.windows, org, None))

@@ -254,9 +254,13 @@ class UserStore:
             # version row is read FOR UPDATE, so on PostgreSQL two writers serialize on it
             # and the second really sees the first's version (SQLite's write lock already
             # serializes whole transactions).
-            row = connection.execute(
-                select(schema.meta.c.value).where(schema.meta.c.key == "accounts_version").with_for_update()
-            ).scalar()
+            locked = select(schema.meta.c.value).where(schema.meta.c.key == "accounts_version").with_for_update()
+            row = connection.execute(locked).scalar()
+            if row is None:
+                # Seed the row so there is something to lock: without it, two processes
+                # bootstrapping a fresh database could both pass the check below.
+                kv.put_meta(connection, "accounts_version", 0)
+                row = connection.execute(locked).scalar()
             current = int(row or 0)
             if self._version is not None and current != self._version:
                 self._data = None  # the next read is fresh

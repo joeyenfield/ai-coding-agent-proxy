@@ -22,7 +22,15 @@ func listening(address string) bool {
 	if err != nil || parsed.Host == "" {
 		return false
 	}
-	conn, err := net.DialTimeout("tcp", parsed.Host, 300*time.Millisecond)
+	port := parsed.Port()
+	if port == "" {
+		if parsed.Scheme == "https" {
+			port = "443"
+		} else {
+			port = "80"
+		}
+	}
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort(parsed.Hostname(), port), 300*time.Millisecond)
 	if err != nil {
 		return false
 	}

@@ -107,7 +107,13 @@ type Manager struct {
 // Only ports from specs that passed Validate count, so a bogus spec can't open a loopback port
 // to tunnels, and turning containers off closes them all.
 func (m *Manager) Ports() []int {
-	if !m.machine().Containers {
+	m.mu.Lock()
+	known := len(m.ports)
+	m.mu.Unlock()
+	// Nothing known is the common case, and skips reading the settings file on the
+	// tunnel hot path; with ports known, the toggle is read fresh so `containers off`
+	// closes them at once.
+	if known == 0 || !m.machine().Containers {
 		return nil
 	}
 	m.mu.Lock()
