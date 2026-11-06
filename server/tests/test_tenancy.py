@@ -263,3 +263,40 @@ def test_the_migration_puts_everything_in_one_tenant(tmp_path, monkeypatch):
     # And the server reads them that way.
     store = UserStore(db)
     assert store.user("both")["tenant"] == "acme" and store.user("boss")["role"] == "admin"
+
+
+def test_a_removed_users_name_inherits_nothing(tmp_path):
+    """Removing a user disowns their sessions, so a later account with the same name
+    starts with nothing of theirs; the organization's admins keep the recordings."""
+    app = create_app(tenant_settings(tmp_path))
+    alice, dave = signed_in(app, "alice"), signed_in(app, "dave")
+    with alice, dave:
+        session_id = alice.post("/api/sessions", json={"client": "x"}).json()["session_id"]
+        removed = dave.delete("/api/users/alice")
+        assert removed.status_code == 200, removed.text
+        # The session is now ownerless: the organization's admins look after it.
+        assert dave.get(f"/api/sessions/{session_id}").status_code == 200
+        # A new user of the same name doesn't inherit it.
+        assert dave.post("/api/users", json={"name": "alice", "password": PASSWORD}).status_code == 201
+        reborn = signed_in(app, "alice")  # no context: closing it would end the app the other clients share
+        assert reborn.get(f"/api/sessions/{session_id}").status_code == 404
+        assert session_id not in {item["session_id"] for item in reborn.get("/api/sessions").json()}
+
+
+def test_a_removed_organizations_name_inherits_nothing(tmp_path):
+    """Removing an organization leaves its sessions to site admins only, removes its usage
+    limits and retention policy, and a recreated organization of the same name starts clean."""
+    app = create_app(tenant_settings(tmp_path))
+    gina, site = signed_in(app, "gina"), signed_in(app, "site")
+    with gina, site:
+        session_id = gina.post("/api/sessions", json={"client": "x", "visibility": "org"}).json()["session_id"]
+        for name in ("frank", "gina"):  # members first: the last admin can't go while others remain
+            assert site.delete(f"/api/users/{name}").status_code == 200, name
+        assert site.delete("/api/orgs/globex").status_code == 200
+        assert site.post("/api/orgs", json={"id": "globex"}).status_code == 201
+        assert site.post("/api/users", json={"name": "gina", "password": PASSWORD, "orgs": ["globex"], "role": "admin"}).status_code == 201
+        reborn = signed_in(app, "gina")  # no context: closing it would end the app the other clients share
+        assert reborn.get(f"/api/sessions/{session_id}").status_code == 404
+        assert session_id not in {item["session_id"] for item in reborn.get("/api/sessions").json()}
+        # Site admins still reach the old recordings, to look after or clean them up.
+        assert site.get(f"/api/sessions/{session_id}").status_code == 200

@@ -10,6 +10,7 @@ another account, and the tenant, role and sharing checks follow whichever one it
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
 import time
 from typing import Any
@@ -27,6 +28,8 @@ from .. import api_providers, auth
 from ..db import kv
 from ..runtime import Runtime
 
+
+LOGGER = logging.getLogger("agent-proxy")
 
 # The browser's sign-ins: {"active": user, "accounts": {user: refresh token}}.
 ACCOUNTS = "mesh_accounts"
@@ -470,16 +473,43 @@ def register(app: FastAPI, runtime: Runtime) -> None:
 
     @app.delete("/api/orgs/{org}")
     async def remove_org(org: str, request: Request) -> dict[str, Any]:
-        # Its hosted API providers (and their keys) go with it: a new organization of the same name mustn't inherit them.
+        # Nothing of the organization's may pass to a later one of the same name: its API
+        # providers (and keys), machines, usage limits and retention policy go with it, and
+        # its sessions become site-admin-only. Legal holds must be resolved first.
+        if runtime.retention.holds(org):
+            raise HTTPException(status_code=400, detail=f"{org} has legal holds; release them before removing the organization")
         owned = [backend.name for backend in settings.backends.values() if api_providers.external(backend) and api_providers.owner(backend) == org]
         if org != auth.ROOT_TENANT and settings.default_backend in owned:
             raise HTTPException(status_code=400, detail=f"{settings.default_backend}, {org}'s API provider, is the default backend; choose another default first")
+        identity = auth.request_identity(request)
         answer = change(request, lambda: accounts.store.remove_org(org), "No such organization")
         async with runtime.config_lock:
             for name in owned:
                 settings.remove_backend(name)
                 runtime.api_keys.clear(name)
                 runtime.api_models.pop(name, None)
+        for machine_id, machine in list(runtime.fleet.machines.items()):
+            if machine.tenant == org:
+                try:
+                    await runtime.fleet.remove(machine_id, identity)
+                except Exception:  # noqa: BLE001 - logged; the rest still offboards
+                    LOGGER.exception("removing %s: couldn't remove machine %s", org, machine_id)
+
+        def clean() -> None:
+            for account in list(runtime.provider_accounts.accounts.values()):
+                if account.tenant == org:
+                    try:
+                        runtime.provider_accounts.delete(identity, account)
+                    except Exception:  # noqa: BLE001
+                        LOGGER.exception("removing %s: couldn't delete provider account %s", org, account.id)
+            for limit in runtime.usage.tenant_limits(org):
+                runtime.usage.remove_limit(org, limit.user, limit.provider, limit.window)
+            runtime.retention.remove_org(org)
+            for session in runtime.sessions.list():
+                if session.tags.get("tenant") == org:
+                    runtime.sessions.update_tags(session, {"tenant": None})
+
+        await asyncio.to_thread(clean)
         return answer
 
     @app.post("/api/orgs/{org}/teams", status_code=201)
@@ -547,18 +577,50 @@ def register(app: FastAPI, runtime: Runtime) -> None:
 
         return change(request, update, "No such user")
 
+    async def offboard_user(identity: Any, name: str, tenant: str) -> None:
+        """A removed user's name must grant nothing to a later account of the same name:
+        their machines leave the fleet (allowed back explicitly), their provider accounts
+        and stored credentials are deleted, and their sessions become ownerless, kept for
+        the tenant's admins under its retention policy. One resource failing mustn't stop
+        the rest (the account itself is already gone), so each is its own try."""
+        for machine_id, machine in list(runtime.fleet.machines.items()):
+            if machine.owner == name and machine.tenant == tenant:
+                try:
+                    await runtime.fleet.remove(machine_id, identity)
+                except Exception:  # noqa: BLE001 - logged; the rest still offboards
+                    LOGGER.exception("offboarding %s: couldn't remove machine %s", name, machine_id)
+
+        def disown() -> None:
+            for account in list(runtime.provider_accounts.accounts.values()):
+                if account.owner == name and account.tenant == tenant:
+                    try:
+                        runtime.provider_accounts.delete(identity, account)
+                    except Exception:  # noqa: BLE001
+                        LOGGER.exception("offboarding %s: couldn't delete provider account %s", name, account.id)
+            for session in runtime.sessions.list():
+                tags = session.tags
+                if tags.get("tenant") != tenant:
+                    continue
+                cleared = {key: None for key in ("owner", "launched_by") if tags.get(key) == name}
+                if cleared:
+                    runtime.sessions.update_tags(session, cleared)
+
+        await asyncio.to_thread(disown)
+
     @app.delete("/api/users/{name}")
     async def remove_user(name: str, request: Request) -> dict[str, Any]:
         identity = auth.request_identity(request)
         if identity and identity.user == name:
             raise HTTPException(status_code=400, detail="You can't remove your own account.")
-        user_administered(request, name)
+        record = user_administered(request, name)
 
         def remove() -> None:
             if not accounts.store.remove_user(name):
                 raise KeyError(name)
 
-        return change(request, remove, "No such user")
+        answer = change(request, remove, "No such user")
+        await offboard_user(identity, name, record["tenant"])
+        return answer
 
 
 class _Answer(Exception):

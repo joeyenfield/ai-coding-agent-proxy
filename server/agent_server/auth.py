@@ -248,8 +248,15 @@ class UserStore:
             raise PermissionError("This account directory is read-only")
         data = self._data
         with self.db.write() as connection:
+            # The whole directory is rewritten from memory, so a version another process
+            # committed since this one's read would be silently overwritten (its new user
+            # or team would vanish). Refuse instead: the caller repeats the change.
+            current = int(kv.get_meta(connection, "accounts_version", 0) or 0)
+            if self._version is not None and current != self._version:
+                self._data = None  # the next read is fresh
+                raise ValueError("The account directory changed in another process; repeat the change.")
             write_directory(connection, data["users"], data["orgs"])
-            self._version = int(kv.get_meta(connection, "accounts_version", 0) or 0) + 1
+            self._version = current + 1
             kv.put_meta(connection, "accounts_version", self._version)
             kv.put_meta(connection, "accounts_initialized", True)
 
