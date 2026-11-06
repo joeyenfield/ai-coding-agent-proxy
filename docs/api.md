@@ -1,6 +1,6 @@
 # API
 
-Everything the server does is an HTTP or WebSocket API on its one port. The console uses it, and so do the launcher (`agent`), each machine's `agent-proxy` and `agent-machine`. This page lists every route the server registers.
+Everything the server does is an HTTP or WebSocket API on its one port, used by the console, the launcher (`agent`), each computer's `agent-proxy` and `agent-machine`. This page lists every route.
 
 The server also describes its HTTP routes in OpenAPI:
 
@@ -35,15 +35,15 @@ Every protected path requires authentication, including agent session paths and 
 - The fleet socket, machine tunnels, HTTPS tunnels (`/api/proxy/tunnel`) and terminal hosts take a renewed token over the open socket instead: a text frame `{"type": "token", "token": "<access token>"}`, accepted if it's valid and the same user's.
 - When it rechecks an open connection the server reuses the issuer's answer about a token for up to 10 seconds (a new request always asks), and when the issuer can't be reached it keeps accepting a token it confirmed until that token expires.
 
-Everything belongs to one organization (tenant): users, machines, providers, sessions and their records. No endpoint reaches another organization's; they answer `404` as if missing, and lists leave them out. Site admins are the exception: they see and control everything in every organization, private sessions included. Every endpoint that touches a session checks its sharing (see [Accounts](accounts.md)). A session you can't see answers `404`.
+Everything belongs to one organization (tenant): users, machines, providers, sessions and their records. No endpoint reaches another organization's things: they answer `404` as if missing, and lists leave them out. Site admins see and control everything in every organization, private sessions included. Every endpoint touching a session checks its sharing ([Accounts](accounts.md)); one you can't see answers `404`.
 
-**Versions.** `agent` and `agent-machine` send `X-AI-Proxy-Version` and `X-AI-Proxy-Protocol` with every request. A protocol outside the server's `MIN_PROTOCOL..PROTOCOL` gets `426 Upgrade Required` with how to update (WebSockets close with `4426`). Requests without the header, such as browsers', aren't checked.
+**Versions.** `agent` and `agent-machine` send `X-AI-Proxy-Version` and `X-AI-Proxy-Protocol` with every request; a protocol outside `MIN_PROTOCOL..PROTOCOL` gets `426 Upgrade Required` with how to update (WebSockets close `4426`). Requests without them, such as browsers', aren't checked.
 
 ## Agent-facing APIs
 
-Agents call these paths on their loopback agent-proxy, which authenticates all upstream traffic with `X-AI-Proxy-Token` while preserving vendor Authorization. Both session paths and `X-AI-Proxy-Session` require an open session and control permission, including native `/api/*` calls. Unscoped authenticated writes can create a private implicit session. Unscoped reads do not create sessions. Backend protocol errors are rejected before creating a session. Implicit sessions default to seven days when the organization's session retention is unlimited, subject to its minimum retention.
+Agents call these paths on their loopback agent-proxy, which signs everything upstream with `X-AI-Proxy-Token` and keeps the vendor `Authorization`. Session paths and `X-AI-Proxy-Session` (native `/api/*` calls included) need an open session the caller may control. An unscoped signed write can create a private implicit session; an unscoped read never does, and a backend protocol error is refused before one is made. Implicit sessions are kept seven days when the organization's session retention is unlimited, within its minimum.
 
-For non-site-admins, `/api/status` reports the public request origin and address instead of the server's configured bind address, and omits backend URLs. `/api/models` still lists usable models, but omits backend URLs, versions, errors and model runtime details unless the caller can view the machine (site admins can see all). `/v1/models` returns `502` when Ollama model discovery fails; hosted Anthropic backends list configured aliases without querying Ollama endpoints. Refused interception audit events include the trusted HTTP connection address, or the direct socket peer for native connections.
+For non-site-admins, `/api/status` reports the request's public origin and address instead of the configured bind address, without backend URLs. `/api/models` lists usable models without backend URLs, versions, errors and runtime details unless the caller can view the machine. `/v1/models` answers `502` when Ollama model discovery fails; hosted Anthropic backends list their configured aliases. Refused interception audit events carry the trusted HTTP connection address, or the socket peer for native connections.
 
 | Method | Path | What it does |
 |---|---|---|
@@ -51,17 +51,14 @@ For non-site-admins, `/api/status` reports the public request origin and address
 | POST | `/anthropic/v1/messages`, `/session/{session_id}/anthropic/v1/messages` | Anthropic Messages: translated for Ollama, passed through to Anthropic, Strata, Docker Model Runner, llama.cpp and an `api` backend that speaks `anthropic`. |
 | POST | `/anthropic/v1/messages/count_tokens`, `/session/{session_id}/anthropic/v1/messages/count_tokens` | Token counting: passed through where the backend has it, estimated for Ollama. |
 | GET, POST, PUT, PATCH, DELETE | `/anthropic/{path}`, `/session/{session_id}/anthropic/{path}` | Any other Anthropic path, forwarded only with a hosted `anthropic` backend. |
-| GET, POST, DELETE | `/api/{path}`, `/session/{session_id}/api/{path}` | Native Ollama, for what agents call only: `chat`, `generate`, `embed`, `embeddings`, `tags`, `show`, `ps`, `version`. Profiles apply to `chat` and `generate` on Ollama; Docker Model Runner's Ollama API gets them unchanged; Strata and llama.cpp have none. Anything else (`pull`, `delete`, ...) answers `404`: models are managed through their machine. The `agent-proxy` keeps its own unscoped `/api/...` for the launcher's calls, so agents use the session path. |
-| GET, POST, DELETE | `/session/{session_id}/mcp/{machine_id}/{name}` | A shared MCP server, as Streamable HTTP, relayed to its machine through its tunnel. Requires the `key` query parameter in the URL returned only to the launcher; the public session record contains no such token. Only the servers the session was started with; whoever started it must still hold the machine's `mcp` grant. Each POST is recorded in the session with its reply. See [MCP](mcp.md). |
+| GET, POST, DELETE | `/api/{path}`, `/session/{session_id}/api/{path}` | Native Ollama, for what agents call only: `chat`, `generate`, `embed`, `embeddings`, `tags`, `show`, `ps`, `version`. Profiles apply to `chat` and `generate` on Ollama; Docker Model Runner's Ollama API gets them unchanged; Strata and llama.cpp have none. Anything else (`pull`, `delete`, ...) answers `404`: models are managed through their machine. Agents use the session path, as the `agent-proxy` keeps unscoped `/api/...` for the launcher. |
+| GET, POST, DELETE | `/session/{session_id}/mcp/{machine_id}/{name}` | A shared MCP server, as Streamable HTTP, relayed to its machine through its tunnel. Needs the `key` query parameter from the URL only the launcher gets (the session record has none), and only the servers the session started with, while its starter still holds the machine's `mcp` grant. Each POST is recorded in the session with its reply. See [MCP](mcp.md). |
 
-Account agents don't use these. Their HTTPS goes to the `agent-proxy`'s HTTPS proxy (`HTTPS_PROXY=http://<session>:agent-proxy@127.0.0.1:8183`), which carries each connection to `WS /api/proxy/tunnel` (below). The server refuses destinations that resolve to loopback, private, link-local or reserved IP addresses.
+Account agents don't use these: their HTTPS goes to the `agent-proxy`'s HTTPS proxy (`HTTPS_PROXY=http://<session>:agent-proxy@127.0.0.1:8183`), which carries each connection to `WS /api/proxy/tunnel` (below). Destinations that resolve to loopback, private, link-local or reserved addresses are refused.
 
 The catch-alls here are registered after every console route, so `/api/{path}` never shadows one.
 
-If a nonstreaming upstream reply is interrupted after its headers arrive, the proxy
-returns `502` and records the failure. The connection and in-flight entry are released,
-so the session can be cleared or deleted. Cancelling a buffered request also releases
-its in-flight entry and records `client_closed`.
+A non-streaming upstream reply cut off after its headers answers `502` and is recorded as failed; its connection and in-flight entry are released, so the session can be cleared or deleted. A cancelled buffered request is released too and recorded as `client_closed`.
 
 ## Health and the server
 
@@ -70,18 +67,18 @@ its in-flight entry and records `client_closed`.
 | GET | `/health` | Public | `status`, the running instance's id, the server's `version`, `protocol` and `min_protocol`. |
 | GET | `/ready` | Public | Whether to send this process traffic: `ready`, `pod`, `roles` and `checks` (`database`, `cluster`, `blobs`, each `ok` and `detail`). `503` when one fails or the process is shutting down. See [Running several server processes](scaling.md#health-readiness-and-metrics). |
 | GET | `/metrics` | The internal port only (`AI_PROXY_INTERNAL_PORT`), no token | Prometheus metrics of this process. Every other path on the internal port needs `AI_PROXY_INTERNAL_TOKEN`; the public port answers `/internal/*` with `404`. |
-| GET | `/api/status` | Signed in | Totals, requests in flight, recent requests (the last 100 records; `?recent=0` leaves them out, for frequent polling), intercept state, `default_backend`, whether a restart is needed for the listen address, and each machine backend's `provider`. Only sessions you can see (their token totals too), and only the backends your organization's agents may use. |
+| GET | `/api/status` | Signed in | Totals, requests in flight, recent requests (the last 100; `?recent=0` leaves them out, for polling), intercept state, `default_backend`, whether the listen address needs a restart, and each machine backend's `provider`, counting only sessions you can see and backends your organization's agents may use. |
 | GET | `/api/config` | Site admin | The editable network settings (`proxy.listen_host`, `listen_port`, `url`, `public_url`, `default_backend`, `backends`) and `restart_required`. |
 | PUT | `/api/config` | Site admin | Stores them. Can remove local backends and add or edit hosted ones; refuses new or moved local ones. Without `backends`, leaves them alone; without `proxy.public_url`, leaves it as it is (`null` clears it). See [Configuration](configuration.md). |
 | GET | `/api/config/export` | Site admin | Every setting as one YAML document (`proxy`, `default_backend`, `intercept`, `retention_days`, `request_log`, `backends`, `models`, `agents`); `?format=json` for JSON. |
-| POST | `/api/config/import` | Site admin | Stores a settings document (YAML or JSON body): the parts it has, or with `?replace=true` every part. Everything is checked first. Answers `changed` and `restart_required`. |
+| POST | `/api/config/import` | Site admin | Stores a settings document (YAML or JSON body): the parts it has, or every part with `?replace=true`, all checked first. Answers `changed` and `restart_required`. |
 | GET | `/api/config/agents` | Site admin | Every stored agent: `id`, `definition`, `yaml` (the definition as YAML, to edit), `builtin` (it ships with the server) and `edited` (changed since). |
-| PUT | `/api/config/agents/{agent_id}` | Site admin | Adds or changes an agent; the body is its definition, YAML or JSON. A shipped one stops following the server's updates. `400` with the reason when it isn't valid. |
-| DELETE | `/api/config/agents/{agent_id}` | Site admin | Removes an agent (`204`). A shipped one stays removed through updates, until it's added again or reset. |
-| POST | `/api/config/agents/{agent_id}/reset` | Site admin | A shipped agent back to this version's definition, following updates again. `404` for others. |
+| PUT | `/api/config/agents/{agent_id}` | Site admin | Adds or changes an agent from its definition (YAML or JSON); a shipped one stops following the server's updates. `400` with the reason when invalid. |
+| DELETE | `/api/config/agents/{agent_id}` | Site admin | Removes an agent (`204`); a shipped one stays removed through updates until added again or reset. |
+| POST | `/api/config/agents/{agent_id}/reset` | Site admin | Resets a shipped agent to this version's definition, following updates again (`404` for others). |
 | GET | `/api/config/models` | Site admin | Ollama model tuning: `defaults`, `profiles`, `aliases`. `?format=yaml` for YAML. |
 | PUT | `/api/config/models` | Site admin | Stores the model tuning document (YAML or JSON body). |
-| GET | `/api/config/providers` | Site admin | Every organization's API providers (`api` backends): each one's settings (`url`, `anthropic_url`, `category`, `protocols`, `auth`, `key_env`, `models`, `discover`, `headers`, `connect_timeout`, `verify_tls`, `api_version`, `priority`, `fallback`, `enabled`, `org`, `teams`, `orgs`), `tenant` (the organization it belongs to), `has_key` and `key_source` (`vault`, `env` or `null`; never the key), `health` (what this process last saw) and `default`. Also `vault` (a key can be stored), `presets`, `protocols`, `auth_modes` and `share`. See [API providers](providers.md#api-providers-openai-and-anthropic-compatible). |
+| GET | `/api/config/providers` | Site admin | Every organization's API providers (`api` backends): each one's [settings](providers.md#settings), `tenant` (its organization), `has_key` and `key_source` (`vault`, `env` or `null`; never the key), `health` (what this process last saw) and `default`. Also `vault` (a key can be stored), `presets`, `protocols`, `auth_modes` and `share`. See [API providers](providers.md#api-providers-openai-and-anthropic-compatible). |
 | PUT | `/api/config/providers/{name}` | Site admin | Adds or replaces one, from the settings above plus `key` (stored encrypted, write-only; needs `AI_PROXY_VAULT_KEYS`) and `clear_key`; `org` names the organization a new hosted one belongs to. Without `key` a stored key stays, unless the address moved to another origin. A machine-hosted one keeps its machine's address. `400` with the reason when a setting isn't allowed (private addresses, credential headers, `key_env` outside `AI_PROXY_API_KEY_*`, a team of another organization, ...). |
 | DELETE | `/api/config/providers/{name}` | Site admin | Removes one and its stored key. `400` for the default backend. |
 | POST | `/api/config/providers/{name}/test` | Site admin | Asks the provider for its models with its key: `ok`, `status`, `latency_ms`, `models` (ids, or `null`) and `error`. The result becomes its health and its discovered models. |
@@ -106,10 +103,10 @@ its in-flight entry and records `client_closed`.
 |---|---|---|---|
 | POST | `/api/sessions` | Signed in | Opens a session for other tools: `client`, `project`, `model`, `backend` (or `direct`), `trace`, `tags`, and sharing: `visibility`, `team`, `org`, `access`. A `shell` client is always private. |
 | GET | `/api/sessions` | Signed in | The sessions you can see, each with its `machine` and what `you` may do. |
-| DELETE | `/api/sessions` | Signed in | Deletes all saved traffic. Ended sessions and open ones idle for 15 minutes are deleted; recently active ones keep running but lose their data; ones with requests in flight are skipped. Only your own (and your organization's admins: its sessions without an owner). |
+| DELETE | `/api/sessions` | Signed in | Deletes all saved traffic: ended sessions and ones idle 15 minutes go, recently active ones keep running without their data, ones with requests in flight are skipped. Only your own (admins: also their organization's ownerless ones). |
 | GET | `/api/sessions/{session_id}` | Signed in, can view | One session. |
 | PATCH | `/api/sessions/{session_id}` | Signed in, can control | Ends it (`ended`, `exit_status`), switches capture (`trace`; `409` when its organization's [retention policy](retention.md) records every session, or none), or for its owner changes its sharing (`visibility`, `team`, `org`, `access`). Narrowing the sharing drops terminal viewers who lose access. A shell can't be shared. |
-| POST | `/api/sessions/{session_id}/stop` | Signed in, can control | Stops the session's replies the server is still reading for a client that dropped (Ask a model's **Stop**): `{"stopped": <count>}`. Ending the session does it too. |
+| POST | `/api/sessions/{session_id}/stop` | Signed in, can control | Stops replies the server is still reading for a client that dropped (Ask a model's **Stop**; ending the session does too): `{"stopped": <count>}`. |
 | DELETE | `/api/sessions/{session_id}` | Signed in, can control | Deletes it. `409` while requests are in flight. |
 | DELETE | `/api/sessions/{session_id}/data` | Signed in, can control | Clears its saved requests and traces, keeping the session. |
 | GET | `/api/requests` | Signed in | Requests you can see, newest first, with `trace_available`. `?session_id=` for one session, `?model=` and `?kind=` to filter, `?limit=` (1 to 5000) and `?before=` (a timestamp: only older ones) to page. Without `limit`, all of them. |
@@ -147,7 +144,7 @@ its in-flight entry and records `client_closed`.
 
 ## Machines and their providers
 
-Every machine route needs **Trusted**. A machine you may not see answers `404`. The server asks the machine over its fleet socket for everything about a model server; see [Machines](machines.md) and [Providers](providers.md). A model server is named `{kind}-{port}`, such as `ollama-11434`, `llamacpp-9931`, `strata-18500` or `docker-12434`.
+Every machine route needs **Trusted**; a machine you may not see answers `404`. Everything about a model server is asked of its machine over the fleet socket ([Machines](machines.md), [Providers](providers.md)). A model server is named `{kind}-{port}`, such as `ollama-11434`, `llamacpp-9931`, `strata-18500` or `docker-12434`.
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
@@ -175,7 +172,7 @@ Every machine route needs **Trusted**. A machine you may not see answers `404`. 
 
 ## Provider accounts (subscriptions)
 
-People's own AI plans and where they run; see [Subscriptions](subscriptions.md). All need **Signed in**; changes also **Same origin**. Answers are metadata only: none carries a token, except the one-time handover. Another person's subscription answers `404` unless you may see it.
+People's own AI plans and where they run ([Subscriptions](subscriptions.md)). All need **Signed in**, changes also **Same origin**. Answers carry metadata only, never a token except in the one-time handover; another person's subscription answers `404` unless you may see it.
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
@@ -209,7 +206,7 @@ Each person's usage of each provider (a backend, or a kind of subscription) and 
 | PUT | `/api/orgs/{org}/limits` | Admin of that organization, site admins | One limit: `user` (a person in it, or `*` for everyone), `provider`, `window` (`5h`, `24h`, `7d`, `30d`, `month`), `tokens` (0 or more; 0 turns it off). Answers the usage report. |
 | DELETE | `/api/orgs/{org}/limits?user=&provider=&window=` | Admin of that organization, site admins | Removes one limit. |
 
-A person who has reached a limit gets `429` with `error.code: "usage_limit"` and `Retry-After` from the agent APIs (`/v1`, `/anthropic`, `/api` model calls, and account agents' calls to the subscription's hosts), and `429` from `POST /api/agents/{agent_id}/sessions` and `POST /api/machines/{id}/launch` for that provider.
+A person at a limit gets `429` (`error.code: "usage_limit"`, `Retry-After`) from the agent APIs (`/v1`, `/anthropic`, `/api` model calls, and account agents' calls to the subscription's hosts), and from `POST /api/agents/{agent_id}/sessions` and `POST /api/machines/{id}/launch` for that provider.
 
 ## Retention and the audit log
 
@@ -252,7 +249,7 @@ Shared terminals are a remote shell, so these routes need **Trusted** and **Same
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
-| GET | `/api/remote` | Signed in | `{trusted: true, local: false, paired: false, accounts: true}`, for launchers checking they may share a terminal. No access key is returned. |
+| GET | `/api/remote` | Signed in | `{trusted: true, local: false, paired: false, accounts: true}`, for launchers checking they may share a terminal (no access key). |
 | POST | `/api/remote/code`, `/api/remote/rotate` | Signed in | Always 403: the access key and pairing codes were removed. |
 | POST | `/api/remote/pair` | Signed in | Always 410: pairing was removed; sign in through OIDC. |
 | POST | `/api/remote/unpair` | Signed in, Same origin | Removes only the legacy pairing cookie; use `/api/auth/logout` to sign out. |
@@ -344,4 +341,4 @@ OpenAPI can't describe these. All need **Trusted** (a sign-in; machines send the
 
 ## Check
 
-These tables aim to cover every route the app registers on its public port (compare `app.routes` of a server built in a temporary folder). Not listed: the `/assets` static mount, and the internal port's own routes (`POST /internal/fleet/{machine_id}/{action}`, `GET /internal/live`, `GET /metrics` and `WS /internal/tunnels/{tunnel_id}`), which only the server's other processes reach ([Running several server processes](scaling.md)). When a route is added or removed, change its table here in the same change.
+These tables cover every route on the public port (compare a test server's `app.routes`), except the `/assets` mount and the internal port's routes (`POST /internal/fleet/{machine_id}/{action}`, `GET /internal/live`, `GET /metrics`, `WS /internal/tunnels/{tunnel_id}`), which only the server's own processes reach ([Running several server processes](scaling.md)). Adding or removing a route changes its table in the same change.

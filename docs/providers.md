@@ -1,6 +1,6 @@
 # LLM providers
 
-A **provider** (a backend, one of the server's stored settings) is where the server sends an agent's model requests. Agents never talk to a provider directly: their requests go to the server, which records them and forwards them.
+A **provider** (a backend, one of the server's stored settings) is where the server sends an agent's model requests. Agents never reach a provider directly: the server records their requests and forwards them.
 
 Start with [where providers come from](#where-providers-come-from) and [managing models](#managing-models); [API providers](#api-providers-openai-and-anthropic-compatible) covers OpenAI and Anthropic-compatible services. The sections from [Ollama](#ollama) down are the per-engine reference: read the one your models run on.
 
@@ -21,15 +21,15 @@ Start with [where providers come from](#where-providers-come-from) and [managing
 
 **Local providers only come from machines.** A machine's `agent-machine` finds the model servers running on it and reports them. On the machine's page, an admin turns one into a provider with **Add as a provider**. The new backend gets the machine's name (for Ollama) or `<machine>-<type>` (for the others), and the machine's id in its `machine` field. A machine can also run model servers in containers for the server (see [Containers machines run](#containers-machines-run)).
 
-You can't add a local provider by URL. The **Server settings** page, and `PUT /api/config` behind it, refuse a new local backend or one whose URL changed: they can only keep or remove them. That's because everything about a model server other than agents' traffic is done by its machine, so the server needs to know which machine runs it.
+You can't add a local provider by URL: **Server settings** (and `PUT /api/config`) refuse a new local backend or a changed URL, and only keep or remove them. Everything but agents' traffic is done by a model server's machine, so the server must know which machine runs it.
 
 **Hosted APIs are the exception.** Add an `anthropic` backend (`https://api.anthropic.com`) on **Server settings**, or a hosted [API provider](#api-providers-openai-and-anthropic-compatible) on an organization's **API providers** tab (**Organizations**). They need no machine.
 
-**Older backends.** Backends set up by URL before machines did this keep working. An admin links one to a machine with **Add as a provider** on that machine's model server tab. A matching address and type reuse the existing backend's name and settings. Once linked, a backend follows its machine's address changes, on the same port.
+**Older backends.** Backends set up by URL before machines keep working. An admin links one to a machine with **Add as a provider** on that machine's model server tab. A matching address and type reuse the existing backend's name and settings. Once linked, a backend follows its machine's address changes, on the same port.
 
 ## Managing models
 
-**The server never manages a model server.** It only forwards agents' traffic to model servers. Everything else is a request to the machine that runs the model server, over its fleet connection, and agent-machine does it there against `127.0.0.1:<port>`:
+**The server never manages a model server**; it only forwards agents' traffic. Everything else is a request, over the fleet connection, to the machine that runs it, where agent-machine does it against `127.0.0.1:<port>`:
 
 - its status and models;
 - pulling, deleting, loading and unloading models;
@@ -38,7 +38,7 @@ You can't add a local provider by URL. The **Server settings** page, and `PUT /a
 - Ollama's and llama.cpp's settings, installing llama.cpp, and starting and stopping Ollama, llama.cpp and Strata;
 - searching ollama.com, Hugging Face and Docker Hub.
 
-In the console, all of it is on the machine's page, a tab per model server. A model server is named `<type>-<port>`, such as `ollama-11434`. A model server that isn't a provider yet is managed the same way, with **Add as a provider** at its top for admins. What each kind's tab offers is under its section below: [Ollama](#models-on-ollama), [Strata](#strata), [llama.cpp](#models-on-llamacpp) and [Docker Model Runner](#docker-model-runner).
+In the console, all of it is on the machine's page, a tab per model server. A model server is named `<type>-<port>`, such as `ollama-11434`. A model server that isn't a provider yet is managed the same way, with **Add as a provider** at its top for admins. Each kind's tab is described below: [Ollama](#models-on-ollama), [Strata](#strata), [llama.cpp](#models-on-llamacpp) and [Docker Model Runner](#docker-model-runner).
 
 Reading is always allowed for those who can see the machine. Changing anything needs `agent-machine servers on` on the machine, and the right [feature](machines.md#who-may-use-a-machine) (site admins have every feature on every machine):
 
@@ -66,7 +66,7 @@ Each agent is declared for a backend type (`backend_type`, default `ollama`) and
 
 Strata and llama.cpp don't speak Ollama's native `/api`, so Aider and Goose can't use them. Account agents (`intercept: true`) don't use a backend: their traffic goes to their vendor. See [Agents](agents.md).
 
-When a launch doesn't name a backend, the server picks one (`backend_for()`): the default backend if it serves the agent, else a backend of the agent's own type, else any other that serves it, higher `priority` first. It never picks a hosted API provider that way unless it's the default backend: name it (`--backend openai`). A named backend that can't serve the agent is refused with the reason. The console and the client get the list and the choice from the server (`/api/agents`), not by working it out themselves.
+When a launch doesn't name a backend, the server picks one (`backend_for()`): the default backend if it serves the agent, else a backend of the agent's own type, else any other that serves it, higher `priority` first. It never picks a hosted API provider that way unless it's the default backend: name it (`--backend openai`). A named backend that can't serve the agent is refused with the reason. The console and the client take the list and the choice from `/api/agents`.
 
 ## API providers (OpenAI and Anthropic-compatible)
 
@@ -84,14 +84,14 @@ The server passes requests through as they are, streaming (SSE), tool calls, rea
 - a model alias becomes the provider's model id;
 - the provider's extra headers are added.
 
-Nothing is translated between protocols. A provider is set up with the protocols it speaks, and a request in any other protocol is refused with 400, before anything goes out. Don't assume a service speaks every protocol: many OpenAI-compatible services have Chat Completions but not Responses, and few have Anthropic Messages.
+Nothing is translated between protocols: a request in a protocol the provider wasn't set up with is refused with 400 before anything goes out. Don't assume a service speaks every protocol: many OpenAI-compatible services have Chat Completions but not Responses, and few have Anthropic Messages.
 
 There are two kinds:
 
-- **Machine-hosted**: an OpenAI-compatible server on a fleet machine, such as LM Studio, vLLM or SGLang. agent-machine finds it on its loopback and reports it, and an admin adds it from the machine's page, as for other model servers. Agents' requests reach it through the machine's tunnel, and it belongs to the machine's organization like any model server. See [Model servers on a machine](#openai-compatible-servers-on-a-machine).
+- **Machine-hosted**: an OpenAI-compatible server on a fleet machine, such as LM Studio, vLLM or SGLang. agent-machine finds it on its loopback, an admin adds it from the machine's page, and agents reach it through the machine's tunnel; it belongs to the machine's organization. See [Model servers on a machine](#openai-compatible-servers-on-a-machine).
 - **Hosted APIs and gateways**: OpenAI, Anthropic, OpenRouter, LiteLLM Proxy, Groq and the like. An organization's admin adds them by URL on its **API providers** tab, and the server reaches them directly. See [Hosted APIs and gateways](#hosted-apis-and-gateways).
 
-An `api` backend is not the `anthropic` backend type. `anthropic` passes Claude Code's own credentials through (a claude.ai login or the person's own key). An `api` backend uses a key the server holds, the same for everyone who may use it.
+An `api` backend differs from the `anthropic` type: `anthropic` passes Claude Code's own credentials through (a claude.ai login or the person's key), while `api` uses one key the server holds for everyone allowed.
 
 ### Who manages them, and who may use them
 
@@ -131,7 +131,7 @@ Each provider has these settings. Only the key is secret, and it is never shown,
 | `orgs` | Other organizations it's shared with whole, or `["*"]` for every one. Only site admins set it. Empty: only its own organization. |
 | `org` | The organization a hosted provider belongs to (`null` for the site's own). Set by where it's added; it can't be moved. A machine-hosted one is its machine's organization's. |
 
-**Test connection** on the console (`POST /api/orgs/{org}/providers/{name}/test`) asks the provider for its models with its key. It shows the status, the time it took and the models it lists, and you can add those to `models`. When a provider has no `/models`, add its models by hand.
+**Test connection** on the console (`POST /api/orgs/{org}/providers/{name}/test`) asks the provider for its models with its key. It shows the status, the time and the listed models, which you can add to `models` (by hand when the provider has no `/models`).
 
 ### Hosted APIs and gateways
 
@@ -160,7 +160,7 @@ When a provider can't be reached, a request can go to another one, but only when
 - Only for that request. The session stays on its own provider and the next request tries it first again.
 - It's on the request's record (`fallback_from`, `routing`), in the response (`X-AI-Proxy-Backend`), in the server's log and in the audit log (`backend.fallback`).
 
-Local providers have no fallback. A local-model agent never moves to a hosted provider on its own either: when a launch names no backend, the server picks a hosted provider only if it's the default backend.
+Local providers have no fallback, and a local-model agent never moves to a hosted provider by itself: a launch that names no backend gets a hosted provider only when it's the default.
 
 ### What is recorded
 
@@ -172,7 +172,7 @@ An API provider's requests are recorded like every other:
 
 Tokens come from what the provider reports. When it reports none (a Chat Completions stream without `stream_options.include_usage`, say), the counts are estimates and the record says so (`tokens_estimated`). The provider's own rate-limit headers (`x-ratelimit-*`, `anthropic-ratelimit-*`, `retry-after`) are passed back to the agent, and its request id comes back as `upstream-request-id`.
 
-Each server process also keeps what it last saw of each provider (status, time, error), shown on the console as the provider's health. It's in memory only: with several processes, each shows its own.
+Each server process keeps what it last saw of each provider (status, time, error) as its health on the console, in memory only: with several processes, each shows its own.
 
 ### Examples
 
@@ -265,7 +265,7 @@ The server's Ollama model tuning holds the settings for Ollama, in three layers,
 2. The first entry under `profiles` whose `match` (shell-style patterns) matches the Ollama model name, case-insensitively.
 3. The exact alias under `aliases`, where the key is the name agents use and `ollama_model` the Ollama tag.
 
-Each layer can set `options` (Ollama runtime options such as `num_ctx`, `temperature`, `top_p`, `top_k`), `keep_alive`, `think` (force thinking on or off for hybrid models) and `translate_openai`. Values a client sends explicitly in a request always win. It only applies to Ollama. Strata, Docker Model Runner and llama.cpp get requests as the agent sent them.
+Each layer can set `options` (Ollama runtime options such as `num_ctx`, `temperature`, `top_p`, `top_k`), `keep_alive`, `think` (force thinking on or off for hybrid models) and `translate_openai`. Values a client sends explicitly always win. It applies only to Ollama: Strata, Docker Model Runner and llama.cpp get requests as sent.
 
 The tuning a new server starts with is set up for Qwen:
 
@@ -293,12 +293,12 @@ aliases:                   # aliases agents can use
 
 The coder profile uses Qwen's recommended sampling for non-thinking agentic coding; the `qwen3` profile uses its recommended thinking-mode sampling. 64K of context suits 16-24 GB GPUs; raise `num_ctx` to 131072 if you have the memory.
 
-If a model shows less than 100% on GPU on its Ollama's page, part of it runs on the CPU and generation slows down a lot. Lower `num_ctx` (in `defaults` or a profile), pick a smaller tag, or start Ollama with a quantized KV cache (Flash Attention on, KV cache `q8_0` or `q4_0`) from the machine's Ollama settings.
+A model under 100% on GPU on its Ollama's page runs partly on the CPU, which slows generation a lot. Lower `num_ctx` (in `defaults` or a profile), pick a smaller tag, or start Ollama with a quantized KV cache (Flash Attention on, KV cache `q8_0` or `q4_0`) from the machine's Ollama settings.
 
-**Which agent works best with Qwen on Ollama.** This is a recommendation, not a measured benchmark. Use `agent-benchmark` and the **Requests** page to compare agents on your own hardware.
+**Which agent works best with Qwen on Ollama** (a recommendation, not a benchmark: compare on your own hardware with `agent-benchmark` and **Requests**):
 
-1. **Qwen Code** first. It's built by the Qwen team around the tool-calling format the models are trained on, so tool calls parse reliably.
-2. **OpenCode** is a close second. It has good local-provider support and a smaller system prompt than Claude Code, which matters with 27-35B models.
+1. **Qwen Code** first: the Qwen team built it around the tool-calling format the models are trained on, so tool calls parse reliably.
+2. **OpenCode** is a close second: good local-provider support, and a smaller system prompt than Claude Code, which matters with 27-35B models.
 3. **Copilot CLI** (BYOK) and **Claude Code** work too. Claude Code's large system prompt and tool list need a 64K+ context and are slower to process on local GPUs.
 
 ### Models on Ollama
@@ -311,7 +311,7 @@ Each Ollama's tab on its machine's page has:
 
 ### Ollama's server settings
 
-With `agent-machine servers on`, the machine's **Ollama server** tab starts, stops and restarts the Ollama installed there, and edits the settings it starts with. The settings are the machine's: agent-machine keeps them in `ollama.json` in its folder and applies them the next time it starts Ollama. The server has no Ollama config.
+With `agent-machine servers on`, the machine's **Ollama server** tab starts, stops and restarts the Ollama installed there, and edits the settings it starts with. The settings are the machine's (`ollama.json` in agent-machine's folder, applied at Ollama's next start); the server has no Ollama config.
 
 | Group | Setting | Variable | Default |
 |---|---|---|---|
@@ -340,13 +340,13 @@ With `agent-machine servers on`, the machine's **Ollama server** tab starts, sto
 - **Where it listens** isn't a setting: agent-machine sets `OLLAMA_HOST` itself. Ollama listens on `127.0.0.1` when the machine is the server's own computer or carries agents' traffic through [tunnels](machines.md#tunnels), else on `0.0.0.0` so the server can reach it.
 - **Log** shows `ollama.log` in agent-machine's folder, the output of the Ollama it started.
 
-agent-machine runs `ollama serve` (from PATH, or Ollama's usual install folder on Windows) and waits up to 30 seconds for it to answer. It only stops an Ollama it started itself. One started by Ollama's own app is left to that app.
+agent-machine runs `ollama serve` (from PATH, or Ollama's usual install folder on Windows) and waits up to 30 seconds for it to answer. It stops only an Ollama it started; one started by Ollama's own app is left to that app.
 
 **Ollama as a systemd service.** Ollama's Linux installer sets up `ollama.service`, which belongs to root. Run `sudo agent-machine servers service` on that machine once. agent-machine then starts, stops and restarts the service through `sudo -n systemctl`, and writes the settings to `/etc/agent-machine/ollama.env` before a start or restart. `sudo agent-machine servers service off` undoes it. See [Machines](machines.md#settings).
 
 ## Strata
 
-Strata serves one local model over OpenAI Chat Completions, OpenAI Responses and Anthropic Messages, and asks for an API key on `/v1`. The server passes agents' requests through unchanged, apart from the key: no translation, and the Ollama model tuning doesn't apply. It records them like any other request, using Strata's own prompt and generation timings for the speeds.
+Strata serves one local model over OpenAI Chat Completions, OpenAI Responses and Anthropic Messages, and asks for an API key on `/v1`. The server passes agents' requests through unchanged apart from the key (no translation or Ollama model tuning) and records them as usual, with Strata's own timings for the speeds.
 
 Each Strata's tab on its machine's page shows its model, whether it's loaded, its context, uptime and where the key came from, with **Load** and **Unload** (to free the GPU between sessions). Strata can't pull or delete models from the console. Its tabs:
 
@@ -362,7 +362,7 @@ The agent sends a placeholder key. The server swaps it for Strata's own (`strata
 2. `STRATA_API_KEY` on the server;
 3. the key the machine reported for the Strata on that port.
 
-The machine reads that last key from the Strata profile serving on the port (the run config its profile names) and sends it in its hello. The server keeps it in memory only, never in its database or the console. Without any key, the agent's own headers go through, so a key set in the agent still works. On the machine, agent-machine uses `STRATA_API_KEY` there before the profile's key for its own requests.
+The machine reads that last key from the Strata profile serving on the port (the run config its profile names) and sends it in its hello. The server keeps it in memory only, never in its database or the console. Without any key the agent's own headers go through, so a key set in the agent still works. On the machine, agent-machine uses `STRATA_API_KEY` there before the profile's key for its own requests.
 
 ### Profiles
 
@@ -371,22 +371,22 @@ agent-machine reads Strata's files:
 - profiles in `%APPDATA%\Strata\profiles`, or `$XDG_CONFIG_HOME/strata/profiles` (`STRATA_PROFILE_DIR` overrides);
 - running instances in `%LOCALAPPDATA%\Strata\runtime`, or `$XDG_STATE_HOME/strata/runtime` (`STRATA_RUNTIME_DIR` overrides).
 
-Strata on its default port, 18500, is found by itself. With `agent-machine servers on`, profiles serving on other ports are found too. With servers on, the machine's page has **Start** and **Stop** for each saved profile, which run Strata's own `strata runtime start|stop --profile <id>`. Only the machine's own saved profiles can be named.
+Strata on its default port, 18500, is found by itself. With `agent-machine servers on`, profiles serving on other ports are found too, and the machine's page has **Start** and **Stop** for each saved profile (Strata's own `strata runtime start|stop --profile <id>`). Only the machine's own saved profiles can be named.
 
 Nothing starts Strata again after the computer restarts. A profile that was running then is reported by Strata as **stale** (its runtime's host went away). The machine's page shows it as not running, with **Start**, and Strata recovers it when you start it.
 
-**Profiles follow what Strata has installed.** With servers on, agent-machine asks Strata for its installed models (`strata models list --installed`) and saves a profile for each one that no profile uses yet (`strata profile create <model> --from-config <its run config>`), so every installed model can be started from the console without setting a profile up there first. A model still missing files is left until it's complete. The new profile is named after the model, with `-2` and so on when a profile already has that name. Profiles are only added, never changed or removed. A Strata too old for `models list --installed` keeps working with its saved profiles.
+**Profiles follow what Strata has installed.** With servers on, agent-machine asks Strata for its installed models (`strata models list --installed`) and saves a profile for each one that no profile uses yet (`strata profile create <model> --from-config <its run config>`), so every installed model can be started from the console. A model still missing files is left until it's complete. The new profile is named after the model, with `-2` and so on when a profile already has that name. Profiles are only added, never changed or removed. A Strata too old for `models list --installed` keeps working with its saved profiles.
 
 A profile can outlive its model: removing or reinstalling the model in the Strata app deletes the run config the profile names. The machine's page then shows that profile as **Can't start**, with the reason, and Start refuses it rather than failing inside Strata (`cannot read run config`). Start the model's new profile instead, or point the old one at it with `strata profile use-config <profile> --from-config <run config>` there.
 
 Under the list of profiles, two buttons tidy Strata up (with servers on, for whoever may manage the machine's servers):
 
-- **Remove old profiles** deletes every profile whose model is gone (shown as **Can't start**). Each of those rows also has its own **Remove**. Strata has no command for this, so agent-machine deletes the profile's file in Strata's profiles folder, with its history (`.history/<id>`) and run records (`.ops/<id>`). It removes only profiles whose run config is gone and that aren't serving. A profile whose model is still installed can't be removed, because agent-machine would just save it again.
+- **Remove old profiles** deletes every profile whose model is gone (shown as **Can't start**). Each of those rows also has its own **Remove**. Strata has no command for this, so agent-machine deletes the profile's file, its history (`.history/<id>`) and run records (`.ops/<id>`). It removes only profiles whose run config is gone and that aren't serving. A profile whose model is still installed can't be removed, because agent-machine would just save it again.
 - **Clean up leftovers** runs `strata runtime cleanup`, which ends servers and engines Strata started whose owner is gone, for example after a crash or a restart. Strata never touches a running instance.
 
 ## llama.cpp
 
-[llama.cpp](https://github.com/ggml-org/llama.cpp)'s `llama-server` runs GGUF models on almost anything: NVIDIA (CUDA), AMD (ROCm, Vulkan), Intel (SYCL, OpenVINO), Apple (Metal), and phones' GPUs through OpenCL, such as the Adreno in Snapdragon phones, where Ollama only has the CPU. It speaks OpenAI Chat Completions, OpenAI Responses and Anthropic Messages, so the server passes agents' requests through unchanged. It has no native Ollama `/api`, so Aider and Goose can't use it, and the Ollama model tuning doesn't apply.
+[llama.cpp](https://github.com/ggml-org/llama.cpp)'s `llama-server` runs GGUF models on almost anything: NVIDIA (CUDA), AMD (ROCm, Vulkan), Intel (SYCL, OpenVINO), Apple (Metal), and phones' GPUs through OpenCL, such as the Adreno in Snapdragon phones, where Ollama only has the CPU. It speaks OpenAI Chat Completions, OpenAI Responses and Anthropic Messages, so agents' requests pass through unchanged; with no native Ollama `/api`, Aider and Goose can't use it and the Ollama model tuning doesn't apply.
 
 agent-machine runs it in **router mode**: one `llama-server` started without a model serves every model in its cache and its GGUF folder, loads each on the first request that names it, and unloads the least recently used when more are loaded than its settings allow. Agents name a model as the router lists it, such as `unsloth/Qwen3-8B-GGUF:Q4_K_M`. A llama-server started with one model (`-m`) has no router: it lists that model, and its models can't change from here.
 
@@ -399,7 +399,7 @@ With `agent-machine servers on`, the machine's **llama.cpp server** tab installs
 - **In Termux on Android**, Termux's own packages, through its `apt-get`: `llama-cpp` with its OpenCL backend (`llama-cpp-backend-opencl`, `ocl-icd`, `opencl-vendor-driver`, for the phone's own OpenCL driver: the fastest on Snapdragon phones), its Vulkan backend (`llama-cpp-backend-vulkan`, `vulkan-loader-android`), or the CPU only.
 - **Anywhere else**, the newest build llama.cpp publishes on GitHub (`ggml-org/llama.cpp`) for the machine's system and processor, with the backend you pick: CPU, Vulkan, CUDA (NVIDIA; its runtime is downloaded too), ROCm, SYCL, OpenVINO, Metal on a Mac, or Snapdragon. agent-machine installs a download only when its SHA-256 is the one GitHub lists for it, and unpacks it into `llamacpp/<release>-<build>/` in its own folder. Nothing outside that folder changes and nothing needs root. The build before it is kept until the next install, so a running llama-server keeps its files until it restarts onto the new one.
 
-Installing runs on the machine as a job: the tab shows its step and download progress, and says when it's done or why it failed. **Update or change build** installs the newest release again, or another backend. **Remove** deletes the builds installed from the console (Termux's packages are Termux's to remove). A llama-server already on the machine's PATH (or Homebrew's, or Termux's) is used too; the tab says it was found there and shows its version. For Termux's packages, that's the package's version, because their `--version` names no build.
+Installing runs on the machine as a job; the tab shows its step, download progress, and the result. **Update or change build** installs the newest release again, or another backend. **Remove** deletes the builds installed from the console (Termux's packages are Termux's to remove). A llama-server already on the machine's PATH (or Homebrew's, or Termux's) is used too; the tab says it was found there and shows its version. For Termux's packages, that's the package's version, because their `--version` names no build.
 
 ### Starting it and its settings
 
