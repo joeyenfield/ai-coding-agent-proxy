@@ -23,7 +23,7 @@ from itsdangerous import BadSignature, URLSafeSerializer
 from joserfc.errors import JoseError
 from starlette.middleware.sessions import SessionMiddleware
 
-from .. import auth
+from .. import api_providers, auth
 from ..db import kv
 from ..runtime import Runtime
 
@@ -470,7 +470,17 @@ def register(app: FastAPI, runtime: Runtime) -> None:
 
     @app.delete("/api/orgs/{org}")
     async def remove_org(org: str, request: Request) -> dict[str, Any]:
-        return change(request, lambda: accounts.store.remove_org(org), "No such organization")
+        # Its hosted API providers (and their keys) go with it: a new organization of the same name mustn't inherit them.
+        owned = [backend.name for backend in settings.backends.values() if api_providers.external(backend) and api_providers.owner(backend) == org]
+        if org != auth.ROOT_TENANT and settings.default_backend in owned:
+            raise HTTPException(status_code=400, detail=f"{settings.default_backend}, {org}'s API provider, is the default backend; choose another default first")
+        answer = change(request, lambda: accounts.store.remove_org(org), "No such organization")
+        async with runtime.config_lock:
+            for name in owned:
+                settings.remove_backend(name)
+                runtime.api_keys.clear(name)
+                runtime.api_models.pop(name, None)
+        return answer
 
     @app.post("/api/orgs/{org}/teams", status_code=201)
     async def add_team(org: str, request: Request) -> dict[str, Any]:

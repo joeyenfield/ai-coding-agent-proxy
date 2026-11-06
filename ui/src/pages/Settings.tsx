@@ -9,7 +9,6 @@ import { useAuth, useStatus } from "../hooks";
 import { machinePath, providersPath } from "./Machine";
 import { TabBar, TabPanel, useTabParam } from "../components/Tabs";
 import { AgentDefinitions, AuditSettings, ModelTuningEditor, StorageSettings } from "./SettingsStored";
-import { ApiProviderSettings } from "./ApiProviders";
 
 const URL_PLACEHOLDERS: Record<string, string> = {
   ollama: "http://host:11434",
@@ -38,7 +37,7 @@ interface Row {
   managed?: boolean;
   /** A model server on a machine: added from the machine, so its type and URL aren't edited here. */
   local?: boolean;
-  /** An API provider: its options are kept by the server and changed on the API providers tab. */
+  /** An API provider: its options are kept by the server and changed on its organization's API providers tab. */
   api?: boolean;
 }
 
@@ -60,7 +59,7 @@ export function SettingsPage() {
   return <ServerSettings />;
 }
 
-const TABS = ["server", "apis", "agents", "tuning", "storage", "audit"] as const;
+const TABS = ["server", "agents", "tuning", "storage", "audit"] as const;
 
 function ServerSettings() {
   const [tab, setTab] = useTabParam(TABS);
@@ -149,7 +148,6 @@ function ServerSettings() {
         className="page-tabs"
         tabs={[
           { id: "server", label: "Server and providers" },
-          { id: "apis", label: "API providers" },
           { id: "agents", label: "Agents" },
           { id: "tuning", label: "Model tuning" },
           { id: "storage", label: "Storage" },
@@ -200,7 +198,8 @@ function ServerSettings() {
               Local model servers come from your machines: add them, and manage their models, on each machine's page under{" "}
               <Link to="/machines">Machines</Link>. Here you pick the default, which agents started without{" "}
               <code>--backend</code> use, and remove ones you no longer need. OpenAI- and Anthropic-compatible APIs, with their keys and model{" "}
-              names, are on <Link to="?tab=apis">API providers</Link>. Agents signed in to their own accounts don't use one.
+              names and the teams that may use them, belong to an organization: each is on its organization's API providers tab, under{" "}
+              <Link to="/organization?orgTab=providers">Organizations</Link>. Agents signed in to their own accounts don't use one.
             </p>
             {rows.length === 0 && <p className="subtle">No providers yet.</p>}
             <ul className="backend-cards">
@@ -241,7 +240,7 @@ function ServerSettings() {
                       ) : row.api ? (
                         <>
                           {machineOf(row) ? <>On <Link to={pageOf(row)}>{machineOf(row)}</Link>. </> : null}
-                          {TYPE_HINTS.api} Change it on <Link to="?tab=apis">API providers</Link>.
+                          {TYPE_HINTS.api} Change it on its organization's API providers, under <Link to="/organization?orgTab=providers">Organizations</Link>.
                         </>
                       ) : row.local ? (
                         machineOf(row) ? (
@@ -300,9 +299,6 @@ function ServerSettings() {
             </div>
           </section>
         )}
-      </TabPanel>
-      <TabPanel idPrefix="settings-" id="apis" active={tab === "apis"} className="settings-panel">
-        <ApiProviderSettings />
       </TabPanel>
       <TabPanel idPrefix="settings-" id="agents" active={tab === "agents"} className="settings-panel">
         <AgentDefinitions />

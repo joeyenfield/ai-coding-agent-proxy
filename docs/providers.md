@@ -21,7 +21,7 @@ A **provider** (a backend, one of the server's stored settings) is where the ser
 
 You can't add a local provider by URL. The **Server settings** page, and `PUT /api/config` behind it, refuse a new local backend or one whose URL changed: they can only keep or remove them. That's because everything about a model server other than agents' traffic is done by its machine, so the server needs to know which machine runs it.
 
-**Hosted APIs are the exception.** Add an `anthropic` backend (`https://api.anthropic.com`) on **Server settings**, or a hosted [API provider](#api-providers-openai-and-anthropic-compatible) on **Server settings -> API providers**. They need no machine.
+**Hosted APIs are the exception.** Add an `anthropic` backend (`https://api.anthropic.com`) on **Server settings**, or a hosted [API provider](#api-providers-openai-and-anthropic-compatible) on an organization's **API providers** tab (**Organizations**). They need no machine.
 
 **Older backends.** Backends set up by URL before machines did this keep working. An admin links one to a machine with **Add as a provider** on that machine's model server tab. A matching address and type reuse the existing backend's name and settings. Once linked, a backend follows its machine's address changes, on the same port.
 
@@ -81,13 +81,23 @@ The server passes requests through as they are, streaming (SSE), tool calls, rea
 There are two kinds:
 
 - **Machine-hosted**: an OpenAI-compatible server on a fleet machine, such as LM Studio, vLLM or SGLang. agent-machine finds it on its loopback and reports it, and an admin adds it from the machine's page, as for other model servers. Agents' requests reach it through the machine's tunnel, and it belongs to the machine's organization like any model server. See [Model servers on a machine](#openai-compatible-servers-on-a-machine).
-- **Hosted APIs and gateways**: OpenAI, Anthropic, OpenRouter, LiteLLM Proxy, Groq and the like. A site admin adds them by URL on **Server settings -> API providers**, and the server reaches them directly. See [Hosted APIs and gateways](#hosted-apis-and-gateways).
+- **Hosted APIs and gateways**: OpenAI, Anthropic, OpenRouter, LiteLLM Proxy, Groq and the like. An organization's admin adds them by URL on its **API providers** tab, and the server reaches them directly. See [Hosted APIs and gateways](#hosted-apis-and-gateways).
 
 An `api` backend is not the `anthropic` backend type. `anthropic` passes Claude Code's own credentials through (a claude.ai login or the person's own key). An `api` backend uses a key the server holds, the same for everyone who may use it.
 
+### Who manages them, and who may use them
+
+Every API provider belongs to one organization. A hosted one belongs to the organization it was added in; one on a machine belongs to its machine's organization. That organization's admins add, change, test and remove it on **Organizations -> API providers** (or `/api/orgs/<org>/providers`). Site admins can do this in every organization.
+
+- **Teams**: choose which of the organization's teams may use a provider. With none chosen, everyone in the organization may. The organization's admins may always use it, so they can test it. Other organizations never see it: to them, naming it (`--backend`, `X-AI-Proxy-Backend`) answers as an unknown backend, and its name is only "taken".
+- **Sharing**: only a site admin can share a hosted provider with other organizations as a whole (`orgs`), such as a gateway the site pays for. Everyone in those organizations may then use it, with its key.
+- Providers added before this belonged to the site itself (the root organization). They keep their `orgs`, so nothing changes for the organizations they were shared with.
+- Deleting an organization deletes its hosted providers and their stored keys.
+- Provider names are unique on the server, across organizations.
+
 ### Settings
 
-![API providers on Server settings](screenshots/api-providers.png)
+![An organization's API providers](screenshots/api-providers.png)
 
 Each provider has these settings. Only the key is secret, and it is never shown, exported or logged.
 
@@ -108,9 +118,11 @@ Each provider has these settings. Only the key is secret, and it is never shown,
 | `priority` | Higher is preferred when the server picks among machine-hosted providers. |
 | `fallback` | Other API providers to try when this one can't be reached. See [Fallback](#fallback). |
 | `enabled` | Off: agents can't use it, and its sessions' requests are refused. |
-| `orgs` | The organizations whose agents may use a hosted provider. Empty: the site's own only. `["*"]`: every organization. A machine-hosted one is its machine's organization's. |
+| `teams` | The teams of its organization (`<org>/<team>`) whose people may use it. Empty: everyone in the organization. |
+| `orgs` | Other organizations it's shared with whole, or `["*"]` for every one. Only site admins set it. Empty: only its own organization. |
+| `org` | The organization a hosted provider belongs to (`null` for the site's own). Set by where it's added; it can't be moved. A machine-hosted one is its machine's organization's. |
 
-**Test connection** on the console (`POST /api/config/providers/{name}/test`) asks the provider for its models with its key. It shows the status, the time it took and the models it lists, and you can add those to `models`. When a provider has no `/models`, add its models by hand.
+**Test connection** on the console (`POST /api/orgs/{org}/providers/{name}/test`) asks the provider for its models with its key. It shows the status, the time it took and the models it lists, and you can add those to `models`. When a provider has no `/models`, add its models by hand.
 
 ### Hosted APIs and gateways
 
@@ -125,7 +137,7 @@ A model server on your own network belongs on a machine instead: run agent-machi
 
 ### OpenAI-compatible servers on a machine
 
-agent-machine looks for OpenAI-compatible servers on its loopback: LM Studio on port 1234, vLLM on 8000 and SGLang on 30000, and any ports listed in `AI_PROXY_API_PORTS` on the machine (comma-separated). A port counts only when `GET /v1/models` answers with a model list. The machine's page shows each one as **API** with its kind, and **Add as a provider** adds it with Chat Completions only and no key (`auth: none`). Turn on Responses or Messages on **Server settings -> API providers** if your version of the server has them. Its models are managed in that server itself (LM Studio's app, vLLM's command line): the console lists them but has no pull, delete, load or unload for them.
+agent-machine looks for OpenAI-compatible servers on its loopback: LM Studio on port 1234, vLLM on 8000 and SGLang on 30000, and any ports listed in `AI_PROXY_API_PORTS` on the machine (comma-separated). A port counts only when `GET /v1/models` answers with a model list. The machine's page shows each one as **API** with its kind, and **Add as a provider** adds it with Chat Completions only and no key (`auth: none`). Turn on Responses or Messages on its organization's **API providers** tab if your version of the server has them. Its models are managed in that server itself (LM Studio's app, vLLM's command line): the console lists them but has no pull, delete, load or unload for them.
 
 ### Fallback
 
@@ -146,12 +158,12 @@ Each server process also keeps what it last saw of each provider (status, time, 
 
 ### Examples
 
-These are set on **Server settings -> API providers** (or `PUT /api/config/providers/<name>`, as below). The console has presets for each.
+These are set on an organization's **API providers** tab (or `PUT /api/orgs/<org>/providers/<name>`, as below, here for the organization `acme`). The console has presets for each.
 
 A generic OpenAI-compatible server (on a machine, add it from the machine's page instead):
 
 ```json
-PUT /api/config/providers/inference
+PUT /api/orgs/acme/providers/inference
 {"url": "https://inference.example.com/v1", "protocols": ["openai-chat"], "auth": "bearer",
  "key_env": "AI_PROXY_API_KEY_INFERENCE", "models": {"coder": "qwen3-coder-30b"}}
 ```
@@ -159,15 +171,15 @@ PUT /api/config/providers/inference
 OpenAI:
 
 ```json
-PUT /api/config/providers/openai
+PUT /api/orgs/acme/providers/openai
 {"url": "https://api.openai.com/v1", "protocols": ["openai-chat", "openai-responses"],
- "auth": "bearer", "key": "sk-...", "orgs": ["acme"]}
+ "auth": "bearer", "key": "sk-...", "teams": ["acme/core"]}
 ```
 
 Anthropic, with the server's key:
 
 ```json
-PUT /api/config/providers/claude-api
+PUT /api/orgs/acme/providers/claude-api
 {"url": "https://api.anthropic.com/v1", "anthropic_url": "https://api.anthropic.com",
  "protocols": ["anthropic"], "auth": "x-api-key", "key_env": "AI_PROXY_API_KEY_ANTHROPIC"}
 ```
@@ -175,7 +187,7 @@ PUT /api/config/providers/claude-api
 OpenRouter:
 
 ```json
-PUT /api/config/providers/openrouter
+PUT /api/orgs/acme/providers/openrouter
 {"url": "https://openrouter.ai/api/v1", "protocols": ["openai-chat"], "auth": "bearer",
  "key": "sk-or-...", "headers": {"X-Title": "AI Control Mesh"},
  "models": {"sonnet": "anthropic/claude-sonnet-4.5", "qwen-coder": "qwen/qwen3-coder"}}
@@ -184,7 +196,7 @@ PUT /api/config/providers/openrouter
 LiteLLM Proxy, in the same cluster as the server (the operator sets `AI_PROXY_API_PRIVATE_HOSTS=litellm.ai.svc.cluster.local`):
 
 ```json
-PUT /api/config/providers/litellm
+PUT /api/orgs/acme/providers/litellm
 {"url": "http://litellm.ai.svc.cluster.local:4000/v1", "anthropic_url": "http://litellm.ai.svc.cluster.local:4000",
  "category": "gateway", "protocols": ["openai-chat", "anthropic"], "auth": "bearer",
  "key_env": "AI_PROXY_API_KEY_LITELLM", "discover": true, "fallback": ["openrouter"]}

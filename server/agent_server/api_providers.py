@@ -35,6 +35,7 @@ import httpx
 from httpcore._backends.auto import AutoBackend
 from sqlalchemy import select
 
+from .auth import ROOT_TENANT
 from .db import Database, schema
 
 PROTOCOLS = ("openai-chat", "openai-responses", "anthropic")
@@ -53,6 +54,9 @@ HEADER_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,63}")
 MODEL_NAME = re.compile(r"[^\s\x00-\x1f]{1,200}")
 MAX_MODELS = 500
 MAX_HEADERS = 20
+ROOT_ORG = ROOT_TENANT
+ORG_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}")
+TEAM_KEY = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}")
 
 DEFAULT_OPTIONS: dict[str, Any] = {
     "category": "hosted",
@@ -69,6 +73,11 @@ DEFAULT_OPTIONS: dict[str, Any] = {
     "priority": 0,
     "fallback": [],
     "enabled": True,
+    # Who may use it. org: the organization that owns it (None is the site's own, the root); its admins
+    # manage it. teams: the owner's teams (<org>/<team>) whose people may use it; none listed is everyone
+    # there. orgs: other organizations it's shared with whole, "*" for every one (site admins set it).
+    "org": None,
+    "teams": [],
     "orgs": [],
 }
 
@@ -194,7 +203,32 @@ def validate(name: str, value: Any, current: Any | None) -> tuple[str, dict[str,
     if not isinstance(orgs, list) or any(not isinstance(item, str) or not re.fullmatch(r"\*|[A-Za-z0-9][A-Za-z0-9_.-]{0,99}", item) for item in orgs):
         raise ProviderError('orgs lists organizations, or ["*"] for every one')
     merged["orgs"] = sorted(set(orgs))
+    org = merged["org"]
+    if org is not None and (not isinstance(org, str) or not ORG_NAME.fullmatch(org)):
+        raise ProviderError("org is the id of the organization that owns it")
+    if org == ROOT_ORG:
+        merged["org"] = None
+    teams = merged["teams"]
+    if not isinstance(teams, list) or len(teams) > 100 or any(not isinstance(item, str) or not TEAM_KEY.fullmatch(item) for item in teams):
+        raise ProviderError("teams lists the owner's teams, as <organization>/<team>")
+    # A machine's provider is its machine's tenant's: the route checks its teams against that one.
+    owner = merged["org"] or ROOT_ORG
+    if not machine and any(item.split("/", 1)[0] != owner for item in teams):
+        raise ProviderError(f"teams are {owner}'s own teams, named {owner}/<team>")
+    merged["teams"] = sorted(set(teams))
     return url, merged
+
+
+def owner(backend: Any) -> str:
+    """The organization a hosted provider belongs to: the one its admins manage it in. (A machine's
+    provider is its machine's tenant's; fleet.Fleet.backend_tenant says which.)"""
+    return options(backend)["org"] or ROOT_ORG
+
+
+def for_teams(backend: Any, teams: tuple[str, ...] | list[str]) -> bool:
+    """Whether someone in these teams may use it: any team when it names none."""
+    named = options(backend)["teams"]
+    return not named or bool(set(named) & set(teams))
 
 
 def _models(value: Any) -> dict[str, str]:

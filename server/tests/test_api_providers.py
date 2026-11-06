@@ -17,6 +17,7 @@ import pytest
 from agent_server import api_providers, config_io
 from agent_server.api_providers import PrivateHosts, ProviderError, ProviderNetworkBackend, validate
 from agent_server.app import create_app
+from agent_server.auth import UserStore
 from agent_server.config import Backend, Settings, serves
 from agent_server.provider_accounts import Vault
 from oidc_helpers import authenticated_client as TestClient
@@ -347,6 +348,58 @@ def test_providers_are_only_for_the_organizations_they_name(tmp_path):
         assert "acme-only" not in listed and "site-only" not in listed
         # Managing them is a site admin's.
         assert alice.get("/api/config/providers").status_code == 403
+
+
+def test_an_organizations_admins_set_up_its_providers_for_its_teams(tmp_path):
+    settings = org_settings(tmp_path)
+    UserStore(settings.open_database()).add_user("gwen", "correct horse battery", role="admin", orgs=["globex"])
+    app = create_app(settings)
+    runtime = app.state.runtime
+    dave, alice, carol, frank, gwen, sally = (signed_in(app, user) for user in ("dave", "alice", "carol", "frank", "gwen", "sally"))
+    gateway = {"url": "https://litellm.example.com/v1", "protocols": ["openai-chat"], "auth": "agent", "teams": ["acme/core"]}
+    with dave, alice, carol, frank, gwen, sally:
+        # Only its admins (and site admins) manage them; to anyone else the organization isn't there.
+        assert alice.put("/api/orgs/acme/providers/acme-gw", json=gateway).status_code == 403
+        assert alice.get("/api/orgs/acme/providers").status_code == 404
+        assert gwen.get("/api/orgs/acme/providers").status_code == 404
+        assert dave.put("/api/orgs/acme/providers/acme-gw", json={**gateway, "teams": ["globex/core"]}).status_code == 400
+        assert dave.put("/api/orgs/acme/providers/acme-gw", json={**gateway, "teams": ["acme/nope"]}).status_code == 400
+        # An organization's admin can't share it with other organizations, nor give it to another.
+        saved = dave.put("/api/orgs/acme/providers/acme-gw", json={**gateway, "orgs": ["*"], "org": "globex"})
+        assert saved.status_code == 200, saved.text
+        assert saved.json()["org"] == "acme" and saved.json()["orgs"] == [] and saved.json()["tenant"] == "acme"
+        assert [item["name"] for item in dave.get("/api/orgs/acme/providers").json()["providers"]] == ["acme-gw"]
+        assert dave.get("/api/orgs/acme/providers").json()["share"] is False
+        assert gwen.get("/api/orgs/globex/providers").json()["providers"] == []
+        # Another organization's provider is a name that's taken, nothing more.
+        taken = gwen.put("/api/orgs/globex/providers/acme-gw", json=gateway)
+        assert taken.status_code == 409 and "api" not in taken.json()["detail"]
+        assert gwen.delete("/api/orgs/globex/providers/acme-gw").status_code == 404
+        assert gwen.post("/api/orgs/globex/providers/acme-gw/test").status_code == 404
+        # Its teams' people, its admins and site admins may use it; nobody else.
+        for client, expected in ((alice, 201), (dave, 201), (sally, 201), (carol, 400), (frank, 400), (gwen, 400)):
+            assert client.post("/api/sessions", json={"client": "t", "backend": "acme-gw"}).status_code == expected
+        def mine(client):
+            return {item["name"] for item in client.get("/api/providers").json()["providers"]}
+        assert "acme-gw" in mine(alice) and "acme-gw" not in mine(carol) and "acme-gw" not in mine(frank)
+        assert "backend:acme-gw" in {item["id"] for item in dave.get("/api/orgs/acme/usage").json()["providers"]}
+        # Everyone in it, once it names no team.
+        assert dave.put("/api/orgs/acme/providers/acme-gw", json={**gateway, "teams": []}).status_code == 200
+        assert carol.post("/api/sessions", json={"client": "t", "backend": "acme-gw"}).status_code == 201
+        # Fallbacks are the organization's own providers.
+        sally.put("/api/config/providers/site-gw", json={"url": "https://openrouter.ai/api/v1", "auth": "agent", "orgs": ["*"]})
+        assert dave.put("/api/orgs/acme/providers/acme-gw", json={**gateway, "fallback": ["site-gw"]}).status_code == 400
+        # Site admins see every organization's, and whose each is.
+        listed = {item["name"]: item for item in sally.get("/api/config/providers").json()["providers"]}
+        assert listed["acme-gw"]["tenant"] == "acme" and listed["site-gw"]["tenant"] == "root" and listed["site-gw"]["org"] is None
+        assert sally.get("/api/orgs/acme/providers").json()["share"] is True
+        # Removing an organization removes its providers: one made again with its name gets none of them.
+        assert sally.post("/api/orgs", json={"id": "temp"}).status_code == 201
+        assert sally.put("/api/orgs/temp/providers/temp-gw", json={**gateway, "teams": []}).status_code == 200
+        assert sally.delete("/api/orgs/temp").status_code == 200
+        assert "temp-gw" not in runtime.settings.backends
+        assert dave.delete("/api/orgs/acme/providers/acme-gw").json() == {"ok": True}
+        assert "acme-gw" not in runtime.settings.backends
 
 
 # Managing providers

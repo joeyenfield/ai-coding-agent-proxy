@@ -786,30 +786,40 @@ class Fleet:
     SHARED = "*"
 
     def backend_tenant(self, backend: Any) -> str | None:
-        """The tenant whose agents may use a backend: its machine's (nobody's once the machine is removed);
-        the root's for a model server from before machines; SHARED for a hosted API, which site admins
-        set up for everyone (agents bring their own credentials to it). A generic API provider carries the
-        server's key, so it's the organizations it names (api_tenants)."""
+        """The tenant a backend belongs to: its machine's (nobody's once the machine is removed); the root's
+        for a model server from before machines; SHARED for the anthropic pass-through, which site admins set
+        up for everyone (agents bring their own credentials to it). A hosted API provider carries a key, so
+        it's its owner's (api_providers.owner), shared further only with the organizations it names (api_tenants)."""
         if backend.machine:
             machine = self.machines.get(backend.machine)
             return machine.tenant if machine else None
+        if api_providers.external(backend):
+            return api_providers.owner(backend)
         return ROOT_TENANT if backend.type in MACHINE_TYPES else self.SHARED
 
-    @staticmethod
-    def api_tenants(backend: Any) -> set[str]:
-        """The organizations whose agents may use an external API provider: its orgs, "*" for every one,
-        and none listed for the site's own (the root tenant) only."""
-        orgs = set(api_providers.options(backend)["orgs"])
-        return orgs or {ROOT_TENANT}
+    def api_tenants(self, backend: Any) -> set[str]:
+        """The organizations whose agents may use an api backend: its owner's, and for a hosted one also
+        those its orgs names ("*" for every one)."""
+        tenant = self.backend_tenant(backend)
+        tenants = {tenant} if tenant else set()
+        if api_providers.external(backend):
+            tenants |= set(api_providers.options(backend)["orgs"])
+        return tenants
 
     def usable_by(self, identity: Identity | None) -> Any:
-        """A test of backends for identity's agents: their tenant's and the shared hosted ones. No identity, none."""
+        """A test of backends for identity's agents: their tenant's and the shared hosted ones; an api
+        backend only for the teams it names, in its own organization. No identity, none."""
         def usable(backend: Any) -> bool:
             if identity is None:
                 return False
-            if api_providers.external(backend):
+            if backend.type == "api":
+                if identity.site_admin:
+                    return True
                 tenants = self.api_tenants(backend)
-                return self.SHARED in tenants or identity.site_admin or identity.tenant in tenants
+                if identity.tenant == self.backend_tenant(backend):
+                    # Its own organization's admins always may: they manage it, and test what agents get.
+                    return identity.admin or api_providers.for_teams(backend, identity.teams)
+                return self.SHARED in tenants or identity.tenant in tenants
             tenant = self.backend_tenant(backend)
             return tenant == self.SHARED or same_tenant(identity, tenant)
         return usable

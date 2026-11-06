@@ -16,6 +16,7 @@ import {
   type ApiProviderTest,
   type ApiProvidersResponse,
   type MachineProvider,
+  type Org,
 } from "../api";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Icon } from "../components/Icon";
@@ -24,10 +25,10 @@ import { formatRelative } from "../format";
 import { useAuth, useMachines, useModels } from "../hooks";
 
 /**
- * OpenAI- and Anthropic-compatible APIs (backend type "api"): the Server settings tab where site
- * admins add, change, test and remove them, and the read-only view of one a machine runs (LM
- * Studio, vLLM, SGLang). The server keeps every option and the keys; the browser only ever sends
- * a new key and never gets one back.
+ * OpenAI- and Anthropic-compatible APIs (backend type "api"): an organization's API providers tab,
+ * where its admins (and site admins) add, change, test and remove them and choose the teams that may
+ * use each, and the read-only view of one a machine runs (LM Studio, vLLM, SGLang). The server keeps
+ * every option and the keys; the browser only ever sends a new key and never gets one back.
  */
 
 export const CATEGORY_LABELS: Record<ApiCategory, { title: string; summary: string }> = {
@@ -72,6 +73,8 @@ function fieldsOf(provider: ApiProvider): ApiProviderFields {
     priority: provider.priority,
     fallback: provider.fallback,
     enabled: provider.enabled,
+    org: provider.org,
+    teams: provider.teams,
     orgs: provider.orgs,
   };
 }
@@ -92,6 +95,8 @@ const BLANK: ApiProviderFields = {
   priority: 0,
   fallback: [],
   enabled: true,
+  org: null,
+  teams: [],
   orgs: [],
 };
 
@@ -132,12 +137,21 @@ function keyText(provider: ApiProvider): string {
   return "No key set";
 }
 
-/** The Server settings tab for API providers (site admins; it hides itself from anyone the server refuses). */
-export function ApiProviderSettings() {
-  const query = useQuery({ queryKey: ["api-providers"], queryFn: api.apiProviders });
+/** Who may use a provider, in words. */
+function audience(provider: ApiProvider, org: Org): string {
+  const teams = provider.teams.map((key) => org.teams.find((team) => team.key === key)?.name ?? key);
+  const own = teams.length ? `People in ${teams.join(", ")}, and ${org.name}'s admins` : `Everyone in ${org.name}`;
+  if (provider.orgs.includes("*")) return `${own}; also every other organization`;
+  const others = provider.orgs.filter((item) => item !== org.id);
+  return others.length ? `${own}; also ${others.join(", ")}` : own;
+}
+
+/** An organization's API providers tab (its admins and site admins; it hides itself from anyone the server refuses). */
+export function ApiProviderSettings({ org }: { org: Org }) {
+  const query = useQuery({ queryKey: ["api-providers", org.id], queryFn: () => api.apiProviders(org.id) });
   const [adding, setAdding] = useState<{ name: string; fields: ApiProviderFields; preset: ApiPreset | null } | null>(null);
   const [open, setOpen] = useState<string | null>(null);
-  if (forbidden(query.error)) return null;
+  if (forbidden(query.error) || (query.error instanceof ApiError && query.error.status === 404)) return null;
   const data = query.data;
   const providers = data?.providers ?? [];
   const names = providers.map((item) => item.name);
@@ -147,8 +161,9 @@ export function ApiProviderSettings() {
         <h2 id="api-providers-heading">API providers</h2>
       </div>
       <p className="subtle">
-        OpenAI- and Anthropic-compatible APIs agents can use: hosted ones, gateways, and servers on your machines. Agents name a model by its
-        alias here, and the server sends the provider's own model id. Keys stay on the server and are never shown again.
+        OpenAI- and Anthropic-compatible APIs {org.name}'s agents can use: hosted ones, gateways such as OpenRouter or a LiteLLM Proxy, and servers on
+        its machines. Choose which teams may use each. Agents name a model by its alias here, and the server sends the provider's own model id. Keys
+        stay on the server and are never shown again.
       </p>
       {query.isError && <p className="bad">{query.error.message}</p>}
       {query.isPending && <p className="subtle">Loading…</p>}
@@ -180,6 +195,7 @@ export function ApiProviderSettings() {
             initialName={adding.name}
             initial={adding.fields}
             data={data}
+            org={org}
             onDone={(saved) => {
               setAdding(null);
               if (saved) setOpen(saved);
@@ -187,7 +203,7 @@ export function ApiProviderSettings() {
           />
         </div>
       )}
-      {data && providers.length === 0 && !adding && <p className="empty panel">No API providers yet. Add one from a preset, or start from a blank one.</p>}
+      {data && providers.length === 0 && !adding && <p className="empty panel">{org.name} has no API providers yet. Add one from a preset, or start from a blank one.</p>}
       {data &&
         CATEGORY_ORDER.map((category) => {
           const items = providers.filter((item) => item.category === category);
@@ -204,6 +220,7 @@ export function ApiProviderSettings() {
                     key={provider.name}
                     provider={provider}
                     data={data}
+                    org={org}
                     open={open === provider.name}
                     onToggle={() => setOpen(open === provider.name ? null : provider.name)}
                   />
@@ -257,7 +274,7 @@ function AddProvider({
   );
 }
 
-function ProviderCard({ provider, data, open, onToggle }: { provider: ApiProvider; data: ApiProvidersResponse; open: boolean; onToggle: () => void }) {
+function ProviderCard({ provider, data, org, open, onToggle }: { provider: ApiProvider; data: ApiProvidersResponse; org: Org; open: boolean; onToggle: () => void }) {
   const client = useQueryClient();
   const machines = useMachines();
   const [removing, setRemoving] = useState(false);
@@ -265,25 +282,25 @@ function ProviderCard({ provider, data, open, onToggle }: { provider: ApiProvide
   const [testError, setTestError] = useState<string | null>(null);
   const refresh = () => client.invalidateQueries();
   const toggle = useMutation({
-    mutationFn: () => api.saveApiProvider(provider.name, { ...fieldsOf(provider), enabled: !provider.enabled }),
+    mutationFn: () => api.saveApiProvider(org.id, provider.name, { ...fieldsOf(provider), enabled: !provider.enabled }),
     onSuccess: refresh,
   });
   const remove = useMutation({
-    mutationFn: () => api.deleteApiProvider(provider.name),
+    mutationFn: () => api.deleteApiProvider(org.id, provider.name),
     onSuccess: () => {
       setRemoving(false);
       refresh();
     },
   });
   const check = useMutation({
-    mutationFn: () => api.testApiProvider(provider.name),
+    mutationFn: () => api.testApiProvider(org.id, provider.name),
     onMutate: () => {
       setTest(null);
       setTestError(null);
     },
     onSuccess: (result) => {
       setTest(result);
-      client.invalidateQueries({ queryKey: ["api-providers"] });
+      client.invalidateQueries({ queryKey: ["api-providers", org.id] });
     },
     onError: (error: Error) => setTestError(error.message),
   });
@@ -339,11 +356,13 @@ function ProviderCard({ provider, data, open, onToggle }: { provider: ApiProvide
           {provider.priority}
           {provider.fallback.length > 0 && <> · then {provider.fallback.join(", ")} when it can't be reached</>}
         </dd>
+        <dt>Who</dt>
+        <dd>{audience(provider, org)}</dd>
         <dt>Health</dt>
         <dd className={health.tone === "bad" ? "bad" : undefined}>{health.text}</dd>
       </dl>
       {testError && <p className="bad" role="status">{testError}</p>}
-      {test && <TestResult provider={provider} result={test} />}
+      {test && <TestResult provider={provider} org={org} result={test} />}
       {open && (
         <ProviderEditor
           key={provider.name}
@@ -351,6 +370,7 @@ function ProviderCard({ provider, data, open, onToggle }: { provider: ApiProvide
           initialName={provider.name}
           initial={fieldsOf(provider)}
           data={data}
+          org={org}
           onDone={() => onToggle()}
         />
       )}
@@ -386,13 +406,13 @@ function ProviderCard({ provider, data, open, onToggle }: { provider: ApiProvide
 }
 
 /** What a connection test found, with the models it lists that aren't named yet. */
-function TestResult({ provider, result }: { provider: ApiProvider; result: ApiProviderTest }) {
+function TestResult({ provider, org, result }: { provider: ApiProvider; org: Org; result: ApiProviderTest }) {
   const client = useQueryClient();
   const fresh = (result.models ?? []).filter((id) => !(id in provider.models) && !Object.values(provider.models).includes(id));
   const [chosen, setChosen] = useState<string[]>([]);
   const add = useMutation({
     mutationFn: () =>
-      api.saveApiProvider(provider.name, {
+      api.saveApiProvider(org.id, provider.name, {
         ...fieldsOf(provider),
         models: { ...provider.models, ...Object.fromEntries(chosen.map((id) => [id, id])) },
       }),
@@ -494,12 +514,14 @@ function ProviderEditor({
   initialName,
   initial,
   data,
+  org,
   onDone,
 }: {
   provider?: ApiProvider;
   initialName: string;
   initial: ApiProviderFields;
   data: ApiProvidersResponse;
+  org: Org;
   onDone: (saved: string | null) => void;
 }) {
   const client = useQueryClient();
@@ -519,7 +541,7 @@ function ProviderEditor({
   const authModes = data.auth_modes.length ? data.auth_modes : (Object.keys(AUTH_LABELS) as ApiAuthMode[]);
 
   const save = useMutation({
-    mutationFn: (body: ApiProviderSave) => api.saveApiProvider(name.trim(), body),
+    mutationFn: (body: ApiProviderSave) => api.saveApiProvider(org.id, name.trim(), body),
     onSuccess: (saved) => {
       client.invalidateQueries();
       onDone(saved.name);
@@ -541,7 +563,8 @@ function ProviderEditor({
       key_env: keyEnv,
       models: recordOf(models),
       headers: recordOf(headers),
-      orgs: everyOrg ? ["*"] : orgsText.split(",").map((org) => org.trim()).filter(Boolean),
+      teams: fields.teams.filter((key) => org.teams.some((team) => team.key === key)),
+      orgs: everyOrg ? ["*"] : orgsText.split(",").map((item) => item.trim()).filter(Boolean),
       fallback: fields.fallback.filter((item) => others.some((other) => other.name === item)),
     };
     if (key.trim()) body.key = key.trim();
@@ -677,16 +700,38 @@ function ProviderEditor({
           <small>Higher is preferred when the server picks a provider by itself.</small>
         </label>
         <fieldset className="field">
-          <legend>Organizations</legend>
-          <label className="check">
-            <input type="checkbox" checked={everyOrg} onChange={(event) => setEveryOrg(event.target.checked)} />
-            Every organization
-          </label>
-          {!everyOrg && (
-            <input value={orgsText} onChange={(event) => setOrgsText(event.target.value)} placeholder="Only the site's own" aria-label="Organization ids" autoCapitalize="none" />
+          <legend>Teams that may use it</legend>
+          {org.teams.length ? (
+            <span className="row wrap">
+              {org.teams.map((team) => (
+                <label key={team.key} className="check">
+                  <input
+                    type="checkbox"
+                    checked={fields.teams.includes(team.key)}
+                    onChange={() => set({ teams: fields.teams.includes(team.key) ? fields.teams.filter((item) => item !== team.key) : [...fields.teams, team.key] })}
+                  />
+                  {team.name}
+                </label>
+              ))}
+            </span>
+          ) : (
+            <span className="subtle">{org.root ? "Site admins can always use it." : `${org.name} has no teams yet.`}</span>
           )}
-          <small>{everyOrg ? "Agents in any organization can use it." : "Ids, separated by commas. Empty: only the site's own organization."}</small>
+          <small>{fields.teams.length ? `Only people in these teams, and ${org.name}'s admins.` : `None chosen: everyone in ${org.name}.`}</small>
         </fieldset>
+        {data.share && (
+          <fieldset className="field">
+            <legend>Also share with</legend>
+            <label className="check">
+              <input type="checkbox" checked={everyOrg} onChange={(event) => setEveryOrg(event.target.checked)} />
+              Every organization
+            </label>
+            {!everyOrg && (
+              <input value={orgsText} onChange={(event) => setOrgsText(event.target.value)} placeholder="No other organization" aria-label="Organization ids" autoCapitalize="none" />
+            )}
+            <small>{everyOrg ? "Everyone in any organization can use it, with this key." : "Other organizations' ids, separated by commas. Everyone in them can use it, with this key."}</small>
+          </fieldset>
+        )}
         <fieldset className="field span-2">
           <legend>When it can't be reached, try</legend>
           {others.length ? (
@@ -705,7 +750,7 @@ function ProviderEditor({
               ))}
             </span>
           ) : (
-            <span className="subtle">No other API providers yet.</span>
+            <span className="subtle">{org.name} has no other API providers yet.</span>
           )}
           <small>In the order chosen{fields.fallback.length ? `: ${fields.fallback.join(", ")}` : ""}. Only when it can't be reached at all, not when it answers with an error.</small>
         </fieldset>
@@ -751,10 +796,15 @@ export function ApiServerProvider({ provider }: { provider: MachineProvider }) {
       </div>
       <p className="subtle">
         Its models are managed in {flavor === "This server" ? "the server" : flavor} itself: load or download them there, and they show up here.
-        {identity?.site_admin && (
+        {identity?.role === "admin" && (
           <>
-            {" "}Names agents use for them, its priority and fallbacks are in{" "}
-            <Link to="/settings?tab=apis">Server settings, API providers</Link>.
+            {" "}Names agents use for them, who may use it, its priority and fallbacks are in{" "}
+            {identity.site_admin ? (
+              <>its organization's <Link to="/organization">API providers</Link></>
+            ) : (
+              <Link to={`/organization?org=${encodeURIComponent(identity.tenant)}&orgTab=providers`}>your organization's API providers</Link>
+            )}
+            .
           </>
         )}
       </p>

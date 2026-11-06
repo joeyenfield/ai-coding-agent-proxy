@@ -1037,7 +1037,7 @@ export interface ApiProviderHealth {
   error: string | null;
 }
 
-/** What a site admin edits of an API provider (PUT /api/config/providers/{name}). */
+/** What an organization's admins edit of an API provider (PUT /api/orgs/{org}/providers/{name}). */
 export interface ApiProviderFields {
   url: string;
   /** Where its Anthropic Messages API is, when that isn't at url. */
@@ -1063,7 +1063,11 @@ export interface ApiProviderFields {
   /** Other API providers to try when this one can't be reached. */
   fallback: string[];
   enabled: boolean;
-  /** Organizations whose agents may use it: ["*"] every one, [] the site's own only. */
+  /** The organization that owns a hosted one, null for the site's own (a machine's is its machine's). */
+  org: string | null;
+  /** Its organization's teams (<org>/<team>) whose people may use it; [] is everyone there. */
+  teams: string[];
+  /** Other organizations it's shared with whole, ["*"] every one; only site admins set it. */
   orgs: string[];
 }
 
@@ -1078,6 +1082,8 @@ export interface ApiProvider extends ApiProviderFields {
   health: ApiProviderHealth | null;
   /** It's the server's default backend. */
   default: boolean;
+  /** The organization it belongs to: its owner's, or its machine's (null once the machine is gone). */
+  tenant: string | null;
 }
 
 /** A starting point for adding a well-known API. */
@@ -1101,6 +1107,8 @@ export interface ApiProvidersResponse {
   presets: ApiPreset[];
   protocols: ApiProtocol[];
   auth_modes: ApiAuthMode[];
+  /** Whether you may share providers with other organizations (site admins). */
+  share: boolean;
 }
 
 /** The body of a save: the fields, and a new key (write-only) or clear_key to remove the stored one. */
@@ -1109,7 +1117,7 @@ export interface ApiProviderSave extends ApiProviderFields {
   clear_key?: boolean;
 }
 
-/** POST /api/config/providers/{name}/test: whether it answered, and the models it lists. */
+/** POST /api/orgs/{org}/providers/{name}/test: whether it answered, and the models it lists. */
 export interface ApiProviderTest {
   ok: boolean;
   status: number | null;
@@ -2278,11 +2286,13 @@ export const api = {
   saveModelTuning: (yaml: string) =>
     request<ModelTuning>("/api/config/models", { method: "PUT", body: yaml, headers: { "content-type": "application/yaml" } }),
   // OpenAI- and Anthropic-compatible APIs (site admins). Keys go in write-only and never come back.
-  apiProviders: () => request<ApiProvidersResponse>("/api/config/providers"),
-  saveApiProvider: (name: string, body: ApiProviderSave) =>
-    request<ApiProvider>(`/api/config/providers/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify(body) }),
-  deleteApiProvider: (name: string) => request<{ ok: boolean }>(`/api/config/providers/${encodeURIComponent(name)}`, { method: "DELETE" }),
-  testApiProvider: (name: string) => request<ApiProviderTest>(`/api/config/providers/${encodeURIComponent(name)}/test`, { method: "POST" }),
+  apiProviders: (org: string) => request<ApiProvidersResponse>(`/api/orgs/${encodeURIComponent(org)}/providers`),
+  saveApiProvider: (org: string, name: string, body: ApiProviderSave) =>
+    request<ApiProvider>(`/api/orgs/${encodeURIComponent(org)}/providers/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify(body) }),
+  deleteApiProvider: (org: string, name: string) =>
+    request<{ ok: boolean }>(`/api/orgs/${encodeURIComponent(org)}/providers/${encodeURIComponent(name)}`, { method: "DELETE" }),
+  testApiProvider: (org: string, name: string) =>
+    request<ApiProviderTest>(`/api/orgs/${encodeURIComponent(org)}/providers/${encodeURIComponent(name)}/test`, { method: "POST" }),
   storage: () => request<StorageInfo>("/api/config/storage"),
   saveRetention: (days: number | null) =>
     request<StorageInfo>("/api/config/storage", { method: "PUT", body: JSON.stringify({ retention_days: days }) }),

@@ -84,7 +84,7 @@ A computer can be all three. How an agent's request reaches a model depends on t
 | Tune Ollama per model | `agent-server config import` | Server settings › Ollama model tuning, a model server's Aliases tab | [Providers](providers.md#model-tuning) |
 | Add or change an agent | `PUT /api/config/agents/<id>` | Server settings › Agents | [Agents](agents.md#adding-a-new-agent) |
 | Hosted API pass-through | `agent claude-subscription` | Server settings › Add hosted API | [Providers](providers.md#backend-types) |
-| OpenAI or Anthropic-compatible APIs and gateways (OpenAI, OpenRouter, LiteLLM, ...) | `--backend <name>` | Server settings › API providers | [Providers](providers.md#api-providers-openai-and-anthropic-compatible) |
+| OpenAI or Anthropic-compatible APIs and gateways (OpenAI, OpenRouter, LiteLLM, ...) | `--backend <name>` | Organizations › API providers | [Providers](providers.md#api-providers-openai-and-anthropic-compatible) |
 | LM Studio, vLLM or SGLang on a machine | `AI_PROXY_API_PORTS` on the machine | Add as a provider | [Providers](providers.md#openai-compatible-servers-on-a-machine) |
 | Watch model calls live | | Live | [Console](console.md#live) |
 | Account-agent traffic to public destinations | | Traffic | [Console](console.md#traffic) |

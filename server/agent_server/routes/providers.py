@@ -30,17 +30,20 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             raise HTTPException(status_code=401, detail="Sign in first.")
         return identity
 
-    def providers_for(tenant: str) -> list[dict[str, Any]]:
-        """Every provider this organization's people can use: its machines' backends, hosted APIs, and the subscriptions."""
+    def providers_for(tenant: str, usable: Any = None) -> list[dict[str, Any]]:
+        """Every provider this organization's people can use: its machines' backends, hosted APIs, and the
+        subscriptions; with usable (fleet.usable_by), only those one person may (an api provider can be for some teams)."""
         found = []
         for backend in runtime.settings.backends.values():
             owner = fleet.backend_tenant(backend)
-            if api_providers.external(backend):
-                # It carries the server's key: only the organizations it names.
+            if backend.type == "api":
+                # It carries a key: its own organization's, and those it's shared with.
                 tenants = fleet.api_tenants(backend)
                 if fleet.SHARED not in tenants and tenant not in tenants:
                     continue
             elif owner != fleet.SHARED and owner != tenant:
+                continue
+            if usable is not None and not usable(backend):
                 continue
             machine = fleet.machines.get(backend.machine) if backend.machine else None
             found.append({
@@ -67,7 +70,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         mine = usage.windows(identity.tenant, identity.user)
         accounts = [account for account in runtime.provider_accounts.listed(identity) if account.owner == identity.user or runtime.provider_accounts.may_use(identity, account)]
         listed = []
-        for provider in providers_for(identity.tenant):
+        for provider in providers_for(identity.tenant, fleet.usable_by(identity)):
             limits = usage.status(identity.tenant, identity.user, provider["id"])
             reached = [item for item in limits if item["reached"]]
             extra: dict[str, Any] = {}

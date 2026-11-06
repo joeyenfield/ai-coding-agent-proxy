@@ -6,6 +6,7 @@ import { CodeLine } from "../components/CodeLine";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { PartTag } from "../components/PartTag";
 import { TabBar, TabPanel, useTabParam } from "../components/Tabs";
+import { ApiProviderSettings } from "./ApiProviders";
 import { OrgDataTab } from "./OrgData";
 import { OrgUsageTab } from "./OrgUsage";
 import { useAuth, useClipboard, useStatus, useToast } from "../hooks";
@@ -230,14 +231,14 @@ function Organizations({ orgs, users, identity }: { orgs: Org[]; users: User[]; 
   );
 }
 
-type OrgTab = "teams" | "members" | "usage" | "data" | "settings";
+type OrgTab = "teams" | "members" | "providers" | "usage" | "data" | "settings";
 
 function OrgDetail({ org, users, identity, onDelete }: { org: Org; users: User[]; identity: Identity; onDelete: () => void }) {
   const manager = manages(identity, org.id);
   const [name, setName] = useState(org.name);
   const [team, setTeam] = useState({ id: "", name: "" });
   // Root holds only site admins: no teams.
-  const tabs: OrgTab[] = [...(org.root ? [] : ["teams" as const]), "members", "usage", ...(manager ? ["data" as const] : []), "settings"];
+  const tabs: OrgTab[] = [...(org.root ? [] : ["teams" as const]), "members", ...(manager ? ["providers" as const] : []), "usage", ...(manager ? ["data" as const] : []), "settings"];
   const [tab, setTab] = useTabParam(tabs, "orgTab");
   const [params, setParams] = useSearchParams();
   const selected = org.teams.find((item) => item.id === params.get("team"));
@@ -267,7 +268,7 @@ function OrgDetail({ org, users, identity, onDelete }: { org: Org; users: User[]
         </p>
       </header>
       <TabBar label={`${org.name} sections`} idPrefix="org-" active={tab} onSelect={setTab}
-        tabs={[...(org.root ? [] : [{ id: "teams" as const, label: "Teams" }]), { id: "members" as const, label: org.root ? "Site admins" : "People" }, { id: "usage" as const, label: "Usage" }, ...(manager ? [{ id: "data" as const, label: "Data" }] : []), { id: "settings" as const, label: "Settings" }]} />
+        tabs={[...(org.root ? [] : [{ id: "teams" as const, label: "Teams" }]), { id: "members" as const, label: org.root ? "Site admins" : "People" }, ...(manager ? [{ id: "providers" as const, label: "API providers" }] : []), { id: "usage" as const, label: "Usage" }, ...(manager ? [{ id: "data" as const, label: "Data" }] : []), { id: "settings" as const, label: "Settings" }]} />
       {!org.root && (
         <TabPanel idPrefix="org-" id="teams" active={tab === "teams"}>
           {selected ? (
@@ -312,6 +313,11 @@ function OrgDetail({ org, users, identity, onDelete }: { org: Org; users: User[]
         <UserTable users={people} orgs={[org]} identity={identity} showOrg={false} />
         {manager && <CreateUser key={org.id} orgs={[org]} fixed={org.id} />}
       </TabPanel>
+      {manager && (
+        <TabPanel idPrefix="org-" id="providers" active={tab === "providers"}>
+          <ApiProviderSettings org={org} />
+        </TabPanel>
+      )}
       <TabPanel idPrefix="org-" id="usage" active={tab === "usage"}>
         <OrgUsageTab org={org.id} />
       </TabPanel>
