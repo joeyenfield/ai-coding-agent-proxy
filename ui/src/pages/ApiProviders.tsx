@@ -249,7 +249,7 @@ function AddProvider({
   const preset = presets.find((item) => item.id === choice) ?? null;
   return (
     <form
-      className="row wrap"
+      className="row wrap api-add"
       onSubmit={(event) => {
         event.preventDefault();
         onPick(freeName(preset?.id ?? "api", taken), preset ? fromPreset(preset) : BLANK, preset);

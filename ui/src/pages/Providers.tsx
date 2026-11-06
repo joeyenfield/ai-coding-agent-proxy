@@ -9,7 +9,7 @@ import { useAuth } from "../hooks";
 
 const GROUPS: { kind: ProviderWithUsage["kind"]; title: string; summary: string }[] = [
   { kind: "local", title: "On machines", summary: "Model servers the fleet's machines run: Ollama, llama.cpp, Strata, Docker Model Runner and containers." },
-  { kind: "hosted", title: "Hosted APIs", summary: "Pay-as-you-go APIs the server passes agents' calls to, with the agent's own key." },
+  { kind: "hosted", title: "Hosted APIs", summary: "Pay-as-you-go APIs and gateways, such as OpenRouter or a LiteLLM Proxy, that the server passes agents' calls to: with your organization's key, or the agent's own." },
   { kind: "subscription", title: "Subscriptions", summary: "Account agents signed in to a Claude, ChatGPT (Codex) or Copilot plan. Calls to the provider's own hosts count here, whichever plan carried them." },
 ];
 
@@ -66,7 +66,10 @@ export function ProvidersPage() {
   const data = providers.data;
   const windows = data?.windows ?? [];
   const blocked = data?.providers.filter((item) => item.blocked) ?? [];
-  const usageLink = identity ? `/organization?org=${encodeURIComponent(identity.tenant)}&orgTab=usage` : "/organization";
+  const orgLink = identity ? `/organization?org=${encodeURIComponent(identity.tenant)}` : "/organization";
+  const usageLink = identity ? `${orgLink}&orgTab=usage` : orgLink;
+  // Its admins (and site admins) set up the organization's API providers: OpenRouter, a LiteLLM Proxy, ...
+  const providersLink = identity ? `${orgLink}&orgTab=providers` : orgLink;
   return (
     <div className="page">
       <header className="page-head">
@@ -82,6 +85,7 @@ export function ProvidersPage() {
           {windows.map((item) => <option key={item.id} value={item.id}>{capitalize(item.label)}</option>)}
         </select>
         <Link to={usageLink}>{identity?.role === "admin" ? "Everyone's usage and limits" : "Your organization's usage"}</Link>
+        <Link to={orgLink}>Your organization</Link>
       </div>
       {providers.isError && <p className="bad">Couldn't load the providers: {String(providers.error)}</p>}
       {blocked.length > 0 && (
@@ -92,15 +96,27 @@ export function ProvidersPage() {
       )}
       {GROUPS.map((group) => {
         const items = data?.providers.filter((item) => item.kind === group.kind) ?? [];
-        if (!items.length && group.kind !== "local") return null;
+        // Admins see Hosted APIs even when there are none: it's where they set them up.
+        const manage = group.kind === "hosted" && identity?.role === "admin";
+        if (!items.length && group.kind !== "local" && !manage) return null;
         return (
           <section className="stack" key={group.kind}>
             <h2>{group.title}</h2>
-            <p className="subtle">{group.summary}</p>
+            <p className="subtle">
+              {group.summary}
+              {manage && (
+                <>
+                  {" "}Add and change your organization's, and choose the teams that may use each, on its{" "}
+                  <Link to={providersLink}>API providers</Link> page.
+                </>
+              )}
+            </p>
             {items.length ? (
               <div className="provider-usage-grid">
                 {items.map((item) => <ProviderCard key={item.id} provider={item} window={window} windows={windows} />)}
               </div>
+            ) : data && group.kind === "hosted" ? (
+              <p className="subtle">No hosted APIs yet.</p>
             ) : data ? (
               <p className="subtle">
                 No model servers on your organization's machines yet. <Link to="/machines">Machines</Link> run them; add one there with <strong>Add as a provider</strong>.

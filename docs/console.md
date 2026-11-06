@@ -141,7 +141,7 @@ The **Fullscreen** button at the top right of each tile opens the existing full 
 
 ### Providers and subscriptions
 
-**Providers** (`/providers`) lists everywhere your agents' calls can go: model servers on machines (with the machine and whether it's connected), hosted APIs, and the kinds of subscription (with how many of yours the server has). Each card shows your calls and tokens in the window you choose, every limit your organization put on you there with how much of it you've used, and **Blocked** until when, once you've reached one. A banner above them names the providers you're blocked on. See [Providers and usage limits](usage-limits.md).
+**Providers** (`/providers`) lists everywhere your agents' calls can go: model servers on machines (with the machine and whether it's connected), hosted APIs, and the kinds of subscription (with how many of yours the server has). Each card shows your calls and tokens in the window you choose, every limit your organization put on you there with how much of it you've used, and **Blocked** until when, once you've reached one. A banner above them names the providers you're blocked on. Links beside the window go to your organization's usage and to your organization's page; for its admins, **Hosted APIs** links to the organization's **API providers** tab, where they add them and choose the teams that may use each. See [Providers and usage limits](usage-limits.md).
 
 ![Subscriptions](screenshots/subscriptions.png)
 

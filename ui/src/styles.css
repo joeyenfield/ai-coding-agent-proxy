@@ -221,6 +221,8 @@ h3 { font-weight: 650; }
 .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
 .filters input[type="search"] { flex: 1 1 200px; width: auto; }
 .filters select { flex: 0 1 170px; width: auto; }
+/* Links side by side in a filter row (Providers) need more room than controls to read as separate. */
+.filters > a + a { margin-left: 12px; }
 .pager { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; font-size: 13px; }
 
 .split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 24px; align-items: start; }
@@ -1556,7 +1558,12 @@ code { background: var(--ground); border: 1px solid var(--line); padding: 0 5px;
 .setup-codes .setup-made p { margin: 0; }
 .setup-codes .setup-open ul { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .setup-codes .setup-open li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; font-size: 14px; }
-/* API providers (Server settings, API providers tab; ApiProviders.tsx) */
+/* API providers (an organization's API providers tab; ApiProviders.tsx) */
+/* Fields line up at the top: help text under one must not push its neighbour's label down. */
+.api-editor .form-grid { align-items: start; }
+.api-editor fieldset.field > legend { padding: 0; margin-bottom: 5px; }
+.api-editor .form-grid > .check { align-self: center; }
+.api-add { align-items: flex-end; }
 .api-provider-group { display: grid; gap: 10px; }
 .panel.is-off { background: var(--raised); }
 .api-provider-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 16px; margin: 0; font-size: 13.5px; }
