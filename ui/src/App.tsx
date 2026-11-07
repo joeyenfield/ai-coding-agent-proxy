@@ -129,7 +129,7 @@ function Shell({ identity }: { identity: Identity | null }) {
         {wordmark}
         <nav aria-label="Main">
           <div className="nav-group">
-            <NavLink to="/" end>
+            <NavLink to="/overview">
               <Icon name="home" />
               <span className="nav-label">Overview</span>
             </NavLink>
@@ -210,7 +210,9 @@ function Shell({ identity }: { identity: Identity | null }) {
         )}
         <AttentionAlerts terminals={terminals.data?.terminals} />
         <Routes>
-          <Route path="/" element={<OverviewPage />} />
+          {/* The console opens on the Live agent view: the agents running now. */}
+          <Route path="/" element={<Navigate to="/live-agents" replace />} />
+          <Route path="/overview" element={<OverviewPage />} />
           <Route path="/live" element={<LivePage />} />
           <Route path="/traffic" element={<TrafficPage />} />
           <Route path="/requests" element={<RequestsPage />} />

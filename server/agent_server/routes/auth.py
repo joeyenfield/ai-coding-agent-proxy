@@ -24,7 +24,7 @@ from itsdangerous import BadSignature, URLSafeSerializer
 from joserfc.errors import JoseError
 from starlette.middleware.sessions import SessionMiddleware
 
-from .. import api_providers, auth
+from .. import api_providers, auth, relay
 from ..db import kv
 from ..runtime import Runtime
 
@@ -130,12 +130,17 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         response.headers["Cache-Control"] = "no-store"
         return response
 
-    async def token_request(data: dict[str, str]) -> dict[str, Any]:
+    async def token_request(data: dict[str, str], request: Request) -> dict[str, Any]:
+        # agent-auth limits /token per address: name the browser's, or every browser would share the API's (relay.py).
+        browser = relay.headers(settings.oidc_introspection_secret, request.client.host if request.client else None)
         try:
             async with httpx.AsyncClient(timeout=10, trust_env=False, follow_redirects=False) as client:
-                response = await client.post(settings.oidc_issuer + "/token", data={"client_id": settings.oidc_console_client, **data})
+                response = await client.post(settings.oidc_issuer + "/token", headers=browser,
+                                             data={"client_id": settings.oidc_console_client, **data})
             if response.status_code == 400:
                 raise HTTPException(status_code=401, detail="Your sign-in has expired. Sign in again.")
+            if response.status_code == 429:
+                raise HTTPException(status_code=429, detail="Too many sign-in attempts from your address. Try again in a few minutes.")
             response.raise_for_status()
             return response.json()
         except (httpx.HTTPError, ValueError) as exc:
@@ -149,11 +154,11 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         except httpx.HTTPError as exc:
             raise HTTPException(status_code=503, detail="Sign-out could not revoke your credential; try again.") from exc
 
-    async def renew(response: Response, held: dict[str, Any], user: str) -> tuple[str, int]:
+    async def renew(request: Request, response: Response, held: dict[str, Any], user: str) -> tuple[str, int]:
         """A fresh access token for one of the browser's accounts, which becomes the active one.
         A sign-in the issuer no longer honours is dropped from the browser: 401."""
         try:
-            token = await token_request({"grant_type": "refresh_token", "refresh_token": held["accounts"][user]})
+            token = await token_request({"grant_type": "refresh_token", "refresh_token": held["accounts"][user]}, request)
             if not user:
                 # An older single sign-in: learn whose it is from its new access token.
                 user = await asyncio.to_thread(accounts.username_of, checked(token)[0]) or ""
@@ -221,7 +226,8 @@ def register(app: FastAPI, runtime: Runtime) -> None:
     async def callback(request: Request) -> Response:
         # A browser landed here, so failures go back to the console's sign-in page, not a JSON error.
         try:
-            token = await oidc.authorize_access_token(request)
+            token = await oidc.authorize_access_token(
+                request, headers=relay.headers(settings.oidc_introspection_secret, request.client.host if request.client else None))
         except httpx.HTTPError:
             return back_to_console(request, "unavailable")
         except (OAuthError, JoseError, ValueError):
@@ -336,7 +342,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             raise HTTPException(status_code=401, detail="Sign in first.")
         response = JSONResponse({})
         try:
-            access, expires = await renew(response, held, held["active"])
+            access, expires = await renew(request, response, held, held["active"])
         except _Answer as answer:
             return answer.response
         # The console renews again a little before expires_in runs out, so open streams and terminals never
@@ -361,7 +367,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             raise HTTPException(status_code=404, detail="This browser isn't signed in to that account")
         response = JSONResponse({})
         try:
-            _, expires = await renew(response, held, user)
+            _, expires = await renew(request, response, held, user)
         except _Answer as answer:
             return answer.response
         response.body = response.render({**listing(held), "expires_in": expires})
@@ -399,7 +405,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             response.delete_cookie(auth.COOKIE)
             for user in sorted(held["accounts"]):
                 try:
-                    await renew(response, held, user)
+                    await renew(request, response, held, user)
                     break
                 except _Answer:
                     continue

@@ -713,3 +713,12 @@ def test_a_process_we_may_not_signal_is_not_ours(monkeypatch):
 
     monkeypatch.setattr(machine_settings.os, "kill", refused)
     assert not machine_settings.alive(12345)
+
+
+def test_with_color_names_a_terminal_only_when_the_environment_doesnt():
+    """client/internal/terminal TestWithColorNamesATerminalOnlyWhenTheEnvironmentDoesnt."""
+    from agent_py.client.terminal import with_color
+
+    assert with_color({"HOME": "/h"}) == {"HOME": "/h", "TERM": "xterm-256color", "COLORTERM": "truecolor"}
+    assert with_color({"TERM": "dumb", "COLORTERM": "24bit"}) == {"TERM": "xterm-256color", "COLORTERM": "24bit"}
+    assert with_color({"TERM": "screen"}) == {"TERM": "screen"}

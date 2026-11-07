@@ -94,7 +94,10 @@ RUN usermod --login agent --home /home/agent --move-home --shell /bin/bash ubunt
     && chown agent:agent /workspace /data
 USER agent
 WORKDIR /workspace
+# Color by default, as in agent-sandbox: a container started without -t has no TERM.
 ENV HOME=/home/agent \
+    TERM=xterm-256color \
+    COLORTERM=truecolor \
     AI_PROXY_LOCAL_HOME=/data/server \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1

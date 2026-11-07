@@ -260,6 +260,21 @@ class Child:
         raise NotImplementedError
 
 
+def with_color(env: Dict[str, str]) -> Dict[str, str]:
+    """Name the terminal type when the environment doesn't, as the Go client's withColor does.
+
+    A container started without -t, or a service, has no TERM, and agents then print without
+    color. A TERM someone set is kept, except dumb, which a pty isn't.
+    """
+    out = dict(env)
+    if out.get("TERM") in ("", "dumb"):
+        del out["TERM"]
+    if "TERM" not in out:
+        out["TERM"] = "xterm-256color"
+        out.setdefault("COLORTERM", "truecolor")
+    return out
+
+
 class PosixChild(Child):
     def __init__(self, command: List[str], cwd: str, env: Dict[str, str], cols: int, rows: int) -> None:
         import fcntl
@@ -275,7 +290,7 @@ class PosixChild(Child):
             fcntl.ioctl(0, termios.TIOCSCTTY, 0)
 
         try:
-            self.process = subprocess.Popen(command, cwd=cwd, env=env, stdin=slave, stdout=slave, stderr=slave, preexec_fn=controlling, close_fds=True)
+            self.process = subprocess.Popen(command, cwd=cwd, env=with_color(env), stdin=slave, stdout=slave, stderr=slave, preexec_fn=controlling, close_fds=True)
         finally:
             os.close(slave)
         self.master = master

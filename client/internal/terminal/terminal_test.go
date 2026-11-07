@@ -27,6 +27,19 @@ func TestHistoryKeepsTheNewestBytesWithOffsets(t *testing.T) {
 	}
 }
 
+func TestWithColorNamesATerminalOnlyWhenTheEnvironmentDoesnt(t *testing.T) {
+	join := func(env []string) string { return strings.Join(env, " ") }
+	if got := join(withColor([]string{"HOME=/h"})); got != "HOME=/h TERM=xterm-256color COLORTERM=truecolor" {
+		t.Fatalf("no TERM: %s", got)
+	}
+	if got := join(withColor([]string{"TERM=dumb", "COLORTERM=24bit"})); got != "COLORTERM=24bit TERM=xterm-256color" {
+		t.Fatalf("dumb: %s", got)
+	}
+	if got := join(withColor([]string{"TERM=screen"})); got != "TERM=screen" {
+		t.Fatalf("own TERM: %s", got)
+	}
+}
+
 func TestURLs(t *testing.T) {
 	if got := HostURL("https://proxy.lan:8443/", "abc"); got != "wss://proxy.lan:8443/api/terminals/abc/host" {
 		t.Fatal(got)

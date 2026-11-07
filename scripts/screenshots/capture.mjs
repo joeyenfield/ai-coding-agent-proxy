@@ -140,8 +140,8 @@ const sessionId = (page, client) =>
     client,
   );
 
-await shot("overview", "/", { fullPage: true });
-await shot("overview-dark", "/", { theme: "dark", fullPage: true });
+await shot("overview", "/overview", { fullPage: true });
+await shot("overview-dark", "/overview", { theme: "dark", fullPage: true });
 // Start an agent: the command for an account agent, then a launch on a machine that has the agent.
 await shot("agents", "/agents?agent=claude-account", {
   height: 1220,
@@ -267,7 +267,7 @@ const openTerminal = async (page) => {
   await page.goto(`${base}/terminals/${id}`, { waitUntil: "networkidle", timeout: 10000 }).catch(() => {});
   await page.waitForTimeout(2500);
 };
-await shot("overview-phone", "/", { width: 412, height: 860, fullPage: true });
+await shot("overview-phone", "/overview", { width: 412, height: 860, fullPage: true });
 await shot("terminals", "/terminals", { fullPage: true });
 const chooseGridAgents = async (page) => {
   await page.locator(".grid-agent-option").first().waitFor();

@@ -25,7 +25,7 @@ type posixChild struct {
 func startChild(command []string, dir string, env []string, cols, rows int) (child, error) {
 	cmd := exec.Command(command[0], command[1:]...)
 	cmd.Dir = dir
-	cmd.Env = env
+	cmd.Env = withColor(env)
 	file, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
 	if err != nil {
 		return nil, err

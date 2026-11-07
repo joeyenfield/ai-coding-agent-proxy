@@ -864,7 +864,7 @@ details.collapsible > summary::-webkit-details-marker { display: none; }
 /* Several independent viewers; their PTY dimensions always come from the launcher. */
 .page.wide.terminal-grid-page { max-width: none; gap: 10px; }
 /* The title and every control share one bar, so collapsing it hands its whole height back to the terminals. */
-.grid-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; padding: 5px 6px 5px 4px; background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); }
+.grid-bar { position: relative; z-index: 5; display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; min-height: 44px; padding: 4px 6px 4px 4px; background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); }
 .grid-bar h1 { margin: 0; font-size: 17px; line-height: 1.25; letter-spacing: -0.01em; white-space: nowrap; }
 .grid-bar h1 .pill { vertical-align: middle; margin-left: 6px; font-size: 10.5px; letter-spacing: normal; }
 .grid-bar .part-tag { margin: 0; }
@@ -874,23 +874,37 @@ details.collapsible > summary::-webkit-details-marker { display: none; }
 .grid-bar.slim h1 { font-size: 15px; }
 .grid-collapse .icon { color: var(--steel); transition: transform 120ms; }
 .grid-collapse .icon.down { transform: rotate(90deg); }
-.grid-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin-left: auto; }
-.grid-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; }
+.grid-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.grid-controls { display: flex; align-items: center; gap: 6px; }
 .grid-controls[hidden] { display: none; }
 .grid-pages { gap: 6px; }
 .grid-pages .mono { font-size: 12.5px; }
-.grid-layout-controls { display: flex; flex-wrap: wrap; gap: 8px; }
-.grid-layout-controls label { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--steel); }
-.grid-layout-controls select { width: auto; min-width: 52px; min-height: 30px; padding: 3px 24px 3px 8px; font-size: 12.5px; }
-.grid-capacity, .grid-hint { font-size: 12px; }
-.grid-picker { gap: 12px; }
-.grid-agent-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 8px; max-height: 280px; overflow-y: auto; }
-.grid-agent-option { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-small); cursor: pointer; }
-.grid-agent-option.selected { border-color: var(--accent); background: var(--accent-soft); }
-.grid-agent-option input { flex: none; }
-.grid-agent-name { display: flex; flex-direction: column; flex: 1; min-width: 0; gap: 2px; }
+/* The bar's dropdowns: Agents (the sessions in the grid) and the layout. */
+.grid-menu { position: relative; }
+.grid-menu-button { gap: 6px; }
+.grid-menu-button.open { border-color: var(--accent); color: var(--accent-ink); }
+.grid-menu-caret { color: var(--steel); transform: rotate(90deg); transition: transform 120ms; }
+.grid-menu-button.open .grid-menu-caret { transform: rotate(-90deg); }
+.grid-menu-count { min-width: 18px; padding: 0 5px; border-radius: 999px; background: var(--ground); color: var(--steel); font-size: 11.5px; line-height: 18px; text-align: center; }
+.grid-menu-button.open .grid-menu-count { background: var(--accent-soft); color: var(--accent-ink); }
+.grid-popover { position: absolute; top: calc(100% + 6px); right: 0; z-index: 30; display: flex; flex-direction: column; gap: 10px; padding: 10px; box-shadow: var(--shadow-lg); }
+.grid-picker { width: min(420px, calc(100vw - 32px)); }
+.grid-agent-options { display: flex; flex-direction: column; gap: 2px; max-height: min(360px, 55vh); overflow-y: auto; margin: 0 -4px; padding: 0 4px; }
+.grid-agent-option { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: var(--radius-small); cursor: pointer; }
+.grid-agent-option:hover { background: var(--ground); }
+.grid-agent-option.selected { background: var(--accent-soft); }
+.grid-agent-option input { flex: none; width: auto; margin: 0; }
+.grid-agent-name { display: flex; flex-direction: column; flex: 1; min-width: 0; gap: 1px; font-size: 13px; }
 .grid-agent-name > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.grid-agent-name .subtle { font-size: 12px; }
+.grid-agent-name .subtle { font-size: 11.5px; }
+.grid-agent-state { flex: none; font-size: 11.5px; }
+.grid-picker-note { margin: 0; padding: 8px; font-size: 12.5px; }
+.grid-picker-foot { display: flex; align-items: center; gap: 6px; padding-top: 8px; border-top: 1px solid var(--line); }
+.grid-picker-foot .subtle { flex: 1; font-size: 12px; }
+.grid-layout-controls { width: 220px; gap: 8px; }
+.grid-layout-controls label { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; color: var(--steel); }
+.grid-layout-controls select { width: 96px; min-height: 30px; padding: 3px 24px 3px 8px; font-size: 12.5px; }
+.grid-layout-controls p { margin: 0; font-size: 12px; }
 .terminal-grid { display: grid; grid-template-columns: repeat(var(--grid-columns), minmax(0, 1fr)); grid-template-rows: repeat(var(--grid-rows), minmax(220px, 1fr)); gap: 10px; height: max(var(--grid-height, calc(100dvh - 190px)), calc(var(--grid-rows) * 220px + (var(--grid-rows) - 1) * 10px)); }
 .terminal-tile { display: flex; flex-direction: column; min-width: 0; min-height: 0; border: 1px solid var(--line-strong); border-top: 3px solid var(--line-strong); border-radius: var(--radius); background: var(--paper); overflow: hidden; }
 .terminal-tile.tone-live { border-top-color: var(--live); }
@@ -922,14 +936,13 @@ details.collapsible > summary::-webkit-details-marker { display: none; }
 .grid-empty-tile { flex-direction: column; gap: 10px; border: 1px dashed var(--line-strong); background: transparent; color: var(--steel); box-shadow: none; min-width: 0; }
 @media (max-width: 700px) {
   .grid-bar { padding: 4px 6px 4px 4px; }
-  .grid-actions { gap: 6px 10px; }
-  .grid-capacity { display: none; }
-  .grid-layout-controls { gap: 8px; }
-  .grid-layout-controls label { flex-direction: column; align-items: flex-start; gap: 3px; }
   .terminal-tile-meta .meta-model { display: none; }
+  /* Narrow screens: the dropdowns span the bar rather than hang off their button. */
+  .grid-menu { position: static; }
+  .grid-popover { left: 0; right: 0; }
+  .grid-picker, .grid-layout-controls { width: auto; }
   .terminal-grid { height: auto; grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-auto-rows: 300px; }
   .grid-empty-tile { min-height: 80px; }
-  .grid-picker { padding: 14px; }
 }
 .terminal-view .banner { margin: 0; max-width: none; }
 /* The full terminal: one line of chrome (back, title, status, text controls); the rest folds under the title. */

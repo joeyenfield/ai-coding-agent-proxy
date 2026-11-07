@@ -12,7 +12,10 @@ from fastapi.testclient import TestClient
 from agent_server.app import create_app
 from agent_server.auth import COOKIE, UserStore
 from agent_server.config import Settings
+from agent_server import relay
 from agent_server.issuer import ACCESS_TTL, create_auth_app, digest
+
+BROWSER = "203.0.113.7"
 
 
 @pytest.fixture
@@ -44,7 +47,8 @@ def browser(tmp_path, monkeypatch):
         api_app = create_app(settings)
         api_app.state.runtime.auth.client.close()
         api_app.state.runtime.auth.client = httpx.Client(transport=httpx.MockTransport(transport))
-        with TestClient(api_app, base_url="https://api.aicontrolmesh.com", follow_redirects=False) as api:
+        # The browser has an address of its own; the API reaches the issuer as "testclient".
+        with TestClient(api_app, base_url="https://api.aicontrolmesh.com", follow_redirects=False, client=(BROWSER, 50000)) as api:
             yield api, issuer, settings
 
 
@@ -189,6 +193,39 @@ def test_one_browser_holds_several_sign_ins_and_switches_between_them(browser):
     assert api.post("/api/auth/logout", json={"all": True}, headers=origin).json() == {"identity": None, "active": None, "accounts": [], "max": 5}
     assert whoami() is None and api.get("/api/status").status_code == 401
     assert api.post("/api/auth/refresh", headers=origin).status_code == 401
+
+
+def test_renewals_count_under_the_browsers_address_not_the_apis(browser):
+    """agent-auth limits /token per address. The API makes every browser's renewals and switches, so it names
+    each browser's address (with a proof only it and the issuer can make): a busy API address doesn't stop them."""
+    api, issuer, settings = browser
+    origin = {"Origin": settings.oidc_browser_origins[0]}
+    assert api.get(authorize(api, issuer, settings)).status_code == 307
+    assert api.get(authorize(api, issuer, settings, "admin", "admin-password")).status_code == 307
+    wrong = {"client_id": settings.oidc_console_client, "grant_type": "refresh_token", "refresh_token": "not-a-token"}
+    # The API's own address (and a forged proof, which counts there too) uses up its limit.
+    forged = {relay.ADDRESS_HEADER: BROWSER, relay.PROOF_HEADER: "0" * 64}
+    for attempt in range(120):
+        assert issuer.post("/token", data=wrong, headers=forged if attempt % 2 else {}).status_code == 400
+    assert issuer.post("/token", data=wrong).status_code == 429
+    for user in ("alice", "admin", "alice"):
+        switched = api.post("/api/auth/switch", json={"user": user}, headers=origin)
+        assert switched.status_code == 200 and switched.json()["active"] == user
+    # The browser's own address has a limit too, and the console is told so rather than "unavailable".
+    for _ in range(120):
+        if issuer.post("/token", data=wrong, headers=relay.headers(settings.oidc_introspection_secret, BROWSER)).status_code == 429:
+            break
+    refused = api.post("/api/auth/switch", json={"user": "admin"}, headers=origin)
+    assert refused.status_code == 429 and "Too many sign-in attempts" in refused.json()["detail"]
+    assert api.get("/api/auth/accounts").json()["active"] == "alice"
+
+
+def test_a_relay_proof_is_for_one_address_and_one_secret():
+    proof = relay.headers("secret", BROWSER)[relay.PROOF_HEADER]
+    assert relay.relayed_for("secret", BROWSER, proof) == BROWSER
+    assert relay.relayed_for("secret", "198.51.100.1", proof) is None
+    assert relay.relayed_for("other", BROWSER, proof) is None
+    assert relay.relayed_for(None, BROWSER, proof) is None and relay.headers(None, BROWSER) == {}
 
 
 def test_a_tampered_account_cookie_is_no_sign_in_and_an_older_one_is_carried_over(browser):

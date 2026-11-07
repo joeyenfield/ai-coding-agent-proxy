@@ -99,7 +99,8 @@ RUN sed -i 's/\r$//' /usr/local/bin/agent-sandbox-entrypoint /usr/local/bin/ping
 # ssh and git need to know who they are).
 USER agent
 WORKDIR /workspace
-ENV HOME=/home/agent
+# Color by default: a container started without -t has no TERM, and agents then print plain text.
+ENV HOME=/home/agent TERM=xterm-256color COLORTERM=truecolor
 # /home/agent: the sign-ins (agent's and agent-machine's), the machine's id and settings,
 # and the agents' own logins. /workspace: the projects agents work on.
 VOLUME ["/home/agent", "/workspace"]

@@ -50,9 +50,9 @@ export const PARTS: Part[] = [
     number: 1,
     label: "Agents",
     summary: "Start a coding agent through the server, then watch it and type into it from any device.",
-    home: "/agents",
+    home: "/live-agents",
     items: [
-      // Several agents' terminals at once: the first page of the part.
+      // Several agents' terminals at once: the first page of the part, and the console's (/ opens it).
       { to: "/live-agents", label: "Live agent view", icon: "grid" },
       { to: "/agents", label: "Start an agent", icon: "play" },
       { to: "/terminals", label: "Running agents", icon: "terminal" },

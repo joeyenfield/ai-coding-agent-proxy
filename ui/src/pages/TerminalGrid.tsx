@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api, type TerminalSummary } from "../api";
@@ -38,6 +38,22 @@ function readSelection(key: string): string[] {
 
 const touch = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
 
+/** Closes a dropdown on Escape or a press outside it, as the account menu does. */
+function useDismiss(open: boolean, box: RefObject<HTMLElement | null>, close: () => void) {
+  useEffect(() => {
+    if (!open) return;
+    const handle = (event: MouseEvent | KeyboardEvent) => {
+      if (event instanceof KeyboardEvent ? event.key === "Escape" : !box.current?.contains(event.target as Node)) close();
+    };
+    document.addEventListener("mousedown", handle);
+    document.addEventListener("keydown", handle);
+    return () => {
+      document.removeEventListener("mousedown", handle);
+      document.removeEventListener("keydown", handle);
+    };
+  }, [open, box, close]);
+}
+
 export function TerminalGridPage() {
   const auth = useAuth();
   // Selections belong to this signed-in person and browser tab, never to a different account.
@@ -53,9 +69,16 @@ function TerminalGrid({ selectionKey }: { selectionKey: string }) {
   const [layout, setLayout] = useState(readLayout);
   const [selected, setSelected] = useState(() => readSelection(selectionKey));
   const [choosing, setChoosing] = useState(() => readSelection(selectionKey).length === 0);
+  const [layoutOpen, setLayoutOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const grid = useRef<HTMLDivElement>(null);
+  const pickerBox = useRef<HTMLDivElement>(null);
+  const layoutBox = useRef<HTMLDivElement>(null);
+  const closePicker = useCallback(() => setChoosing(false), []);
+  const closeLayout = useCallback(() => setLayoutOpen(false), []);
+  useDismiss(choosing, pickerBox, closePicker);
+  useDismiss(layoutOpen, layoutBox, closeLayout);
   // The tile the key bar types into: the last one clicked, tapped or focused.
   const [active, setActive] = useState<string | null>(null);
   const senders = useRef(new Map<string, KeySender>());
@@ -108,9 +131,11 @@ function TerminalGrid({ selectionKey }: { selectionKey: string }) {
   const toggleSlim = () => {
     const slim = !layout.slim;
     setLayout((previous) => ({ ...previous, slim }));
-    // The picker is below the bar, so hiding the controls hides its button too: close it with them.
-    if (slim) setChoosing(false);
+    // Hiding the controls hides the dropdowns' buttons too: close them with them.
+    if (slim) { setChoosing(false); setLayoutOpen(false); }
   };
+  // The empty grid's buttons and empty tiles are outside the dropdown: open it on the next click, after its own dismissal.
+  const openPicker = () => { setLayoutOpen(false); setChoosing(true); };
 
   return (
     <div className="page wide terminal-grid-page">
@@ -128,26 +153,67 @@ function TerminalGrid({ selectionKey }: { selectionKey: string }) {
             <span className="mono" aria-live="polite">{currentPage + 1} / {pages}</span>
             <button type="button" className="small" disabled={currentPage === pages - 1} onClick={() => setPage(currentPage + 1)}>Next</button>
           </div>}
-          <div className="grid-controls" id="grid-controls" hidden={layout.slim}>
-            <button type="button" className={`small${choosing ? " primary" : ""}`} aria-expanded={choosing} aria-controls="grid-agent-picker" onClick={() => setChoosing(!choosing)}>
-              <Icon name="grid" size={15} /> Choose agents <span className="mono">{selected.length}</span>
-            </button>
-            <div className="grid-layout-controls">
-              {(["rows", "columns"] as const).map((field) => <label key={field}>
-                {field === "rows" ? "Rows" : "Columns"}
-                <select aria-label={field === "rows" ? "Rows" : "Columns"} value={layout[field]} onChange={(event) => changeLayout({ [field]: Number(event.target.value) })}>
-                  {[1, 2, 3, 4].map((value) => <option key={value} value={value}>{value}</option>)}
-                </select>
-              </label>)}
-              <label>Text size
-                <select aria-label="Text size" value={layout.fontSize} onChange={(event) => changeLayout({ fontSize: Number(event.target.value) })}>
-                  {[6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16].map((value) => <option key={value} value={value}>{value}px</option>)}
-                </select>
-              </label>
+          {trusted && <div className="grid-controls" id="grid-controls" hidden={layout.slim}>
+            <div className="grid-menu" ref={pickerBox}>
+              <button type="button" className={`small grid-menu-button${choosing ? " open" : ""}`} aria-haspopup="dialog" aria-expanded={choosing} aria-controls="grid-agent-picker"
+                onClick={() => { setLayoutOpen(false); setChoosing(!choosing); }}>
+                <Icon name="terminal" size={14} /> Agents
+                <span className="grid-menu-count mono" aria-label={`${selected.length} selected`}>{selected.length}</span>
+                <Icon name="chevron" size={12} className="grid-menu-caret" />
+              </button>
+              {choosing && <div className="grid-popover grid-picker panel" id="grid-agent-picker" role="dialog" aria-label="Choose agents">
+                <input type="search" aria-label="Search agents" placeholder="Search by agent, project or machine" autoFocus={!touch}
+                  value={search} onChange={(event) => setSearch(event.target.value)} />
+                <div className="grid-agent-options" role="group" aria-label="Agents sharing a terminal">
+                  {matching.map((terminal) => {
+                    const checked = selected.includes(terminal.session_id);
+                    const state = terminalState(terminal);
+                    return <label className={`grid-agent-option${checked ? " selected" : ""}`} key={terminal.session_id} title={`${terminal.agent_name} · ${state.label}`}>
+                      <input type="checkbox" checked={checked} disabled={!checked && selected.length >= MAX_SELECTED} onChange={() => toggle(terminal.session_id)} />
+                      <span className={`state-dot ${state.tone}`} aria-hidden="true" />
+                      <span className="grid-agent-name">
+                        <strong>{terminal.agent_name}</strong>
+                        <span className="subtle">{terminal.project || terminal.session_id} · {terminal.machine_name || "Unknown machine"}{terminal.you?.control ? "" : " · Watch only"}</span>
+                      </span>
+                      <span className="grid-agent-state subtle">{state.label}</span>
+                    </label>;
+                  })}
+                  {terminals.isPending && <p className="subtle grid-picker-note">Loading agents…</p>}
+                  {terminals.isError && <p role="alert" className="bad grid-picker-note">{terminals.error.message}</p>}
+                  {terminals.isSuccess && !matching.length && <p className="subtle grid-picker-note">
+                    {candidates.length ? "No agents match your search." : "No agents are sharing a terminal. Start one with --control, or from a machine’s page."}{" "}
+                    <Link to="/agents">Start an agent</Link>
+                  </p>}
+                </div>
+                <div className="grid-picker-foot">
+                  <span className="subtle">{selected.length} of {MAX_SELECTED} selected</span>
+                  <button type="button" className="small" disabled={!selected.length} onClick={() => { setSelected([]); setPage(0); }}>Clear</button>
+                  <button type="button" className="small primary" onClick={() => setChoosing(false)}>Done</button>
+                </div>
+              </div>}
             </div>
-            <span className="subtle grid-capacity">{layout.rows} × {layout.columns} · {capacity} per page</span>
-            <span className="subtle grid-hint">{touch ? "Tap a terminal for the keys below." : "Click a terminal to type."}</span>
-          </div>
+            <div className="grid-menu" ref={layoutBox}>
+              <button type="button" className={`small grid-menu-button${layoutOpen ? " open" : ""}`} aria-haspopup="dialog" aria-expanded={layoutOpen} aria-controls="grid-layout"
+                title="Rows, columns and text size" onClick={() => { setChoosing(false); setLayoutOpen(!layoutOpen); }}>
+                <Icon name="grid" size={14} /> <span className="mono">{layout.rows} × {layout.columns}</span>
+                <Icon name="chevron" size={12} className="grid-menu-caret" />
+              </button>
+              {layoutOpen && <div className="grid-popover grid-layout-controls panel" id="grid-layout" role="dialog" aria-label="Layout">
+                {(["rows", "columns"] as const).map((field) => <label key={field}>
+                  {field === "rows" ? "Rows" : "Columns"}
+                  <select aria-label={field === "rows" ? "Rows" : "Columns"} value={layout[field]} onChange={(event) => changeLayout({ [field]: Number(event.target.value) })}>
+                    {[1, 2, 3, 4].map((value) => <option key={value} value={value}>{value}</option>)}
+                  </select>
+                </label>)}
+                <label>Text size
+                  <select aria-label="Text size" value={layout.fontSize} onChange={(event) => changeLayout({ fontSize: Number(event.target.value) })}>
+                    {[6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16].map((value) => <option key={value} value={value}>{value}px</option>)}
+                  </select>
+                </label>
+                <p className="subtle">{capacity} per page. {touch ? "Tap a terminal for the keys below it." : "Click a terminal to type in it."}</p>
+              </div>}
+            </div>
+          </div>}
         </div>
       </header>
 
@@ -155,41 +221,15 @@ function TerminalGrid({ selectionKey }: { selectionKey: string }) {
       {remote.isPending && <p className="subtle">Loading agents…</p>}
       {remote.data && !trusted && <PairPanel />}
       {trusted && <>
-        {terminals.isError && <p role="alert" className="bad">{terminals.error.message}</p>}
-        {choosing && <section className="panel grid-picker" id="grid-agent-picker" aria-label="Choose agents">
-          <div className="section-head">
-            <h2>Choose your agents</h2>
-            <div className="row">
-              <button type="button" disabled={!selected.length} onClick={() => { setSelected([]); setPage(0); }}>Clear selection</button>
-              <button type="button" onClick={() => setChoosing(false)}>Done</button>
-            </div>
-          </div>
-          <input type="search" aria-label="Search agents" placeholder="Search by agent, project or machine" value={search} onChange={(event) => setSearch(event.target.value)} />
-          <p className="subtle">Select up to {MAX_SELECTED} sessions. Extra sessions appear on the next grid page.</p>
-          <div className="grid-agent-options">
-            {matching.map((terminal) => {
-              const checked = selected.includes(terminal.session_id);
-              const state = terminalState(terminal);
-              return <label className={`grid-agent-option ${checked ? "selected" : ""}`} key={terminal.session_id}>
-                <input type="checkbox" checked={checked} disabled={!checked && selected.length >= MAX_SELECTED} onChange={() => toggle(terminal.session_id)} />
-                <span className="grid-agent-name"><strong>{terminal.agent_name}</strong><span className="subtle">{terminal.project || terminal.session_id}</span><span className="subtle">{terminal.machine_name || "Unknown machine"}{terminal.you?.control ? "" : " · Watch only"}</span></span>
-                <span className={`pill ${state.tone === "idle" ? "" : state.tone}`}>{state.label}</span>
-              </label>;
-            })}
-          </div>
-          {terminals.isPending && <p className="subtle">Loading agents…</p>}
-          {terminals.isSuccess && !matching.length && <p className="subtle">{candidates.length ? "No agents match your search." : "No agents are sharing a terminal. Start one with --control, or from a machine’s page."} <Link to="/agents">Start an agent</Link></p>}
-        </section>}
-
         {!selected.length ? <div className="empty panel">
           <Icon name="grid" size={32} />
           <h2>Your terminal grid</h2>
           <p className="subtle">Choose the agents you want to watch together. Each terminal keeps its own keyboard focus.</p>
-          <button type="button" onClick={() => setChoosing(true)}>Choose agents</button>
+          <button type="button" className="primary" onClick={openPicker}>Choose agents</button>
         </div> : <div ref={grid} className="terminal-grid" style={{ "--grid-rows": layout.rows, "--grid-columns": layout.columns } as CSSProperties}>
           {visible.map((id) => <TerminalTile key={id} id={id} terminal={byId.get(id)} fontSize={layout.fontSize} loading={terminals.isPending}
             active={id === target && visible.length > 1} onActivate={() => setActive(id)} senders={senders.current} onRemove={() => toggle(id)} />)}
-          {Array.from({ length: capacity - visible.length }, (_, index) => <button type="button" className="grid-empty-tile" key={`empty-${index}`} onClick={() => setChoosing(true)}>
+          {Array.from({ length: capacity - visible.length }, (_, index) => <button type="button" className="grid-empty-tile" key={`empty-${index}`} onClick={openPicker}>
             <Icon name="plus" size={24} /><span>Add an agent</span>
           </button>)}
         </div>}

@@ -31,7 +31,7 @@ The rail on the left has three parts: the agents, the machines they and their mo
 
 ![Overview](screenshots/overview.png)
 
-The landing page (`/`) shows the whole system at a glance:
+**Overview** (`/overview`, at the top of the rail) shows the whole system at a glance:
 
 - **The map**: agents on the left, the server in the middle, and each provider (with its machine) on the right. Lines light up while requests flow.
 - **Agents, Server, Machines** cards: open sessions and installed agents; requests, tokens read and written and requests in flight; machines online. Each card links to its pages.
@@ -106,11 +106,11 @@ A terminal that isn't connected (launcher closed, or agent exited) has **Remove*
 
 ### Live agent view
 
-**Live agent view** (`/live-agents`), the first page under Agents in the rail, shows several terminals together. Old `/terminals-beta` links open it. The title and every control share one narrow bar, so the terminals take the rest of the screen.
+**Live agent view** (`/live-agents`) is where the console opens (`/` goes there) and the first page under Agents in the rail. It shows several terminals together. Old `/terminals-beta` links open it. The title and two dropdowns share one narrow bar, so the terminals take the rest of the screen.
 
-- **Choose agents** opens a searchable list of shared sessions. Select up to 16, then press **Done** to give the grid more room.
-- **Rows** and **Columns** set the grid (1–4 each; the default is 2 × 2). With more agents than fit, **Previous** and **Next** switch grid pages; only the visible page connects its terminals.
-- The button at the left of the bar hides the controls and closes the chooser, leaving one line of chrome: the grid grows into the room until you show the controls again.
+- **Agents** (with the number in the grid) drops down a searchable list of shared sessions, each with its state, folder and machine. Tick up to 16. It opens by itself while the grid is empty; **Done**, Esc or a click elsewhere closes it.
+- The layout dropdown (**2 × 2**) sets **Rows** and **Columns** (1–4 each) and **Text size**. With more agents than fit, **Previous** and **Next** switch grid pages; only the visible page connects its terminals.
+- The button at the left of the bar hides the dropdowns, leaving one line of chrome: the grid grows into the room until you show them again.
 
 ![Four terminals in the Live agent view](screenshots/terminal-grid.png)
 

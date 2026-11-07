@@ -496,6 +496,7 @@ docker compose logs -f agent-sandbox
 | `AGENT_LLAMACPP` | A llama-server in another container, `host[:port]` (default port 8080), relayed to the sandbox's `127.0.0.1:9931` (`AI_PROXY_LLAMACPP_PORT`) |
 | `AGENT_SERVERS` | `on` (the default) lets the console start, stop and configure the model servers in the sandbox (its Ollama, and llama.cpp, which it installs there) and pull models into them. `off`: the console only sees them. |
 | `AGENT_APT_PACKAGES` | More apt packages to install on start, space-separated (needs the image's `sudo`; ones already installed are skipped, and a failed install doesn't stop the sandbox) |
+| `TERM`, `COLORTERM` | The terminal type agents see: `xterm-256color` and `truecolor` by default, so they print in color without `-t` |
 | `--build-arg AGENTS="..."` | The npm packages of the agents to install, when you build the image yourself |
 | `--build-arg EXTRA_PACKAGES="..."` | More apt packages to build in |
 | `--build-arg AGENT_SUDO=0` | No `sudo` for the agent user |

@@ -37,6 +37,7 @@ from joserfc.jwk import RSAKey
 from sqlalchemy import select, text
 
 from . import issuer_pages as pages
+from . import relay
 from .auth import Auth, UserStore
 from .config import Settings
 from .db import Database, kv, migrate, schema, sqlite_url
@@ -1062,7 +1063,10 @@ def create_auth_app(settings: Settings | None = None) -> FastAPI:
     async def token(request: Request):
         data = await parameters(request)
         with service.state.transaction():
-            service.rate(("token", request.client.host), 120)
+            # The API's renewals for the console count under each browser's address (relay.py), not its own.
+            source = relay.relayed_for(service.settings.oidc_introspection_secret, request.headers.get(relay.ADDRESS_HEADER),
+                                       request.headers.get(relay.PROOF_HEADER)) or request.client.host
+            service.rate(("token", source), 120)
             # Pre-authenticate to disallow secret-in-body and mixed methods.
             service.authenticate(request, data)
             if data.get("resource") and data["resource"] != service.settings.oidc_audience:

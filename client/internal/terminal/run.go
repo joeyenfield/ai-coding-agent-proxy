@@ -1,11 +1,12 @@
 package terminal
 
 import (
+	"os"
+	"strings"
 	"time"
 	"unicode/utf8"
 
 	"golang.org/x/term"
-	"os"
 )
 
 // child is the agent running in a pseudo-terminal.
@@ -25,6 +26,37 @@ type console interface {
 	Restore()
 	// Watch calls resized whenever the terminal changes size, until stop is closed.
 	Watch(resized func(), stop <-chan struct{})
+}
+
+// withColor names the terminal type for an agent in a pseudo-terminal when the environment doesn't:
+// a container started without -t, or a service, has no TERM, and agents (Claude Code, Codex) then
+// print without color. The console's terminal and every terminal people use understand xterm's
+// 256 colors and 24-bit color. A TERM someone set is kept, except dumb, which a pty isn't.
+func withColor(env []string) []string {
+	out := make([]string, 0, len(env)+2)
+	hasColorTerm := false
+	for _, entry := range env {
+		switch {
+		case entry == "TERM=" || entry == "TERM=dumb":
+			continue
+		case strings.HasPrefix(entry, "COLORTERM="):
+			hasColorTerm = true
+		}
+		out = append(out, entry)
+	}
+	hasTerm := false
+	for _, entry := range out {
+		if strings.HasPrefix(entry, "TERM=") {
+			hasTerm = true
+		}
+	}
+	if !hasTerm {
+		out = append(out, "TERM=xterm-256color")
+		if !hasColorTerm {
+			out = append(out, "COLORTERM=truecolor")
+		}
+	}
+	return out
 }
 
 // Unavailable is why the agent can't run in a shared terminal here, or "".
