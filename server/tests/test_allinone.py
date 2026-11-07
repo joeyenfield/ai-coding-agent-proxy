@@ -23,7 +23,7 @@ def bases(dockerfile: str) -> list[str]:
 
 def test_its_machine_is_built_as_the_sandboxs_is():
     # The Go programs, Ollama and the agents come from the same stages as agent-sandbox's.
-    for name in ("OLLAMA_VERSION", "AGENTS"):
+    for name in ("OLLAMA_VERSION", "AGENTS", "PACKAGES", "EXTRA_PACKAGES", "AGENT_SUDO"):
         assert argument(ALLINONE, name) == argument(SANDBOX, name)
     for base in bases(SANDBOX):
         assert base in bases(ALLINONE)

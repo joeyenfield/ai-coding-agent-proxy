@@ -10,6 +10,9 @@
 #                            with a use for each); later starts don't spend it again
 #   AI_PROXY_MACHINE_NAME    the name the console shows (default: the container's hostname)
 #   AGENT_WORKSPACE          where agents may start (default /workspace)
+#   AGENT_APT_PACKAGES       more apt packages to install on start, space-separated (needs the
+#                            image's sudo; ones already installed are skipped). Agents can also
+#                            install what they need themselves: sudo apt-get install ...
 #   AGENT_DATA_DIR           where llama.cpp's builds, its models and the models of the Ollama
 #                            started here go (default: the home volume), for example /tmp/agent-data
 #                            or a scratch volume in a pod whose only writable space is that. The
@@ -57,6 +60,21 @@ fi
 # the agents know who they are. The image makes /etc/passwd writable by group 0 for this.
 if ! whoami >/dev/null 2>&1 && [ -w /etc/passwd ]; then
     echo "agent:x:$(id -u):0:agent:$HOME:/bin/bash" >> /etc/passwd
+fi
+# Tools asked for at start. A container keeps them until it's recreated; a failed install is said
+# and skipped, never a reason not to join the fleet.
+if [ -n "${AGENT_APT_PACKAGES:-}" ]; then
+    missing=""
+    for package in $AGENT_APT_PACKAGES; do
+        dpkg -s "$package" >/dev/null 2>&1 || missing="$missing $package"
+    done
+    if [ -n "$missing" ]; then
+        echo "agent-sandbox: installing$missing"
+        # shellcheck disable=SC2086
+        if ! { sudo -n apt-get update -qq && sudo -n DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends $missing >/dev/null; }; then
+            echo "agent-sandbox: couldn't install$missing (AGENT_APT_PACKAGES needs the image's sudo); going on without them" >&2
+        fi
+    fi
 fi
 if [ -n "${AGENT_DATA_DIR:-}" ]; then
     mkdir -p "$AGENT_DATA_DIR" || { echo "agent-sandbox: can't make AGENT_DATA_DIR $AGENT_DATA_DIR" >&2; exit 2; }

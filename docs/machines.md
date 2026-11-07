@@ -426,7 +426,25 @@ The `agent-machine` deb, rpm and Arch packages include a systemd user unit, not 
 
 ## A sandbox machine in Docker
 
-**agent-sandbox** (`ghcr.io/joeyenfield/agent-sandbox`, built from `sandbox/Dockerfile`) is a container that is a machine of its own. It has `agent`, `agent-proxy` and `agent-machine`, plus Claude Code, Codex, OpenCode, Qwen Code and Copilot CLI (the npm packages in the `AGENTS` build argument), and Ollama (CPU only) for the console to start. On start it:
+**agent-sandbox** (`ghcr.io/joeyenfield/agent-sandbox`, built from `sandbox/Dockerfile`) is a container that is a machine of its own. It's Ubuntu 24.04 with `agent`, `agent-proxy` and `agent-machine`, plus Claude Code, Codex, OpenCode, Qwen Code and Copilot CLI (the npm packages in the `AGENTS` build argument), and Ollama (CPU only) for the console to start.
+
+It has the tools a person at a terminal reaches for, so the agents can use them too:
+
+| For | Tools |
+|---|---|
+| Code | `git`, `git-lfs`, `gh` (GitHub CLI), `build-essential` (gcc, make), `pkg-config`, Node.js and npm, Python 3 with `pip`, `venv` and `pipx`, `sqlite3` |
+| Network | `ping`, `tracepath`, `traceroute`, `dig` and `nslookup`, `ip`, `ifconfig`, `netstat`, `nc`, `telnet`, `socat`, `curl`, `wget` |
+| Remote | `ssh`, `scp`, `sftp`, `rsync` |
+| Files | `rg`, `fd`, `tree`, `file`, `jq`, `zip`/`unzip`, `xz`, `bzip2`, `zstd`, `nano`, `vi` |
+| Processes | `ps`, `htop`, `lsof`, `strace`, `pstree` |
+
+**Adding more.** There are three ways:
+
+- **Build time:** `--build-arg EXTRA_PACKAGES="postgresql-client nmap"` when you build the image yourself.
+- **Start time:** `AGENT_APT_PACKAGES="postgresql-client nmap"` installs them when the container starts. A container keeps them until it's recreated.
+- **While it runs:** the `agent` user has `sudo` without a password, so you (in a terminal from the console) or an agent can `sudo apt-get update && sudo apt-get install -y <package>`. That makes the agents root inside the container, though not outside it. Build with `--build-arg AGENT_SUDO=0` to leave `sudo` out.
+
+On start it:
 
 1. waits up to two minutes for the server's `/health`;
 2. signs both agent-machine and agent in to the server, unless their credentials already name it. A sign-in that fails (nobody approved the code in time, a used-up setup code) is tried again after 30 seconds, then a wait that doubles up to 15 minutes, until it works; `docker logs agent-sandbox` shows each new code. It doesn't exit, so a restart policy can't make it ask for codes over and over;
@@ -477,14 +495,17 @@ docker compose logs -f agent-sandbox
 | `AGENT_OLLAMA` | An Ollama in another container, `host[:port]` (default port 11434), relayed to the sandbox's `127.0.0.1:11434` |
 | `AGENT_LLAMACPP` | A llama-server in another container, `host[:port]` (default port 8080), relayed to the sandbox's `127.0.0.1:9931` (`AI_PROXY_LLAMACPP_PORT`) |
 | `AGENT_SERVERS` | `on` (the default) lets the console start, stop and configure the model servers in the sandbox (its Ollama, and llama.cpp, which it installs there) and pull models into them. `off`: the console only sees them. |
+| `AGENT_APT_PACKAGES` | More apt packages to install on start, space-separated (needs the image's `sudo`; ones already installed are skipped, and a failed install doesn't stop the sandbox) |
 | `--build-arg AGENTS="..."` | The npm packages of the agents to install, when you build the image yourself |
+| `--build-arg EXTRA_PACKAGES="..."` | More apt packages to build in |
+| `--build-arg AGENT_SUDO=0` | No `sudo` for the agent user |
 | `--build-arg OLLAMA_VERSION=...` | The Ollama release to copy in (from the `ollama/ollama` image), when you build the image yourself |
 
 - **Sign-ins.** On first start, open the verification URL printed in the logs and approve each of the two device codes. With `AI_PROXY_MACHINE_SETUP_CODE` set, agent-machine's is approved by the code instead, and the code is kept out of the agents' environment. Credentials and the machine id persist in `/home/agent`; subsequent starts renew automatically and don't use the code again. Password/key environment bootstrap is removed.
 - **Git over SSH.** The keys are copied rather than used in place, because a mount from Windows or macOS usually has permissions ssh refuses. Without your own `config`, a host's key is trusted the first time it's seen, so a clone doesn't stop at a question nobody can answer. Agents in the sandbox can read the key: use a deploy key or one made for the sandbox.
 - **Account agents.** Their sign-ins (Claude, Copilot, ChatGPT) also live in `/home/agent`. Sign in once from the agent's terminal in the console.
 - **OpenShift and OKD.** The image runs under the restricted policy, as a random user in group 0: its home and workspace are writable by group 0, and the entrypoint gives that user a name in `/etc/passwd`. If the home folder isn't writable (a read-only root file system with no volume there), it uses `/tmp/agent-home`, so sign-ins last only as long as the pod: sign in with a setup code that allows enough sign-ins, or mount a volume at `/home/agent`. Set `AGENT_DATA_DIR=/tmp/agent-data` (or a scratch volume) to keep llama.cpp and the models out of the home volume.
-- **Podman** takes the same commands. A server on the same computer is reached at `host.docker.internal` (Docker, with `--add-host=host.docker.internal:host-gateway`) or `host.containers.internal` (Podman).
+- **Podman** takes the same commands. It doesn't give containers the `NET_RAW` capability that Docker does, so for `ping` add `--cap-add=NET_RAW`, or `--sysctl net.ipv4.ping_group_range="0 65535"` (the image's `ping` then uses unprivileged ICMP sockets). A server on the same computer is reached at `host.docker.internal` (Docker, with `--add-host=host.docker.internal:host-gateway`) or `host.containers.internal` (Podman).
 
 ### Model servers for a sandbox
 

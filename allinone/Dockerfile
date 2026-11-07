@@ -47,14 +47,22 @@ RUN npm ci --no-audit --no-fund
 COPY ui/ ./
 RUN npm run build
 
-FROM docker.io/library/node:22-bookworm-slim
+FROM docker.io/library/node:22-bookworm-slim AS node
+
+# Ubuntu with the everyday tools, as agent-sandbox (its PACKAGES, EXTRA_PACKAGES and sudo for the
+# agent user, so agents can install more; AGENT_APT_PACKAGES at start, in entrypoint.py).
+FROM docker.io/library/ubuntu:24.04
 ARG AGENTS="@anthropic-ai/claude-code @openai/codex opencode-ai @qwen-code/qwen-code @github/copilot"
+ARG PACKAGES="ca-certificates curl wget git git-lfs gh openssh-client rsync less nano vim-tiny procps psmisc htop lsof strace file tree jq ripgrep fd-find unzip zip xz-utils bzip2 zstd iputils-ping iputils-tracepath traceroute dnsutils net-tools iproute2 netcat-openbsd telnet socat build-essential pkg-config python3 python3-pip python3-venv pipx sqlite3 openssl gnupg sudo tini libgomp1 tzdata bash-completion"
+ARG EXTRA_PACKAGES=""
+ARG AGENT_SUDO=1
 ARG AI_PROXY_VERSION=
+ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        ca-certificates curl git openssh-client less procps jq unzip ripgrep python3 python3-venv tini \
-        socat libgomp1 \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get install -y --no-install-recommends $PACKAGES $EXTRA_PACKAGES \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -s /usr/bin/fdfind /usr/local/bin/fd
+COPY --from=node /usr/local/ /usr/local/
 RUN if [ -n "$AGENTS" ]; then npm install -g --no-audit --no-fund $AGENTS && npm cache clean --force; fi
 COPY --from=build /out/ /usr/local/bin/
 COPY --from=ollama /out/ /usr/local/
@@ -69,14 +77,19 @@ COPY --from=console /ui/dist /opt/mesh/ui/dist
 # quickstart/machine.py signs the machine in through the issuer's device flow, as a browser would.
 COPY quickstart/machine.py /opt/mesh/quickstart_machine.py
 COPY allinone/entrypoint.py /opt/mesh/entrypoint.py
-RUN echo "${AI_PROXY_VERSION:-$(cat /opt/mesh/VERSION)+unknown}" > /opt/mesh/BUILD \
+# ping wherever the runtime allows it, as in agent-sandbox (sandbox/ping).
+COPY sandbox/ping /usr/local/bin/ping
+RUN sed -i 's/\r$//' /usr/local/bin/ping && chmod 755 /usr/local/bin/ping \
+    && cp /usr/bin/ping /usr/local/lib/ping-socket \
+    && echo "${AI_PROXY_VERSION:-$(cat /opt/mesh/VERSION)+unknown}" > /opt/mesh/BUILD \
     && python3 -m venv /opt/mesh/venv \
     && /opt/mesh/venv/bin/pip install --no-cache-dir --disable-pip-version-check -e /opt/mesh/server \
     && ln -s /opt/mesh/venv/bin/agent-server /usr/local/bin/agent-server \
     && find /opt/mesh -name __pycache__ -prune -exec rm -rf {} +
-# node's image has a user 1000 (node); everything runs as it, renamed agent.
-RUN usermod --login agent --home /home/agent --move-home node \
-    && groupmod --new-name agent node \
+# Ubuntu's image has a user 1000 (ubuntu); everything runs as it, renamed agent.
+RUN usermod --login agent --home /home/agent --move-home --shell /bin/bash ubuntu \
+    && groupmod --new-name agent ubuntu \
+    && if [ "$AGENT_SUDO" = 1 ]; then echo "agent ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/agent && chmod 440 /etc/sudoers.d/agent; fi \
     && mkdir -p /workspace /data \
     && chown agent:agent /workspace /data
 USER agent

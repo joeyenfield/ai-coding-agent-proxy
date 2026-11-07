@@ -1,17 +1,21 @@
 # agent-sandbox: a container that joins an agent-server's fleet as a machine and offers
 # itself as a sandbox, where the server starts coding agents in /workspace only.
 #
-# It has both Go components (the client's agent and agent-proxy, and agent-machine), the
-# coding agents installed with npm, and Ollama (CPU only) for the console to start. On start it signs in to AI_PROXY_SERVER (see
-# entrypoint.sh), turns launches on for /workspace and stays in the fleet.
+# It's Ubuntu 24.04 with both Go components (the client's agent and agent-proxy, and
+# agent-machine), the coding agents installed with npm, Ollama (CPU only) for the console to start,
+# and the everyday tools agents use (git, gh, ssh/scp/sftp, ping, dig/nslookup, curl, build tools,
+# Python; PACKAGES below). On start it signs in to AI_PROXY_SERVER (see entrypoint.sh), turns
+# launches on for /workspace and stays in the fleet.
 #
 # Published as ghcr.io/joeyenfield/agent-sandbox (.github/workflows/images.yml), which
 # compose.yaml's sandbox profile and the quickstart's machines run. To build it yourself,
 # from the repository root (it needs client/ and machine/):
 #   docker build -f sandbox/Dockerfile -t agent-sandbox .
 #
-# AGENTS picks the npm packages (the install lines of the shipped agents, server/agent_server/defaults.py):
+# AGENTS picks the npm packages (the install lines of the shipped agents, server/agent_server/defaults.py),
+# EXTRA_PACKAGES adds apt packages:
 #   docker build -f sandbox/Dockerfile --build-arg AGENTS="@openai/codex opencode-ai" -t agent-sandbox .
+#   docker build -f sandbox/Dockerfile --build-arg EXTRA_PACKAGES="postgresql-client nmap" -t agent-sandbox .
 
 ARG OLLAMA_VERSION=0.40.14
 
@@ -44,29 +48,47 @@ RUN mkdir -p /out/bin /out/lib \
     && cp -a /usr/lib/ollama /out/lib/ \
     && find /out/lib/ollama -mindepth 1 -maxdepth 1 -type d -exec rm -rf {} +
 
-FROM docker.io/library/node:22-bookworm-slim
+# Node.js for the agents (npm packages), from its official image: its /usr/local holds node, npm and npx.
+FROM docker.io/library/node:22-bookworm-slim AS node
+
+# Ubuntu, with the tools a person at a terminal would reach for, so agents can too: networking
+# (ping, dig and nslookup, traceroute, ip, nc, telnet), ssh, scp and sftp, rsync, git and gh,
+# build tools, Python with pip and pipx, editors, search and archive tools. tini reaps the
+# processes agents leave behind, as agent-machine is the container's main process. socat relays
+# model servers in other containers (AGENT_OLLAMA, AGENT_LLAMACPP) to the loopback ports
+# agent-machine looks on; libgomp1 is what llama.cpp's Linux builds, which the console installs
+# here, and Ollama's CPU backends need beyond the base image.
+#
+# More tools: --build-arg EXTRA_PACKAGES="..." bakes apt packages in; AGENT_APT_PACKAGES="..."
+# installs them when the container starts (entrypoint.sh); and the agent user has sudo without a
+# password (AGENT_SUDO=0 at build leaves it out), so an agent can `sudo apt-get install` what it
+# needs. Keep PACKAGES in step with allinone/Dockerfile's (server/tests/test_allinone.py checks).
+FROM docker.io/library/ubuntu:24.04
 ARG AGENTS="@anthropic-ai/claude-code @openai/codex opencode-ai @qwen-code/qwen-code @github/copilot"
-# What coding agents expect to find: git, a shell, Python, search tools. tini reaps the
-# processes agents leave behind, as agent-machine is the container's main process.
-# socat relays model servers in other containers (AGENT_OLLAMA, AGENT_LLAMACPP) to the
-# loopback ports agent-machine looks on; libgomp1 is what llama.cpp's Linux builds, which
-# the console installs here, and Ollama's CPU backends need beyond the base image.
+ARG PACKAGES="ca-certificates curl wget git git-lfs gh openssh-client rsync less nano vim-tiny procps psmisc htop lsof strace file tree jq ripgrep fd-find unzip zip xz-utils bzip2 zstd iputils-ping iputils-tracepath traceroute dnsutils net-tools iproute2 netcat-openbsd telnet socat build-essential pkg-config python3 python3-pip python3-venv pipx sqlite3 openssl gnupg sudo tini libgomp1 tzdata bash-completion"
+ARG EXTRA_PACKAGES=""
+ARG AGENT_SUDO=1
+ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        ca-certificates curl git openssh-client less procps jq unzip ripgrep python3 python3-venv tini \
-        socat libgomp1 \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get install -y --no-install-recommends $PACKAGES $EXTRA_PACKAGES \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -s /usr/bin/fdfind /usr/local/bin/fd
+COPY --from=node /usr/local/ /usr/local/
 RUN if [ -n "$AGENTS" ]; then npm install -g --no-audit --no-fund $AGENTS && npm cache clean --force; fi
 COPY --from=build /out/ /usr/local/bin/
 # ollama finds its backends in ../lib/ollama beside itself.
 COPY --from=ollama /out/ /usr/local/
 COPY sandbox/entrypoint.sh /usr/local/bin/agent-sandbox-entrypoint
-# Shell scripts must have LF endings, whatever the checkout used. node's image already
-# has a user 1000 (node); the agents run as it, renamed agent.
-RUN sed -i 's/\r$//' /usr/local/bin/agent-sandbox-entrypoint \
-    && chmod 755 /usr/local/bin/agent-sandbox-entrypoint \
-    && usermod --login agent --home /home/agent --move-home node \
-    && groupmod --new-name agent node \
+# ping wherever the runtime allows it (sandbox/ping): cp drops the file capability, so the copy uses ICMP sockets.
+COPY sandbox/ping /usr/local/bin/ping
+# Shell scripts must have LF endings, whatever the checkout used. Ubuntu's image already has a
+# user 1000 (ubuntu); the agents run as it, renamed agent.
+RUN sed -i 's/\r$//' /usr/local/bin/agent-sandbox-entrypoint /usr/local/bin/ping \
+    && chmod 755 /usr/local/bin/agent-sandbox-entrypoint /usr/local/bin/ping \
+    && cp /usr/bin/ping /usr/local/lib/ping-socket \
+    && usermod --login agent --home /home/agent --move-home --shell /bin/bash ubuntu \
+    && groupmod --new-name agent ubuntu \
+    && if [ "$AGENT_SUDO" = 1 ]; then echo "agent ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/agent && chmod 440 /etc/sudoers.d/agent; fi \
     && mkdir -p /workspace \
     && chown agent:agent /workspace \
     && chgrp -R 0 /home/agent /workspace \

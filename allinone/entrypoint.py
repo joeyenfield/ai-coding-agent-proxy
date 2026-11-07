@@ -46,7 +46,23 @@ def first_password(instance: local.Instance, chosen: str) -> str:
         return ""
 
 
+def install_packages(packages: str) -> None:
+    """AGENT_APT_PACKAGES, as agent-sandbox's entrypoint: the ones missing, with the image's sudo.
+    A failure is said and skipped: the system starts without them."""
+    missing = [name for name in packages.split() if subprocess.run(["dpkg", "-s", name], capture_output=True).returncode != 0]
+    if not missing:
+        return
+    say(f"Installing {' '.join(missing)}...")
+    update = subprocess.run(["sudo", "-n", "apt-get", "update", "-qq"], capture_output=True)
+    install = update.returncode == 0 and subprocess.run(
+        ["sudo", "-n", "env", "DEBIAN_FRONTEND=noninteractive", "apt-get", "install", "-y", "-qq", "--no-install-recommends", *missing],
+        capture_output=True).returncode == 0
+    if not install:
+        say(f"Couldn't install {' '.join(missing)} (AGENT_APT_PACKAGES needs the image's sudo); going on without them.")
+
+
 def main() -> int:
+    install_packages(os.environ.get("AGENT_APT_PACKAGES", ""))
     chosen = os.environ.pop("MESH_ADMIN_PASSWORD", "")
     instance = local.Instance.load(local.instance_home())
     overrides = {"AI_PROXY_HOST": "0.0.0.0", "AI_PROXY_AUTH_HOST": "0.0.0.0", "AI_PROXY_UI_BUILD": "0"}

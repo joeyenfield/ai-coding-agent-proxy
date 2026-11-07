@@ -58,6 +58,7 @@ docker logs mesh
 - **The ports must stay 19999 and 20000 on your side too.** The browser and the server inside both sign in at `http://localhost:20000`.
 - **Your data lives in the three volumes:** `/data` (the server), `/home/agent` (the machine's sign-ins and the agents' logins) and `/workspace` (the projects). `docker rm -f mesh` keeps them; `docker volume rm mesh-data mesh-home mesh-workspace` deletes them.
 - **`-e MESH_ADMIN_PASSWORD=...`** sets `admin`'s password yourself, from the environment, instead of a made-up one.
+- **Tools:** it's Ubuntu with the sandbox's everyday tools (git, gh, ssh and sftp, ping, dig, build tools, Python; [the list](machines.md#a-sandbox-machine-in-docker)). `-e AGENT_APT_PACKAGES="nmap postgresql-client"` adds packages on start, and agents can `sudo apt-get install` more.
 - **Your own computer can join too.** `agent login http://localhost:19999` and `agent-machine login http://localhost:19999` sign it in like any machine.
 
 It's for trying the system. For a server other people use, see [Getting started](getting-started.md).

@@ -1,0 +1,10 @@
+#!/bin/sh
+# ping, wherever the container lets it run. Ubuntu's own (/usr/bin/ping) needs the NET_RAW
+# capability, which Docker and Kubernetes give a container and Podman doesn't: then it can't even
+# start. The copy without that capability (/usr/local/lib/ping-socket) uses unprivileged ICMP
+# sockets instead, which need net.ipv4.ping_group_range to include the user (Docker's default;
+# Podman: --sysctl net.ipv4.ping_group_range="0 65535").
+if /usr/bin/ping -V >/dev/null 2>&1; then
+    exec /usr/bin/ping "$@"
+fi
+exec /usr/local/lib/ping-socket "$@"
