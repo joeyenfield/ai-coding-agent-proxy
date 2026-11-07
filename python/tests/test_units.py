@@ -398,8 +398,9 @@ def test_files_are_listed_and_read_only_inside_the_roots(tmp_path):
 
     answer = files.answer({"request": "r1", "op": "list", "path": str(root)}, machine)
     assert answer["ok"] and answer["type"] == "files_result" and answer["request"] == "r1"
-    # Folders first, then files, by name; nothing hidden and no link out of the root.
-    assert [f"{item['kind']}:{item['name']}" for item in answer["entries"]] == ["folder:src", "file:b.txt", "file:image.bin", "file:README.md"]
+    # Folders first, then files, by name; hidden names too, and no link out of the root.
+    assert [f"{item['kind']}:{item['name']}" for item in answer["entries"]] == [
+        "folder:.git", "folder:src", "file:.env", "file:b.txt", "file:image.bin", "file:README.md"]
     assert answer["parent"] is None
     inside = files.answer({"op": "list", "path": str(root / "src")}, machine)
     assert [item["name"] for item in inside["entries"]] == ["main.go"] and inside["parent"] == str(root)
@@ -408,8 +409,10 @@ def test_files_are_listed_and_read_only_inside_the_roots(tmp_path):
     assert read["ok"] and read["content"] == "# Hello\n" and read["binary"] is False and read["truncated"] is False and read["size"] == 8
     binary = files.answer({"op": "read", "path": str(root / "image.bin")}, machine)
     assert binary["ok"] and binary["binary"] is True and "content" not in binary
+    assert files.answer({"op": "read", "path": str(root / ".env")}, machine)["content"] == "SECRET=1"
+    assert [item["name"] for item in files.answer({"op": "list", "path": str(root / ".git")}, machine)["entries"]] == ["config"]
 
-    refused = [("read", root / ".env"), ("read", root / ".git" / "config"), ("list", root / ".git"), ("read", outside / "secret.txt"),
+    refused = [("read", outside / "secret.txt"),
                ("read", root / ".." / "outside" / "secret.txt"), ("list", outside), ("read", root / "src"), ("read", "relative.txt"),
                ("list", ""), ("delete", root / "b.txt")]
     if linked:

@@ -66,7 +66,7 @@ sequenceDiagram
 | `server` | `servers` | Ollama settings and start/stop/restart; llama.cpp settings, start/stop/restart, `install_options`, `install` (a job: answers at once) and `uninstall` (GitHub builds only); Strata start/stop, remove/prune (profiles whose run config is gone, deleted from Strata's profiles folder) and cleanup (`strata runtime cleanup`) |
 | `container` | `containers` | status, start/restart/switch (jobs), stop, remove, logs |
 | `folders` | `launches` or `commands`, inside the roots | folder names only, at most 500 |
-| `files` | `files`, inside the roots, nothing hidden below a root | op `list`: folders and files (`kind`, `size`, `modified`), at most 1000; op `read`: a file's text, at most `FileReadLimit` (1 MiB, `truncated`), `binary` (a NUL or not UTF-8) without its bytes |
+| `files` | `files`, inside the roots (hidden names included) | op `list`: folders and files (`kind`, `size`, `modified`), at most 1000; op `read`: a file's text, at most `FileReadLimit` (1 MiB, `truncated`), `binary` (a NUL or not UTF-8) without its bytes |
 | `launch` / `shell` | `launches` / `commands`, inside the roots | runs `agent ... --headless --launch-id` and reads its one `{"session_id"}` line |
 | `update` | `updates` | runs `agent-machine update` detached |
 | `tunnel` | port reported, a container's port, or the bridge | pipes bytes to `127.0.0.1:<port>`; closes 4502 if nothing answers |
@@ -83,7 +83,7 @@ sequenceDiagram
 ## Invariants
 
 1. Every toggle defaults to off and is re-checked per request from `machine.json`.
-1. File contents leave the machine only through the `files` request, only with `files on`, and never for a hidden name (a dot-name between the root and the path, checked on the path as asked and once links are resolved) or a binary file.
+1. File contents leave the machine only through the `files` request, only with `files on`, only inside the roots (checked on the path as asked and once links are resolved), and never for a binary file. Hidden names (.env, .git) are shown: the `files` grant is the boundary.
 2. Roots are checked after resolving links (`Machine.Within`). The server checks too (`within_roots`); keep both.
 3. Container specs come only from the engine table, with each engine's own options, plain images, `gpus` all/none/numbers, and a volume name or absolute folder. **Never add free-form docker arguments**: `docker run` is root on that machine. Podman gets GPUs as CDI devices.
 4. Tunnels reach only reported provider ports, containers' ports and the bridge. A container's port counts only from a spec that passed `Validate` (on a start, restart or status about it); removing the container or turning containers off closes it (`containers.Manager.Ports`).

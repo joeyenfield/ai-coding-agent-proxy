@@ -340,7 +340,7 @@ With `agent-machine files on`, the machine's **Files** tab in the console browse
 
 - It needs the `files` feature (the owner, or organizations and teams granted it) and `files on`. Launches and terminals don't turn it on.
 - The server and the machine both check that the path is inside a root, and the machine checks again after following links.
-- Hidden files and folders (a name starting with a dot, such as `.env`, `.git` or `.ssh`) are never listed or read, nor anything inside them.
+- Hidden files and folders (a name starting with a dot, such as `.env` or `.git`) are listed and read like any other, so anyone who can browse the files can read secrets kept in them. Grant `files` only to who should see them.
 - A listing shows folders first, then files with their size, at most 1000 entries. **Up** stops at a root.
 - A file shows at most its first 1 MB. A file that isn't text (it has a NUL byte or isn't UTF-8) is reported as binary, and its bytes stay on the machine.
 

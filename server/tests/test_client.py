@@ -941,7 +941,7 @@ def test_a_fleet_machine_shows_its_files_only_when_files_are_on(tmp_path, agent_
         while time.monotonic() < deadline and not httpx.get(base, headers=m.headers).json()["files"]:
             time.sleep(0.5)  # the machine says so in its next update, within a minute
         listed = httpx.get(f"{base}/files", headers=m.headers, params={"path": str(work)}, timeout=30).json()
-        assert [(entry["kind"], entry["name"]) for entry in listed["entries"]] == [("folder", "src"), ("file", "logo.png"), ("file", "README.md")]
+        assert [(entry["kind"], entry["name"]) for entry in listed["entries"]] == [("folder", "src"), ("file", ".env"), ("file", "logo.png"), ("file", "README.md")]
         assert listed["parent"] is None
         inside = httpx.get(f"{base}/files", headers=m.headers, params={"path": listed["entries"][0]["path"]}, timeout=30).json()
         assert [entry["name"] for entry in inside["entries"]] == ["main.go"] and Path(inside["parent"]) == work
@@ -950,8 +950,9 @@ def test_a_fleet_machine_shows_its_files_only_when_files_are_on(tmp_path, agent_
         assert (read["content"], read["binary"], read["truncated"], read["size"]) == ("# Hello\n", False, False, 8)
         image = httpx.get(f"{base}/files/content", headers=m.headers, params={"path": str(work / "logo.png")}, timeout=30).json()
         assert image["binary"] is True and image["content"] is None
-        # Hidden files and anything outside the launch folders stay on the machine.
-        assert httpx.get(f"{base}/files/content", headers=m.headers, params={"path": str(work / ".env")}, timeout=30).status_code == 400
+        # Hidden files are shown like any other; anything outside the launch folders stays on the machine.
+        hidden = httpx.get(f"{base}/files/content", headers=m.headers, params={"path": str(work / ".env")}, timeout=30).json()
+        assert hidden["content"] == "SECRET=1"
         assert httpx.get(f"{base}/files/content", headers=m.headers, params={"path": str(tmp_path / "machine-home" / "credentials.json")}, timeout=30).status_code == 400
 
 

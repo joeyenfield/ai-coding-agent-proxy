@@ -30,7 +30,7 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 from .. import auth, mcp, remote
 from ..fleet import (
     FEATURES, PROVIDER_TYPES, FleetError, allowed, can_manage, can_see, checked_access, parse_provider, provider_address,
-    hidden_within, provider_request, within_roots,
+    provider_request, within_roots,
 )
 from ..fleet import provider_id as fleet_provider_id
 from ..provider_accounts import AccountError
@@ -276,15 +276,13 @@ def register(app: FastAPI, runtime: Runtime) -> None:
 
     def files_target(machine_id: str, request: Request, path: str) -> Any:
         """The machine whose files path names, once who asks may see them there (the files feature) and
-        path is inside its launch folders and not hidden; the machine checks all of it again."""
+        path is inside its launch folders; the machine checks both again."""
         require_trusted(request)
         target = visible(machine_id, request)
         if not allowed(auth.request_identity(request), target, "files"):
             raise HTTPException(status_code=403, detail="Only the machine's owner, and the teams it lets, can browse its files.")
         if path and not within_roots(path, target.roots):
             raise HTTPException(status_code=400, detail="That path isn't inside one of the machine's launch folders.")
-        if path and hidden_within(path, target.roots):
-            raise HTTPException(status_code=400, detail="Hidden files and folders aren't shown.")
         return target
 
     @app.get("/api/machines/{machine_id}/files/content")

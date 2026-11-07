@@ -46,8 +46,8 @@ func TestFilesListsAndReadsOnlyInsideTheRoots(t *testing.T) {
 	if answer["ok"] != true || answer["type"] != "files_result" || answer["request"] != "r1" {
 		t.Fatalf("answer %v", answer)
 	}
-	// Folders first, then files, by name; nothing hidden and no link out of the root.
-	want := []string{"folder:src", "file:b.txt", "file:image.bin", "file:README.md"}
+	// Folders first, then files, by name; hidden names too, and no link out of the root.
+	want := []string{"folder:.git", "folder:src", "file:.env", "file:b.txt", "file:image.bin", "file:README.md"}
 	if got := entryNames(answer); !reflect.DeepEqual(got, want) {
 		t.Fatalf("entries %v (link made: %v)", got, linked)
 	}
@@ -66,11 +66,14 @@ func TestFilesListsAndReadsOnlyInsideTheRoots(t *testing.T) {
 	if bin := Files(FilesRequest{Op: "read", Path: filepath.Join(root, "image.bin")}, machine); bin["ok"] != true || bin["binary"] != true || bin["content"] != nil {
 		t.Fatalf("binary %v", bin)
 	}
+	if env := Files(FilesRequest{Op: "read", Path: filepath.Join(root, ".env")}, machine); env["ok"] != true || env["content"] != "SECRET=1" {
+		t.Fatalf("hidden file %v", env)
+	}
+	if git := Files(FilesRequest{Op: "list", Path: filepath.Join(root, ".git")}, machine); !reflect.DeepEqual(entryNames(git), []string{"file:config"}) {
+		t.Fatalf("hidden folder %v", git)
+	}
 
 	refused := []FilesRequest{
-		{Op: "read", Path: filepath.Join(root, ".env")},
-		{Op: "read", Path: filepath.Join(root, ".git", "config")},
-		{Op: "list", Path: filepath.Join(root, ".git")},
 		{Op: "read", Path: filepath.Join(outside, "secret.txt")},
 		{Op: "read", Path: filepath.Join(root, "..", filepath.Base(outside), "secret.txt")},
 		{Op: "list", Path: outside},

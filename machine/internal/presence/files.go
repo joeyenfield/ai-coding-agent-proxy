@@ -31,9 +31,9 @@ type FilesRequest struct {
 }
 
 // Files answers a files request, as the files_result to send back. Only while files are on
-// (agent-machine files on), only inside the roots (checked here after resolving links, whatever
-// the server allowed), and never anything hidden: a name starting with a dot, or inside one,
-// stays here (.env, .git, .ssh).
+// (agent-machine files on) and only inside the roots (checked here after resolving links, whatever
+// the server allowed). Hidden names (.env, .git) are shown like any other: who may browse a
+// machine's files is already limited to its owner and the teams it grants files to.
 func Files(request FilesRequest, machine *settings.Machine) map[string]any {
 	answer := map[string]any{"type": "files_result", "request": request.ID}
 	var err error
@@ -52,8 +52,8 @@ func Files(request FilesRequest, machine *settings.Machine) map[string]any {
 	return answer
 }
 
-// filesTarget checks that path may be shown: files on, absolute, inside a root once links are
-// resolved, and nothing hidden between that root and it. It returns the resolved path.
+// filesTarget checks that path may be shown: files on, absolute, and inside a root once links are
+// resolved. It returns the resolved path.
 func filesTarget(path string, machine *settings.Machine) (string, error) {
 	if !machine.Files {
 		return "", errors.New("this machine doesn't share its files (agent-machine files on)")
@@ -65,35 +65,7 @@ func filesTarget(path string, machine *settings.Machine) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("%s isn't inside one of this machine's launch folders", path)
 	}
-	if hiddenWithin(resolved, machine) || hiddenWithin(filepath.Clean(path), machine) {
-		return "", fmt.Errorf("%s is hidden", path)
-	}
 	return resolved, nil
-}
-
-// hiddenWithin says whether any name below the root holding path starts with a dot.
-func hiddenWithin(path string, machine *settings.Machine) bool {
-	for _, root := range machine.Roots {
-		for _, base := range []string{filepath.Clean(root), resolvedOr(root)} {
-			relative, err := filepath.Rel(fold(base), fold(path))
-			if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
-				continue
-			}
-			for _, name := range strings.Split(relative, string(filepath.Separator)) {
-				if strings.HasPrefix(name, ".") && name != "." {
-					return true
-				}
-			}
-		}
-	}
-	return false
-}
-
-func resolvedOr(path string) string {
-	if resolved, err := filepath.EvalSymlinks(path); err == nil {
-		return resolved
-	}
-	return filepath.Clean(path)
 }
 
 func listFiles(dir string, machine *settings.Machine, answer map[string]any) error {
@@ -108,9 +80,6 @@ func listFiles(dir string, machine *settings.Machine, answer map[string]any) err
 	truncated := false
 	for _, entry := range entries {
 		name := entry.Name()
-		if strings.HasPrefix(name, ".") {
-			continue
-		}
 		path := filepath.Join(dir, name)
 		info, err := os.Stat(path)
 		if err != nil {

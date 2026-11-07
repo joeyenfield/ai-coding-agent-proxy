@@ -10,7 +10,7 @@ const modifiedAt = (seconds?: number | null) => (seconds ? new Date(seconds * 10
 
 /**
  * The machine's file viewer: open the folders inside its launch folders and read their files. The
- * machine lists and reads them itself (agent-machine files on), never anything hidden, and only text.
+ * machine lists and reads them itself (agent-machine files on), hidden names included, and only text.
  * The open folder and file are in the address (?path=, ?file=), so a link opens the same view.
  */
 export function MachineFiles({ machine }: { machine: FleetMachine }) {
@@ -117,7 +117,6 @@ export function MachineFiles({ machine }: { machine: FleetMachine }) {
           </ul>
         )}
         {listing.data?.truncated && <p className="subtle folder-note">Only the first {listing.data.entries.length} are shown.</p>}
-        <p className="subtle folder-note">Hidden files and folders (names starting with a dot) aren't shown.</p>
       </section>
 
       <section className="section file-content" aria-labelledby="machine-file">

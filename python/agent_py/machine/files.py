@@ -1,9 +1,10 @@
 """The machine's file viewer: the server's {"type": "files"} requests, op "list" (the folders and
 files inside one folder) and op "read" (one file's text), as the Go agent-machine's presence/files.go.
 
-Only while files are on (`agent-machine files on`), only inside the roots (checked here after
-resolving links, whatever the server allowed), and never anything hidden: a name starting with a
-dot, or inside one, stays here (.env, .git, .ssh). Binary files are reported, never sent.
+Only while files are on (`agent-machine files on`) and only inside the roots (checked here after
+resolving links, whatever the server allowed). Hidden names (.env, .git) are shown like any other:
+who may browse a machine's files is already limited to its owner and the teams it grants files to.
+Binary files are reported, never sent.
 """
 
 from __future__ import annotations
@@ -41,8 +42,8 @@ def answer(request: Dict[str, Any], machine: settings.Machine) -> Dict[str, Any]
 
 
 def target(path: str, machine: settings.Machine) -> str:
-    """Checks that path may be shown: files on, absolute, inside a root once links are resolved, and
-    nothing hidden between that root and it. Returns the resolved path."""
+    """Checks that path may be shown: files on, absolute, and inside a root once links are resolved.
+    Returns the resolved path."""
     if not machine.files:
         raise Refused("this machine doesn't share its files (agent-machine files on)")
     if not path or not os.path.isabs(path):
@@ -50,24 +51,7 @@ def target(path: str, machine: settings.Machine) -> str:
     resolved, ok = machine.within(path)
     if not ok:
         raise Refused(f"{path} isn't inside one of this machine's launch folders")
-    if hidden_within(resolved, machine) or hidden_within(os.path.normpath(path), machine):
-        raise Refused(f"{path} is hidden")
     return resolved
-
-
-def hidden_within(path: str, machine: settings.Machine) -> bool:
-    """Whether any name below the root holding path starts with a dot."""
-    for root in machine.roots:
-        for base in {os.path.normpath(root), os.path.realpath(os.path.abspath(root))}:
-            try:
-                relative = os.path.relpath(settings.fold(path), settings.fold(base))
-            except ValueError:
-                continue
-            if relative == ".." or relative.startswith(".." + os.sep) or os.path.isabs(relative):
-                continue
-            if any(name.startswith(".") and name != "." for name in relative.split(os.sep)):
-                return True
-    return False
 
 
 def is_root(folder: str, machine: settings.Machine) -> bool:
@@ -84,8 +68,6 @@ def list_files(folder: str, machine: settings.Machine) -> Dict[str, Any]:
     listed: List[Dict[str, Any]] = []
     truncated = False
     for entry in entries:
-        if entry.name.startswith("."):
-            continue
         path = os.path.join(folder, entry.name)
         try:
             info = os.stat(path)

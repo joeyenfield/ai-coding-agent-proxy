@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent, type RefObject } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api, type TerminalSummary } from "../api";
@@ -82,6 +82,10 @@ function TerminalGrid({ selectionKey }: { selectionKey: string }) {
   // The tile the key bar types into: the last one clicked, tapped or focused.
   const [active, setActive] = useState<string | null>(null);
   const senders = useRef(new Map<string, KeySender>());
+  // On a phone the tiles take no typing themselves: a tap on one raises the keyboard in this box.
+  const [message, setMessage] = useState("");
+  const messageBox = useRef<HTMLTextAreaElement>(null);
+  const focusMessage = useCallback(() => messageBox.current?.focus(), []);
 
   useEffect(() => {
     const element = grid.current;
@@ -136,6 +140,10 @@ function TerminalGrid({ selectionKey }: { selectionKey: string }) {
   };
   // The empty grid's buttons and empty tiles are outside the dropdown: open it on the next click, after its own dismissal.
   const openPicker = () => { setLayoutOpen(false); setChoosing(true); };
+  const sendMessage = (event: FormEvent) => {
+    event.preventDefault();
+    if (target && message.trim() && senders.current.get(target)?.text(message)) setMessage("");
+  };
 
   return (
     <div className="page wide terminal-grid-page">
@@ -210,7 +218,7 @@ function TerminalGrid({ selectionKey }: { selectionKey: string }) {
                     {[6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16].map((value) => <option key={value} value={value}>{value}px</option>)}
                   </select>
                 </label>
-                <p className="subtle">{capacity} per page. {touch ? "Tap a terminal for the keys below it." : "Click a terminal to type in it."}</p>
+                <p className="subtle">{capacity} per page. {touch ? "Tap a terminal to type to it below." : "Click a terminal to type in it."}</p>
               </div>}
             </div>
           </div>}
@@ -228,26 +236,35 @@ function TerminalGrid({ selectionKey }: { selectionKey: string }) {
           <button type="button" className="primary" onClick={openPicker}>Choose agents</button>
         </div> : <div ref={grid} className="terminal-grid" style={{ "--grid-rows": layout.rows, "--grid-columns": layout.columns } as CSSProperties}>
           {visible.map((id) => <TerminalTile key={id} id={id} terminal={byId.get(id)} fontSize={layout.fontSize} loading={terminals.isPending}
-            active={id === target && visible.length > 1} onActivate={() => setActive(id)} senders={senders.current} onRemove={() => toggle(id)} />)}
+            active={id === target && visible.length > 1} onActivate={() => setActive(id)} senders={senders.current} onRemove={() => toggle(id)}
+            onTapToType={touch ? focusMessage : undefined} />)}
           {Array.from({ length: capacity - visible.length }, (_, index) => <button type="button" className="grid-empty-tile" key={`empty-${index}`} onClick={openPicker}>
             <Icon name="plus" size={24} /><span>Add an agent</span>
           </button>)}
         </div>}
-        {selected.length > 0 && <div className="key-bar grid-key-bar" role="toolbar" aria-label={`Keys for ${targetTerminal?.agent_name ?? "the selected agent"}`}>
-          <span className="subtle grid-key-target" title="Keys go to the selected terminal: click or tap one to select it">
-            <Icon name="terminal" size={14} /> {targetTerminal?.agent_name ?? "No agent"}
-          </span>
-          {KEYS.map((key) => <button key={key.label} type="button" title={key.title} disabled={!canType}
-            onClick={() => { if (target) senders.current.get(target)?.(key.keys); }}>{key.label}</button>)}
+        {selected.length > 0 && <div className="grid-keys">
+          {touch && <form className="term-input grid-message" onSubmit={sendMessage}>
+            <textarea ref={messageBox} rows={1} value={message} onChange={(event) => setMessage(event.target.value)} disabled={!canType}
+              aria-label={`Message for ${targetTerminal?.agent_name ?? "the selected agent"}`}
+              placeholder={canType ? `Message for ${targetTerminal?.agent_name ?? "the agent"}` : "Tap a terminal you can type in"} />
+            <button type="submit" className="primary" disabled={!canType || !message.trim()}>Send</button>
+          </form>}
+          <div className="key-bar grid-key-bar" role="toolbar" aria-label={`Keys for ${targetTerminal?.agent_name ?? "the selected agent"}`}>
+            <span className="subtle grid-key-target" title="Keys go to the selected terminal: click or tap one to select it">
+              <Icon name="terminal" size={14} /> {targetTerminal?.agent_name ?? "No agent"}
+            </span>
+            {KEYS.map((key) => <button key={key.label} type="button" title={key.title} disabled={!canType}
+              onClick={() => { if (target) senders.current.get(target)?.keys(key.keys); }}>{key.label}</button>)}
+          </div>
         </div>}
       </>}
     </div>
   );
 }
 
-function TerminalTile({ id, terminal, fontSize, loading, active, onActivate, senders, onRemove }: {
+function TerminalTile({ id, terminal, fontSize, loading, active, onActivate, senders, onRemove, onTapToType }: {
   id: string; terminal?: TerminalSummary; fontSize: number; loading: boolean; active: boolean;
-  onActivate: () => void; senders: Map<string, KeySender>; onRemove: () => void;
+  onActivate: () => void; senders: Map<string, KeySender>; onRemove: () => void; onTapToType?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const onSender = useCallback((sender: KeySender | null) => {
@@ -278,6 +295,6 @@ function TerminalTile({ id, terminal, fontSize, loading, active, onActivate, sen
       <span className="meta-session"><b>Session</b> <span className="mono">{id}</span></span>
       {terminal && !terminal.you?.control && <span>Watch only: you cannot type in this terminal.</span>}
     </p>}
-    {terminal ? <TerminalView sessionId={id} compact gridFontSize={fontSize} onSender={onSender} /> : <p className="grid-unavailable subtle">{loading ? "Loading terminal…" : "This session is no longer available. Remove it from the grid to choose another."}</p>}
+    {terminal ? <TerminalView sessionId={id} compact gridFontSize={fontSize} onSender={onSender} onTapToType={onTapToType} /> : <p className="grid-unavailable subtle">{loading ? "Loading terminal…" : "This session is no longer available. Remove it from the grid to choose another."}</p>}
   </section>;
 }

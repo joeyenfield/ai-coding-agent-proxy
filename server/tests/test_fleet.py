@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 
 from agent_server.app import create_app
 from agent_server.config import Backend
-from agent_server.fleet import FleetError, hidden_within, within_roots
+from agent_server.fleet import FleetError, within_roots
 from oidc_helpers import access_token, issuer, stored_backends
 from test_auth import BASE, HOST, ids, org_settings, signed_in, ws_headers
 
@@ -481,14 +481,6 @@ def test_the_owner_browses_folders_inside_the_launch_folders_only(tmp_path):
         assert refused.status_code == 409 and "launches on" in refused.json()["detail"]
 
 
-def test_hidden_names_below_a_root_are_never_shown():
-    assert hidden_within("C:\\work\\.git\\config", ["C:\\work"]) and hidden_within("c:\\WORK\\api\\.env", ["C:\\work"])
-    assert hidden_within("/home/me/code/.ssh", ["/home/me/code"])
-    # A root may itself be inside a hidden folder: only names below it count.
-    assert not hidden_within("/home/me/.projects/app/main.go", ["/home/me/.projects"])
-    assert not hidden_within("C:\\work\\api\\main.go", ["C:\\work"]) and not hidden_within("C:\\work", ["C:\\work"])
-
-
 def test_the_owner_reads_files_only_on_a_machine_that_shares_them(tmp_path):
     app = create_app(org_settings(tmp_path))
     alice, dave = signed_in(app, "alice"), signed_in(app, "dave")
@@ -520,7 +512,7 @@ def test_the_owner_reads_files_only_on_a_machine_that_shares_them(tmp_path):
         assert answer["response"].json() == {"path": ROOT + "\\a.txt", "name": "a.txt", "size": 2, "modified": 1, "binary": False, "truncated": False, "content": "hi"}
 
         # Checked on the server before anything reaches the machine.
-        for path in ("C:\\Windows\\win.ini", ROOT + "\\..\\secrets.txt", ROOT + "\\.env", ROOT + "\\.git\\config"):
+        for path in ("C:\\Windows\\win.ini", ROOT + "\\..\\secrets.txt"):
             assert alice.get("/api/machines/m1/files/content", params={"path": path}).status_code == 400, path
         assert alice.get("/api/machines/m1/files/content").status_code == 400
         # Only the owner (and whom it grants files to): an admin sees the machine but not its files.

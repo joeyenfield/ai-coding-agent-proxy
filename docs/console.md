@@ -118,7 +118,7 @@ Click inside a terminal to type into that session; the focused tile has a highli
 
 - Each tile is headed by one short line: its state as a coloured dot and the agent's name. Press that title for the details underneath — its type, machine, folder, status, model and session id — and again to hide them; on a phone the model is left out.
 - **Text size** changes the grid's text from 6px to 16px without changing the agent's terminal dimensions; scroll inside a tile to see output that doesn't fit. A tile's open details shrink only what you see: the agent's terminal keeps its own size.
-- On a phone the tiles stack in one column; type a message in the full terminal view.
+- On a phone the tiles stack in one column. Tap a tile to bring up the keyboard in the message box above the quick keys; **Send** types the message into that tile's agent, with Enter.
 
 **Quick keys** run along the bottom of the page: Esc, Enter, the arrows, Scroll ↑/↓, PgUp/PgDn, Tab, ⇧Tab, Ctrl+C, and 1, 2, 3, y, n, as on the full terminal page. They go to the selected tile, named at the start of the bar. They are off for a tile shared with you to watch only, or whose agent has ended. On a phone they stay at the bottom of the screen as you scroll, so you can answer a prompt without opening the terminal.
 
@@ -411,7 +411,7 @@ Approve only a code from a sign-in you started: approving lets that computer use
 
 ![A machine's Files tab](screenshots/machine-files.png)
 
-**Files**: browse the folders and files inside the machine's launch folders, and click a file to read its text, with line numbers. Hidden files aren't shown, a file shows at most its first 1 MB, and a binary file isn't shown. The open folder and file are in the page's address, so a link opens the same view. It needs `agent-machine files on` there and the `files` feature ([Who may use a machine](machines.md#who-may-use-a-machine)).
+**Files**: browse the folders and files inside the machine's launch folders, and click a file to read its text, with line numbers. Hidden files (names starting with a dot, such as `.env` and `.git`) are shown too, a file shows at most its first 1 MB, and a binary file isn't shown. The open folder and file are in the page's address, so a link opens the same view. It needs `agent-machine files on` there and the `files` feature ([Who may use a machine](machines.md#who-may-use-a-machine)).
 
 ### Providers
 

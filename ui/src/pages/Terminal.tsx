@@ -52,8 +52,12 @@ const scroll = (term: Terminal | null, up: boolean) => {
   return up ? "\x1b[5~" : "\x1b[6~";
 };
 
-/** Sends keys made for the terminal as it is now; false when they couldn't go (not connected, watch only). */
-export type KeySender = (keys: (term: Terminal | null) => string) => boolean;
+/** Types into one terminal: keys made for it as it is now, or a message sent with Enter. Each is false
+ * when it couldn't go (not connected, watch only). */
+export type KeySender = {
+  keys: (keys: (term: Terminal | null) => string) => boolean;
+  text: (text: string) => boolean;
+};
 
 export const KEYS: { label: string; title: string; keys: (term: Terminal | null) => string }[] = [
   { label: "Esc", title: "Escape: interrupt the agent or close a menu", keys: () => "\x1b" },
@@ -134,13 +138,15 @@ export function TerminalPage() {
 }
 
 /** One viewer per session, shared by the full page and the terminal grid. */
-export function TerminalView({ sessionId, compact = false, gridFontSize = 9, fromGrid = false, onSender }: {
+export function TerminalView({ sessionId, compact = false, gridFontSize = 9, fromGrid = false, onSender, onTapToType }: {
   sessionId: string;
   compact?: boolean;
   gridFontSize?: number;
   fromGrid?: boolean;
   /** The grid's key bar types into whichever tile is selected, through this. */
   onSender?: (sender: KeySender | null) => void;
+  /** In the grid on a phone, a tap on the terminal raises the keyboard in the grid's message box. */
+  onTapToType?: () => void;
 }) {
   const notify = useToast();
   const copy = useClipboard();
@@ -330,7 +336,7 @@ export function TerminalView({ sessionId, compact = false, gridFontSize = 9, fro
 
   useEffect(() => {
     if (!onSender) return;
-    onSender((keys) => send({ keys: keys(term.current) }));
+    onSender({ keys: (keys) => send({ keys: keys(term.current) }), text: (text) => send({ text, enter: true }) });
     return () => onSender(null);
   }, [onSender, send]);
 
@@ -367,9 +373,12 @@ export function TerminalView({ sessionId, compact = false, gridFontSize = 9, fro
   const name = summary?.agent_name ?? info?.command ?? "Agent";
   const back = fromGrid ? { to: "/live-agents", label: "Live agent view" } : { to: "/terminals", label: "Running agents" };
   // On a phone the terminal takes no keystrokes itself (its hidden input mangles autocorrect and
-  // composed text), so a tap on it brings up the keyboard in the message box instead.
+  // composed text), so a tap on it brings up the keyboard in the message box instead: this page's, or
+  // the grid's. The focus has to happen in the tap itself, or the phone won't show the keyboard.
   const tapToType = () => {
-    if (touch && live && !compact) message.current?.focus();
+    if (!touch || !live) return;
+    if (compact) onTapToType?.();
+    else message.current?.focus();
   };
 
   return (

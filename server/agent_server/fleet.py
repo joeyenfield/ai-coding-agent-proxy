@@ -266,23 +266,6 @@ def within_roots(project: str, roots: list[str]) -> bool:
     return False
 
 
-def hidden_within(project: str, roots: list[str]) -> bool:
-    """Whether a name between the root holding project and project starts with a dot (.env, .git):
-    the file viewer never shows those. The machine checks it again after resolving links."""
-    for root in roots:
-        windows = ":" in root[:3] or "\\" in root
-        kind = PureWindowsPath if windows else PurePosixPath
-        try:
-            path, base = kind(project), kind(root)
-        except ValueError:
-            continue
-        if windows:
-            path, base = PureWindowsPath(str(path).lower()), PureWindowsPath(str(base).lower())
-        if path == base or base in path.parents:
-            return any(name.startswith(".") for name in path.parts[len(base.parts):])
-    return False
-
-
 class Fleet:
     """The machines: those connected now, and the rest from the database (machines table).
 
