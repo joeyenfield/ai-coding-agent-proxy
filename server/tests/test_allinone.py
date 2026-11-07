@@ -36,6 +36,9 @@ def test_it_copies_only_what_exists_and_is_published_with_the_others():
     workflow = (ROOT / ".github" / "workflows" / "images.yml").read_text(encoding="utf-8")
     assert "{ name: ai-control-mesh, dockerfile: allinone/Dockerfile }" in workflow
     assert "ai-control-mesh-site, ai-control-mesh]" in workflow
+    # One image's name starts another's (ai-control-mesh, ai-control-mesh-site): the merge job must
+    # take only its own platforms' digests, so their artifacts end the name with a character names lack.
+    assert "name: digests_${{ matrix.image.name }}_" in workflow and "pattern: digests_${{ matrix.image }}_*" in workflow
 
 
 def test_the_entrypoint_signs_in_with_the_quickstarts_device_flow_at_the_local_ports():
