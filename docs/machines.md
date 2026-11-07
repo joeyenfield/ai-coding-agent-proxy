@@ -432,7 +432,7 @@ It has the tools a person at a terminal reaches for, so the agents can use them 
 
 | For | Tools |
 |---|---|
-| Code | `git`, `git-lfs`, `gh` (GitHub CLI), `build-essential` (gcc, make), `pkg-config`, Node.js and npm, Python 3 with `pip`, `venv` and `pipx`, `sqlite3` |
+| Code | `git`, `git-lfs`, `gh` (GitHub CLI), `build-essential` (gcc, make), `pkg-config`, Node.js and npm, Python 3 (as `python` and `python3`) with `pip`, `venv` and `pipx`, `sqlite3` |
 | Network | `ping`, `tracepath`, `traceroute`, `dig` and `nslookup`, `ip`, `ifconfig`, `netstat`, `nc`, `telnet`, `socat`, `curl`, `wget` |
 | Remote | `ssh`, `scp`, `sftp`, `rsync` |
 | Files | `rg`, `fd`, `tree`, `file`, `jq`, `zip`/`unzip`, `xz`, `bzip2`, `zstd`, `nano`, `vi` |
