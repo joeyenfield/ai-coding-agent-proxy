@@ -3,6 +3,9 @@ import { useQuery } from "@tanstack/react-query";
 import { NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
 import { Marked, type Tokens } from "marked";
 import { api, apiUrl } from "../api";
+import { escapeHtml, mermaidBlock, slug, watchDiagrams } from "../markdown";
+
+export { slug };
 
 /** The documentation's pages (docs/*.md), in sections, in the order the index lists them. */
 export const DOC_SECTIONS: { title: string; pages: { id: string; label: string }[] }[] = [
@@ -66,19 +69,6 @@ export const DOC_SECTIONS: { title: string; pages: { id: string; label: string }
 /** Every page, in order. */
 export const DOC_PAGES = DOC_SECTIONS.flatMap((section) => section.pages);
 
-const escapeHtml = (text: string) => text.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
-
-/** A heading's anchor, the way GitHub makes them, so links written for the repository work here too. */
-export function slug(text: string): string {
-  return text
-    .trim()
-    .toLowerCase()
-    .replace(/<[^>]+>/g, "")
-    .replace(/[`*_]/g, "")
-    .replace(/[^\p{L}\p{N}\- ]/gu, "")
-    .replace(/ /g, "-");
-}
-
 /** Where a link in a page goes in the console: another page under /help, an anchor, an outside site, or nowhere. */
 export function docHref(href: string): string | null {
   if (/^(https?:|mailto:)/.test(href)) return href;
@@ -100,7 +90,7 @@ const markdown = new Marked({
     // A Mermaid diagram keeps its source in the page until mermaid.js draws it (renderDiagrams).
     code({ text, lang }: Tokens.Code) {
       if (lang?.trim() !== "mermaid") return false;
-      return `<div class="mermaid-diagram"><pre class="mermaid-source"><code>${escapeHtml(text)}</code></pre></div>\n`;
+      return mermaidBlock(text);
     },
     heading({ tokens, depth, text }: Tokens.Heading) {
       return `<h${depth} id="${escapeHtml(slug(text))}">${this.parser.parseInline(tokens)}</h${depth}>\n`;
@@ -119,54 +109,6 @@ const markdown = new Marked({
   },
 });
 
-let mermaidLoader: Promise<typeof import("mermaid").default> | null = null;
-let diagramCount = 0;
-
-/** Draws the page's Mermaid diagrams (sequence diagrams and others), in the console's light or dark theme.
- * mermaid.js is large, so it's only loaded on a page that has a diagram. */
-async function renderDiagrams(root: HTMLElement): Promise<void> {
-  const blocks = [...root.querySelectorAll<HTMLElement>(".mermaid-diagram")];
-  if (!blocks.length) return;
-  mermaidLoader ??= import("mermaid").then((module) => module.default);
-  let mermaid: Awaited<typeof mermaidLoader>;
-  try {
-    mermaid = await mermaidLoader;
-  } catch (error) {
-    // Most often a console from before the server's last update, whose mermaid.js is gone (main.tsx
-    // reloads for that). Try again next time, and say why on each diagram instead of leaving its source.
-    mermaidLoader = null;
-    for (const block of blocks) {
-      const source = block.dataset.source ?? block.querySelector(".mermaid-source")?.textContent ?? "";
-      block.dataset.source = source;
-      block.classList.add("mermaid-failed");
-      block.innerHTML = `<pre class="mermaid-source"><code>${escapeHtml(source)}</code></pre><p class="bad">The diagram drawer didn't load (${escapeHtml(String((error as Error)?.message ?? error))}). Reload the page.</p>`;
-    }
-    return;
-  }
-  const dark = document.documentElement.dataset.theme === "dark";
-  mermaid.initialize({
-    startOnLoad: false,
-    securityLevel: "strict",
-    theme: dark ? "dark" : "default",
-    fontFamily: "Inter Variable, Inter, sans-serif",
-    flowchart: { curve: "basis", wrappingWidth: 260, padding: 14 },
-    sequence: { mirrorActors: false, wrap: true, width: 170 },
-  });
-  for (const block of blocks) {
-    const source = block.dataset.source ?? block.querySelector(".mermaid-source")?.textContent ?? "";
-    block.dataset.source = source;
-    try {
-      const { svg } = await mermaid.render(`mermaid-${++diagramCount}`, source);
-      block.innerHTML = svg;
-      block.classList.remove("mermaid-failed");
-    } catch (error) {
-      // Show the source as it is, and why it couldn't be drawn.
-      block.classList.add("mermaid-failed");
-      block.innerHTML = `<pre class="mermaid-source"><code>${escapeHtml(source)}</code></pre><p class="bad">${escapeHtml(String((error as Error)?.message ?? error))}</p>`;
-    }
-  }
-}
-
 /**
  * The documentation (docs/ in the repository), served by this server: what every part of the system
  * does and how to use it. Public, like Downloads, so it can be read before signing in.
@@ -184,10 +126,7 @@ export function DocsPage() {
   useEffect(() => {
     const root = body.current;
     if (!html || !root) return;
-    void renderDiagrams(root);
-    const observer = new MutationObserver(() => void renderDiagrams(root));
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-    return () => observer.disconnect();
+    return watchDiagrams(root);
   }, [html]);
 
   // Go to the heading the address names once the page is in, or to the top of a new page.

@@ -103,11 +103,13 @@ Each run gets its own session, and results go to `benchmarks/results/<timestamp>
 The separate public brochure in `site/` has its own [preview and browser checks](website.md). It uses existing isolated-demo screenshots; changing the brochure does not require rebuilding the console.
 
 ```bash
-python scripts/screenshots/demo.py                                    # leave it running
+python scripts/screenshots/demo.py --capture [name,...]               # start the demo, take the screenshots, stop it
+python scripts/screenshots/demo.py                                    # or leave it running, to look around
 node scripts/screenshots/capture.mjs http://127.0.0.1:8199 docs/screenshots [name,...]
+python scripts/screenshots/demo.py --stop                             # stop one left running
 ```
 
-`demo.py` runs a self-contained server on port 8199 in a temporary home, so your database, `logs/` and accounts aren't touched. It has fake Ollama, Anthropic and Docker Model Runner servers, three made-up machines joined over the fleet socket (with fake model servers, metrics, catalogue results and containers), three made-up shared terminals you can type into, seeded account sessions, and live traffic. `scripts/screenshots/traffic.py` drives agent-like traffic through a server for smoke tests. Stop the demo with Ctrl+C.
+`demo.py` runs a self-contained server on port 8199 in a temporary home, so your database, `logs/` and accounts aren't touched. It has fake Ollama, Anthropic and Docker Model Runner servers, three made-up machines joined over the fleet socket (with fake model servers, metrics, catalogue results and containers), three made-up shared terminals you can type into, seeded account sessions, and live traffic. `scripts/screenshots/traffic.py` drives agent-like traffic through a server for smoke tests. Stop the demo with Ctrl+C, or with `--stop` from another shell: a demo started in the background (by an agent, say) is otherwise left running. Either way it stops the server and issuer it started and removes its folder, and a new demo removes any folders a killed one left.
 
 `capture.mjs` needs `playwright-core` and a browser (`npx playwright-core install chromium-headless-shell`, or point `chromium.launch({ executablePath })` at an installed one). Keep throwaway screenshot scripts outside the repository.
 

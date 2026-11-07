@@ -23,4 +23,5 @@ scripts/deploy-remote.sh
 scripts/deploy-setup-remote.sh
 # scripts/screenshots/demo.py's temporary home, left behind if it is killed
 .screenshot-demo-*/
+.screenshot-demo.json
 /.test-site/

@@ -1,6 +1,7 @@
 // Capture the screenshots in docs/ (README and docs/console.md): npm i playwright-core && npx playwright-core install chromium-headless-shell
 // (or set CHROMIUM_PATH to an installed Chromium or Edge)
-// python scripts/screenshots/demo.py                     (demo proxy with sample traffic on :8199)
+// python scripts/screenshots/demo.py --capture [name,...] (starts the demo, runs this, stops the demo)
+// python scripts/screenshots/demo.py                     (demo proxy with sample traffic on :8199; --stop stops it)
 // node scripts/screenshots/capture.mjs http://127.0.0.1:8199 docs/screenshots [name,name...]
 // Other servers require explicit SCREENSHOT_USERNAME, SCREENSHOT_PASSWORD and SCREENSHOT_ISSUER.
 import os from "node:os";

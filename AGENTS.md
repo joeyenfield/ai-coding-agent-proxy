@@ -104,7 +104,7 @@ agent-server db info|migrate|import      # the database
 agent-server user add <name> --org <org> # accounts (also org, team)
 agent-auth                               # the OIDC issuer on 127.0.0.1:10000
 ./scripts/dev.sh | .\scripts\dev.ps1     # API with reload + Vite on :5173
-python scripts/screenshots/demo.py       # self-contained demo on :8199 for visual checks
+python scripts/screenshots/demo.py       # self-contained demo on :8199 for visual checks (--capture [names] takes screenshots and stops; --stop stops a leftover)
 docker compose up -d                     # PostgreSQL, agent-auth and the server from ghcr.io
 cd quickstart && podman compose up -d    # the local demo stack (add -f compose.build.yaml --build to try changes)
 agent login <url>  ·  agent --list  ·  agent qwen . --model <model> --trace [--control]

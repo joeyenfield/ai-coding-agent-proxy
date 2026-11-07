@@ -7,10 +7,12 @@ made-up agent terminals with it and keeps real traffic streaming through it.
 Nothing touches your real logs, config, accounts or access key.
 The isolated issuer listens on :18200. Sign in as demo / demo-screenshot-password.
 
-    python scripts/screenshots/demo.py                # proxy on http://127.0.0.1:8199
+    python scripts/screenshots/demo.py --capture [name,...]   # start it, take the screenshots, stop it
+    python scripts/screenshots/demo.py                # proxy on http://127.0.0.1:8199, until stopped
     node scripts/screenshots/capture.mjs http://127.0.0.1:8199 docs/screenshots
+    python scripts/screenshots/demo.py --stop         # stop one left running (from another shell or agent)
 
-Stop it with Ctrl+C.
+Stop it with Ctrl+C, --stop or SIGTERM; each stops the server and issuer it started and removes its folder.
 """
 
 from __future__ import annotations
@@ -55,6 +57,84 @@ DEMO_USER, DEMO_PASSWORD = "demo", "demo-screenshot-password"
 DEMO_ORG = "demo-team"
 DEMO_ADMIN_PASSWORD = "demo-admin-screenshot-password"
 GB = 1024**3
+PORTS = (PROXY_PORT, AUTH_PORT, INTERCEPT_PORT, LAPTOP, DESKTOP, ANTHROPIC, DOCKER)
+# Where a running demo says what it started, so --stop (from another shell, or an agent that lost the
+# process) can stop it: the demo's own process id, its server's and issuer's, and its folder.
+STATE = ROOT / ".screenshot-demo.json"
+# Set once the seeded traffic is in, so --capture doesn't photograph an empty console.
+seeded = threading.Event()
+# Set as the demo stops, so its traffic and fake machines stop before the server does rather than erroring against it.
+stopping = threading.Event()
+
+
+def ports_in_use() -> list[int]:
+    import socket
+
+    busy = []
+    for port in PORTS:
+        with socket.socket() as probe:
+            if probe.connect_ex(("127.0.0.1", port)) == 0:
+                busy.append(port)
+    return busy
+
+
+def kill_tree(pid: int) -> None:
+    """Stops a process and whatever it started. On Windows a hard kill skips the demo's own cleanup,
+    so its children go too (/T); elsewhere SIGTERM lets the demo clean up itself."""
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
+        return
+    import signal
+
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+
+
+def remove_leftovers(keep: Path | None = None) -> None:
+    """Removes the folders of demos that were killed before they could remove their own."""
+    for folder in ROOT.glob(".screenshot-demo-*"):
+        if folder.is_dir() and folder != keep:
+            shutil.rmtree(folder, ignore_errors=True)
+
+
+def stop() -> int:
+    """--stop: stops the demo this checkout is running, if any, and tidies what killed ones left."""
+    try:
+        state = json.loads(STATE.read_text())
+    except (OSError, ValueError):
+        state = None
+    busy = ports_in_use()
+    # Only kill when the demo's ports are still taken: an old state file's process ids may belong to
+    # something else by now.
+    if state and busy:
+        for pid in [state.get("pid"), *state.get("children", [])]:
+            if isinstance(pid, int):
+                kill_tree(pid)
+        for _ in range(50):
+            if not ports_in_use():
+                break
+            time.sleep(0.2)
+    STATE.unlink(missing_ok=True)
+    left = ports_in_use()
+    if not left:
+        remove_leftovers()
+    if left:
+        print(f"Ports {', '.join(map(str, left))} are still in use, by something this demo didn't start (or "
+              f"started without {STATE.name}). Find it with netstat and stop it by hand.", file=sys.stderr)
+        return 1
+    print("demo stopped" if state and busy else "no demo was running", flush=True)
+    return 0
+
+
+def capture(names: str) -> int:
+    """--capture: the screenshots, from the demo this process is running."""
+    seeded.wait(timeout=120)
+    command = ["node", str(ROOT / "scripts" / "screenshots" / "capture.mjs"), PROXY, str(ROOT / "docs" / "screenshots")]
+    if names:
+        command.append(names)
+    return subprocess.run(command, cwd=ROOT).returncode
 
 
 class DemoCredentials(httpx.Auth):
@@ -113,11 +193,13 @@ class DemoSocket:
         from websockets.exceptions import ConnectionClosed
 
         with self.lock:
-            if self.closed:
+            if self.closed or stopping.is_set():
                 return
             try:
                 self.socket.send(data)
             except (ConnectionClosed, OSError):
+                if stopping.is_set():
+                    return
                 self._connect()
                 self.socket.send(data)
 
@@ -129,7 +211,7 @@ class DemoSocket:
     def __iter__(self):
         from websockets.exceptions import ConnectionClosed
 
-        while not self.closed:
+        while not self.closed and not stopping.is_set():
             try:
                 if time.monotonic() >= self.renew:
                     with self.lock:
@@ -138,7 +220,7 @@ class DemoSocket:
             except TimeoutError:
                 continue
             except (ConnectionClosed, OSError):
-                if not self.closed:
+                if not self.closed and not stopping.is_set():
                     time.sleep(1)
                     try:
                         with self.lock:
@@ -730,7 +812,7 @@ def share_terminals() -> None:
 
     def spin() -> None:
         frames, seconds = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏", 0
-        while True:
+        while not stopping.is_set():
             frame = frames[seconds % len(frames)]
             working.append(f"\r\x1b[K\x1b[33m{frame}\x1b[0m Thinking… ({seconds}s)".encode())
             codex.append(f"\r\x1b[K\x1b[36m{frame}\x1b[0m Working ({seconds + 40}s \xb7 esc to interrupt)".encode())
@@ -835,7 +917,7 @@ FLEET = [
 # build-box's folders inside its launch folders, for the folder picker (agent-machine lists them there).
 FOLDERS = {
     "/home/joey/code": ["api", "ai-coding-agent-proxy", "dotfiles", "web"],
-    "/home/joey/code/api": ["cmd", "internal", "migrations"],
+    "/home/joey/code/api": ["cmd", "docs", "internal", "migrations"],
     "/home/joey/code/api/internal": ["auth", "billing", "store"],
     "/home/joey/code/ai-coding-agent-proxy": ["client", "machine", "python", "server", "ui"],
     "/home/joey/code/web": ["public", "src"],
@@ -854,7 +936,16 @@ def fake_folders(request: dict, roots: list[str]) -> dict:
 
 # A few of build-box's files, for the file viewer (agent-machine reads them there).
 FILES = {
-    "/home/joey/code/api/README.md": "# api\n\nThe billing and accounts service.\n\n## Running it\n\n```bash\ngo run ./cmd/api --config config.yaml\n```\n\nIt listens on :8080 and keeps its data in PostgreSQL.\n",
+    "/home/joey/code/api/README.md": (
+        "# api\n\nThe billing and accounts service. To put it on a server, see [Deploying](docs/deploy.md).\n\n"
+        "## Running it\n\n```bash\ngo run ./cmd/api --config config.yaml\n```\n\n"
+        "It listens on **:8080** and keeps its data in PostgreSQL. The [`Makefile`](Makefile) builds and tests it.\n\n"
+        "| Setting | Default | What it does |\n| --- | --- | --- |\n| `listen` | `:8080` | The address it serves |\n"
+        "| `database` | none | The PostgreSQL URL |\n| `workers` | `4` | Webhook deliveries at once |\n\n"
+        "## Before a release\n\n- [x] Migrations run on a copy of production\n- [ ] Retries back off ([details](#running-it))\n\n"
+        "> Keep secrets in the environment, never in `config.yaml`.\n"
+    ),
+    "/home/joey/code/api/docs/deploy.md": "# Deploying\n\n1. Build the image: `make image`.\n2. Run the migrations.\n3. Roll the pods.\n\nBack to the [README](../README.md#running-it).\n",
     "/home/joey/code/api/go.mod": "module example.com/api\n\ngo 1.24\n\nrequire (\n\tgithub.com/jackc/pgx/v5 v5.7.2\n\tgolang.org/x/sync v0.10.0\n)\n",
     "/home/joey/code/api/Makefile": "build:\n\tgo build -o bin/api ./cmd/api\n\ntest:\n\tgo test ./...\n",
 }
@@ -1301,7 +1392,8 @@ def drive() -> None:
     client.post(f"{PROXY}/session/{hosted}/anthropic/v1/messages/count_tokens", json={"model": "claude-sonnet-5", "messages": []})
     openai_turn(client, opencode, "qwen3.8:latest")
     print("demo traffic seeded; streaming continuously", flush=True)
-    while True:
+    seeded.set()
+    while not stopping.is_set():
         # Two requests overlap so the Live page always has something mid-stream.
         threads = [threading.Thread(target=openai_turn, args=(client, qwen, "qwen3.6:35b")),
                    threading.Thread(target=openai_turn, args=(client, opencode, "qwen3.8:latest"))]
@@ -1313,16 +1405,34 @@ def drive() -> None:
 
 
 def main() -> None:
-    import socket
+    import argparse
+    import signal
 
     global credentials
-    for port in (PROXY_PORT, AUTH_PORT, INTERCEPT_PORT, LAPTOP, DESKTOP, ANTHROPIC, DOCKER):
-        with socket.socket() as probe:
-            if probe.connect_ex(("127.0.0.1", port)) == 0:
-                sys.exit(f"Port {port} is already in use; is another demo still running?")
+    parser = argparse.ArgumentParser(description="A self-contained demo server for screenshots and visual checks.")
+    parser.add_argument("--capture", nargs="?", const="", metavar="NAMES",
+                        help="take the screenshots (all, or these comma-separated ones) into docs/screenshots, then stop")
+    parser.add_argument("--stop", action="store_true", help="stop a demo left running, and remove what killed ones left")
+    args = parser.parse_args()
+    if args.stop:
+        sys.exit(stop())
+    busy = ports_in_use()
+    if busy:
+        sys.exit(f"Port {busy[0]} is already in use; is another demo still running? "
+                 "Stop it with: python scripts/screenshots/demo.py --stop")
+    remove_leftovers()
+
+    # A stopped background task or a closed terminal sends these, not Ctrl+C: clean up for them too.
+    def interrupted(*_: object) -> None:
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, interrupted)
+    if hasattr(signal, "SIGBREAK"):
+        signal.signal(signal.SIGBREAK, interrupted)
     random.seed(7)
     work = ROOT / f".screenshot-demo-{secrets.token_hex(6)}"
     work.mkdir(mode=0o700)
+    status = 0
     logs = work / "logs"
     settings = Settings(log_dir=logs, remote_key_file=work / "remote-access-key",
                         oidc_issuer=AUTH, oidc_audience=PROXY, oidc_state_dir=work / "oidc",
@@ -1342,6 +1452,10 @@ def main() -> None:
             credentials = DemoCredentials(issuer.provision("screenshot-demo", DEMO_USER))
     finally:
         issuer.auth.client.close()
+        # With SQLite the issuer reads accounts through a second, read-only handle on the demo's database;
+        # left open, it keeps the demo's folder from being removed on Windows.
+        if issuer.accounts is not issuer.state.db:
+            issuer.accounts.close()
         issuer.state.db.close()
     seed_accounts(db)
     seed_subscriptions(db)
@@ -1405,6 +1519,7 @@ def main() -> None:
                     time.sleep(0.2)
                 else:
                     raise RuntimeError(f"Demo service did not become ready: {url}")
+        STATE.write_text(json.dumps({"pid": os.getpid(), "children": [child.pid for child in children], "work": str(work)}))
         credentials.headers()
         print(f"demo proxy on {PROXY} (data in {work})", flush=True)
         print(f"isolated demo sign-in: {DEMO_USER} / {DEMO_PASSWORD}, admin demo-admin / {DEMO_ADMIN_PASSWORD}; issuer {AUTH}", flush=True)
@@ -1412,10 +1527,19 @@ def main() -> None:
         join_fleet()
         share_terminals()
         run_containers()
-        drive()
+        if args.capture is None:
+            drive()
+        else:
+            traffic = threading.Thread(target=drive, daemon=True)
+            traffic.start()
+            status = capture(args.capture)
+            stopping.set()
+            traffic.join(timeout=30)
     except KeyboardInterrupt:
         pass
     finally:
+        stopping.set()
+        STATE.unlink(missing_ok=True)
         for child in reversed(children):
             if child.poll() is None:
                 child.terminate()
@@ -1424,7 +1548,15 @@ def main() -> None:
                 except subprocess.TimeoutExpired:
                     child.kill()
                     child.wait(timeout=5)
-        shutil.rmtree(work, ignore_errors=True)
+        # Windows can hold the stopped server's SQLite file for a moment after it exits.
+        for _ in range(25):
+            shutil.rmtree(work, ignore_errors=True)
+            if not work.exists():
+                break
+            time.sleep(0.2)
+        else:
+            print(f"couldn't remove {work}; the next demo removes it", file=sys.stderr)
+    sys.exit(status)
 
 
 if __name__ == "__main__":

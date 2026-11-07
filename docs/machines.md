@@ -336,7 +336,7 @@ With `agent-machine commands on`, **Open a terminal** on the machine's page star
 
 ### Files
 
-With `agent-machine files on`, the machine's **Files** tab in the console browses its launch folders and shows a file's text. It only reads; nothing is changed on the machine.
+With `agent-machine files on`, the machine's **Files** tab in the console browses its launch folders and shows a file's text, with Markdown files rendered. It only reads; nothing is changed on the machine.
 
 - It needs the `files` feature (the owner, or organizations and teams granted it) and `files on`. Launches and terminals don't turn it on.
 - The server and the machine both check that the path is inside a root, and the machine checks again after following links.

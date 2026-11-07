@@ -411,7 +411,7 @@ Approve only a code from a sign-in you started: approving lets that computer use
 
 ![A machine's Files tab](screenshots/machine-files.png)
 
-**Files**: browse the folders and files inside the machine's launch folders, and click a file to read its text, with line numbers. Hidden files (names starting with a dot, such as `.env` and `.git`) are shown too, a file shows at most its first 1 MB, and a binary file isn't shown. The open folder and file are in the page's address, so a link opens the same view. It needs `agent-machine files on` there and the `files` feature ([Who may use a machine](machines.md#who-may-use-a-machine)).
+**Files**: browse the folders and files inside the machine's launch folders, and click a file to read its text, with line numbers. A Markdown file (`.md`) opens rendered, the way GitHub shows it: **Source** shows its text instead, links to other files in it open them here, raw HTML in it is shown as text, and only `https` pictures are loaded. With a file open, **Hide files** folds the list away to give the file the whole width; on a phone it folds away by itself when you open a file, and **Show files** brings it back. Hidden files (names starting with a dot, such as `.env` and `.git`) are shown too, a file shows at most its first 1 MB, and a binary file isn't shown. The open folder and file (and **Source**) are in the page's address, so a link opens the same view. It needs `agent-machine files on` there and the `files` feature ([Who may use a machine](machines.md#who-may-use-a-machine)).
 
 ### Providers
 
