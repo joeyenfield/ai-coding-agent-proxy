@@ -4,6 +4,7 @@ package command
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -30,7 +31,8 @@ const usage = `agent-machine puts this computer in an agent-server's fleet, so t
 LLM providers it runs (Ollama, llama.cpp, Strata, Docker Model Runner, containers) and start agents on it.
 
 Usage: agent-machine                           this machine as the fleet sees it
-       agent-machine login [url]               OIDC device sign-in, approved in a browser
+       agent-machine status --json             the same in short, as JSON (sign-in, running, toggles, folders)
+       agent-machine login [url]             OIDC device sign-in, approved in a browser
        agent-machine login [url] --code CODE   ...or with a setup code from the console's Machines page
                      [--enable LIST]           then switch toggles on, for example launches,commands
        agent-machine logout [url]
@@ -42,6 +44,7 @@ Usage: agent-machine                           this machine as the fleet sees it
        agent-machine servers on|off            let the server manage the model servers here: start and stop them, their settings and models (off by default)
        agent-machine launches on|off           let the server start agents here (off by default)
        agent-machine commands on|off           let you open a terminal here from the console, in a launch folder (off by default)
+       agent-machine files on|off              let the console browse and read the files in the launch folders (off by default)
        agent-machine roots add <dir>           a folder agents may be started in (and any folder inside it)
        agent-machine roots remove <dir>
        agent-machine mcp                       the MCP servers this machine shares with the server's agents
@@ -98,6 +101,9 @@ func Main(args []string) int {
 	case "stop":
 		return stop()
 	case "status":
+		if len(args) > 1 && args[1] == "--json" {
+			return showJSON(settings.LoadMachine())
+		}
 		show(settings.LoadMachine())
 		return 0
 	case "mcp":
@@ -122,6 +128,14 @@ func configure(args []string) int {
 		machine.Updates = args[1] == "on"
 		if machine.Updates {
 			printNotes(machine, "updates")
+		}
+	case "files":
+		if len(args) != 2 || (args[1] != "on" && args[1] != "off") {
+			return fail("files takes on or off")
+		}
+		machine.Files = args[1] == "on"
+		if machine.Files {
+			printNotes(machine, "files")
 		}
 	case "commands":
 		if len(args) != 2 || (args[1] != "on" && args[1] != "off") {
@@ -410,6 +424,43 @@ func stop() int {
 	return 0
 }
 
+// Status is `agent-machine status --json`: what a desktop helper (agent-tray) shows, with no
+// probing of providers or containers, so it answers at once. python/agent_py/machine keeps the same shape.
+type Status struct {
+	ID       string          `json:"id"`
+	Name     string          `json:"name"`
+	Version  string          `json:"version"`
+	Server   string          `json:"server"`
+	SignedIn bool            `json:"signed_in"`
+	User     string          `json:"user"`
+	Running  bool            `json:"running"`
+	State    string          `json:"state"`
+	PID      int             `json:"pid"`
+	Features map[string]bool `json:"features"`
+	Roots    []string        `json:"roots"`
+}
+
+func showJSON(machine *settings.Machine) int {
+	server := settings.Upstream{}.Server()
+	status := Status{ID: machine.ID, Name: machine.DisplayName(), Version: settings.Version, Server: server,
+		State: "stopped", Roots: append([]string{}, machine.Roots...), Features: map[string]bool{}}
+	if entry := settings.LoadCredentials().Servers[settings.Normalize(server)]; entry != nil && entry.AccessToken != "" {
+		status.SignedIn, status.User = true, entry.User
+	}
+	if os.Getenv(settings.TokenEnvironment) != "" {
+		status.SignedIn = true
+	}
+	if run := running(); run != nil {
+		status.Running, status.State, status.PID = true, run.State, run.PID
+	}
+	for _, name := range settings.Toggles {
+		status.Features[name] = machine.Toggle(name)
+	}
+	encoded, _ := json.Marshal(status)
+	fmt.Println(string(encoded))
+	return 0
+}
+
 func show(machine *settings.Machine) {
 	upstream := settings.Upstream{}
 	server := upstream.Server()
@@ -494,7 +545,12 @@ func show(machine *settings.Machine) {
 	} else {
 		fmt.Println("Commands  : off (agent-machine commands on)")
 	}
-	if machine.Launches && len(machine.Roots) == 0 {
+	if machine.Files {
+		fmt.Println("Files     : on: the console can browse and read the files in the launch folders")
+	} else {
+		fmt.Println("Files     : off (agent-machine files on)")
+	}
+	if (machine.Launches || machine.Files) && len(machine.Roots) == 0 {
 		fmt.Println("Folders   : none (agent-machine roots add <dir>)")
 	}
 	if servers, err := mcp.Load(); err == nil && len(servers) > 0 {

@@ -22,6 +22,7 @@ import { terminalState } from "./Terminals";
 import { MachineAccess } from "./MachineAccess";
 import { MachineMcp } from "./MachineMcp";
 import { MachineAccounts } from "./MachineAccounts";
+import { MachineFiles } from "./MachineFiles";
 import { STATE_LABELS } from "./Subscriptions";
 import { McpChoice } from "../components/McpChoice";
 
@@ -82,6 +83,7 @@ export function MachinePage() {
         </NavLink>
         <NavLink to={machinePath(machine.id, "agents")}>Agents</NavLink>
         <NavLink to={machinePath(machine.id, "terminal")}>Terminal</NavLink>
+        <NavLink to={machinePath(machine.id, "files")}>Files</NavLink>
         <NavLink to={providersPath(machine.id)}>
           Providers
           {providers.length > 0 && <span className="nav-note">{providers.length}</span>}
@@ -95,6 +97,7 @@ export function MachinePage() {
       {section === "" && <MachineSummary machine={machine} providers={providers} />}
       {section === "agents" && <MachineAgents machine={machine} />}
       {section === "terminal" && <MachineTerminal machine={machine} />}
+      {section === "files" && <MachineFiles machine={machine} />}
       {section === "providers" && <MachineProviders machine={machine} providers={providers} kind={kind} sub={sub} />}
       {section === "access" && <MachineAccess machine={machine} />}
       {section === "mcp" && <MachineMcp machine={machine} />}
@@ -117,7 +120,7 @@ export function MachinePage() {
 const refOf = (machine: FleetMachine, provider: MachineProvider): ProviderRef => ({ machine: machine.id, provider: provider.id });
 
 // The machine's tabs (its summary is the page itself).
-const SECTIONS = ["agents", "terminal", "providers", "load", "mcp", "accounts", "access"];
+const SECTIONS = ["agents", "terminal", "files", "providers", "load", "mcp", "accounts", "access"];
 
 /** Why the machine won't change its model servers now, or null when it will. */
 function unmanageable(machine: FleetMachine): string | null {
@@ -382,6 +385,7 @@ function MachineSummary({ machine, providers }: { machine: FleetMachine; provide
             }
           />
           <Feature machine={machine} name="Terminals" tab="terminal" on={Boolean(machine.commands)} you={machine.you.terminal} detail={machine.commands ? "A shell there, for whoever it lets in" : off("agent-machine commands on")} />
+          <Feature machine={machine} name="Files" tab="files" on={Boolean(machine.files)} you={machine.you.files} detail={machine.files ? "Browse and read the files in its launch folders" : off("agent-machine files on")} />
           <Feature
             machine={machine}
             name="Model servers"

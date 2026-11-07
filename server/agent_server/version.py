@@ -6,7 +6,8 @@ computes it for the Go programs and the Android app, this module for the server)
 
   - X.Y.Z when HEAD is tagged exactly vX.Y.Z and the tree is clean;
   - X.Y.Z+<short commit> otherwise, with .dirty when tracked files have uncommitted changes;
-  - X.Y.Z+unknown without git;
+  - without git, what a BUILD file beside VERSION says (a release bundle's, scripts/release/),
+    else X.Y.Z+unknown;
   - AI_PROXY_VERSION, when set, wins (Docker images, CI).
 
 PROTOCOL is the API level, raised only for a change older programs can't follow.
@@ -53,12 +54,21 @@ def build_version(root: Path = ROOT, environ: dict[str, str] | None = None) -> s
     base = base_version(root)
     describe = _git(root, "describe", "--tags", "--always", "--abbrev=7")
     if describe is None:
-        return f"{base}+unknown"
+        return _build_file(root) or f"{base}+unknown"
     dirty = is_dirty(root)
     if describe == f"v{base}" and not dirty:
         return base
     commit = _git(root, "rev-parse", "--short=7", "HEAD") or "unknown"
     return f"{base}+{commit}" + (".dirty" if dirty else "")
+
+
+def _build_file(root: Path) -> str | None:
+    """The version a release bundle was made as (it has no git): X.Y.Z or X.Y.Z+<commit>, nothing else."""
+    try:
+        text = (root / "BUILD").read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return text if re.fullmatch(r"\d+\.\d+\.\d+(\+[0-9A-Za-z.]+)?", text) else None
 
 
 def is_dirty(root: Path = ROOT) -> bool:

@@ -36,9 +36,12 @@ def script(kind: str, server: str, downloads: Downloads) -> str:
     index = downloads.index()
     lines = []
     for item in index["files"]:
-        if item["kind"] != "archive" or item["component"] not in {"agent", "agent-machine"}:
+        if item["kind"] == "wheel":
+            # The Python agent and agent-machine, for any system: --python, or no build for it.
+            pass
+        elif item["kind"] != "archive" or item["component"] not in {"agent", "agent-machine"}:
             continue
-        if (item["os"] == "windows") != (kind == "ps1"):
+        elif (item["os"] == "windows") != (kind == "ps1"):
             continue
         fields = [item["platform"], item["component"], item["sha256"], item["url"]]
         if all(SAFE_TEXT.fullmatch(str(field)) for field in fields):

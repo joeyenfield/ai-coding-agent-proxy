@@ -192,6 +192,9 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             # The browser sign-in's callbacks (the issuer knows them anyway). The Android app keeps sign-in in its
             # WebView on these hosts when the console's API isn't the address it was given (split hosting).
             "redirect_uris": settings.oidc_redirect_uris,
+            # The console's address for everyone else (proxy.public_url), if one is set: agent-tray
+            # opens it beside the loopback one.
+            "public_url": settings.public_url,
         }, headers={"Cache-Control": "no-store"})
 
     @app.get("/api/auth/login")

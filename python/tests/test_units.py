@@ -377,6 +377,63 @@ def test_folders_are_listed_in_order_without_files(tmp_path):
     assert answer["parent"] is None and not answer["truncated"]
 
 
+# machine/internal/presence/files_test.go: the file viewer's own checks
+
+def test_files_are_listed_and_read_only_inside_the_roots(tmp_path):
+    from agent_py.machine import files
+
+    root, outside = tmp_path / "work", tmp_path / "outside"
+    for path, data in {"README.md": b"# Hello\n", "b.txt": b"b", "src/main.go": b"package main\n", ".env": b"SECRET=1",
+                       ".git/config": b"[core]", "image.bin": b"\0\1\2"}.items():
+        (root / path).parent.mkdir(parents=True, exist_ok=True)
+        (root / path).write_bytes(data)
+    outside.mkdir()
+    (outside / "secret.txt").write_text("outside")
+    try:
+        os.symlink(outside / "secret.txt", root / "out.txt")
+        linked = True
+    except OSError:
+        linked = False
+    machine = machine_settings.Machine(id="m1", files=True, roots=[str(root)])
+
+    answer = files.answer({"request": "r1", "op": "list", "path": str(root)}, machine)
+    assert answer["ok"] and answer["type"] == "files_result" and answer["request"] == "r1"
+    # Folders first, then files, by name; nothing hidden and no link out of the root.
+    assert [f"{item['kind']}:{item['name']}" for item in answer["entries"]] == ["folder:src", "file:b.txt", "file:image.bin", "file:README.md"]
+    assert answer["parent"] is None
+    inside = files.answer({"op": "list", "path": str(root / "src")}, machine)
+    assert [item["name"] for item in inside["entries"]] == ["main.go"] and inside["parent"] == str(root)
+
+    read = files.answer({"op": "read", "path": str(root / "README.md")}, machine)
+    assert read["ok"] and read["content"] == "# Hello\n" and read["binary"] is False and read["truncated"] is False and read["size"] == 8
+    binary = files.answer({"op": "read", "path": str(root / "image.bin")}, machine)
+    assert binary["ok"] and binary["binary"] is True and "content" not in binary
+
+    refused = [("read", root / ".env"), ("read", root / ".git" / "config"), ("list", root / ".git"), ("read", outside / "secret.txt"),
+               ("read", root / ".." / "outside" / "secret.txt"), ("list", outside), ("read", root / "src"), ("read", "relative.txt"),
+               ("list", ""), ("delete", root / "b.txt")]
+    if linked:
+        refused.append(("read", root / "out.txt"))
+    for op, path in refused:
+        answer = files.answer({"op": op, "path": str(path)}, machine)
+        assert answer["ok"] is False and answer["error"], (op, path, answer)
+
+    # Launches and commands don't share files: only the files toggle does.
+    machine = machine_settings.Machine(id="m1", launches=True, commands=True, roots=[str(root)])
+    answer = files.answer({"op": "list", "path": str(root)}, machine)
+    assert answer["ok"] is False and "files on" in answer["error"]
+
+
+def test_files_reads_at_most_the_limit(tmp_path):
+    from agent_py.machine import files
+
+    # A two-byte character straddles the limit: it's dropped, and the rest is still text.
+    (tmp_path / "long.txt").write_bytes(b"a" * (files.FILE_READ_LIMIT - 1) + "é".encode() + b"tail")
+    machine = machine_settings.Machine(id="m1", files=True, roots=[str(tmp_path)])
+    answer = files.answer({"op": "read", "path": str(tmp_path / "long.txt")}, machine)
+    assert answer["ok"] and answer["truncated"] and answer["binary"] is False and len(answer["content"]) == files.FILE_READ_LIMIT - 1
+
+
 # machine/internal/mcp/bridge_test.go and command/mcp_test.go
 
 def test_a_broken_mcp_json_shares_nothing_and_says_why(tmp_path, monkeypatch, capsys):

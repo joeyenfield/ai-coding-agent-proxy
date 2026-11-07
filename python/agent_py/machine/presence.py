@@ -27,7 +27,7 @@ import httpx
 import websockets
 
 from .. import common
-from . import containers, mcp, providers, servers, settings
+from . import containers, files, mcp, providers, servers, settings
 
 UPDATE_EVERY = 60
 PING_EVERY = 25
@@ -581,6 +581,8 @@ class Presence:
                 await send(await asyncio.to_thread(self.remote_update, server, message))
             elif kind == "folders":
                 await send(await asyncio.to_thread(folders, message, settings.Machine.load()))
+            elif kind == "files":
+                await send(await asyncio.to_thread(files.answer, message, settings.Machine.load()))
         except asyncio.CancelledError:
             raise
         except Exception as error:
@@ -734,7 +736,7 @@ class Presence:
             "type": kind, "id": machine.id, "name": machine.display_name(), "hostname": socket.gethostname(),
             "os": common.goos(), "arch": common.goarch(), "version": common.VERSION, "protocol": common.PROTOCOL,
             "address": machine.address, "agents": self.installed_agents(server), "providers": found,
-            "launches": machine.launches, "roots": machine.roots, "commands": machine.commands, "updates": machine.updates,
+            "launches": machine.launches, "roots": machine.roots, "commands": machine.commands, "updates": machine.updates, "files": machine.files,
             # It carries agents' requests to its model servers itself, so the server needn't reach them.
             "tunnel": 1, "launcher": True,
             "containers": self.containers.describe(),

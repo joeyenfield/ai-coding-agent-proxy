@@ -922,6 +922,60 @@ def test_a_fleet_machine_lists_its_folders_and_opens_a_shell_when_commands_are_o
         assert record["agent"] == "shell" and record["session_id"] == session_id
 
 
+def test_a_fleet_machine_shows_its_files_only_when_files_are_on(tmp_path, agent_binary, machine_binary):
+    work = tmp_path / "work"
+    (work / "src").mkdir(parents=True)
+    (work / "src" / "main.go").write_text("package main\n")
+    (work / "README.md").write_bytes(b"# Hello\n")
+    (work / ".env").write_text("SECRET=1")
+    (work / "logo.png").write_bytes(b"\x89PNG\x00\x01")
+    with machine(tmp_path, agent_binary) as m, fleet_machine(m, machine_binary, tmp_path, ["roots", "add", str(work)], ["launches", "on"]) as fleet:
+        base = f"{m.server}/api/machines/{fleet.box['id']}"
+        # Launches alone don't share files.
+        assert fleet.box["files"] is False and "Files     : off" in fleet.status
+        refused = httpx.get(f"{base}/files", headers=m.headers, params={"path": str(work)}, timeout=30)
+        assert refused.status_code == 409 and "files on" in refused.json()["detail"]
+
+        fleet.command("files", "on")
+        deadline = time.monotonic() + 90
+        while time.monotonic() < deadline and not httpx.get(base, headers=m.headers).json()["files"]:
+            time.sleep(0.5)  # the machine says so in its next update, within a minute
+        listed = httpx.get(f"{base}/files", headers=m.headers, params={"path": str(work)}, timeout=30).json()
+        assert [(entry["kind"], entry["name"]) for entry in listed["entries"]] == [("folder", "src"), ("file", "logo.png"), ("file", "README.md")]
+        assert listed["parent"] is None
+        inside = httpx.get(f"{base}/files", headers=m.headers, params={"path": listed["entries"][0]["path"]}, timeout=30).json()
+        assert [entry["name"] for entry in inside["entries"]] == ["main.go"] and Path(inside["parent"]) == work
+
+        read = httpx.get(f"{base}/files/content", headers=m.headers, params={"path": str(work / "README.md")}, timeout=30).json()
+        assert (read["content"], read["binary"], read["truncated"], read["size"]) == ("# Hello\n", False, False, 8)
+        image = httpx.get(f"{base}/files/content", headers=m.headers, params={"path": str(work / "logo.png")}, timeout=30).json()
+        assert image["binary"] is True and image["content"] is None
+        # Hidden files and anything outside the launch folders stay on the machine.
+        assert httpx.get(f"{base}/files/content", headers=m.headers, params={"path": str(work / ".env")}, timeout=30).status_code == 400
+        assert httpx.get(f"{base}/files/content", headers=m.headers, params={"path": str(tmp_path / "machine-home" / "credentials.json")}, timeout=30).status_code == 400
+
+
+def test_the_status_agent_tray_reads_is_the_same_from_either_program(tmp_path, agent_binary, machine_binary):
+    # agent-machine status --json and agent proxy status --json: the sign-in, whether it runs, the toggles and folders.
+    work = tmp_path / "work"
+    work.mkdir()
+    with machine(tmp_path, agent_binary) as m, fleet_machine(m, machine_binary, tmp_path, ["roots", "add", str(work)], ["launches", "on"], ["files", "on"]) as fleet:
+        machine_env = {**m.env, "AI_PROXY_MACHINE_HOME": str(tmp_path / "machine-home"), "AI_PROXY_AGENT": str(m.binary)}
+        done = subprocess.run([str(machine_binary), "status", "--json"], env=machine_env, capture_output=True, text=True, timeout=30)
+        shown = json.loads(done.stdout)
+        assert shown["id"] == fleet.box["id"] and shown["server"] == m.server and shown["signed_in"] is True
+        assert shown["running"] is True and shown["state"].startswith("connected") and shown["pid"] > 0
+        assert shown["features"] == {"launches": True, "files": True, "commands": False, "updates": False, "servers": False, "containers": False}
+        assert [Path(root).resolve() for root in shown["roots"]] == [work.resolve()]
+        assert set(shown) == {"id", "name", "version", "server", "signed_in", "user", "running", "state", "pid", "features", "roots"}
+        proxy = json.loads(run_agent(m, "proxy", "status", "--json").stdout)
+        assert proxy["server"] == m.server and proxy["signed_in"] is True and proxy["port"] == int(m.env["AI_PROXY_LOCAL_PORT"])
+        assert set(proxy) == {"server", "signed_in", "user", "running", "port", "version"}
+    # Stopped and signed out, the same keys say so.
+    stopped = json.loads(subprocess.run([str(machine_binary), "status", "--json"], env=machine_env, capture_output=True, text=True, timeout=30).stdout)
+    assert stopped["running"] is False and stopped["pid"] == 0
+
+
 def test_the_console_updates_a_fleet_machine_that_takes_updates(tmp_path, agent_binary, machine_binary, monkeypatch):
     import hashlib
 

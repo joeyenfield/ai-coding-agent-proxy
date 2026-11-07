@@ -10,7 +10,7 @@ You need whichever of these you want to try:
 
 For how the pieces fit together, see [Architecture](architecture.md).
 
-**Just want to try it?** A quickstart runs the whole system on your computer with one command: the server, the sign-in service, a database, two fleet machines with coding agents and Ollama. [Quickstart with Docker or Podman](quickstart.md) walks you from `podman compose up` to an agent working in the console in about fifteen minutes, with no HTTPS or accounts to set up; [Quickstart on Kubernetes](quickstart-kubernetes.md) does the same on a local cluster with the Helm chart. Come back here when you want a real install.
+**Just want to try it?** A quickstart runs the whole system on your computer with one command: the server, the sign-in service, a database, two fleet machines with coding agents and Ollama. [Quickstart with Docker or Podman](quickstart.md) walks you from `podman compose up` to an agent working in the console in about fifteen minutes, with no HTTPS or accounts to set up; [Quickstart on Kubernetes](quickstart-kubernetes.md) does the same on a local cluster with the Helm chart. To run the server on your own computer, for you alone and without containers, use [Run it on your own computer](local.md): one command. Come back here when you want a real install.
 
 **Authentication prerequisite:** run the separate `agent-auth` issuer and configure HTTPS, callback URLs and the shared introspection secret as described in [OIDC authentication](oidc.md). API authentication is mandatory, including on loopback.
 
@@ -113,6 +113,8 @@ irm http://server:9999/install.ps1 | iex                             # Windows
 | `--prefix DIR` / `-Prefix` | Install somewhere else (default: `/usr/local/bin` as root, else `~/.local/bin`; on Windows `%LOCALAPPDATA%\Programs\agent-proxy`) |
 | `--no-login` / `-NoLogin` | Don't sign in; print the commands instead |
 | `--no-start` / `-NoStart` | Don't start `agent-machine` after signing it in |
+| `--python` / `-Python` | Install the Python versions instead, on any system with Python 3.9 or later |
+| `--no-tray` / `-NoTray` | Leave out the tray icon, which is otherwise put in on a desktop with Python 3.9 or later |
 
 The installer only works when the server has builds for its version in `dist/<version>/`. Build them on the server's computer with `./scripts/build-dist.sh` (or `.\scripts\build-dist.ps1`), which needs Go. In Docker, compose mounts `./dist` into the container.
 
@@ -120,7 +122,7 @@ The installer only works when the server has builds for its version in `dist/<ve
 
 **Building it yourself.** With Go 1.24 or later, `./scripts/build-client.sh` (or `.\scripts\build-client.ps1`) builds `client/bin/agent`. Put it on your `PATH`.
 
-A computer without a Go build can use the Python port instead. It installs the same commands (`agent`, `agent-proxy`, `agent-machine`) from the wheel the server offers on its Downloads page. See [Development](development.md).
+A computer without a Go build gets the Python port instead: the one-line installer switches to it by itself, or use `--python` (`-Python`) to choose it. It installs the same commands (`agent`, `agent-proxy`, `agent-machine`) from the wheel the server offers, checked against its SHA-256, into an environment of its own. See [Deployment](deployment.md#the-one-line-installers).
 
 ## 4. Sign the computer in
 

@@ -58,6 +58,7 @@ GitHub Actions (`.github/workflows/images.yml`) builds the images and pushes the
 | `ghcr.io/joeyenfield/agent-server` | `server/Dockerfile` | agent-server and its console; agent-auth is the same image with `entrypoint: [agent-auth]` |
 | `ghcr.io/joeyenfield/agent-sandbox` | `sandbox/Dockerfile` | A fleet machine in a container, with the coding agents ([Machines](machines.md)) |
 | `ghcr.io/joeyenfield/ai-control-mesh-site` | `site/Dockerfile` | The brochure website |
+| `ghcr.io/joeyenfield/ai-control-mesh` | `allinone/Dockerfile` | The whole system in one container, to try it: the server, sign-in and console, and a machine with the coding agents ([Run it on your own computer](local.md#try-it-in-one-container)) |
 
 | Pushed | Tags |
 |---|---|
@@ -244,6 +245,12 @@ The server writes each script for the request: its address as you reached it (ch
 | `--prefix DIR` | `-Prefix DIR` | Install into `DIR`. |
 | `--no-login` | `-NoLogin` | Don't sign in; print the commands instead. |
 | `--no-start` | `-NoStart` | Don't start `agent-machine` after signing it in. |
+| `--python` | `-Python` | Install the Python versions instead ([below](#native-packages-and-the-python-wheel)). |
+| `--no-tray` | `-NoTray` | Leave out the tray icon (below). |
+
+**On any system, with Python.** With `--python`, or when the server has no Go build for the computer's system or processor, the installer installs the Python wheel instead. That works anywhere with Python 3.9 or later. It checks the wheel's SHA-256 and installs it into an environment of its own: `~/.local/share/agent-py` (`/usr/local/lib/agent-py` as root, `%LOCALAPPDATA%\agent-py` on Windows). Then it puts `agent`, `agent-proxy` and `agent-machine` in the prefix, as links on Linux, macOS and FreeBSD and as copies of pip's launchers on Windows. Signing in is the same. `--service` sets up the Go `agent-machine` only, so start the Python one with `agent-machine start`.
+
+**The tray icon.** On a desktop (Windows, macOS, or Linux and BSD with a display), not as root, and with Python 3.9 or later, the installer also puts in `agent-tray`. It comes from the same wheel and environment, plus `pystray` and `Pillow` from PyPI. Only `agent-tray` is linked into the prefix, so the Go programs stay the ones you run. It starts when you sign in to the computer, and the installer starts it once. The icon shows whether this machine is in the fleet and whether agent is signed in, and starts and stops them ([The tray icon](local.md#the-tray-icon)). If it can't be installed, the installer says so and everything else works the same.
 
 `AGENT_PLATFORM` overrides the detected platform (such as `linux-arm64`). The console's **Downloads** page and **Add a machine** show the commands for your server, ready to copy.
 
@@ -334,7 +341,7 @@ Every archive has the same script (`uninstall.sh` or `uninstall.ps1`), which `in
 | `--prefix DIR` | `-Prefix DIR` | The folder they're in (default: `/usr/local/bin` as root, else `~/.local/bin`; `%LOCALAPPDATA%\Programs\agent-proxy` on Windows). |
 | `--purge` | `-Purge` | Also sign out and delete settings, sign-ins, logs and caches. |
 
-Without `--purge`, sign-ins and settings stay, so reinstalling picks up where you left off. Containers agent-machine ran, and the models it pulled, stay too. The machine stays in the server's fleet list until someone removes it there (the machine's page, **Remove from this server**; see [Machines](machines.md#removing-and-restoring-a-machine)). On Windows, a program that's still in use (an agent running through `agent.exe`) can't be deleted: the script says which, so close it and run the script again.
+Without `--purge`, sign-ins and settings stay, so reinstalling picks up where you left off. Containers agent-machine ran, and the models it pulled, stay too. The machine stays in the server's fleet list until someone removes it there (the machine's page, **Remove from this server**; see [Machines](machines.md#removing-and-restoring-a-machine)). On Windows, a program that's still in use (an agent running through `agent.exe`) can't be deleted: the script says which, so close it and run the script again. The one-line installer's Python environment (`agent-py`, above) stays too: delete its folder after the uninstaller removed the links or launchers.
 
 ## Versions and updates
 

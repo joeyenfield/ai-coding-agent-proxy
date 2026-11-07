@@ -58,8 +58,38 @@ def zip_bytes(platform: str, files: dict[str, bytes]) -> bytes:
     return buffer.getvalue()
 
 
+WHEEL = f"ai_proxy_agent_py-{VERSION}-py3-none-any.whl"
+
+
+def fake_wheel() -> bytes:
+    """A real wheel, small and with no dependencies: agent, agent-proxy and agent-machine print who they are."""
+    info = f"ai_proxy_agent_py-{VERSION}.dist-info"
+    files = {
+        "fake_agent_py/__init__.py": "import sys\n\ndef main():\n    print('python ' + ' '.join(sys.argv[1:]))\n",
+        # The tray extra brings nothing here, so pip installs it with no index.
+        f"{info}/METADATA": f"Metadata-Version: 2.1\nName: ai-proxy-agent-py\nVersion: {VERSION}\nProvides-Extra: tray\n",
+        f"{info}/WHEEL": "Wheel-Version: 1.0\nGenerator: test\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
+        f"{info}/entry_points.txt": "[console_scripts]\n" + "".join(f"{name} = fake_agent_py:main\n" for name in ("agent", "agent-proxy", "agent-machine"))
+        + "\n[gui_scripts]\nagent-tray = fake_agent_py:main\n",
+    }
+    records = [f"{name},sha256={base64_digest(text.encode())},{len(text.encode())}" for name, text in files.items()]
+    files[f"{info}/RECORD"] = "\n".join([*records, f"{info}/RECORD,,"]) + "\n"
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        for name, text in files.items():
+            archive.writestr(name, text)
+    return buffer.getvalue()
+
+
+def base64_digest(data: bytes) -> str:
+    import base64
+
+    return base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=").decode()
+
+
 def fake_build(dist: Path, broken: str | None = None) -> None:
     files = {
+        f"python/{WHEEL}": fake_wheel(),
         f"linux-amd64/agent-{VERSION}-linux-amd64.tar.gz": tar_gz("linux-amd64", {"agent": b"#!/bin/sh\n", "agent-proxy": b"#!/bin/sh\n", "install.sh": RECORD_SH.encode()}),
         f"linux-amd64/agent-machine-{VERSION}-linux-amd64.tar.gz": tar_gz("linux-amd64", {"agent-machine": b"#!/bin/sh\n", "install.sh": RECORD_SH.encode()}),
         f"windows-amd64/agent-{VERSION}-windows-amd64.zip": zip_bytes("windows-amd64", {"agent.exe": b"x", "install.ps1": RECORD_PS1.encode()}),
@@ -89,6 +119,10 @@ def test_the_scripts_carry_the_servers_address_and_its_builds(tmp_path):
         assert "windows-amd64" not in sh.text.split("FILES='")[1].split("'")[0]
         ps1 = client.get("/install.ps1").text
         assert "$Server = 'http://127.0.0.1:8181'" in ps1 and "windows-amd64 agent " in ps1 and "linux-amd64 agent " not in ps1
+        # The Python wheel is in both: it runs on any system.
+        wheel = hashlib.sha256((tmp_path / "dist" / VERSION / "python" / WHEEL).read_bytes()).hexdigest()
+        for text in (sh.text, ps1):
+            assert f"python python {wheel} /downloads/{VERSION}/python/{WHEEL}" in text
     # A Host header that isn't a plain address never reaches the script.
     downloads = Downloads(tmp_path / "dist")
     for host in ("http://x';rm -rf ~;'", "http://a$(id)", "http://a`id`:80", "javascript:x"):
@@ -127,7 +161,7 @@ def test_curl_pipe_sh_downloads_checks_and_runs_the_installer(tmp_path):
     with serve(app_for(tmp_path)) as server:
         env = {**os.environ, "RECORD": str(record).replace("\\", "/"), "AGENT_PLATFORM": "linux-amd64"}
         done = subprocess.run(
-            [sh_tools(), "-c", f"curl -fsSL {server}/install.sh | sh -s -- --no-login --service --prefix /opt/agents"],
+            [sh_tools(), "-c", f"curl -fsSL {server}/install.sh | sh -s -- --no-login --no-tray --service --prefix /opt/agents"],
             env=env, capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL,
         )
         assert done.returncode == 0, done.stdout + done.stderr
@@ -137,14 +171,14 @@ def test_curl_pipe_sh_downloads_checks_and_runs_the_installer(tmp_path):
         assert {"agent", "agent-proxy", "agent-machine", "install.sh"} <= set(ran[3:])
         assert "Next: agent login" in done.stdout and "Next: agent-machine login" in done.stdout
         record.unlink()
-        only = subprocess.run([sh_tools(), "-c", f"curl -fsSL {server}/install.sh | sh -s -- --only agent-machine --no-login"],
+        only = subprocess.run([sh_tools(), "-c", f"curl -fsSL {server}/install.sh | sh -s -- --only agent-machine --no-login --no-tray"],
                               env=env, capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL)
         assert only.returncode == 0 and "agent-proxy" not in record.read_text() and "agent-machine" in record.read_text()
     # A download that doesn't match its SHA-256 is never installed.
     fake_build(tmp_path / "dist", broken="agent-machine")
     record.unlink()
     with serve(app_for(tmp_path)) as server:
-        refused = subprocess.run([sh_tools(), "-c", f"curl -fsSL {server}/install.sh | sh -s -- --no-login"],
+        refused = subprocess.run([sh_tools(), "-c", f"curl -fsSL {server}/install.sh | sh -s -- --no-login --no-tray"],
                                  env=env, capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL)
         assert refused.returncode != 0 and "SHA-256" in refused.stderr and not record.exists()
 
@@ -156,13 +190,86 @@ def test_irm_iex_downloads_checks_and_runs_the_installer(tmp_path):
     with serve(app_for(tmp_path)) as server:
         command = (
             f"$env:AGENT_PLATFORM = 'windows-amd64'; $env:RECORD = '{record}'; "
-            f"& ([scriptblock]::Create((irm {server}/install.ps1))) -NoLogin -Prefix '{tmp_path / 'bin'}'"
+            f"& ([scriptblock]::Create((irm {server}/install.ps1))) -NoLogin -NoTray -Prefix '{tmp_path / 'bin'}'"
         )
         done = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
                               capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL)
         assert done.returncode == 0, done.stdout + done.stderr
         assert record.read_text().strip() == f"prefix={tmp_path / 'bin'} service=False"
         assert "Next: agent login" in done.stdout and "Next: agent-machine login" in done.stdout
+
+
+@pytest.mark.skipif(sh_tools() is None or sys.platform == "win32", reason="needs sh, curl and tar, and a Python whose venv has bin/")
+def test_curl_pipe_sh_installs_the_python_versions_with_python_or_for_a_system_without_a_build(tmp_path):
+    fake_build(tmp_path / "dist")
+    record = tmp_path / "ran.txt"
+    with serve(app_for(tmp_path)) as server:
+        for platform, options in (("linux-amd64", "--python"), ("plan9-amd64", "")):
+            bin_dir = tmp_path / platform / "bin"
+            # A display, so the tray goes in too: the fake wheel's agent-tray, which only prints.
+            env = {**{key: value for key, value in os.environ.items() if key != "PYTHONPATH"}, "RECORD": str(record), "AGENT_PLATFORM": platform,
+                   "XDG_DATA_HOME": str(tmp_path / platform / "data"), "XDG_CONFIG_HOME": str(tmp_path / platform / "config"), "DISPLAY": ":99"}
+            done = subprocess.run(
+                [sh_tools(), "-c", f"curl -fsSL {server}/install.sh | sh -s -- --no-login {options} --prefix {bin_dir}"],
+                env=env, capture_output=True, text=True, timeout=300, stdin=subprocess.DEVNULL,
+            )
+            assert done.returncode == 0, done.stdout + done.stderr
+            # Never the Go archives' installer: the wheel, in its own environment, linked into the prefix.
+            assert not record.exists()
+            assert (tmp_path / platform / "data" / "agent-py" / "venv").is_dir()
+            for program in ("agent", "agent-proxy", "agent-machine"):
+                ran = subprocess.run([str(bin_dir / program), "--version"], capture_output=True, text=True, timeout=60)
+                assert ran.stdout.strip() == "python --version"
+            assert "Next: agent login" in done.stdout
+            if not options:
+                assert "installing the Python versions instead" in done.stdout
+            assert "Installing the tray icon" in done.stdout and (bin_dir / "agent-tray").is_symlink()
+            assert "Its icon is in the system tray" in done.stdout
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows PowerShell")
+def test_irm_iex_installs_the_python_versions_with_python(tmp_path):
+    fake_build(tmp_path / "dist")
+    record = tmp_path / "ran.txt"
+    bin_dir = tmp_path / "bin"
+    # The installer puts its folder on the user's PATH, which is the real one here: put it back after.
+    import winreg
+
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as key:
+        before, kind = winreg.QueryValueEx(key, "Path")
+    run_key = r"Software\Microsoft\Windows\CurrentVersion\Run"
+
+    def starts_at_sign_in():
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, run_key) as key:
+            try:
+                return winreg.QueryValueEx(key, "AI Control Mesh")[0]
+            except FileNotFoundError:
+                return None
+
+    autostart = starts_at_sign_in()
+    try:
+        with serve(app_for(tmp_path)) as server:
+            # The tray goes in too, from the fake wheel (its agent-tray only prints). No PYTHONPATH, so the
+            # real agent_py.tray can't run and set this computer's own start at sign-in.
+            command = (
+                f"$env:RECORD = '{record}'; $env:LOCALAPPDATA = '{tmp_path / 'local'}'; $env:PYTHONPATH = ''; "
+                f"& ([scriptblock]::Create((irm {server}/install.ps1))) -NoLogin -Python -Prefix '{bin_dir}'"
+            )
+            done = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+                                  capture_output=True, text=True, timeout=300, stdin=subprocess.DEVNULL)
+            assert done.returncode == 0, done.stdout + done.stderr
+    finally:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_SET_VALUE) as key:
+            winreg.SetValueEx(key, "Path", 0, kind, before)
+    assert not record.exists()
+    assert (tmp_path / "local" / "agent-py" / "venv").is_dir()
+    for program in ("agent", "agent-proxy", "agent-machine"):
+        ran = subprocess.run([str(bin_dir / f"{program}.exe"), "--version"], capture_output=True, text=True, timeout=60)
+        assert ran.stdout.strip() == "python --version"
+    assert "Next: agent login" in done.stdout and "Next: agent-machine login" in done.stdout
+    assert "Installing the tray icon" in done.stdout and (tmp_path / "local" / "agent-py" / "venv" / "Scripts" / "agent-tray.exe").is_file()
+    assert "Its icon is in the system tray" in done.stdout
+    assert starts_at_sign_in() == autostart
 
 
 def test_the_uninstallers_are_public_and_need_no_build(tmp_path):

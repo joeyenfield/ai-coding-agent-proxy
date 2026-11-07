@@ -20,6 +20,9 @@ dependencies = [
 [project.optional-dependencies]
 # psutil: CPU and memory figures on every platform (without it: /proc on Linux, the Windows API on Windows).
 metrics = ["psutil>=5.9"]
+# agent-tray: the icon in the system tray (pystray, which draws it with Pillow; on Linux it
+# brings python-xlib for X11's tray).
+tray = ["pystray>=0.19", "Pillow>=10"]
 dev = ["pytest>=8.0", "psutil>=5.9"]
 
 # The same commands as the Go programs, so either installs the same way: install one or the other on a computer.
@@ -27,6 +30,10 @@ dev = ["pytest>=8.0", "psutil>=5.9"]
 agent = "agent_py.client:main"
 agent-proxy = "agent_py.client:proxy_main"
 agent-machine = "agent_py.machine:main"
+
+# A windowed program on Windows (no console). It runs the commands above, Go's or these.
+[project.gui-scripts]
+agent-tray = "agent_py.tray:main"
 
 [tool.setuptools.packages.find]
 include = ["agent_py*"]

@@ -130,7 +130,7 @@ Old options: `--proxy` is refused with a pointer to `agent login`. `--no-remote`
 | Command | What it does |
 |---|---|
 | `agent login`, `agent logout` | Sign this computer in to a server, or forget a sign-in. See [Signing in](#signing-in-agent-login-and-agent-logout). |
-| `agent proxy`, `agent proxy stop` | Run this computer's `agent-proxy` in the foreground, or stop it. See [The agent-proxy](#the-agent-proxy). |
+| `agent proxy`, `agent proxy stop`, `agent proxy status [--json]` | Run this computer's `agent-proxy` in the foreground, stop it, or show which server it signs in to, as whom, and whether it runs. See [The agent-proxy](#the-agent-proxy). |
 | `agent update [--force] [--server url]` | Replaces `agent` and `agent-proxy` with the build the server offers for this platform, checked against the server's SHA-256, then stops the running `agent-proxy` so the new one takes over: agents still running start it again within seconds, else the next agent does. It does nothing when the server's version is this one, unless you pass `--force`. `--server` names the server to update from (default: the one the `agent-proxy` uses). If the server has no build of its exact version, it takes the closest one and says so. See [Deployment](deployment.md) for how the server hands out builds. |
 | `agent accounts list\|detect\|status\|enroll` | Your AI subscriptions (provider accounts), the provider CLIs here and whether each is signed in, and registering this computer as a machine one runs on. See [Subscriptions](subscriptions.md#agent-accounts). |
 | `agent version` (or `agent --version`) | Prints the version and the protocol level. |
@@ -198,6 +198,7 @@ The launcher starts it in the background when it isn't running. You can also run
 agent proxy                          # in the foreground
 agent proxy --server http://server:9999 --port 8184 --intercept-port 8183
 agent proxy stop                     # stop the one running here; the next agent starts it again
+agent proxy status                   # its server, who's signed in, and whether it runs (--json: server, signed_in, user, running, port, version)
 ```
 
 `--server` fixes the server for this run. Without it, the server is `AI_PROXY_URL`, then the one from `agent login`, then `http://127.0.0.1:9999`. The `agent-proxy` binary (`cmd/agent-proxy`) takes the same options. Its log is `agent-proxy.log` beside `credentials.json`. If the ports are taken, it says whether by another `agent-proxy` or another program.

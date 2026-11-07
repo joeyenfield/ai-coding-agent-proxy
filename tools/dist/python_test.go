@@ -34,6 +34,9 @@ metrics = ["psutil>=5.9"]
 agent-py = "agent_py.client:main"
 agent-machine-py = "agent_py.machine:main"
 
+[project.gui-scripts]
+agent-tray-py = "agent_py.tray:main"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 `
@@ -71,7 +74,8 @@ func TestReadPyProjectTakesTheProjectTables(t *testing.T) {
 	if strings.Join(project.Dependencies, "|") != "httpx>=0.27|pywinpty>=2; sys_platform == 'win32'" {
 		t.Fatalf("dependencies: %q", project.Dependencies)
 	}
-	if project.Extras["metrics"][0] != "psutil>=5.9" || project.Scripts["agent-machine-py"] != "agent_py.machine:main" {
+	if project.Extras["metrics"][0] != "psutil>=5.9" || project.Scripts["agent-machine-py"] != "agent_py.machine:main" ||
+		project.GUIScripts["agent-tray-py"] != "agent_py.tray:main" {
 		t.Fatalf("extras %v, scripts %v", project.Extras, project.Scripts)
 	}
 }
@@ -132,7 +136,7 @@ func TestTheWheelIsInstallableAndTheSameFromAnyCheckout(t *testing.T) {
 			t.Errorf("METADATA lacks %q:\n%s", line, metadata)
 		}
 	}
-	if files[info+"entry_points.txt"] != "[console_scripts]\nagent-machine-py = agent_py.machine:main\nagent-py = agent_py.client:main\n" {
+	if files[info+"entry_points.txt"] != "[console_scripts]\nagent-machine-py = agent_py.machine:main\nagent-py = agent_py.client:main\n\n[gui_scripts]\nagent-tray-py = agent_py.tray:main\n" {
 		t.Errorf("entry points: %q", files[info+"entry_points.txt"])
 	}
 	// Every file's hash is in RECORD, as pip checks.

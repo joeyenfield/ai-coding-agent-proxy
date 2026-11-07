@@ -15,7 +15,7 @@ Notes for coding agents (and people) changing this repository. `README.md` is th
 | `python/` | `.context/python.md`, plus `client.md` or `machine.md`, which it mirrors |
 | `ui/` | `.context/console.md` (pages, data layer, Machine page, checking visually, writing `docs/` pages) |
 | `android/` | `.context/android.md` |
-| `tools/`, `scripts/`, Docker, `deploy/helm/`, `sandbox/`, `site/`, `quickstart/` | `.context/build-and-deploy.md` (versions, dist, installers and testing them, images, Compose, deploy) |
+| `tools/`, `scripts/`, Docker, `deploy/helm/`, `sandbox/`, `allinone/`, `site/`, `quickstart/` | `.context/build-and-deploy.md` (versions, dist, installers and testing them, images, Compose, deploy) |
 | Sign-in, tokens, roles, tenants, sharing, machine grants, or any new route | `.context/auth.md` |
 
 When a change alters a component's shape (a module, message type, boundary, file on disk or invariant), update its `.context/` file in the same change. Where `.context/` or this file disagree with the code, the code wins: fix the document.
@@ -49,7 +49,7 @@ The rules that shape everything (each explained in `.context/overview.md`):
 - **The server owns the logic.** Agent definitions, template rendering and backend choice (`serves()`, `backend_for()`) are Python; the client, console and machines take them from the API and never re-derive them.
 - **The server never manages a model server.** It only forwards agents' traffic. Listing, pulling, status, logs, settings and start/stop are fleet requests to the machine that runs it. Local backends come only from machines; hosted APIs (`anthropic`) are the one exception.
 - **Every upstream call to a machine's model server uses `runtime.tunnels.base_url(backend)`**, never `backend.url`.
-- **The Python programs do everything the Go ones do.** A change to `client/` or `machine/` is made in `python/` in the same change, with mirroring tests. The Go code is the reference. Any API change between the client or machine and the server is made in Go and Python and covered by `server/tests/test_client.py`.
+- **The Python programs do everything the Go ones do.** A change to `client/` or `machine/` is made in `python/` in the same change, with mirroring tests. The Go code is the reference. Any API change between the client or machine and the server is made in Go and Python and covered by `server/tests/test_client.py`. The one Python-only program is `agent-tray` (`python/agent_py/tray.py`), a desktop helper that only runs the other programs' commands.
 - **Authentication is mandatory** (OIDC, protocol 2): no loopback trust, no access key, no anonymous mode. **Tenants come first**: check the tenant before roles, sharing or grants. Every new route goes into `ADMIN_ONLY`/`SITE_ADMIN_ONLY` as needed and checks sharing or machine features (`.context/auth.md`).
 - **One version, one protocol.** `VERSION` is the one hand-written version; raise `PROTOCOL` for a change older programs can't follow (`.context/build-and-deploy.md`).
 
@@ -64,9 +64,10 @@ python/agent_py/       the Python agent, agent-proxy and agent-machine
 ui/src/                the console: api.ts, navigation.ts, pages/, components/, styles.css
 android/               the Android app
 tools/dist/            builds every platform's archives, packages, the wheel and the APK (Go module)
-scripts/               build, dev, deploy and screenshot scripts (.sh/.ps1 pairs)
+scripts/               build, dev, deploy and screenshot scripts (.sh/.ps1 pairs); release/ makes a GitHub Release's files
 deploy/helm/agent-mesh/  the Kubernetes chart
 quickstart/  sandbox/  site/   the local demo stack, the sandbox image, the brochure site
+allinone/              the ai-control-mesh image: the whole system in one container, to try it
 docs/                  user documentation, also served by the console at /help
 .context/              the design of each component (read it first)
 logs/ certs/ dist/ ui/dist/ client/bin/ machine/bin/   runtime output and builds, all gitignored
@@ -94,6 +95,10 @@ helm lint --strict deploy/helm/agent-mesh -f deploy/helm/agent-mesh/ci/<file>.ya
 
 agent-server                             # API + ui/dist on 0.0.0.0:9999; rebuilds ui/dist first if stale
 agent-server --reload --no-build         # Python auto-reload, skip the UI build
+agent-server local [start|stop|status]   # a whole instance for one person on loopback 19999/20000 (scripts/install-local.sh|.ps1 installs and starts it)
+python scripts/release/release.py --version X.Y.Z --base-url <url>   # a GitHub Release's files and web installers (release.yml runs it on v* tags)
+agent-tray [--status] [--autostart on|off]   # the tray icon (pip install "./python[tray]"); --status prints what it shows
+podman build --http-proxy=false -f allinone/Dockerfile --build-arg AGENTS= -t ai-control-mesh .   # the all-in-one image (AGENTS= skips the npm agents)
 agent-server config export|import        # every setting as one YAML document
 agent-server db info|migrate|import      # the database
 agent-server user add <name> --org <org> # accounts (also org, team)

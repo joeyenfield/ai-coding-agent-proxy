@@ -133,6 +133,15 @@ Compatibility is `PROTOCOL`, an integer in `version.py` and in `settings.Protoco
 
 To release, change `VERSION`, commit, tag `vX.Y.Z`, and build the distributions.
 
+Pushing the tag also runs `.github/workflows/release.yml`, which makes the GitHub Release the web installer downloads from ([Run it on your own computer](local.md)). It builds the console and `tools/dist` without packages or the Android app. Then `scripts/release/release.py` writes the release's files:
+
+- the server bundle `ai-control-mesh-X.Y.Z.zip`: `VERSION`, a `BUILD` file naming the version (it has no git), the server's sources, `ui/dist`, `docs/` and `benchmarks/tests`;
+- every `agent` and `agent-machine` archive, and the Python wheel (required: it's what the installers' `--python` and any system without a Go build use);
+- `install-local.sh` and `install-local.ps1`, filled in from `scripts/release/` with the release's address and every download's SHA-256;
+- `SHA256SUMS`.
+
+The workflow refuses a tag that isn't `v` plus `VERSION`. Run by hand (Actions › Release), it keeps the files as a workflow artifact and makes no release. To try an installer before tagging, make the files with `--base-url http://127.0.0.1:<port>`, serve the folder, and run it with `AI_PROXY_LOCAL_HOME` and `--prefix` set to scratch folders.
+
 ### Distributions
 
 `scripts/build-dist.sh` (`.\scripts\build-dist.ps1`) runs `tools/dist` (`go run ./dist` in `tools/`), which builds both Go components for every target with `CGO_ENABLED=0`, packs them, and builds the Android app and the Python wheel.

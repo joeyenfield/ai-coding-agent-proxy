@@ -36,6 +36,9 @@ type Machine struct {
 	// Updates lets the server update agent-machine (and agent) here to its own build, from the
 	// console. It replaces the programs here, so it's off until the owner turns it on.
 	Updates bool `json:"updates"`
+	// Files lets the console list the files in the roots and read them, through the machine's
+	// file viewer. It sends file contents to the server, so it's off until the owner turns it on.
+	Files bool `json:"files"`
 }
 
 func MachinePath() string {
@@ -75,7 +78,7 @@ func (m *Machine) Save() error {
 }
 
 // Toggles are machine.json's on/off switches, by the names `agent-machine <name> on|off` takes.
-var Toggles = []string{"launches", "commands", "updates", "servers", "containers"}
+var Toggles = []string{"launches", "commands", "files", "updates", "servers", "containers"}
 
 // ParseToggles reads a comma-separated list of toggles (login --enable), with "terminals" for
 // commands, as the console calls what it allows. Empty names are skipped; an unknown one is an error.
@@ -108,6 +111,8 @@ func (m *Machine) SetToggle(name string, on bool) {
 		m.Launches = on
 	case "commands":
 		m.Commands = on
+	case "files":
+		m.Files = on
 	case "updates":
 		m.Updates = on
 	case "servers":
@@ -117,11 +122,35 @@ func (m *Machine) SetToggle(name string, on bool) {
 	}
 }
 
+// Toggle says whether one of Toggles is on.
+func (m *Machine) Toggle(name string) bool {
+	switch name {
+	case "launches":
+		return m.Launches
+	case "commands":
+		return m.Commands
+	case "files":
+		return m.Files
+	case "updates":
+		return m.Updates
+	case "servers":
+		return m.Servers
+	case "containers":
+		return m.Containers
+	}
+	return false
+}
+
 // ToggleNotes is what `agent-machine <name> on` tells the owner about the toggle just switched on.
 func (m *Machine) ToggleNotes(name string) []string {
 	switch name {
 	case "updates":
 		return []string{"Updates are on: the machine's owner or an admin can update agent-machine and agent here to the server's build from the console."}
+	case "files":
+		if len(m.Roots) == 0 {
+			return []string{"Files are on, but there's no folder to browse yet: agent-machine roots add <dir>"}
+		}
+		return []string{"Files are on: the machine's owner, and whoever it grants files to, can browse and read the files in its launch folders from the console."}
 	case "commands":
 		notes := []string{"Commands are on: signed in as this machine's owner, you can open a terminal here from the console, as this user."}
 		if len(m.Roots) == 0 {

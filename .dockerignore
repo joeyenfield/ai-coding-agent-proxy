@@ -1,5 +1,6 @@
-# The build context of both images: agent-server (server/Dockerfile: server/, ui/, config/,
-# benchmarks/tests) and agent-sandbox (sandbox/Dockerfile: client/, machine/, sandbox/).
+# The build context of the images: agent-server (server/Dockerfile: server/, ui/, config/,
+# benchmarks/tests), agent-sandbox (sandbox/Dockerfile: client/, machine/, sandbox/) and
+# ai-control-mesh (allinone/Dockerfile: all of those, docs/, quickstart/machine.py, allinone/).
 .git
 .env
 # Local agent, environment and validation output is never part of either image.

@@ -1,6 +1,7 @@
 package localproxy
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -28,12 +29,16 @@ func Main(name string, args []string) int {
 	if len(args) > 0 && args[0] == "stop" {
 		return stopCommand(name)
 	}
+	if len(args) > 0 && args[0] == "status" {
+		return statusCommand(len(args) > 1 && args[1] == "--json")
+	}
 	flags := flag.NewFlagSet(name, flag.ContinueOnError)
 	flags.Usage = func() {
-		fmt.Fprintf(flags.Output(), "Usage: %s [--server URL] [--port N] [--intercept-port N]\n       %s stop\n\n"+
+		fmt.Fprintf(flags.Output(), "Usage: %s [--server URL] [--port N] [--intercept-port N]\n       %s stop\n       %s status [--json]\n\n"+
 			"The proxy on this agent machine. Agents started with `agent` register with it, and it carries\n"+
 			"their traffic to the agent-server this machine signed in to with `agent login <server>`.\n"+
-			"stop asks the one running here to exit (agent starts it again when needed).\n\n", name, name)
+			"stop asks the one running here to exit (agent starts it again when needed).\n"+
+			"status says which server it signs in to, as whom, and whether it's running.\n\n", name, name, name)
 		flags.PrintDefaults()
 	}
 	server := flags.String("server", "", "The agent-server to use (default: AI_PROXY_URL, then the one from `agent login`, then "+settings.DefaultServer+")")
@@ -93,6 +98,50 @@ func stopCommand(name string) int {
 	default:
 		fmt.Println("agent-proxy stopped; `agent` starts it again when needed.")
 	}
+	return 0
+}
+
+// Status is `agent proxy status --json`, what a desktop helper (agent-tray) shows.
+// python/agent_py/client/localproxy.py keeps the same shape.
+type Status struct {
+	Server   string `json:"server"`
+	SignedIn bool   `json:"signed_in"`
+	User     string `json:"user"`
+	Running  bool   `json:"running"`
+	Port     int    `json:"port"`
+	Version  string `json:"version"`
+}
+
+// CurrentStatus reads the sign-in and asks the agent-proxy on this computer's port whether it runs.
+func CurrentStatus() Status {
+	server := settings.Upstream{}.Server()
+	status := Status{Server: server, Port: settings.ProxyPort()}
+	if entry := settings.LoadCredentials().Servers[settings.Normalize(server)]; entry != nil && entry.AccessToken != "" {
+		status.SignedIn, status.User = true, entry.User
+	}
+	if running := api.Health(settings.ProxyURL()); running != nil && running["role"] == "agent-proxy" {
+		status.Running = true
+		status.Version, _ = running["version"].(string)
+	}
+	return status
+}
+
+func statusCommand(asJSON bool) int {
+	status := CurrentStatus()
+	if asJSON {
+		encoded, _ := json.Marshal(status)
+		fmt.Println(string(encoded))
+		return 0
+	}
+	signedIn := "not signed in (agent login " + status.Server + ")"
+	if status.SignedIn {
+		signedIn = "signed in as " + status.User
+	}
+	running := "not running (agent starts it when needed)"
+	if status.Running {
+		running = fmt.Sprintf("running on 127.0.0.1:%d (%s)", status.Port, status.Version)
+	}
+	fmt.Printf("Server     : %s, %s\nagent-proxy: %s\n", status.Server, signedIn, running)
 	return 0
 }
 

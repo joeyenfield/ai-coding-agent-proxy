@@ -71,7 +71,7 @@ RECONNECT_WAIT = 10.0
 # (channel, op). Changes (pull, start, delete, ...) never are: the machine may have done them already.
 READ_ONLY = {
     ("provider", "status"), ("provider", "models"), ("provider", "log"), ("provider", "metrics"), ("provider", "search"),
-    ("container", "status"), ("container", "logs"), ("folders", "list"), ("server", "settings"),
+    ("container", "status"), ("container", "logs"), ("folders", "list"), ("files", "list"), ("files", "read"), ("server", "settings"),
 }
 # The client a shell's session names (`agent --shell`): it stays private, as it's a remote terminal.
 SHELL_CLIENT = "shell"
@@ -109,6 +109,8 @@ class Machine:
     commands: bool = False
     # Whether the server may update its programs to the server's own build (agent-machine updates on).
     updates: bool = False
+    # Whether the console may browse and read the files in its launch folders (agent-machine files on).
+    files: bool = False
     # Who else may use each feature (FEATURES): {"launch": {"orgs": [...], "teams": ["org/team", ...]}}.
     # Its owner may use them all; the machine's own switches (launches on, ...) still apply on top.
     access: dict[str, dict[str, list[str]]] = field(default_factory=dict)
@@ -153,6 +155,7 @@ FEATURES: dict[str, str] = {
     "view": "See it: its model servers, their models and logs, its load and the agents running there",
     "launch": "Start agents there, and browse its launch folders",
     "terminal": "Open terminals there: a shell as the user agent-machine runs as",
+    "files": "Browse the files in its launch folders and read them",
     "models": "Pull, delete, load and unload models on its model servers",
     "servers": "Install llama.cpp; start, stop and configure the Ollama, llama.cpp and Strata installed there",
     "update": "Update agent-machine and agent there to this server's build",
@@ -260,6 +263,23 @@ def within_roots(project: str, roots: list[str]) -> bool:
             path, base = PureWindowsPath(str(path).lower()), PureWindowsPath(str(base).lower())
         if path == base or base in path.parents:
             return True
+    return False
+
+
+def hidden_within(project: str, roots: list[str]) -> bool:
+    """Whether a name between the root holding project and project starts with a dot (.env, .git):
+    the file viewer never shows those. The machine checks it again after resolving links."""
+    for root in roots:
+        windows = ":" in root[:3] or "\\" in root
+        kind = PureWindowsPath if windows else PurePosixPath
+        try:
+            path, base = kind(project), kind(root)
+        except ValueError:
+            continue
+        if windows:
+            path, base = PureWindowsPath(str(path).lower()), PureWindowsPath(str(base).lower())
+        if path == base or base in path.parents:
+            return any(name.startswith(".") for name in path.parts[len(base.parts):])
     return False
 
 
@@ -512,7 +532,7 @@ class Fleet:
             future = self._waiting.pop(launch_id, None)
             if future and not future.done():
                 future.set_result(data)
-        elif kind in {"container_result", "server_result", "provider_result", "folders_result", "update_result"}:
+        elif kind in {"container_result", "server_result", "provider_result", "folders_result", "files_result", "update_result"}:
             if kind == "server_result" and isinstance(data.get("servers"), dict):
                 # Every answer carries the servers' state, refused ones too.
                 machine.servers = _servers(data["servers"])
@@ -558,6 +578,8 @@ class Fleet:
             machine.commands = bool(data.get("commands"))
         if "updates" in data:
             machine.updates = bool(data.get("updates"))
+        if "files" in data:
+            machine.files = bool(data.get("files"))
         if isinstance(data.get("protocol"), int):
             machine.protocol = data["protocol"]
         if "tunnel" in data:
@@ -653,7 +675,8 @@ class Fleet:
         channel is "container" (containers.py), "server" (starting Ollama and Strata and
         Ollama's settings) or "provider" (a model server's models, status and logs, the
         machine's load, model catalogues) or "folders" (the folders inside its launch folders, for
-        choosing where to start an agent or a shell). Containers and servers are off on the machine
+        choosing where to start an agent or a shell) or "files" (the file viewer: listing and
+        reading the files inside its launch folders). Containers and servers are off on the machine
         until it allows them; on the provider channel the machine itself refuses changes
         unless its servers are on. progress, for pulls, receives the machine's progress
         messages until the answer comes. timeout None waits for as long as the machine
@@ -670,6 +693,8 @@ class Fleet:
             raise FleetError(409, f"{machine.name} doesn't take updates from here. Run `agent-machine updates on` there to allow it.")
         if channel == "folders" and not (machine.launches or machine.commands):
             raise FleetError(409, f"{machine.name} doesn't take launches. Run `agent-machine launches on` there to allow it.")
+        if channel == "files" and not machine.files:
+            raise FleetError(409, f"{machine.name} doesn't share its files. Run `agent-machine files on` there to allow it.")
         request_id = secrets.token_hex(6)
         future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
         self._waiting[request_id] = future

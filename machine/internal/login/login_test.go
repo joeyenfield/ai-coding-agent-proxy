@@ -196,7 +196,7 @@ func TestInvalidSetupCode(t *testing.T) {
 func TestUnknownToggleIsRefusedBeforeSigningIn(t *testing.T) {
 	f := newIssuer(t)
 	status, output := capture(t, func() int { return Login([]string{f.URL, "--code", "msc_x", "--enable", "launches,rockets"}) })
-	if status != 2 || !strings.Contains(output, "launches, commands, updates, servers, containers") {
+	if status != 2 || !strings.Contains(output, "launches, commands, files, updates, servers, containers") {
 		t.Fatalf("login: %d\n%s", status, output)
 	}
 	t.Setenv(EnableEnvironment, "nope")

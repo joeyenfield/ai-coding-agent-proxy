@@ -812,7 +812,7 @@ FLEET = [
      "containers": {"enabled": False, "cli": "docker", "found": True, "online": False, "version": "", "error": "", "engines": []},
      "servers": {"enabled": True, "ollama": {"found": True, "running": True, "managed": True, "version": "0.12.3", "bind": "0.0.0.0"},
                  "strata": {"found": False, "profiles": []}},
-     "launches": True, "roots": ["/home/joey/code", "/srv/repos"], "commands": True, "updates": True,
+     "launches": True, "roots": ["/home/joey/code", "/srv/repos"], "commands": True, "updates": True, "files": True,
      "accounts": {"at": time.time(), "clis": [
          {"provider": "claude", "installed": True, "version": "2.1.4 (Claude Code)", "auth": "signed_in", "method": "claude.ai", "subscription": True, "modes": ["runner"]},
          {"provider": "codex", "installed": True, "version": "codex-cli 0.52.0", "auth": "signed_in", "method": "chatgpt", "subscription": True, "modes": ["runner"]},
@@ -850,6 +850,31 @@ def fake_folders(request: dict, roots: list[str]) -> dict:
     up = folder.rsplit("/", 1)[0]
     parent = up if folder not in roots and any(up == root or up.startswith(root + "/") for root in roots) else None
     return {"ok": True, "parent": parent, "folders": [{"name": name, "path": f"{folder}/{name}"} for name in names]}
+
+
+# A few of build-box's files, for the file viewer (agent-machine reads them there).
+FILES = {
+    "/home/joey/code/api/README.md": "# api\n\nThe billing and accounts service.\n\n## Running it\n\n```bash\ngo run ./cmd/api --config config.yaml\n```\n\nIt listens on :8080 and keeps its data in PostgreSQL.\n",
+    "/home/joey/code/api/go.mod": "module example.com/api\n\ngo 1.24\n\nrequire (\n\tgithub.com/jackc/pgx/v5 v5.7.2\n\tgolang.org/x/sync v0.10.0\n)\n",
+    "/home/joey/code/api/Makefile": "build:\n\tgo build -o bin/api ./cmd/api\n\ntest:\n\tgo test ./...\n",
+}
+
+
+def fake_files(request: dict, roots: list[str]) -> dict:
+    """The files_result agent-machine sends: a folder's folders and files, or one file's text."""
+    path = str(request.get("path") or "").rstrip("/")
+    if request.get("op") == "read":
+        if path not in FILES:
+            return {"ok": False, "error": f"couldn't read {path}"}
+        text = FILES[path]
+        return {"ok": True, "path": path, "name": path.rsplit("/", 1)[-1], "size": len(text.encode()), "modified": int(time.time()) - 3600, "binary": False, "truncated": False, "content": text}
+    folders = fake_folders(request, roots)
+    entries = [{"name": item["name"], "path": item["path"], "kind": "folder", "modified": int(time.time()) - 86400} for item in folders["folders"]]
+    entries += [
+        {"name": name.rsplit("/", 1)[-1], "path": name, "kind": "file", "size": len(text.encode()), "modified": int(time.time()) - 3600}
+        for name, text in sorted(FILES.items(), key=lambda item: item[0].lower()) if name.rsplit("/", 1)[0] == path
+    ]
+    return {"ok": True, "path": path, "parent": folders["parent"], "entries": entries, "truncated": False}
 
 
 class FakeContainers:
@@ -1211,6 +1236,9 @@ def join_fleet() -> None:
                 continue
             if request.get("type") == "folders":
                 send({"type": "folders_result", "request": request["request"], **fake_folders(request, hello.get("roots") or [])})
+                continue
+            if request.get("type") == "files":
+                send({"type": "files_result", "request": request["request"], **fake_files(request, hello.get("roots") or [])})
                 continue
             if request.get("type") == "shell":
                 # A terminal on the machine, as `agent --shell` opens: a prompt that echoes what's typed.

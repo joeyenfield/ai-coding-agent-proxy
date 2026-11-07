@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 
 from agent_server.app import create_app
 from agent_server.config import Backend
-from agent_server.fleet import FleetError, within_roots
+from agent_server.fleet import FleetError, hidden_within, within_roots
 from oidc_helpers import access_token, issuer, stored_backends
 from test_auth import BASE, HOST, ids, org_settings, signed_in, ws_headers
 
@@ -65,7 +65,7 @@ def test_machines_are_seen_by_their_owner_and_admins_only(tmp_path):
     with alice, bob, dave, machine(alice):
         [listed] = alice.get("/api/machines").json()["machines"]
         assert listed["connected"] and listed["owner"] == "alice" and listed["agents"] == ["qwen", "claude-account"]
-        assert listed["you"] == {"owner": True, "manage": True, "containers": True, "view": True, "launch": True, "terminal": True, "models": True, "servers": True, "update": True, "mcp": True}
+        assert listed["you"] == {"owner": True, "manage": True, "containers": True, "view": True, "launch": True, "terminal": True, "files": True, "models": True, "servers": True, "update": True, "mcp": True}
         # The machine's address as the server sees it, for its model servers.
         assert listed["providers"][0]["url"].endswith(":11434") and listed["providers"][0]["backend"] is None
         assert bob.get("/api/machines").json()["machines"] == []
@@ -481,6 +481,54 @@ def test_the_owner_browses_folders_inside_the_launch_folders_only(tmp_path):
         assert refused.status_code == 409 and "launches on" in refused.json()["detail"]
 
 
+def test_hidden_names_below_a_root_are_never_shown():
+    assert hidden_within("C:\\work\\.git\\config", ["C:\\work"]) and hidden_within("c:\\WORK\\api\\.env", ["C:\\work"])
+    assert hidden_within("/home/me/code/.ssh", ["/home/me/code"])
+    # A root may itself be inside a hidden folder: only names below it count.
+    assert not hidden_within("/home/me/.projects/app/main.go", ["/home/me/.projects"])
+    assert not hidden_within("C:\\work\\api\\main.go", ["C:\\work"]) and not hidden_within("C:\\work", ["C:\\work"])
+
+
+def test_the_owner_reads_files_only_on_a_machine_that_shares_them(tmp_path):
+    app = create_app(org_settings(tmp_path))
+    alice, dave = signed_in(app, "alice"), signed_in(app, "dave")
+    with alice, machine(alice):
+        assert alice.get("/api/machines/m1").json()["files"] is False
+        refused = alice.get("/api/machines/m1/files", params={"path": ROOT})
+        assert refused.status_code == 409 and "files on" in refused.json()["detail"]
+    with alice, dave, machine(alice, hello(files=True, launches=False)) as socket:
+        assert alice.get("/api/machines/m1").json()["files"] is True
+        # Without a path, the launch folders themselves, from the hello: nothing to ask the machine.
+        assert alice.get("/api/machines/m1/files").json()["entries"] == [{"name": ROOT, "path": ROOT, "kind": "folder"}]
+        answer: dict = {}
+        thread = threading.Thread(target=lambda: answer.update(response=alice.get("/api/machines/m1/files", params={"path": ROOT})))
+        thread.start()
+        request = json.loads(socket.receive_text())
+        assert (request["type"], request["op"], request["path"]) == ("files", "list", ROOT)
+        listed = [{"name": "api", "path": ROOT + "\\api", "kind": "folder", "modified": 1}, {"name": "a.txt", "path": ROOT + "\\a.txt", "kind": "file", "size": 2, "modified": 1}]
+        socket.send_text(json.dumps({"type": "files_result", "request": request["request"], "ok": True, "parent": None, "entries": listed}))
+        thread.join(timeout=10)
+        assert answer["response"].json() == {"path": ROOT, "parent": None, "entries": listed, "truncated": False}
+
+        thread = threading.Thread(target=lambda: answer.update(response=alice.get("/api/machines/m1/files/content", params={"path": ROOT + "\\a.txt"})))
+        thread.start()
+        request = json.loads(socket.receive_text())
+        assert (request["type"], request["op"], request["path"]) == ("files", "read", ROOT + "\\a.txt")
+        socket.send_text(json.dumps({"type": "files_result", "request": request["request"], "ok": True, "name": "a.txt", "size": 2, "modified": 1, "binary": False, "truncated": False, "content": "hi"}))
+        thread.join(timeout=10)
+        assert answer["response"].status_code == 200, answer["response"].text
+        assert answer["response"].json() == {"path": ROOT + "\\a.txt", "name": "a.txt", "size": 2, "modified": 1, "binary": False, "truncated": False, "content": "hi"}
+
+        # Checked on the server before anything reaches the machine.
+        for path in ("C:\\Windows\\win.ini", ROOT + "\\..\\secrets.txt", ROOT + "\\.env", ROOT + "\\.git\\config"):
+            assert alice.get("/api/machines/m1/files/content", params={"path": path}).status_code == 400, path
+        assert alice.get("/api/machines/m1/files/content").status_code == 400
+        # Only the owner (and whom it grants files to): an admin sees the machine but not its files.
+        assert dave.get("/api/machines/m1/files", params={"path": ROOT}).status_code == 403
+        assert dave.get("/api/machines/m1/files/content", params={"path": ROOT + "\\a.txt"}).status_code == 403
+        assert dave.get("/api/machines/m1").json()["you"]["files"] is False
+
+
 def test_the_owner_opens_a_shell_only_on_a_machine_that_takes_commands(tmp_path):
     app = create_app(org_settings(tmp_path))
     alice, dave = signed_in(app, "alice"), signed_in(app, "dave")
@@ -530,7 +578,7 @@ def test_the_owner_or_an_admin_updates_a_machine_that_takes_updates(tmp_path):
     with alice, bob, dave, machine(alice, hello(updates=True)) as socket:
         assert alice.get("/api/machines/m1").json()["updates"] is True
         # An admin may (it's only ever the server's own build); another user can't even see it.
-        assert dave.get("/api/machines/m1").json()["you"] == {"owner": False, "manage": True, "containers": False, "view": True, "launch": False, "terminal": False, "models": True, "servers": False, "update": True, "mcp": False}
+        assert dave.get("/api/machines/m1").json()["you"] == {"owner": False, "manage": True, "containers": False, "view": True, "launch": False, "terminal": False, "files": False, "models": True, "servers": False, "update": True, "mcp": False}
         assert bob.post("/api/machines/m1/update", json={}).status_code == 404
         assert alice.post("/api/machines/m1/update", json={}, headers={"origin": "http://evil.example"}).status_code == 403
         # The round trip from the owner's client: each test client runs the app on its own loop, and the socket is alice's.

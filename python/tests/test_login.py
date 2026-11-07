@@ -111,7 +111,7 @@ def test_invalid_setup_code(issuer, capsys):
 
 def test_unknown_toggle_is_refused_before_signing_in(issuer, monkeypatch, capsys):
     assert agent_machine.main(["login", SERVER, "--code", "msc_x", "--enable", "launches,rockets"]) == 2
-    assert "launches, commands, updates, servers, containers" in capsys.readouterr().err
+    assert "launches, commands, files, updates, servers, containers" in capsys.readouterr().err
     monkeypatch.setenv("AI_PROXY_MACHINE_ENABLE", "nope")
     assert agent_machine.main(["login", SERVER]) == 2
     assert issuer.setups == [] and issuer.tokens == 0

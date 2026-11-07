@@ -49,6 +49,12 @@ def test_the_build_version_comes_from_the_version_file(tmp_path):
     (tmp_path / "VERSION").write_text("1.4.2\n", encoding="utf-8")
     assert version.build_version(tmp_path, environ={}) == "1.4.2+unknown"  # no git here
     assert version.build_version(tmp_path, environ={"AI_PROXY_VERSION": "2.0.0"}) == "2.0.0"
+    # A release bundle has no git: its BUILD file names it, when it's a plain version.
+    (tmp_path / "BUILD").write_text("1.4.2\n", encoding="utf-8")
+    assert version.build_version(tmp_path, environ={}) == "1.4.2"
+    (tmp_path / "BUILD").write_text("1.4.2; rm -rf /", encoding="utf-8")
+    assert version.build_version(tmp_path, environ={}) == "1.4.2+unknown"
+    (tmp_path / "BUILD").unlink()
     (tmp_path / "VERSION").write_text("not a version", encoding="utf-8")
     assert version.base_version(tmp_path) == "0.0.0"
 

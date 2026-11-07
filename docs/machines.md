@@ -25,6 +25,7 @@ Everything that runs programs on the machine is off until you turn it on there:
 agent-machine launches on          # let the server start agents here
 agent-machine roots add ~/code     # where they may start (and any folder inside)
 agent-machine commands on          # let you open a terminal here from the console
+agent-machine files on             # let the console browse and read the files in the launch folders
 agent-machine servers on           # let the server manage the model servers here
 agent-machine containers on        # let the server run Strata, Ollama or llama.cpp containers here
 agent-machine updates on           # let the console update agent-machine and agent here
@@ -37,6 +38,7 @@ Settings changes reach the server within a minute, with the machine's next updat
 | Command | What it does |
 |---|---|
 | `agent-machine` (or `agent-machine status`) | Shows the machine as the fleet sees it. See [Running it](#running-it). |
+| `agent-machine status --json` | The same in short, as one line of JSON, without looking for model servers or containers: `id`, `name`, `version`, `server`, `signed_in`, `user`, `running`, `state`, `pid`, `features` (each toggle, on or off) and `roots`. The tray icon reads it ([Run it on your own computer](local.md#the-tray-icon)). |
 | `agent-machine login [url]` | Signs the machine in using OIDC device authorization. |
 | `agent-machine login [url] --code CODE [--enable LIST]` | Signs it in with a setup code from the console instead of a browser, then turns the listed toggles on. See [Signing in with a setup code](#signing-in-with-a-setup-code). |
 | `agent-machine logout [url]` | Forgets a sign-in and revokes its token on the server. |
@@ -49,6 +51,7 @@ Settings changes reach the server within a minute, with the machine's next updat
 | `sudo agent-machine servers service [off]` | Lets this user's agent-machine control Ollama's systemd service (Linux). |
 | `agent-machine launches on\|off` | Lets the server start agents here. Off by default. |
 | `agent-machine commands on\|off` | Lets you open a terminal here from the console, in a launch folder. Off by default. |
+| `agent-machine files on\|off` | Lets the console browse and read the files in the launch folders. Off by default. See [Files](#files). |
 | `agent-machine roots add <dir>` | Adds a folder agents may be started in (and any folder inside it). |
 | `agent-machine roots remove <dir>` | Removes one. |
 | `agent-machine mcp ...` | Lists, adds and removes the MCP servers this machine shares. See [MCP servers](mcp.md). |
@@ -78,7 +81,7 @@ agent-machine login https://api.example.com --code msc_... --enable launches,com
 ```
 
 - `--code CODE` uses the setup code instead of printing a device code to approve. Without `--code`, `login` uses `AI_PROXY_MACHINE_SETUP_CODE` when it's set; otherwise it's the browser sign-in.
-- `--enable LIST` turns toggles on once signed in, as `agent-machine <toggle> on` does: a comma-separated list of `launches`, `commands` (or `terminals`), `updates`, `servers` and `containers`. Without `--enable`, `login` uses `AI_PROXY_MACHINE_ENABLE`. It works with a browser sign-in too. An unknown name stops `login` (exit status 2) before it signs in.
+- `--enable LIST` turns toggles on once signed in, as `agent-machine <toggle> on` does: a comma-separated list of `launches`, `commands` (or `terminals`), `files`, `updates`, `servers` and `containers`. Without `--enable`, `login` uses `AI_PROXY_MACHINE_ENABLE`. It works with a browser sign-in too. An unknown name stops `login` (exit status 2) before it signs in.
 - A code that has expired, been used up, or whose account changed is refused with "The setup code isn't valid: it may have expired or been used up. Create a new one on the console's Machines page." Nothing is saved and no toggle changes.
 
 `agent-machine start` and `agent-machine run` sign in by themselves when `AI_PROXY_MACHINE_SETUP_CODE` is set and there's no sign-in for their server yet (`--server`, else the last one, else `http://127.0.0.1:9999`), and apply `AI_PROXY_MACHINE_ENABLE` too. That's a container's first start. Once credentials exist the code is ignored, so a restarted container doesn't spend another use. If the code is refused, they exit with the message and status 1. They remove the code from their environment either way, so agents and terminals started on the machine never see it. With `AI_PROXY_MACHINE_TOKEN` set no sign-in is needed, and the code is ignored.
@@ -115,7 +118,7 @@ If it went anyway, `agent-machine start` starts it again. The server's [Access l
 
 - **`containers on`** lets the server run Strata, Ollama or llama.cpp containers here. `docker run` is root on the machine, so it's off until you turn it on, and the machine checks every request itself. `agent-machine containers cli docker` or `podman` always uses that CLI. `auto` (the default) uses Docker when it answers, else Podman. See [Containers machines run](providers.md#containers-machines-run).
 - **`servers on`** lets the server start and stop the Ollama, llama.cpp and Strata profiles installed here, install llama.cpp (Termux's packages, or llama.cpp's own build from GitHub, checked by SHA-256, into agent-machine's folder), change Ollama's and llama.cpp's settings, and pull, delete, load and unload models ([llama.cpp](providers.md#llamacpp)). With it on, agent-machine also saves a Strata profile for each model installed in Strata that has none, so every one can be started from the console ([Providers](providers.md#strata)). Without it, the machine still reports its model servers, their models, logs and its load, but changes nothing.
-- **`launches on`** lets the server start agents here. **`commands on`** lets you open a terminal here. Both only work inside the folders listed with `roots add`. `roots add` makes the folder absolute and checks that it exists. With launches on and no roots, the status display and the command say so.
+- **`launches on`** lets the server start agents here. **`commands on`** lets you open a terminal here. **`files on`** lets the console browse and read files here. All three only work inside the folders listed with `roots add`. `roots add` makes the folder absolute and checks that it exists. With launches or files on and no roots, the status display and the command say so.
 - **`name`** is the name on **Machines**. The default is the hostname.
 - **`address`** is the host the server uses to reach this machine's model servers, when the address it sees isn't right (behind NAT or a reverse proxy). Without it, the server uses the address the machine connected from. When the address changes, the machine's backends move with it, on the same ports. Most machines don't need it, as agents' traffic goes through the machine itself (see [Tunnels](#tunnels)).
 
@@ -228,6 +231,7 @@ Over the same connection the server sends requests, each answered on the machine
 | `server` | Start, stop or restart Ollama, llama.cpp or a Strata profile; install or remove llama.cpp, and the builds it can install; remove old Strata profiles and clean up Strata's leftovers; read or save Ollama's and llama.cpp's settings. |
 | `container` | Status, start, stop, restart, remove and logs of the containers it runs. |
 | `folders` | The folders inside a launch folder, for the folder picker. |
+| `files` | List a folder inside a launch folder, or read one file's text, for the file viewer. See [Files](#files). |
 | `update` | Update agent-machine (and agent) to the server's build. |
 | `tunnel` | Carry one connection to one of its model servers. |
 
@@ -330,6 +334,16 @@ With `agent-machine commands on`, **Open a terminal** on the machine's page star
 - The machine runs `agent --shell <folder> --headless --launch-id <id>`.
 - Its session's client is `shell`. The server keeps those sessions private and refuses to widen their sharing.
 
+### Files
+
+With `agent-machine files on`, the machine's **Files** tab in the console browses its launch folders and shows a file's text. It only reads; nothing is changed on the machine.
+
+- It needs the `files` feature (the owner, or organizations and teams granted it) and `files on`. Launches and terminals don't turn it on.
+- The server and the machine both check that the path is inside a root, and the machine checks again after following links.
+- Hidden files and folders (a name starting with a dot, such as `.env`, `.git` or `.ssh`) are never listed or read, nor anything inside them.
+- A listing shows folders first, then files with their size, at most 1000 entries. **Up** stops at a root.
+- A file shows at most its first 1 MB. A file that isn't text (it has a NUL byte or isn't UTF-8) is reported as binary, and its bytes stay on the machine.
+
 ### Remote updates
 
 ```mermaid
@@ -362,6 +376,7 @@ A machine's owner may use all its features. Others get them through grants on th
 | `view` | See it: its model servers, their models and logs, its load and the agents running there | Yes |
 | `launch` | Start agents there, and browse its launch folders | No |
 | `terminal` | Open terminals there: a shell as the user agent-machine runs as | No |
+| `files` | Browse the files in its launch folders and read them | No |
 | `models` | Pull, delete, load and unload models on its model servers | Yes |
 | `servers` | Install llama.cpp; start, stop and configure the Ollama, llama.cpp and Strata installed there | No |
 | `update` | Update agent-machine and agent there to this server's build | Yes |
@@ -369,7 +384,7 @@ A machine's owner may use all its features. Others get them through grants on th
 
 - **Grants** go to the machine's own organization, or its teams (named `<organization>/<team>`). Never to another organization. The owner or an admin of its organization sets them (`PUT /api/machines/{id}/access`). Members can only grant teams they're in.
 - **Any grant includes view.** Someone who may use one feature can see the machine.
-- **Starting programs stays private.** Admins can't launch agents or open terminals on someone else's machine without a grant.
+- **Starting programs stays private.** Admins can't launch agents, open terminals or read files on someone else's machine without a grant.
 - **Launched by.** Agents and terminals run under the machine's own sign-in, its owner's. When someone else starts one, the server tags the session `launched_by` them, so they can watch and use what they started. Clients can't set that tag.
 - **Containers** stay with the owner, who must also be an admin of the organization to add, change or delete them (see [Containers machines run](providers.md#containers-machines-run)).
 

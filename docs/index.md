@@ -4,7 +4,7 @@ Run terminal coding agents — Claude Code, Codex, Copilot CLI, Qwen Code, OpenC
 
 ![The console's Overview](screenshots/overview.png)
 
-New here? Try it on your computer with the [Quickstart with Docker or Podman](quickstart.md) or the [Quickstart on Kubernetes](quickstart-kubernetes.md), then follow [Getting started](getting-started.md) for a real install. The pages are layered: **Start here** and **Use it** stay practical, **Run a server** is for whoever operates one, and **How it works** has the technical depth (architecture, protocols, every endpoint).
+New here? Run it on your own computer with one command ([Run it on your own computer](local.md)), try it with the [Quickstart with Docker or Podman](quickstart.md) or the [Quickstart on Kubernetes](quickstart-kubernetes.md), then follow [Getting started](getting-started.md) for a real install. The pages are layered: **Start here** and **Use it** stay practical, **Run a server** is for whoever operates one, and **How it works** has the technical depth (architecture, protocols, every endpoint).
 
 ## How it fits together
 
@@ -60,7 +60,7 @@ A computer can be all three. How an agent's request reaches a model depends on t
 
 | Section | Pages |
 | --- | --- |
-| **Start here** | [Overview](index.md) (this page) · [Quickstart with Docker or Podman](quickstart.md): the whole system in containers with one command, and a guided tour · [Quickstart on Kubernetes](quickstart-kubernetes.md): the Helm chart on a local cluster · [Getting started](getting-started.md): a real install, from nothing to a first recorded session |
+| **Start here** | [Overview](index.md) (this page) · [Run it on your own computer](local.md): the server and sign-in on loopback with one command, no containers · [Quickstart with Docker or Podman](quickstart.md): the whole system in containers with one command, and a guided tour · [Quickstart on Kubernetes](quickstart-kubernetes.md): the Helm chart on a local cluster · [Getting started](getting-started.md): a real install, from nothing to a first recorded session |
 | **Use it** | [Agents](agents.md): the `agent` command, the agent-proxy, every supported agent, terminal sharing, adding agents · [The console](console.md): every page and control · [Machines](machines.md): the fleet and `agent-machine` · [Providers](providers.md): Ollama, llama.cpp, Strata, Docker Model Runner, containers, OpenAI and Anthropic-compatible APIs (OpenAI, OpenRouter, LiteLLM, LM Studio, vLLM, ...) · [MCP servers](mcp.md): sharing them from machines · [Subscriptions](subscriptions.md): your own Claude, ChatGPT and Copilot plans |
 | **People and data** | [Accounts and sharing](accounts.md): users, organizations, teams, phones · [Usage limits](usage-limits.md): each person's usage of each provider, and organizations' token limits · [Retention](retention.md): what's kept and for how long, legal holds · [The audit log](audit.md): who did what, verified and exported |
 | **Run a server** | [Deployment](deployment.md): Docker, PostgreSQL, HTTPS, installers, packages, updates · [Several server processes](scaling.md): roles, Redis, blob storage, the Helm chart · [Configuration](configuration.md): stored settings, every environment variable, the commands · [Security](security.md): devices, tokens, encryption, a checklist for a public server · [OIDC authentication](oidc.md): the sign-in service |
@@ -119,6 +119,8 @@ A computer can be all three. How an agent's request reaches a model depends on t
 | Downloads and installers | `/install.sh`, `/install.ps1` | Downloads | [Deployment](deployment.md) |
 | Uninstalling from a computer | `/uninstall.sh`, `/uninstall.ps1`, `install.sh --uninstall` | Downloads › Uninstall | [Deployment](deployment.md#uninstalling) |
 | The server in Docker, HTTPS | `docker compose up -d` | | [Deployment](deployment.md#the-server-in-docker) |
+| A server on your own computer, for you alone | `install-local.sh`/`.ps1` from a release (or `scripts/install-local.sh` in a checkout), `agent-server local start\|stop\|status`, the `agent-tray` icon | localhost:19999 | [Run it on your own computer](local.md) |
+| The whole system in one container, to try it | `docker run ... ghcr.io/joeyenfield/ai-control-mesh` | localhost:19999 | [Run it on your own computer](local.md#try-it-in-one-container) |
 | Local demo: server, two machines and Ollama | `podman compose -f quickstart/compose.yaml up -d` (or `docker compose`) | Sign in as admin / secret on localhost:19999 | [Quickstart with Docker or Podman](quickstart.md) |
 | The Helm chart on a local cluster | `helm install mesh deploy/helm/agent-mesh -f quickstart/kubernetes/values.yaml` | localhost:19999 through `kubectl port-forward` | [Quickstart on Kubernetes](quickstart-kubernetes.md) |
 | Benchmarks | `agent-benchmark` | | [Configuration](configuration.md#agent-benchmark) |

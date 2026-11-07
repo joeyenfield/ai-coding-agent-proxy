@@ -361,7 +361,11 @@ def main() -> None:
         from . import commands
 
         raise SystemExit(commands.main(sys.argv[1], sys.argv[2:]))
-    parser = argparse.ArgumentParser(description="Run the agent-server: the console, accounts and routing for every agent machine's agent-proxy (users and organizations: agent-server user|org|team --help; its settings and database: agent-server config|db --help)")
+    if sys.argv[1:2] == ["local"]:
+        from . import local
+
+        raise SystemExit(local.main(sys.argv[2:]))
+    parser = argparse.ArgumentParser(description="Run the agent-server: the console, accounts and routing for every agent machine's agent-proxy (users and organizations: agent-server user|org|team --help; its settings and database: agent-server config|db --help; a whole server on this computer: agent-server local --help)")
     parser.add_argument("--host")
     parser.add_argument("--port", type=int)
     parser.add_argument("--reload", action="store_true", help="Restart on code changes (development)")

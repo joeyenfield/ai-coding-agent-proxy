@@ -40,7 +40,10 @@ type PyProject struct {
 	Dependencies   []string
 	Extras         map[string][]string
 	Scripts        map[string]string
-	Readme         string
+	// GUIScripts are [project.gui-scripts]: on Windows pip makes them windowed programs, with no
+	// console (agent-tray).
+	GUIScripts map[string]string
+	Readme     string
 }
 
 // python builds the wheel into <release>/python/ and returns its path there. Without a
@@ -114,7 +117,7 @@ func Wheel(dir string, project *PyProject, version string) (string, []byte, erro
 	}
 	files[info+"/METADATA"] = metadata(project, version, bytes.ReplaceAll(readme, []byte("\r\n"), []byte("\n")))
 	files[info+"/WHEEL"] = []byte("Wheel-Version: 1.0\nGenerator: ai-coding-agent-proxy tools/dist\nRoot-Is-Purelib: true\nTag: py3-none-any\n")
-	files[info+"/entry_points.txt"] = entryPoints(project.Scripts)
+	files[info+"/entry_points.txt"] = entryPoints(project.Scripts, project.GUIScripts)
 	files[info+"/top_level.txt"] = []byte("agent_py\n")
 
 	names := make([]string, 0, len(files)+1)
@@ -187,16 +190,27 @@ func metadata(project *PyProject, version string, readme []byte) []byte {
 	return []byte(text.String())
 }
 
-func entryPoints(scripts map[string]string) []byte {
-	names := make([]string, 0, len(scripts))
-	for name := range scripts {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+func entryPoints(scripts, gui map[string]string) []byte {
 	var text strings.Builder
-	text.WriteString("[console_scripts]\n")
-	for _, name := range names {
-		fmt.Fprintf(&text, "%s = %s\n", name, scripts[name])
+	for _, section := range []struct {
+		name    string
+		scripts map[string]string
+	}{{"console_scripts", scripts}, {"gui_scripts", gui}} {
+		if section.name == "gui_scripts" && len(section.scripts) == 0 {
+			continue
+		}
+		names := make([]string, 0, len(section.scripts))
+		for name := range section.scripts {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		if section.name == "gui_scripts" {
+			text.WriteString("\n")
+		}
+		fmt.Fprintf(&text, "[%s]\n", section.name)
+		for _, name := range names {
+			fmt.Fprintf(&text, "%s = %s\n", name, section.scripts[name])
+		}
 	}
 	return []byte(text.String())
 }
@@ -216,7 +230,7 @@ func ReadPyProject(path string) (*PyProject, error) {
 		return nil, err
 	}
 	defer file.Close()
-	project := &PyProject{Extras: map[string][]string{}, Scripts: map[string]string{}}
+	project := &PyProject{Extras: map[string][]string{}, Scripts: map[string]string{}, GUIScripts: map[string]string{}}
 	table := ""
 	scanner := bufio.NewScanner(file)
 	number := 0
@@ -239,7 +253,7 @@ func ReadPyProject(path string) (*PyProject, error) {
 			table = match[1]
 			continue
 		}
-		if table != "project" && table != "project.optional-dependencies" && table != "project.scripts" {
+		if table != "project" && table != "project.optional-dependencies" && table != "project.scripts" && table != "project.gui-scripts" {
 			continue
 		}
 		match := keyLine.FindStringSubmatch(line)
@@ -278,6 +292,8 @@ func ReadPyProject(path string) (*PyProject, error) {
 			project.Extras[key] = values
 		case "project.scripts":
 			project.Scripts[key] = values[0]
+		case "project.gui-scripts":
+			project.GUIScripts[key] = values[0]
 		}
 	}
 	if err := scanner.Err(); err != nil {

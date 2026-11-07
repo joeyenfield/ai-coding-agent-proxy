@@ -224,6 +224,7 @@ See [Agents](agents.md) for the format and how to add one, and [MCP](mcp.md) for
 | `AI_PROXY_TOKEN` | The OAuth access token `agent-benchmark` sends; it refuses to start without one. (On agent machines the launcher reads it too, see [Agents](agents.md).) |
 | `AI_PROXY_USERNAME`, `AI_PROXY_PASSWORD` | An admin account from the environment, outside the database, which the issuer accepts. With both set, the first start makes no `admin` user. |
 | `AI_PROXY_NEW_PASSWORD` | The password for `agent-server user add` and `user passwd`, instead of asking. For scripts. |
+| `AI_PROXY_LOCAL_HOME` | The folder `agent-server local` keeps its instance in (default: your user's data folder). See [Run it on your own computer](local.md). |
 | `STRATA_API_KEY` | The key sent with agents' traffic to Strata backends, ahead of the one their machine reports. A container's own key still wins. |
 | `AI_PROXY_API_KEY_<NAME>` | Keys for [API providers](providers.md#api-providers-openai-and-anthropic-compatible): a provider's `key_env` names one. Only variables starting with `AI_PROXY_API_KEY_` can be named. |
 | `AI_PROXY_API_PRIVATE_HOSTS` | Private hosts hosted API providers may be on, such as a LiteLLM Proxy beside the server: hostnames, `*.suffix` patterns and CIDR networks, comma-separated. Without it, hosted providers are reached only at public addresses. These hosts may use `http://`. |

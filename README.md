@@ -6,7 +6,7 @@ AI Control Mesh is an open-source, self-hosted control plane for AI coding agent
 
 ![The console's Overview: agents, the server and the machines that answer them](docs/screenshots/overview.png)
 
-**[Website](https://aicontrolmesh.com/) · [Try the local quickstart](docs/quickstart.md) ([or on Kubernetes](docs/quickstart-kubernetes.md)) · [Documentation](docs/index.md) · [MIT license](LICENSE)**
+**[Website](https://aicontrolmesh.com/) · [Run it on your computer](docs/local.md) · [Try the local quickstart](docs/quickstart.md) ([or on Kubernetes](docs/quickstart-kubernetes.md)) · [Documentation](docs/index.md) · [MIT license](LICENSE)**
 
 ## What it does
 
@@ -33,6 +33,22 @@ docker compose -f quickstart/compose.yaml up -d
 For Podman, replace `docker compose` with `podman compose`. One command starts the whole system in containers on your computer: the server and console, the sign-in service, PostgreSQL, two fleet machines with coding agents installed, and Ollama, from the project's published images. Open http://localhost:19999, sign in with **admin** / **secret**, and follow the [guided quickstart](docs/quickstart.md): add a provider, pull a model, start an agent and watch it work, in about ten minutes. There's a [Kubernetes version](docs/quickstart-kubernetes.md) too.
 
 **It's a local demo**: known credentials, ports on localhost only, nothing downloaded for you. Delete it with `docker compose -f quickstart/compose.yaml down -v`.
+
+**One container, no checkout.** The whole system, with a machine and the coding agents already in it:
+
+```bash
+docker run -d --name mesh -p 127.0.0.1:19999:19999 -p 127.0.0.1:20000:20000 -v mesh-data:/data ghcr.io/joeyenfield/ai-control-mesh
+docker logs mesh     # the admin password
+```
+
+**No containers?** One command installs the server, `agent` and `agent-machine` from the latest release and runs them on your own computer with your own folders, for you alone, with an icon in the system tray to start, stop and open it. It needs only Python 3.11 or later:
+
+```bash
+curl -fsSL https://github.com/joeyenfield/ai-coding-agent-proxy/releases/latest/download/install-local.sh | sh
+# Windows PowerShell: irm https://github.com/joeyenfield/ai-coding-agent-proxy/releases/latest/download/install-local.ps1 | iex
+```
+
+See [Run it on your own computer](docs/local.md), which covers both, and installing from a checkout (`./scripts/install-local.sh`).
 
 ## A real install
 
@@ -63,7 +79,7 @@ Start at the [documentation's overview](docs/index.md). The pages, by section:
 
 | Section | Pages |
 | --- | --- |
-| Start here | [Quickstart with Docker or Podman](docs/quickstart.md) · [Quickstart on Kubernetes](docs/quickstart-kubernetes.md) · [Getting started](docs/getting-started.md) |
+| Start here | [Run it on your own computer](docs/local.md) · [Quickstart with Docker or Podman](docs/quickstart.md) · [Quickstart on Kubernetes](docs/quickstart-kubernetes.md) · [Getting started](docs/getting-started.md) |
 | Use it | [Agents](docs/agents.md) · [The console](docs/console.md) · [Machines](docs/machines.md) · [Providers](docs/providers.md) · [MCP servers](docs/mcp.md) · [Subscriptions](docs/subscriptions.md) |
 | People and data | [Accounts and sharing](docs/accounts.md) · [Usage limits](docs/usage-limits.md) · [Retention](docs/retention.md) · [The audit log](docs/audit.md) |
 | Run a server | [Deployment](docs/deployment.md) · [Several server processes](docs/scaling.md) · [Configuration](docs/configuration.md) · [Security](docs/security.md) · [OIDC authentication](docs/oidc.md) |

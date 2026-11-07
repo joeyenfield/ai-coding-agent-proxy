@@ -30,7 +30,7 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 from .. import auth, mcp, remote
 from ..fleet import (
     FEATURES, PROVIDER_TYPES, FleetError, allowed, can_manage, can_see, checked_access, parse_provider, provider_address,
-    provider_request, within_roots,
+    hidden_within, provider_request, within_roots,
 )
 from ..fleet import provider_id as fleet_provider_id
 from ..provider_accounts import AccountError
@@ -273,6 +273,41 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             return {"path": None, "parent": None, "folders": [{"name": root, "path": root} for root in target.roots]}
         answer = await ask(target, "list", timeout=15, channel="folders", path=path)
         return {"path": path, "parent": answer.get("parent"), "folders": answer.get("folders") or [], "truncated": bool(answer.get("truncated"))}
+
+    def files_target(machine_id: str, request: Request, path: str) -> Any:
+        """The machine whose files path names, once who asks may see them there (the files feature) and
+        path is inside its launch folders and not hidden; the machine checks all of it again."""
+        require_trusted(request)
+        target = visible(machine_id, request)
+        if not allowed(auth.request_identity(request), target, "files"):
+            raise HTTPException(status_code=403, detail="Only the machine's owner, and the teams it lets, can browse its files.")
+        if path and not within_roots(path, target.roots):
+            raise HTTPException(status_code=400, detail="That path isn't inside one of the machine's launch folders.")
+        if path and hidden_within(path, target.roots):
+            raise HTTPException(status_code=400, detail="Hidden files and folders aren't shown.")
+        return target
+
+    @app.get("/api/machines/{machine_id}/files/content")
+    async def file_content(machine_id: str, request: Request, path: str = "") -> dict[str, Any]:
+        """One file's text, as the machine reads it: at most its first MiB, and none for a binary file."""
+        target = files_target(machine_id, request, path)
+        if not path:
+            raise HTTPException(status_code=400, detail="Name a file inside one of the machine's launch folders.")
+        answer = await ask(target, "read", timeout=30, channel="files", path=path)
+        return {
+            "path": path, "name": str(answer.get("name") or ""), "size": int(answer.get("size") or 0), "modified": answer.get("modified"),
+            "binary": bool(answer.get("binary")), "truncated": bool(answer.get("truncated")),
+            "content": None if answer.get("binary") else str(answer.get("content") or ""),
+        }
+
+    @app.get("/api/machines/{machine_id}/files")
+    async def files(machine_id: str, request: Request, path: str = "") -> dict[str, Any]:
+        """The folders and files inside one of the machine's launch folders, as the machine lists them; its roots without a path."""
+        target = files_target(machine_id, request, path)
+        if not path:
+            return {"path": None, "parent": None, "entries": [{"name": root, "path": root, "kind": "folder"} for root in target.roots], "truncated": False}
+        answer = await ask(target, "list", timeout=15, channel="files", path=path)
+        return {"path": path, "parent": answer.get("parent"), "entries": answer.get("entries") or [], "truncated": bool(answer.get("truncated"))}
 
     @app.post("/api/machines/{machine_id}/providers/adopt", status_code=201)
     async def adopt(machine_id: str, request: Request) -> dict[str, Any]:

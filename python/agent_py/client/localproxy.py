@@ -630,8 +630,32 @@ def stop(base: str) -> bool:
     raise RuntimeError(f"agent-proxy on {base} is still answering")
 
 
+def current_status() -> Dict[str, Any]:
+    """`agent proxy status --json`, as the Go client's Status: the sign-in, and whether agent-proxy runs here."""
+    upstream = settings.upstream()
+    server = upstream.server()
+    entry = upstream.credentials().servers.get(common.normalize(server))
+    signed_in = bool(entry and entry.access_token)
+    running = common.health(settings.proxy_url())
+    alive = bool(running and running.get("role") == "agent-proxy")
+    return {
+        "server": server, "signed_in": signed_in, "user": (entry.user if signed_in else "") or "",
+        "running": alive, "port": settings.proxy_port(), "version": str(running.get("version") or "") if alive else "",
+    }
+
+
 def main(name: str, args: List[str]) -> int:
-    """agent-proxy in the foreground: `agent proxy`. `agent proxy stop` asks the running one to exit."""
+    """agent-proxy in the foreground: `agent proxy`. `agent proxy stop` asks the running one to exit;
+    `agent proxy status [--json]` says which server it signs in to, as whom, and whether it runs."""
+    if args and args[0] == "status":
+        status = current_status()
+        if args[1:2] == ["--json"]:
+            print(json.dumps(status))
+            return 0
+        signed_in = f"signed in as {status['user']}" if status["signed_in"] else f"not signed in (agent login {status['server']})"
+        running = f"running on 127.0.0.1:{status['port']} ({status['version']})" if status["running"] else "not running (agent starts it when needed)"
+        print(f"Server     : {status['server']}, {signed_in}\nagent-proxy: {running}")
+        return 0
     if args and args[0] == "stop":
         try:
             stopped = stop(settings.proxy_url())

@@ -395,7 +395,7 @@ Approve only a code from a sign-in you started: approving lets that computer use
 
 ### Summary, agents and terminal
 
-**Summary**: cards for its state, last contact, agent-machine version and running agents. **What it supports**: each feature (agents, terminals, model servers, running Ollama, llama.cpp and Strata, containers, updates from here, the tunnel) and whether it's on there and open to you, with the command that turns it on. **Details**: owner, system, computer name, address, first seen, last contact, protocol and machine id. **Remove from this server** (owner or admin) disconnects it and refuses it until it's allowed back.
+**Summary**: cards for its state, last contact, agent-machine version and running agents. **What it supports**: each feature (agents, terminals, files, model servers, running Ollama, llama.cpp and Strata, containers, updates from here, the tunnel) and whether it's on there and open to you, with the command that turns it on. **Details**: owner, system, computer name, address, first seen, last contact, protocol and machine id. **Remove from this server** (owner or admin) disconnects it and refuses it until it's allowed back.
 
 ![A machine's Agents tab](screenshots/machine-agents.png)
 
@@ -408,6 +408,10 @@ Approve only a code from a sign-in you started: approving lets that computer use
 ![A machine's Terminal tab](screenshots/machine-terminal.png)
 
 **Terminal**: **Open a terminal** starts a shell on the machine in one of its launch folders, in a terminal only you see. It needs `agent-machine commands on` there.
+
+![A machine's Files tab](screenshots/machine-files.png)
+
+**Files**: browse the folders and files inside the machine's launch folders, and click a file to read its text, with line numbers. Hidden files aren't shown, a file shows at most its first 1 MB, and a binary file isn't shown. The open folder and file are in the page's address, so a link opens the same view. It needs `agent-machine files on` there and the `files` feature ([Who may use a machine](machines.md#who-may-use-a-machine)).
 
 ### Providers
 

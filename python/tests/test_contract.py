@@ -15,6 +15,8 @@ from test_client import (  # noqa: F401  (the tests are collected from here, wit
     fake_ollama_server, fleet_machine, free_port, machine, new_session,
     test_a_controlled_terminal_is_relayed_to_the_server,
     test_a_fleet_machine_lists_its_folders_and_opens_a_shell_when_commands_are_on,
+    test_a_fleet_machine_shows_its_files_only_when_files_are_on,
+    test_the_status_agent_tray_reads_is_the_same_from_either_program,
     test_a_fleet_machine_manages_its_model_server_for_the_console,
     test_a_fleet_machine_runs_an_agent_the_console_starts,
     test_a_fleet_machine_runs_an_account_agent_with_a_managed_token_it_gets_once,

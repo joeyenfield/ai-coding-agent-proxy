@@ -70,7 +70,7 @@ def upstream(fixed: str = "") -> common.Upstream:
 
 
 # machine.json's on/off switches, by the names `agent-machine <name> on|off` takes.
-TOGGLES = ("launches", "commands", "updates", "servers", "containers")
+TOGGLES = ("launches", "commands", "files", "updates", "servers", "containers")
 
 
 def parse_toggles(names: str) -> List[str]:
@@ -111,6 +111,9 @@ class Machine:
     commands: bool = False
     # Lets the server update this package here to its own build, from the console: off until turned on.
     updates: bool = False
+    # Lets the console list the files in the roots and read them (the file viewer). It sends file
+    # contents to the server, so it's off until the owner turns it on.
+    files: bool = False
 
     @classmethod
     def load(cls) -> "Machine":
@@ -134,7 +137,7 @@ class Machine:
         if isinstance(data, dict):
             for key in ("id", "name", "address", "container_cli"):
                 setattr(machine, key, str(data.get(key) or ""))
-            for key in ("launches", "containers", "servers", "commands", "updates"):
+            for key in ("launches", "containers", "servers", "commands", "updates", "files"):
                 setattr(machine, key, bool(data.get(key)))
             machine.roots = [str(root) for root in data.get("roots") or [] if isinstance(root, str)]
         if not machine.id:
@@ -162,6 +165,10 @@ class Machine:
         """What `agent-machine <name> on` tells the owner about the toggle just switched on."""
         if name == "updates":
             return ["Updates are on: the machine's owner or an admin can update agent-machine and agent here to the server's build from the console."]
+        if name == "files":
+            if not self.roots:
+                return ["Files are on, but there's no folder to browse yet: agent-machine roots add <dir>"]
+            return ["Files are on: the machine's owner, and whoever it grants files to, can browse and read the files in its launch folders from the console."]
         if name == "commands":
             notes = ["Commands are on: signed in as this machine's owner, you can open a terminal here from the console, as this user."]
             if not self.roots:

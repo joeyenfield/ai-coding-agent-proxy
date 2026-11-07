@@ -392,6 +392,13 @@ func (p *Presence) session(ctx context.Context) error {
 			}
 			continue
 		}
+		if kind.Type == "files" {
+			var request FilesRequest
+			if json.Unmarshal(data, &request) == nil {
+				go func() { _ = send(Files(request, settings.LoadMachine())) }()
+			}
+			continue
+		}
 		if kind.Type == "folders" {
 			var request FoldersRequest
 			if json.Unmarshal(data, &request) == nil {
@@ -484,7 +491,7 @@ func (p *Presence) describe(server, kind string) map[string]any {
 	return map[string]any{
 		"type": kind, "id": machine.ID, "name": machine.DisplayName(), "hostname": hostname, "os": runtime.GOOS, "arch": runtime.GOARCH,
 		"version": settings.Version, "protocol": settings.Protocol, "address": machine.Address, "agents": p.installedAgents(server),
-		"providers": found, "launches": machine.Launches, "roots": machine.Roots, "commands": machine.Commands, "updates": machine.Updates,
+		"providers": found, "launches": machine.Launches, "roots": machine.Roots, "commands": machine.Commands, "updates": machine.Updates, "files": machine.Files,
 		// It carries agents' requests to its model servers itself, so the server needn't reach them (tunnel.go).
 		"tunnel": 1,
 		// Launches run the agent command: say whether it's here, so the console can say what's missing.

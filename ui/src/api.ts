@@ -843,6 +843,8 @@ export interface FleetMachine {
   roots: string[];
   /** Whether its owner may open a terminal on it from here (agent-machine commands on). */
   commands?: boolean;
+  /** Whether the console may browse and read the files in its launch folders (agent-machine files on). */
+  files?: boolean;
   /** The MCP servers it shares (agent-machine mcp add), by name; their commands stay on the machine. */
   mcp?: { port?: number; servers?: Omit<SharedMcp, "id" | "machine" | "machine_name" | "connected">[] };
   /** The provider CLIs there and whether each is signed in (null: its agent-machine is too old to say). */
@@ -908,7 +910,7 @@ export interface DownloadIndex {
 }
 
 /** What a machine's owner can let organizations and teams do there (fleet.FEATURES). */
-export type MachineFeature = "view" | "launch" | "terminal" | "models" | "servers" | "update" | "mcp";
+export type MachineFeature = "view" | "launch" | "terminal" | "files" | "models" | "servers" | "update" | "mcp";
 
 /** Who may use each feature besides its owner: organizations and teams (<org>/<team>). */
 export type MachineAccess = Partial<Record<MachineFeature, { orgs: string[]; teams: string[] }>>;
@@ -931,6 +933,37 @@ export interface MachineFolders {
   folders: { name: string; path: string }[];
   /** It has more folders than one listing shows. */
   truncated?: boolean;
+}
+
+/** One entry of /api/machines/{id}/files: a folder or a file (with its size), modified in seconds since the epoch. */
+export interface MachineFileEntry {
+  name: string;
+  path: string;
+  kind: "folder" | "file";
+  size?: number;
+  modified?: number;
+}
+
+/** /api/machines/{id}/files: the folders and files inside one of the machine's launch folders (its roots without a path). */
+export interface MachineFiles {
+  /** The folder listed; null for the list of roots. */
+  path: string | null;
+  /** The folder above it, when that's still inside a root. */
+  parent: string | null;
+  entries: MachineFileEntry[];
+  /** It has more entries than one listing shows. */
+  truncated?: boolean;
+}
+
+/** /api/machines/{id}/files/content: one file's text (at most its first MiB), or none for a binary file. */
+export interface MachineFileContent {
+  path: string;
+  name: string;
+  size: number;
+  modified: number | null;
+  binary: boolean;
+  truncated: boolean;
+  content: string | null;
 }
 
 export interface FleetLaunch {
@@ -2387,6 +2420,10 @@ export const api = {
     request<FleetLaunch & { account?: { id: string; display_name: string; provider: SubscriptionProvider } | null }>(`/api/machines/${encodeURIComponent(machineId)}/launch`, { method: "POST", body: JSON.stringify(body) }),
   machineFolders: (machineId: string, path?: string) =>
     request<MachineFolders>(`/api/machines/${encodeURIComponent(machineId)}/folders${path ? `?path=${encodeURIComponent(path)}` : ""}`),
+  machineFiles: (machineId: string, path?: string) =>
+    request<MachineFiles>(`/api/machines/${encodeURIComponent(machineId)}/files${path ? `?path=${encodeURIComponent(path)}` : ""}`),
+  machineFileContent: (machineId: string, path: string) =>
+    request<MachineFileContent>(`/api/machines/${encodeURIComponent(machineId)}/files/content?path=${encodeURIComponent(path)}`),
   updateMachine: (machineId: string, agent: boolean) =>
     request<{ updating: boolean; from: string | null; to: string | null; message: string | null }>(`/api/machines/${encodeURIComponent(machineId)}/update`, {
       method: "POST",

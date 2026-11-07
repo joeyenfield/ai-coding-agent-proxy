@@ -10,6 +10,7 @@ export const DOC_SECTIONS: { title: string; pages: { id: string; label: string }
     title: "Start here",
     pages: [
       { id: "index", label: "Overview" },
+      { id: "local", label: "On your own computer" },
       { id: "quickstart", label: "Quickstart: Docker or Podman" },
       { id: "quickstart-kubernetes", label: "Quickstart: Kubernetes" },
       { id: "getting-started", label: "Getting started" },

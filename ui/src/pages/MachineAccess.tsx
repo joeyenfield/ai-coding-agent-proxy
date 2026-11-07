@@ -9,6 +9,7 @@ const FALLBACK: Record<MachineFeature, string> = {
   view: "See it: its model servers, their models and logs, its load and the agents running there",
   launch: "Start agents there, and browse its launch folders",
   terminal: "Open terminals there: a shell as the user agent-machine runs as",
+  files: "Browse the files in its launch folders and read them",
   models: "Pull, delete, load and unload models on its model servers",
   servers: "Install llama.cpp; start, stop and configure the Ollama, llama.cpp and Strata installed there",
   update: "Update agent-machine and agent there to this server's build",
@@ -18,6 +19,7 @@ const LABELS: Record<MachineFeature, string> = {
   view: "See it",
   launch: "Start agents",
   terminal: "Open terminals",
+  files: "Read files",
   models: "Change models",
   servers: "Run model servers",
   update: "Update it",
@@ -31,6 +33,8 @@ function machineSwitch(machine: FleetMachine, feature: MachineFeature): { on: bo
       return { on: machine.launches, command: "agent-machine launches on" };
     case "terminal":
       return { on: Boolean(machine.commands), command: "agent-machine commands on" };
+    case "files":
+      return { on: Boolean(machine.files), command: "agent-machine files on" };
     case "models":
     case "servers":
       return { on: Boolean(machine.servers.enabled), command: "agent-machine servers on" };

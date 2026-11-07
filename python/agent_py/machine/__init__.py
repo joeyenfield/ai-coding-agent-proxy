@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 import os
 import signal
@@ -12,7 +13,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 import httpx
 
@@ -24,7 +25,8 @@ USAGE = """agent-machine puts this computer in an agent-server's fleet, so the s
 LLM providers it runs (Ollama, llama.cpp, Strata, Docker Model Runner, containers) and start agents on it.
 
 Usage: agent-machine                           this machine as the fleet sees it
-       agent-machine login [url]               OIDC device sign-in, approved in a browser
+       agent-machine status --json             the same in short, as JSON (sign-in, running, toggles, folders)
+       agent-machine login [url]             OIDC device sign-in, approved in a browser
        agent-machine login [url] --code CODE   ...or with a setup code from the console's Machines page
                      [--enable LIST]           then switch toggles on, for example launches,commands
        agent-machine logout [url]
@@ -36,6 +38,7 @@ Usage: agent-machine                           this machine as the fleet sees it
        agent-machine servers on|off            let the server manage the model servers here: start and stop them, their settings and models (off by default)
        agent-machine launches on|off           let the server start agents here (off by default)
        agent-machine commands on|off           let you open a terminal here from the console, in a launch folder (off by default)
+       agent-machine files on|off              let the console browse and read the files in the launch folders (off by default)
        agent-machine roots add <dir>           a folder agents may be started in (and any folder inside it)
        agent-machine roots remove <dir>
        agent-machine mcp                       the MCP servers this machine shares with the server's agents
@@ -71,6 +74,9 @@ STARTED_ENV = "AI_PROXY_MACHINE_STARTED"
 
 def main(argv: Optional[List[str]] = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
+    if args[:2] == ["status", "--json"]:
+        print(json.dumps(status_json(settings.Machine.load())))
+        return 0
     if not args or args[0] == "status":
         show(settings.Machine.load())
         return 0
@@ -260,7 +266,7 @@ def configure(args: List[str]) -> int:
     command = args[0]
     if command == "servers" and len(args) >= 2 and args[1] == "service":
         return service_command(args)
-    if command in ("launches", "servers", "commands", "updates"):
+    if command in ("launches", "servers", "commands", "updates", "files"):
         if len(args) != 2 or args[1] not in ("on", "off"):
             return fail("servers takes on, off, or service [off] (with sudo)" if command == "servers" else f"{command} takes on or off")
         setattr(machine, command, args[1] == "on")
@@ -497,6 +503,22 @@ def stop() -> int:
     return 0
 
 
+def status_json(machine: settings.Machine) -> Dict[str, Any]:
+    """`agent-machine status --json`, as the Go Status: what agent-tray shows, without probing providers."""
+    upstream = settings.upstream()
+    server = upstream.server()
+    entry = upstream.credentials().servers.get(common.normalize(server))
+    signed_in = bool(entry and entry.access_token) or bool(os.environ.get("AI_PROXY_MACHINE_TOKEN"))
+    running = settings.running()
+    return {
+        "id": machine.id, "name": machine.display_name(), "version": common.VERSION, "server": server,
+        "signed_in": signed_in, "user": (entry.user if entry and entry.access_token else "") or "",
+        "running": bool(running), "state": running.state if running else "stopped", "pid": running.pid if running else 0,
+        "features": {name: bool(getattr(machine, name)) for name in settings.TOGGLES},
+        "roots": list(machine.roots),
+    }
+
+
 def show(machine: settings.Machine) -> None:
     upstream = settings.upstream()
     server = upstream.server()
@@ -533,7 +555,8 @@ def show(machine: settings.Machine) -> None:
     print("Launches  :", "on" if machine.launches else "off (agent-machine launches on)")
     print("Updates   : on: the console can update agent-machine and agent here to the server's build" if machine.updates else "Updates   : off (agent-machine updates on)")
     print("Commands  : on: you can open a terminal here from the console" if machine.commands else "Commands  : off (agent-machine commands on)")
-    if machine.launches and not machine.roots:
+    print("Files     : on: the console can browse and read the files in the launch folders" if machine.files else "Files     : off (agent-machine files on)")
+    if (machine.launches or machine.files) and not machine.roots:
         print("Folders   : none (agent-machine roots add <dir>)")
     try:
         shared = mcp.load()
