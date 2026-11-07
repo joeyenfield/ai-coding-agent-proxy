@@ -108,7 +108,7 @@ Step by step:
 
 | Credential | Lifetime | Where it's kept |
 |---|---|---|
-| Access token | 5 minutes | `agent`: `credentials.json` (`%APPDATA%\agent-proxy\` on Windows, `~/.config/agent-proxy/` elsewhere). `agent-machine`: `credentials.json` in its own folder. Both are written readable by their owner only. The browser keeps the console's in an `HttpOnly` cookie. |
+| Access token | 30 minutes | `agent`: `credentials.json` (`%APPDATA%\agent-proxy\` on Windows, `~/.config/agent-proxy/` elsewhere). `agent-machine`: `credentials.json` in its own folder. Both are written readable by their owner only. The browser keeps the console's in an `HttpOnly` cookie. |
 | Refresh token | Rotates on each use; its family ends after 30 days | Beside the access token. Using an old refresh token again revokes the whole family, so a stolen one stops working as soon as either copy is used. The one exception is a single retry within 60 seconds of its first use, so a client whose answer was lost on the way isn't signed out. |
 | On the issuer | | Only hashes, in its own schema (`mesh_auth`), which the server's database role can't read ([Deployment](deployment.md#postgresql)). |
 

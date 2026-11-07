@@ -17,7 +17,7 @@ import pytest
 from agent_server.auth import UserStore
 from agent_server.config import Settings
 from agent_server.db import schema
-from agent_server.issuer import DEVICE_GRANT, Issuer, create_auth_app, digest
+from agent_server.issuer import ACCESS_TTL, DEVICE_GRANT, Issuer, create_auth_app, digest
 from oidc_helpers import stored_rows
 
 
@@ -113,7 +113,7 @@ def test_browser_pkce_discovery_jwks_and_no_secret_storage(issuer, caplog):
     assert response.status_code == 200, response.text
     assert response.headers["cache-control"] == "no-store"
     tokens = response.json()
-    assert tokens["expires_in"] == 300
+    assert tokens["expires_in"] == ACCESS_TTL
     keys = KeySet.import_key_set(client.get(discovery["jwks_uri"]).json())
     claims = jwt.decode(tokens["id_token"], keys, algorithms=["RS256"]).claims
     assert claims["iss"] == service.issuer

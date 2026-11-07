@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from agent_server.app import create_app
 from agent_server.auth import COOKIE, UserStore
 from agent_server.config import Settings
-from agent_server.issuer import create_auth_app, digest
+from agent_server.issuer import ACCESS_TTL, create_auth_app, digest
 
 
 @pytest.fixture
@@ -76,12 +76,12 @@ def test_real_browser_login_refresh_and_logout(browser):
     status = api.get("/api/auth/status").json()
     assert status["identity"]["user"] == "alice"
     # The console times its next renewal by this.
-    assert 0 < status["expires_in"] <= 300
+    assert 0 < status["expires_in"] <= ACCESS_TTL
     assert api.get("/api/status").status_code == 200
     old_refresh = api.cookies.get("mesh_accounts")
     refreshed = api.post("/api/auth/refresh", headers={"Origin": settings.oidc_browser_origins[0]})
     assert refreshed.status_code == 200
-    assert refreshed.json()["refreshed"] is True and 0 < refreshed.json()["expires_in"] <= 300
+    assert refreshed.json()["refreshed"] is True and 0 < refreshed.json()["expires_in"] <= ACCESS_TTL
     assert int(refreshed.headers["content-length"]) == len(refreshed.content)
     assert api.cookies.get("mesh_accounts") != old_refresh
     current_access = api.cookies.get(COOKIE)

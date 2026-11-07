@@ -43,7 +43,10 @@ from .db import Database, kv, migrate, schema, sqlite_url
 
 DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 SCOPES = "openid profile offline_access mesh-api"
-ACCESS_TTL = 300
+# How long an access token lasts: 30 minutes, so the clients refresh at the issuer twice an hour.
+# Logout and revocation still end one at once (the revocations the issuer publishes, kept this long);
+# a removed account or a changed password ends it at the account's next check.
+ACCESS_TTL = 1800
 # A refresh token used this recently may be used once more without revoking its family: the client
 # may never have received the answer (a phone's network dropped it, or the process was killed before
 # it saved the new tokens), and would otherwise be signed out for good on its next try.
