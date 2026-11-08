@@ -16,6 +16,7 @@ import { SessionPage } from "./pages/Session";
 import { AgentsPage } from "./pages/Agents";
 import { AskPage } from "./pages/Ask";
 import { SubscriptionsPage } from "./pages/Subscriptions";
+import { SharedPage } from "./pages/Shared";
 import { ProvidersPage } from "./pages/Providers";
 import { ServerStatsPage } from "./pages/ServerStats";
 import { AccessLogPage } from "./pages/AccessLog";
@@ -32,7 +33,7 @@ import { DocsPage } from "./pages/Docs";
 import { Icon } from "./components/Icon";
 import { RestartButton } from "./components/Restart";
 import { AttentionAlerts, waitingAgents } from "./components/Attention";
-import { isGroup, visibleParts, type NavLinkItem } from "./navigation";
+import { isGroup, railSections, visibleParts, type NavItem, type NavLinkItem } from "./navigation";
 
 // The terminal viewer brings xterm.js; load it when visited.
 const TerminalPage = lazy(() => import("./pages/Terminal").then((module) => ({ default: module.TerminalPage })));
@@ -80,7 +81,10 @@ function Shell({ identity }: { identity: Identity | null }) {
     setMenuOpen(true);
   };
   const closeMenu = () => (window.history.state?.menu ? window.history.back() : setMenuOpen(false));
+  const admin = Boolean(identity?.site_admin) || identity?.role === "admin";
   const parts = visibleParts(Boolean(identity?.site_admin), identity?.role === "admin");
+  const [slim, toggleSlim] = useRailSlim();
+  const [folded, toggleFolded] = useFoldedSections();
   const inFlight = status.data?.current_requests.length ?? 0;
   // After an error (a lapsed sign-in, a dropped network) these keep asking, more slowly, so the
   // counts come back by themselves; only a 403 stops them.
@@ -113,55 +117,68 @@ function Shell({ identity }: { identity: Identity | null }) {
     </NavLink>
   );
   return (
-    <div className={`shell ${menuOpen ? "menu-open" : ""}`}>
+    <div className={`shell ${menuOpen ? "menu-open" : ""} ${slim ? "rail-slim" : ""}`}>
       <header className="topbar">
+        <button type="button" className="icon-button topbar-menu" aria-label="Menu" aria-expanded={menuOpen} onClick={menuOpen ? closeMenu : openMenu}>
+          <Icon name={menuOpen ? "close" : "menu"} size={22} />
+        </button>
         {wordmark}
         <span className={`connection ${status.isError ? "offline" : ""}`} title={status.data?.listen_address}>
           <span className="dot" aria-hidden="true" />
           {status.isError ? "Unreachable" : `${status.data?.active_sessions ?? 0} active`}
         </span>
-        <button type="button" className="icon-button" aria-label="Menu" aria-expanded={menuOpen} onClick={menuOpen ? closeMenu : openMenu}>
-          <Icon name={menuOpen ? "close" : "menu"} size={22} />
-        </button>
       </header>
       <div className="scrim" aria-hidden="true" onClick={closeMenu} />
       <aside className="rail">
-        {wordmark}
+        <div className="rail-head">
+          <button type="button" className="icon-button rail-toggle" onClick={toggleSlim} aria-expanded={!slim}
+            title={slim ? "Expand the menu" : "Collapse the menu to icons"} aria-label={slim ? "Expand the menu" : "Collapse the menu"}>
+            <Icon name="sidebar" size={18} />
+          </button>
+          {wordmark}
+        </div>
         <nav aria-label="Main">
           <div className="nav-group">
-            <NavLink to="/overview">
+            <NavLink to="/overview" title={slim ? "Overview" : undefined}>
               <Icon name="home" />
               <span className="nav-label">Overview</span>
             </NavLink>
           </div>
-          {parts.map((part) => (
-            <div key={part.id} className={`nav-group part-${part.id}`} role="group" aria-labelledby={`nav-${part.id}`}>
-              <p className="nav-heading" id={`nav-${part.id}`} title={part.summary}>
-                {part.label}
-              </p>
-              {part.items.map((item) =>
-                isGroup(item) ? (
-                  <div key={item.label} className="nav-sub" role="group" aria-label={item.label}>
-                    <p className="nav-sub-heading" aria-hidden="true">
-                      {item.icon && <Icon name={item.icon} />}
-                      {item.label}
-                    </p>
-                    {item.items.map((link) => (
-                      <RailLink key={link.to} item={link} counts={counts} />
-                    ))}
-                  </div>
-                ) : (
-                  <RailLink key={item.to} item={item} counts={counts} waiting={item.to === "/terminals" ? waiting : 0} />
-                ),
-              )}
-              {part.id === "machines" && (
-                <Link to="/machines#add" className="nav-add">
-                  <Icon name="plus" />
-                  <span className="nav-label">Add a machine</span>
-                </Link>
-              )}
-            </div>
-          ))}
+          {parts.flatMap((part) => railSections(part, admin).map((section) => {
+            // A folded heading still shows the page you're on, so you can always see where you are.
+            const open = slim || !folded.has(section.key);
+            const shown = open ? section.items : section.items.filter((item) => itemActive(item, pathname));
+            const id = `nav-${section.key.replace(/[^a-z0-9]+/g, "-")}`;
+            return (
+              <div key={section.key} className={`nav-group part-${part.id}`} role="group" aria-labelledby={id}>
+                <button type="button" className="nav-heading" id={id} title={section.title} aria-expanded={open} onClick={() => toggleFolded(section.key)}>
+                  <span>{section.label}</span>
+                  <Icon name="chevron" size={12} className={`nav-caret${open ? " open" : ""}`} />
+                </button>
+                {shown.map((item) =>
+                  isGroup(item) ? (
+                    <div key={item.label} className="nav-sub" role="group" aria-label={item.label}>
+                      <p className="nav-sub-heading" aria-hidden="true">
+                        {item.icon && <Icon name={item.icon} />}
+                        {item.label}
+                      </p>
+                      {item.items.map((link) => (
+                        <RailLink key={link.to} item={link} counts={counts} slim={slim} />
+                      ))}
+                    </div>
+                  ) : (
+                    <RailLink key={item.to} item={item} counts={counts} waiting={item.to === "/terminals" ? waiting : 0} slim={slim} />
+                  ),
+                )}
+                {open && part.id === "machines" && (
+                  <Link to="/machines#add" className="nav-add" title={slim ? "Add a machine" : undefined}>
+                    <Icon name="plus" />
+                    <span className="nav-label">Add a machine</span>
+                  </Link>
+                )}
+              </div>
+            );
+          }))}
         </nav>
         <div className="rail-foot">
           <Link to="/get" className="rail-download">
@@ -225,6 +242,7 @@ function Shell({ identity }: { identity: Identity | null }) {
           <Route path="/terminals-beta" element={<Navigate to="/live-agents" replace />} />
           <Route path="/ask" element={<AskPage />} />
           <Route path="/subscriptions" element={<SubscriptionsPage />} />
+          <Route path="/shared" element={<SharedPage />} />
           <Route path="/providers" element={<ProvidersPage />} />
           <Route path="/machines" element={<MachinesPage />} />
           <Route path="/approve-device" element={<ApproveDevicePage />} />
@@ -273,10 +291,11 @@ function ServerVersion() {
   );
 }
 
-function RailLink({ item, counts, waiting = 0 }: { item: NavLinkItem; counts: Record<string, number>; waiting?: number }) {
+function RailLink({ item, counts, waiting = 0, slim = false }: { item: NavLinkItem; counts: Record<string, number>; waiting?: number; slim?: boolean }) {
   const count = counts[item.to] ?? 0;
+  // Collapsed to icons, the name is the tooltip.
   return (
-    <NavLink to={item.to} end={item.end}>
+    <NavLink to={item.to} end={item.end} title={slim ? item.label : undefined}>
       {item.icon && <Icon name={item.icon} />}
       <span className="nav-label">{item.label}</span>
       {waiting > 0 ? (
@@ -288,6 +307,44 @@ function RailLink({ item, counts, waiting = 0 }: { item: NavLinkItem; counts: Re
       )}
     </NavLink>
   );
+}
+
+const RAIL_SLIM_KEY = "ai-proxy-rail-slim";
+const NAV_FOLDED_KEY = "ai-proxy-nav-folded";
+
+/** Whether the desktop rail is collapsed to icons; remembered in this browser. */
+function useRailSlim(): [boolean, () => void] {
+  const [slim, setSlim] = useState(() => {
+    try { return localStorage.getItem(RAIL_SLIM_KEY) === "1"; } catch { return false; }
+  });
+  const toggle = () => setSlim((previous) => {
+    try { localStorage.setItem(RAIL_SLIM_KEY, previous ? "0" : "1"); } catch { /* Storage may be disabled. */ }
+    return !previous;
+  });
+  return [slim, toggle];
+}
+
+/** The rail headings someone folded away (by `NavSection.key`); remembered in this browser. */
+function useFoldedSections(): [Set<string>, (key: string) => void] {
+  const [folded, setFolded] = useState<Set<string>>(() => {
+    try {
+      const value: unknown = JSON.parse(localStorage.getItem(NAV_FOLDED_KEY) ?? "[]");
+      return new Set(Array.isArray(value) ? value.filter((key): key is string => typeof key === "string") : []);
+    } catch { return new Set(); }
+  });
+  const toggle = (key: string) => setFolded((previous) => {
+    const next = new Set(previous);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    try { localStorage.setItem(NAV_FOLDED_KEY, JSON.stringify([...next])); } catch { /* Storage may be disabled. */ }
+    return next;
+  });
+  return [folded, toggle];
+}
+
+function itemActive(item: NavItem, pathname: string): boolean {
+  const on = (to: string) => pathname === to || pathname.startsWith(`${to}/`);
+  return isGroup(item) ? item.items.some((link) => on(link.to)) : on(item.to);
 }
 
 /** The documentation before signing in, with the console's router for its links between pages. */

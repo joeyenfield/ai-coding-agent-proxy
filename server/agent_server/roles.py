@@ -74,6 +74,10 @@ PATH_ROLES: tuple[tuple[str, str], ...] = (
     ("/api/machines/tunnel/", "fleet"),
     ("/api/live", "realtime"),
     ("/api/proxy/tunnel", "intercept"),
+    # A linked server's socket (links.py) is held like a machine's; its relayed model calls are the gateway's.
+    ("/api/links/connect", "fleet"),
+    ("/api/links/relay/provider/", "gateway"),
+    ("/api/links/relay/mcp/", "gateway"),
 )
 MODULE_ROLES = {
     "compat": "gateway",

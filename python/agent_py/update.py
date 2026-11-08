@@ -44,7 +44,7 @@ def wheel(index: Dict[str, Any], server: str) -> Dict[str, Any]:
     for item in index.get("files") or []:
         if isinstance(item, dict) and item.get("component") == "python" and item.get("kind") == "wheel":
             return item
-    hint = index.get("hint") or "build it with scripts/build-dist on the server's computer"
+    hint = index.get("hint") or "build it with devhelpers/scripts/build-dist on the server's computer"
     raise UpdateError(f"the agent-server at {server} offers no Python build ({hint})")
 
 

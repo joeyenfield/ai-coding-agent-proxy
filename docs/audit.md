@@ -37,7 +37,7 @@ A change is written to the log before it's answered, so a change someone saw suc
 ## Integrity
 
 - Each organization's events are a **hash chain**: every event has a `seq` and the hash of the one before it (`prev`), and its own `hash` covers both. Removing, reordering or changing one breaks the chain from there.
-- The database refuses to change audit events, and lets only retention delete them: triggers check this on every row, whatever role writes.
+- The database refuses to change audit events, and lets only retention delete them: triggers check this on every row, whatever role writes. Retention opens a guard row to delete, and the server's own database role can set that row, so this stops mistakes rather than a determined attacker with the server's database password; the hash chain is what shows tampering.
 - Every hour (Server settings › Audit, `checkpoint_minutes`) the worker **signs a checkpoint**: every chain's head, signed with the server's audit key (Ed25519, kept in the database's secrets). With blob storage, checkpoints are also written to `audit/checkpoints/`; with S3 Object Lock as the bucket's default, they can't be changed or deleted even by an administrator of the server.
 - `agent-server audit verify` (or **Verify** on the Audit log page, `GET /api/audit/verify`) recomputes every chain and checks it against the checkpoints and their signatures. It exits 1 and lists each problem when anything doesn't match. `agent-server audit key` prints the public key, to check checkpoints somewhere else; `agent-server audit checkpoint` signs one now.
 

@@ -1,0 +1,38 @@
+# The whole system in one container, the published ghcr.io/joeyenfield/ai-control-mesh image:
+#
+#   podman compose up -d        (or docker compose), from deploy/compose/allinone
+#   podman compose logs mesh    the console's address and admin's password
+#
+# The same as the one-line `docker run` in README.md and docs/local.md, with its volumes named. The
+# ports must stay 19999 and 20000 on the host: the browser and the server inside both sign in at
+# http://localhost:20000. Set MESH_ADMIN_PASSWORD to choose admin's password instead of the one
+# the server makes. AI_PROXY_IMAGE_TAG picks the version (default latest). To run this checkout's
+# code instead, use devhelpers/allinone, which builds the image (its Dockerfile is there).
+name: ai-control-mesh-allinone
+
+services:
+  mesh:
+    image: ${AI_PROXY_IMAGES:-ghcr.io/joeyenfield}/ai-control-mesh:${AI_PROXY_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      MESH_ADMIN_PASSWORD: ${MESH_ADMIN_PASSWORD:-}
+      # Extra Debian packages for the agents (installed with the image's sudo), such as "ripgrep jq".
+      AGENT_APT_PACKAGES: ${AGENT_APT_PACKAGES:-}
+    ports:
+      - "127.0.0.1:19999:19999"
+      - "127.0.0.1:20000:20000"
+    volumes:
+      - mesh-data:/data
+      - mesh-home:/home/agent
+      - mesh-workspace:/workspace
+    # Stated here as well as in the image: Podman ignores a HEALTHCHECK in an OCI image.
+    healthcheck:
+      test: [CMD-SHELL, 'curl -fs http://127.0.0.1:19999/health >/dev/null && agent-machine | grep -q "^Fleet *: connected"']
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+
+volumes:
+  mesh-data:
+  mesh-home:
+  mesh-workspace:

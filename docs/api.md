@@ -27,8 +27,9 @@ With [separate hosting](deployment.md#separate-console-and-api-domains), all the
 | **Same origin** | Unsafe methods and WebSockets require the request's host or an exact console origin in `AI_PROXY_CONSOLE_ORIGINS`. Other origins are refused. |
 | **Machine feature** | The fleet's grants, `fleet.allowed(identity, machine, feature)`, only ever inside the machine's organization: the machine's owner always; its organization's admins for `view`, `models` and `update`; the organization or teams the owner granted the feature. Site admins have every feature on every machine. See [Machines](machines.md). |
 | **Machine owner** | The machine's owner, or an admin of its organization where it says so. |
+| **Linked server** | A server linked with this one ([Peering](peering.md)), signing the request with its link key: no person's token, ever. These routes are public to the sign-in middleware on purpose and check the signature first. |
 
-Every protected path requires authentication, including agent session paths and loopback. Exceptions are `/health` and `/api/auth/{status,login,callback,refresh,logout,accounts,switch}` (the last two read and change only the browser's own sign-ins).
+Every protected path requires authentication, including agent session paths and loopback. Exceptions are `/health`, `/api/auth/{status,login,callback,refresh,logout,accounts,switch}` (the last two read and change only the browser's own sign-ins), and the routes linked servers call (`/api/links/present`, `/api/links/connect`, `/api/links/relay/...`), which take only link-key signatures.
 
 - Refused credentials get 401; forbidden origins/roles get 403; issuer failures get 503.
 - A WebSocket refused at the door closes with 4400 plus the HTTP status's last two digits — 4401, 4403, and 4403 for an unavailable issuer (503) too — and closes 4410 when an established credential needs renewal.
@@ -294,6 +295,44 @@ See [Accounts](accounts.md). Changes answer with the directory (`orgs` and `user
 | PUT | `/api/users/{name}` | Admin | Changes `role`, `teams` or `password` together, only if all changes are valid. `orgs` may only repeat the user's own organization. An organization's last admin can't be made a member; root users stay admins. |
 | DELETE | `/api/users/{name}` | Admin | Removes a user. Their machines leave the fleet, their provider accounts (and stored credentials) are deleted, and their sessions become ownerless, kept for the organization's admins: a recreated name inherits nothing. You can't remove yourself. |
 
+## Links, bridges and what crosses
+
+See [Peering](peering.md). Full names (`provider:server-b/org-b1/provider-b1`, `mcp:server/org/machine/name`, `agent:server/org/name`, `machine:server/org/name`) name what another server shares; the server resolves them.
+
+| Method | Path | Who | What it does |
+|---|---|---|---|
+| GET | `/.well-known/mesh-link` | Public | This server's mesh id, address, public link keys and `link_protocol`; 404 without a mesh id. |
+| GET | `/api/links` | Site admin | `{mesh: {id, url, fingerprint, keys}, links: [...]}`: each link's `id`, `peer`, `url`, `state` (`pending`, `active`, `paused`), `connected`, `we_presented`, `they_presented`, `dials`, `waiting` and fingerprints. |
+| PUT | `/api/links/mesh` | Site admin | `{"id"}`: this server's mesh id, once, before the first link (`AI_PROXY_MESH_ID` sets it instead). |
+| GET, POST | `/api/links/codes` | Site admin | Open link codes; `POST` makes one (`msl_...`, one use, an hour), answered once with the mesh id, address and fingerprint to read out. |
+| DELETE | `/api/links/codes/{id}` | Site admin | Revokes an unused code. |
+| POST | `/api/links/inspect` | Site admin | `{"url"}`: what the server there says it is (mesh id, fingerprint), for the admin to check. |
+| POST | `/api/links/join` | Site admin | `{url, code, fingerprint}` for a server not met yet (the fingerprint the admin confirmed), or `{link, code}` for one that presented here: presents this server to it. Wrong codes count towards 20 per address in 10 minutes. |
+| POST | `/api/links/keys/rotate` | Site admin | A new link key; the old one stays valid for a day on both sides. |
+| DELETE | `/api/links/keys/{kid}` | Site admin | A leaked key: invalid at once; links made with it are set up again. |
+| GET | `/api/links/{id}` | Site admin | One link with both sides' link policies and its bridges. |
+| PUT | `/api/links/{id}/policy` | Site admin | `{out, in, orgs}`: the kinds (`provider`, `mcp`, `agent`, `launch`, `terminal`) this server's organizations may let out and in, and which organizations may bridge (`*` for all). Signed, versioned, sent to the other side. |
+| POST | `/api/links/{id}/pause`, `/resume` | Site admin | Pauses or resumes it; paused, nothing crosses and its socket closes. |
+| DELETE | `/api/links/{id}` | Site admin | Removes it and every bridge over it. |
+| GET | `/api/orgs/{org}/bridges` | Admin of `org` | Its bridges, the links it may bridge over, and its open codes. |
+| POST | `/api/orgs/{org}/bridges/codes` | Admin of `org` | `{link}`: a bridge code (`msb_...`, one use, an hour, at most a day). |
+| DELETE | `/api/orgs/{org}/bridges/codes/{id}` | Admin of `org` | Revokes an unused code. |
+| POST | `/api/orgs/{org}/bridges/inspect` | Admin of `org` | `{link, code}`: which organization the other side's code is for. |
+| POST | `/api/orgs/{org}/bridges/join` | Admin of `org` | `{link, code, peer_org}`: enters it. The bridge opens once both sides have. |
+| GET | `/api/orgs/{org}/bridges/{id}` | Admin of `org` | The bridge: both sides' policies, what `crossing` (`out`, `in`), the other side's catalogue, its `limits` and what this organization could let out (`shareable`). |
+| PUT | `/api/orgs/{org}/bridges/{id}/policy` | Admin of `org` | `{out, in}`: lists of items (`{kind, name}`, `{kind, machine}` for `launch`/`terminal`, `{kind, machine, name}` for `mcp`; `scope: "home"` for a provider or MCP server only its own people's launches on the other server use; `teams` on what's let in). What's let out must be the organization's own, and a machine's needs its owner's grant to the bridge. Agent definitions are pinned by digest. |
+| POST | `/api/orgs/{org}/bridges/{id}/pause`, `/resume`, `/refresh` | Admin of `org` | Pause, resume, or fetch the other side's policies and catalogue now. |
+| DELETE | `/api/orgs/{org}/bridges/{id}` | Admin of `org` | Ends it on both sides; guests' launches on this side's machines end. |
+| PUT, DELETE | `/api/orgs/{org}/bridges/{id}/limits` | Admin of `org` | `{provider, window, tokens}` (DELETE: `?provider=&window=`): the bridge's usage limit on one of the organization's providers. Without one, nothing is used (`429`). |
+| GET | `/api/orgs/{org}/agents` | Signed in, in `org` | The organization's own agent definitions (the only ones that may cross a bridge). |
+| PUT, DELETE | `/api/orgs/{org}/agents/{id}` | Admin of `org` | `{yaml}` or `{definition}`: adds, changes or removes one. Ids are unique on the server; shipped ids are refused. |
+| GET | `/api/peer/resources` | Signed in | What crosses in for you: `providers`, `mcp`, `agents`, `machines`, each with its full name (`id`). |
+| GET | `/api/peer/folders` | Signed in | `?machine=<full name>&path=`: the launch folders of a machine shared with you for launches, as its server lists them. |
+| POST | `/api/peer/launch` | Signed in, Same origin | `{machine, agent, project, model, backend, mcp}`: starts an agent on a machine shared with you. Its session is the other server's; you get a mirror session here (`session_id`), with its records and its terminal. |
+| POST | `/api/links/present` | Public, signed by the key presented | A server presenting a link code of this one's. |
+| WebSocket | `/api/links/connect` | Linked server | The link socket (see WebSockets below). |
+| GET, POST | `/api/links/relay/...` | Linked server | `policies`, `changed`, `keys`, `bridge/inspect`, `bridge/present`, `catalogue/{bridge}`, `provider/{org}/{name}/{agent path}`, `mcp/{org}/{machine}/{name}`, `machine/{org}/{machine}/folders`, `machine/{org}/{machine}/launch`, `session/{id}/terminal` (WebSocket), `mirror`, `offboard`. Each checks the signature, the time (30 s), the nonce, the body's digest, the assertion and both policy versions (`409` with the current digests when they differ), then what the bridge lets out (`403`). |
+
 ## Downloads and installers
 
 All **Public**, so a new machine or a phone can get them before signing in. See [Deployment](deployment.md).
@@ -339,6 +378,8 @@ OpenAPI can't describe these. All need **Trusted** (a sign-in; machines send the
 | `/api/machines/tunnel/{tunnel_id}` | `agent-machine`, with its token, when the server asks | One connection of agents' traffic (or MCP traffic) to a port on that machine: raw bytes both ways. Closed with `4404` for an unknown tunnel. |
 | `/api/proxy/tunnel` | `agent-proxy`, with its machine's token | One account agent's HTTPS connection, which the server decrypts and records with its CA. Binary frames both ways. Closed with `4404` when capture is off. |
 | `/api/terminals/{session_id}/host` | The launcher (`--control`), relayed by its `agent-proxy` | The launcher sends a hello, then the agent's output as binary frames and `resize`, `gap` and `exit` messages. The server sends `resume` (where to resend from) and `input` (`parts` to type, sent a short gap apart). Only someone who can control the session may host it; a missing session closes `4404`, a credential that may not `4401`. |
+| `/api/links/connect` | A linked server that dials, signed with its link key | The link socket. The server sends a `challenge`; the dialler answers a signed `hello`; the server a signed `welcome`. Then `ping`/`pong` every 20 s, a signed `auth` every 60 s, and requests and WebSockets carried as binary frames for the side that can't reach the other directly. Closes `4401` bad signature, `4403` paused, `4410` removed, `4426` link protocol not supported, `1011` nothing heard for 60 s. |
+| `/api/links/relay/session/{session_id}/terminal` | A linked server, for its person (signed) | The terminal of a launch that person started on one of this server's machines: what `/view` sends, and input only while the bridge lets that machine's terminals out. |
 | `/api/terminals/{session_id}/view` | The console's terminal page | `?from=<offset>` (optional): the byte offset of the output the viewer already has. The server sends `state`, `{"type": "replay", "start": <offset>, "resumed": <bool>}` (resumed: what follows continues from `from`, so nothing is redrawn), the history as binary frames, `replayed`, `gap` (`{"type": "gap", "to": <offset>}`: output the launcher skipped), then live output and `state`, `resize` and `error` messages. The viewer sends `{"type": "input", "text": "...", "enter": true}` or `{"type": "input", "keys": "\u001b"}`; typing needs control of the session, checked on every message. `{"type": "token", "token": "..."}` renews the viewer's access token in place (the same user's, in the same tenant; anything else is ignored), so it isn't closed with `4410` when the token it opened with expires. A viewer that falls behind is closed with `4408`, and a missing terminal with `4404`. A viewer whose access ends mid-stream (sharing narrowed, the session made private) is closed with `4403`, and `4410` also closes a viewer whose credential can't be rechecked because the issuer is unreachable. |
 
 ## Check

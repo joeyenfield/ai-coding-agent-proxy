@@ -18,7 +18,9 @@ machine/         agent-machine, in Go, its own module: the fleet connection, pro
 python/          agent_py: the same agent, agent-proxy and agent-machine in Python
 android/         The Android app (Kotlin): a list of servers, each one's console in a WebView
 tools/dist/      Build tooling, in Go: every platform's binaries, archives, packages and the Python wheel
-scripts/         Build, dev and launcher scripts (.ps1 and .sh pairs), HTTPS setup, screenshots
+devhelpers/      For development: the deploy/ stacks built from this checkout, the all-in-one image's Dockerfile
+  scripts/       Build, dev, launcher, screenshot, site, release and deploy scripts (.ps1 and .sh pairs), HTTPS setup
+deploy/          Runs the published images: compose/ (quickstart, allinone, peer, server) and helm/ (the chart, its quickstart)
 sandbox/         The agent-sandbox image
 benchmarks/      tests/<name>/ (prompt.md, test.yaml); results/ is gitignored
 VERSION          The project's one hand-written version
@@ -35,19 +37,19 @@ You need Python 3.11 or later (3.13 recommended), Node with npm, and Go (the mod
 ```bash
 cd server && pip install -e ".[dev]"    # agent-server, agent-auth and agent-benchmark, plus pytest and friends
 cd ui && npm install
-./scripts/build-client.sh               # agent and agent-proxy into client/bin
-./scripts/build-machine.sh              # agent-machine into machine/bin
+./devhelpers/scripts/build-client.sh               # agent and agent-proxy into client/bin
+./devhelpers/scripts/build-machine.sh              # agent-machine into machine/bin
 ```
 
-On Windows, every script has a PowerShell twin: `.\scripts\build-client.ps1` and so on. When you change one, change both.
+On Windows, every script has a PowerShell twin: `.\devhelpers\scripts\build-client.ps1` and so on. When you change one, change both.
 
 To run it:
 
 ```bash
 agent-server                       # API and console on the configured address; rebuilds ui/dist if stale
 agent-server --reload --no-build   # Python auto-reload, skip the UI build
-./scripts/dev.sh                   # agent-server --reload --no-build plus Vite on :5173, with hot reload
-./scripts/agent.sh qwen . --model qwen3.6:35b   # build the client from this checkout and launch an agent
+./devhelpers/scripts/dev.sh                   # agent-server --reload --no-build plus Vite on :5173, with hot reload
+./devhelpers/scripts/agent.sh qwen . --model qwen3.6:35b   # build the client from this checkout and launch an agent
 agent proxy                        # this machine's agent-proxy in the foreground
 ```
 
@@ -68,7 +70,7 @@ Vite on 5173 proxies `/api` (WebSockets included), `/health`, the OpenAPI pages,
 |---|---|
 | `cd server && python -m pytest -q` | The server: every area, against mocked upstreams. `test_client.py` builds `../client` and `../machine` and runs them against a real server on free ports (skipped without Go). No network beyond 127.0.0.1. |
 | `cd python && python -m pytest -q` | The Python `agent` and `agent-machine` against a real server, including `server/tests/test_client.py`'s contract. |
-| `python -m pytest -q quickstart/tests` | End to end against the running [quickstart](quickstart.md) stack: browser and device sign-in through the real issuer, refused passwords and origins, admin-only routes, machines shared through organization grants, and a removed user's sign-in ending. Skipped when the stack isn't running (`QUICKSTART_E2E=1` makes that a failure). The issuer allows 10 password attempts per address per 10 minutes; the suite makes 7, so `podman compose restart auth` before a quick rerun. |
+| `python -m pytest -q devhelpers/basic/tests` | End to end against the running [quickstart](quickstart.md) stack: browser and device sign-in through the real issuer, refused passwords and origins, admin-only routes, machines shared through organization grants, and a removed user's sign-in ending. Skipped when the stack isn't running (`QUICKSTART_E2E=1` makes that a failure). The issuer allows 10 password attempts per address per 10 minutes; the suite makes 7, so `podman compose restart auth` before a quick rerun. |
 | `cd client && go test ./...` | The client's unit tests. |
 | `cd client && go vet ./... && GOOS=linux go vet ./...` | Both pseudo-terminal paths (ConPTY and POSIX). |
 | `cd machine && go test ./...` | agent-machine's unit tests. Vet it for Windows and Linux too. |
@@ -103,13 +105,13 @@ Each run gets its own session, and results go to `benchmarks/results/<timestamp>
 The separate public brochure in `site/` has its own [preview and browser checks](website.md). It uses existing isolated-demo screenshots; changing the brochure does not require rebuilding the console.
 
 ```bash
-python scripts/screenshots/demo.py --capture [name,...]               # start the demo, take the screenshots, stop it
-python scripts/screenshots/demo.py                                    # or leave it running, to look around
-node scripts/screenshots/capture.mjs http://127.0.0.1:8199 docs/screenshots [name,...]
-python scripts/screenshots/demo.py --stop                             # stop one left running
+python devhelpers/scripts/screenshots/demo.py --capture [name,...]               # start the demo, take the screenshots, stop it
+python devhelpers/scripts/screenshots/demo.py                                    # or leave it running, to look around
+node devhelpers/scripts/screenshots/capture.mjs http://127.0.0.1:8199 docs/screenshots [name,...]
+python devhelpers/scripts/screenshots/demo.py --stop                             # stop one left running
 ```
 
-`demo.py` runs a self-contained server on port 8199 in a temporary home, so your database, `logs/` and accounts aren't touched. It has fake Ollama, Anthropic and Docker Model Runner servers, three made-up machines joined over the fleet socket (with fake model servers, metrics, catalogue results and containers), three made-up shared terminals you can type into, seeded account sessions, and live traffic. `scripts/screenshots/traffic.py` drives agent-like traffic through a server for smoke tests. Stop the demo with Ctrl+C, or with `--stop` from another shell: a demo started in the background (by an agent, say) is otherwise left running. Either way it stops the server and issuer it started and removes its folder, and a new demo removes any folders a killed one left.
+`demo.py` runs a self-contained server on port 8199 in a temporary home, so your database, `logs/` and accounts aren't touched. It has fake Ollama, Anthropic and Docker Model Runner servers, three made-up machines joined over the fleet socket (with fake model servers, metrics, catalogue results and containers), three made-up shared terminals you can type into, seeded account sessions, and live traffic. `devhelpers/scripts/screenshots/traffic.py` drives agent-like traffic through a server for smoke tests. Stop the demo with Ctrl+C, or with `--stop` from another shell: a demo started in the background (by an agent, say) is otherwise left running. Either way it stops the server and issuer it started and removes its folder, and a new demo removes any folders a killed one left.
 
 `capture.mjs` needs `playwright-core` and a browser (`npx playwright-core install chromium-headless-shell`, or point `chromium.launch({ executablePath })` at an installed one). Keep throwaway screenshot scripts outside the repository.
 
@@ -135,18 +137,18 @@ Compatibility is `PROTOCOL`, an integer in `version.py` and in `settings.Protoco
 
 To release, change `VERSION`, commit, tag `vX.Y.Z`, and build the distributions.
 
-Pushing the tag also runs `.github/workflows/release.yml`, which makes the GitHub Release the web installer downloads from ([Run it on your own computer](local.md)). It builds the console and `tools/dist` without packages or the Android app. Then `scripts/release/release.py` writes the release's files:
+Pushing the tag also runs `.github/workflows/release.yml`, which makes the GitHub Release the web installer downloads from ([Run it on your own computer](local.md)). It builds the console and `tools/dist` without packages or the Android app. Then `devhelpers/scripts/release/release.py` writes the release's files:
 
 - the server bundle `ai-control-mesh-X.Y.Z.zip`: `VERSION`, a `BUILD` file naming the version (it has no git), the server's sources, `ui/dist`, `docs/` and `benchmarks/tests`;
 - every `agent` and `agent-machine` archive, and the Python wheel (required: it's what the installers' `--python` and any system without a Go build use);
-- `install-local.sh` and `install-local.ps1`, filled in from `scripts/release/` with the release's address and every download's SHA-256;
+- `install-local.sh` and `install-local.ps1`, filled in from `devhelpers/scripts/release/` with the release's address and every download's SHA-256;
 - `SHA256SUMS`.
 
 The workflow refuses a tag that isn't `v` plus `VERSION`. Run by hand (Actions › Release), it keeps the files as a workflow artifact and makes no release. To try an installer before tagging, make the files with `--base-url http://127.0.0.1:<port>`, serve the folder, and run it with `AI_PROXY_LOCAL_HOME` and `--prefix` set to scratch folders.
 
 ### Distributions
 
-`scripts/build-dist.sh` (`.\scripts\build-dist.ps1`) runs `tools/dist` (`go run ./dist` in `tools/`), which builds both Go components for every target with `CGO_ENABLED=0`, packs them, and builds the Android app and the Python wheel.
+`devhelpers/scripts/build-dist.sh` (`.\devhelpers\scripts\build-dist.ps1`) runs `tools/dist` (`go run ./dist` in `tools/`), which builds both Go components for every target with `CGO_ENABLED=0`, packs them, and builds the Android app and the Python wheel.
 
 | System | Folder names |
 |---|---|
@@ -197,7 +199,7 @@ To test installers and packages, use a throwaway user in a separate WSL distribu
 3. agent-machine: a kind in `machine/internal/providers` (status, model operations, log), its probe in `presence.DetectProviders`, and Go tests.
 4. `routes/management.py`: `_backend_models` shapes the machine's status for `/api/models`. The console's provider routes in `routes/machines.py` are generic.
 5. The console: types and methods in `api.ts` (and its `MACHINE_TYPES`), `PROVIDERS` in `routes.ts`, the type option and URL placeholder in `Settings.tsx`, and a `<Kind>Provider` view taking a `ProviderRef`, with its case in `ProviderView` in `pages/Machine.tsx`.
-6. The comments in `AGENTS_YAML` in `defaults.py`, these docs, and the fake server in `scripts/screenshots/demo.py`.
+6. The comments in `AGENTS_YAML` in `defaults.py`, these docs, and the fake server in `devhelpers/scripts/screenshots/demo.py`.
 7. Tests: its traffic in `server/tests/test_<provider>.py` (follow `test_model_runner.py`), the relay in `test_providers.py`, the machine's side in Go.
 
 **A new console page.** Create `ui/src/pages/X.tsx`, add a `<Route>` in `App.tsx` and an item in `PARTS` in `navigation.ts`, and put `<PartTag />` above its `<h1>`. Anything about a model server goes on its machine's page instead.

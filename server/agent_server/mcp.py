@@ -25,6 +25,7 @@ import re
 import secrets
 from typing import Any
 
+from . import routing
 from .auth import Identity
 from .fleet import Fleet, Machine, allowed
 
@@ -43,7 +44,8 @@ def server_id(machine: Machine, name: str) -> str:
 
 
 def listed(fleet: Fleet, identity: Identity | None) -> list[dict[str, Any]]:
-    """Every MCP server this user may use, on connected machines and the rest, for the console's picker."""
+    """Every MCP server this user may use, on connected machines and the rest, for the console's picker; those
+    another server's organization shares over a bridge (bridges.py) under their full names (remote: true)."""
     found = []
     for machine in sorted(fleet.machines.values(), key=lambda item: item.name.lower()):
         if not usable(fleet, identity, machine):
@@ -52,6 +54,14 @@ def listed(fleet: Fleet, identity: Identity | None) -> list[dict[str, Any]]:
             found.append({
                 "id": server_id(machine, server["name"]), "machine": machine.id, "machine_name": machine.name,
                 "connected": fleet.connected(machine.id), **server,
+            })
+    bridges = getattr(fleet, "bridges", None)
+    if bridges is not None:
+        for server in bridges.remote_for(identity)["mcp"]:
+            found.append({
+                "id": server["id"], "machine": None, "machine_name": f"{server['machine']} ({server['id'].split(':', 1)[1].split('/', 1)[0]})",
+                "connected": bool(server.get("connected")), "name": server["name"], "description": server.get("description") or "",
+                "transport": "http", "found": True, "remote": True,
             })
     return found
 
@@ -71,14 +81,20 @@ def choose(fleet: Fleet, identity: Identity | None, wanted: Any) -> list[dict[st
         name = str(raw or "").strip()
         if not name:
             continue
+        if routing.is_full(name):
+            # Another server's, shared over a bridge: only by its full name, never by "all".
+            if name not in available:
+                raise ValueError(f"{name} isn't an MCP server shared with you")
+            chosen[name] = available[name]
+            continue
         if name == ALL:
-            chosen.update({key: item for key, item in available.items() if item["connected"]})
+            chosen.update({key: item for key, item in available.items() if item["connected"] and not item.get("remote")})
             continue
         machine_part, _, server = name.partition("/")
         machine = _machine(fleet, machine_part)
         if machine is None or not usable(fleet, identity, machine):
             raise ValueError(f"No machine {machine_part} with MCP servers you can use")
-        matches = [item for item in available.values() if item["machine"] == machine.id and (not server or item["name"] == server)]
+        matches = [item for item in available.values() if item.get("machine") == machine.id and (not server or item["name"] == server)]
         if not matches:
             raise ValueError(f"{machine.name} shares no MCP server called {server}" if server else f"{machine.name} shares no MCP servers")
         if server and not fleet.connected(machine.id):
@@ -99,7 +115,7 @@ def entry_name(item: dict[str, Any], chosen: list[dict[str, Any]]) -> str:
     """The name an agent knows a server by: its own, or with its machine's when two machines share one of that name."""
     if sum(other["name"] == item["name"] for other in chosen) == 1:
         return item["name"]
-    machine = re.sub(r"[^a-z0-9_-]+", "-", item["machine_name"].lower()).strip("-") or item["machine"]
+    machine = re.sub(r"[^a-z0-9_-]+", "-", item["machine_name"].lower()).strip("-") or item["machine"] or "remote"
     return f"{machine}-{item['name']}"
 
 
@@ -116,6 +132,9 @@ def valid_token(expected_hash: str | None, token: str | None) -> bool:
 
 
 def url(proxy_url: str, session_id: str, item: dict[str, Any], token: str) -> str:
+    if item.get("remote"):
+        # Another server's: relayed there by this server (routes/mcp.py peer_relay).
+        return f"{proxy_url.rstrip('/')}/session/{session_id}/mcp/peer/{item['id']}?key={token}"
     return f"{proxy_url.rstrip('/')}/session/{session_id}/mcp/{item['id']}?key={token}"
 
 

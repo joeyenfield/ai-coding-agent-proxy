@@ -1,0 +1,23 @@
+# Build agent-machine into machine\bin for this machine:
+#   .\devhelpers\scripts\build-machine.ps1
+# For every platform (with the client too), into dist\<version>\<os>-<arch>: .\devhelpers\scripts\build-dist.ps1
+$ErrorActionPreference = "Stop"
+# Push, not Set: a script run with & shares the caller's location.
+Push-Location (Join-Path $PSScriptRoot "..\..\machine")
+try {
+    if (-not $env:GOTOOLCHAIN) { $env:GOTOOLCHAIN = "local" }
+    $version = $env:VERSION
+    if (-not $version) {
+        # The checkout's version, as the server and tools\dist work it out (VERSION, plus the commit).
+        Push-Location (Join-Path $PSScriptRoot "..\..\tools")
+        try { $version = go run ./dist -print-version } finally { Pop-Location }
+        # A broken tools module must fail the build, as build-machine.sh does, not stamp "dev":
+        # a "dev" binary never matches the server's dist folder or update checks.
+        if ($LASTEXITCODE -ne 0 -or -not $version) { throw "couldn't work out the version (go run ./dist -print-version failed)" }
+    }
+    go build -trimpath -ldflags "-s -w -X main.version=$version" -o "bin/agent-machine.exe" ./cmd/agent-machine
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    Write-Output "machine\bin\agent-machine.exe"
+} finally {
+    Pop-Location
+}

@@ -20,7 +20,7 @@ from . import cluster as cluster_module
 from . import roles as roles_module
 from .access_log import AccessLog
 from .request_log import RequestLog
-from .agents import AgentDefinition, load_agents
+from .agents import ALL_TENANTS, AgentDefinition, load_agents, stored_definition
 from .auth import Auth, Revocations, UserStore
 from .certs import CertificateAuthority
 from .chat import Chats
@@ -107,6 +107,14 @@ class Runtime:
         # Every request saved for the request_log setting's days, with payloads in its debug mode (site admins).
         self.request_log = RequestLog(self.db, lambda: self.settings.request_log)
         self.access_log.request_log = self.request_log
+        # Links to other servers and bridges between their organizations and these (links.py, bridges.py).
+        from .bridges import Bridges
+        from .links import Links
+
+        self.links = Links(self.db, settings, self.cluster)
+        self.links.runtime = self
+        self.bridges = Bridges(self)
+        self.fleet.bridges = self.bridges
         self.recent: deque[dict[str, Any]] = deque(maxlen=100)
         self.active: dict[str, dict[str, Any]] = {}
         self.config_lock = asyncio.Lock()
@@ -151,7 +159,12 @@ class Runtime:
         self.cluster.on("config.changed", reload)
         from . import access
 
-        self.sessions.listeners.append(lambda session: self.terminals.drop_viewers(session.session_id, lambda viewer: access.can_view(viewer, session)))
+        from .bridges import Guest
+
+        # A guest viewing a launch on this server's machines (bridges.py) is checked by its own rule.
+        self.sessions.listeners.append(lambda session: self.terminals.drop_viewers(
+            session.session_id, lambda viewer: self.bridges.can_view(viewer, session) if isinstance(viewer, Guest) else access.can_view(viewer, session),
+        ))
 
     @cached_property
     def ca(self) -> CertificateAuthority:
@@ -175,9 +188,51 @@ class Runtime:
             info.update(ca_path=str(self.ca.cert_path), bundle_path=str(self.ca.bundle_path), ca_fingerprint=self.ca.fingerprint())
         return info
 
-    def agents(self) -> dict[str, AgentDefinition]:
-        # Read on demand so an edited definition applies without a restart.
-        return load_agents(self.db)
+    def agents(self, identity: Any = None) -> dict[str, AgentDefinition]:
+        """The agents someone may use: the server's own, their organization's, and those let in over a bridge
+        (under their full names). Without an identity, every stored one. Read on demand so an edit applies at once."""
+        if identity is None:
+            return load_agents(self.db, ALL_TENANTS)
+        tenant = getattr(identity, "tenant", None)
+        agents = load_agents(self.db, tenant)
+        agents.update(self.bridged_agents(identity))
+        return agents
+
+    def agents_of(self, org: str | None) -> dict[str, AgentDefinition]:
+        """The server's own agents and this organization's (not those let in over bridges)."""
+        return load_agents(self.db, org)
+
+    def agent_definition(self, agent_id: str) -> dict[str, Any] | None:
+        return stored_definition(self.db, agent_id)
+
+    def bridged_agents(self, identity: Any) -> dict[str, AgentDefinition]:
+        """Definitions another server's organization let in for this person, checked: pinned version, nothing
+        but endpoints in their environment, no files, and an executable this server already runs for agents."""
+        import dataclasses
+
+        from .agents import parse_agents
+        from .bridges import safe_definition
+        from .links import digest
+
+        found: dict[str, AgentDefinition] = {}
+        remote = self.bridges.remote_for(identity)["agents"]
+        if not remote:
+            return found
+        executables = {agent.executable for agent in load_agents(self.db, getattr(identity, "tenant", None)).values()}
+        for entry in remote:
+            bridge = self.bridges.bridges.get(entry["bridge"])
+            catalogue = (bridge.data.get("catalogue") or {}) if bridge else {}
+            definition = next((item.get("definition") for item in catalogue.get("agents") or [] if item.get("name") == entry["name"]), None)
+            if not isinstance(definition, dict) or digest(definition) != entry["digest"] or safe_definition(definition):
+                continue
+            try:
+                parsed = parse_agents({"bridged": definition})["bridged"]
+            except ValueError:
+                continue
+            if parsed.executable not in executables:
+                continue
+            found[entry["id"]] = dataclasses.replace(parsed, id=entry["id"], name=f"{parsed.name} ({entry['id'].split(':', 1)[1].rsplit('/', 1)[0]})", bridge=entry["bridge"])
+        return found
 
     def reload_history(self) -> None:
         self.tokens = self.sessions.totals()
@@ -307,6 +362,7 @@ class Runtime:
         await self.terminals.close_all()
         await self.fleet.close_all()
         await self.tunnels.close_all()
+        await self.links.close_all()
         if self.intercept:
             await self.intercept.close_tunnels()
         self.restart_hook()

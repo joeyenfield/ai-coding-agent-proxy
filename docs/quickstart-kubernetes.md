@@ -29,9 +29,9 @@ flowchart LR
 | Part | What it is |
 | --- | --- |
 | `mesh-agent-mesh` | The chart's one pod: agent-server (the API and the console) and agent-auth (sign-in) beside it, sharing a 5 GiB volume for the database. Services `mesh-agent-mesh` (port 19999) and `mesh-agent-mesh-auth` (port 20000). |
-| `quickstart-machine` | A fleet machine from `quickstart/kubernetes/machine.yaml`: the `agent-sandbox` image (`agent`, `agent-machine`, Claude Code, Codex, OpenCode, Qwen Code, Copilot CLI) and Ollama in one pod, so agent-machine finds Ollama on its own loopback. Two small relays make `localhost:19999` and `:20000` reach the server inside the pod too. |
+| `quickstart-machine` | A fleet machine from `deploy/helm/quickstart/machine.yaml`: the `agent-sandbox` image (`agent`, `agent-machine`, Claude Code, Codex, OpenCode, Qwen Code, Copilot CLI) and Ollama in one pod, so agent-machine finds Ollama on its own loopback. Two small relays make `localhost:19999` and `:20000` reach the server inside the pod too. |
 
-The values are in `quickstart/kubernetes/values.yaml`. The public address is `http://localhost:19999` both on your computer (through the port-forward) and inside the cluster, which is what lets sign-in work without host names.
+The values are in `deploy/helm/quickstart/values.yaml`. The public address is `http://localhost:19999` both on your computer (through the port-forward) and inside the cluster, which is what lets sign-in work without host names.
 
 ## Start it
 
@@ -46,8 +46,8 @@ You need:
 From the repository root, install the chart and the machine:
 
 ```bash
-helm install mesh deploy/helm/agent-mesh -n mesh --create-namespace -f quickstart/kubernetes/values.yaml
-kubectl -n mesh apply -f quickstart/kubernetes/machine.yaml
+helm install mesh deploy/helm/agent-mesh -n mesh --create-namespace -f deploy/helm/quickstart/values.yaml
+kubectl -n mesh apply -f deploy/helm/quickstart/machine.yaml
 kubectl -n mesh get pods -w        # wait until both pods are Running (the first pull takes a few minutes)
 ```
 
@@ -95,7 +95,7 @@ Most of what the [Docker or Podman quickstart](quickstart.md#try-it-step-by-step
 ```bash
 kubectl -n mesh scale deploy/mesh-agent-mesh deploy/quickstart-machine --replicas=0   # stop, keeping everything
 kubectl -n mesh scale deploy/mesh-agent-mesh deploy/quickstart-machine --replicas=1   # start again
-helm upgrade mesh deploy/helm/agent-mesh -n mesh -f quickstart/kubernetes/values.yaml # after pulling a newer checkout
+helm upgrade mesh deploy/helm/agent-mesh -n mesh -f deploy/helm/quickstart/values.yaml # after pulling a newer checkout
 kubectl delete namespace mesh                                                          # delete all of it
 ```
 

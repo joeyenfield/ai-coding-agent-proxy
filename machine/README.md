@@ -158,9 +158,9 @@ internal/process/       running programs detached or without a window; whether a
 
 ## Building and testing
 
-Go 1.24 or later. From the repository root, `scripts/build-machine.sh` (or
-`.\scripts\build-machine.ps1`) builds `machine/bin/agent-machine` for this machine;
-`scripts/build-dist.sh` builds it for every platform with the client. The archive's
+Go 1.24 or later. From the repository root, `devhelpers/scripts/build-machine.sh` (or
+`.\devhelpers\scripts\build-machine.ps1`) builds `machine/bin/agent-machine` for this machine;
+`devhelpers/scripts/build-dist.sh` builds it for every platform with the client. The archive's
 `install.sh --service` (`install.ps1 -Service` on Windows) installs it and starts it at
 boot or sign-in; see the main README's Installing on a machine section.
 

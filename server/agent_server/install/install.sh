@@ -82,7 +82,7 @@ if [ -z "$platform" ]; then
 fi
 
 if [ -z "$FILES" ]; then
-    fail "the agent-server at $SERVER has no builds to hand out yet (scripts/build-dist.sh on its computer)"
+    fail "the agent-server at $SERVER has no builds to hand out yet (devhelpers/scripts/build-dist.sh on its computer)"
 fi
 
 if command -v curl >/dev/null 2>&1; then

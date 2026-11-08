@@ -122,14 +122,17 @@ class Identity:
 def same_tenant(identity: Identity | None, tenant: str | None) -> bool:
     """Whether something of this tenant is identity's to reach at all. Anything without a tenant is nobody's,
     except a site admin's: site admins reach every tenant, to look after the whole server."""
-    if identity is not None and identity.site_admin:
+    if not isinstance(identity, Identity):
+        # Nobody, or a guest of a linked server (bridges.Guest): these helpers never serve one.
+        return False
+    if identity.site_admin:
         return True
-    return identity is not None and bool(tenant) and identity.tenant == tenant
+    return bool(tenant) and identity.tenant == tenant
 
 
 def administers(identity: Identity | None, tenant: str | None) -> bool:
     """Who manages an organization's users and teams: its admins, and site admins (who set organizations up)."""
-    return identity is not None and identity.admin and (identity.site_admin or identity.tenant == tenant)
+    return isinstance(identity, Identity) and identity.admin and (identity.site_admin or identity.tenant == tenant)
 
 
 def tenant_of(record: dict[str, Any]) -> str:
@@ -839,6 +842,10 @@ CREDENTIAL_CHECK_INTERVAL = 15
 # Where a WebSocket's scope keeps the access token it renewed over itself (renew_socket).
 RENEWED_TOKEN = "renewed_token"
 PROTECTED_PREFIXES = ("/api/", "/v1/", "/anthropic/", "/session/", "/docs", "/redoc", "/openapi.json")
+# What a linked server calls (routes/links.py): no person's token, only link-key signatures, which those
+# routes check themselves (links.Links.verify) before anything else. Public here on purpose.
+PEER_PATHS = ("/api/links/present", "/api/links/connect")
+PEER_PREFIX = "/api/links/relay/"
 # Unscoped agent endpoints that may name their session in X-AI-Proxy-Session instead of the path.
 AGENT_PREFIXES = ("/v1/", "/anthropic/")
 UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
@@ -858,6 +865,8 @@ SITE_ADMIN_ONLY = [
     (re.compile(r"DELETE"), re.compile(r"/api/orgs/[^/]+")),
     # Signing the audit log's chains now.
     (re.compile(r"POST"), re.compile(r"/api/audit/checkpoint")),
+    # Links to other servers, their keys and link policies (the peer routes under it are public, signed by link keys).
+    (re.compile(r"GET|POST|PUT|DELETE"), re.compile(r"/api/links(/.*)?")),
 ]
 # Changes inside an organization: its admins (and site admins, for the users and teams of any).
 # The routes check which organization: these only need an admin of some organization.
@@ -901,7 +910,7 @@ class AuthMiddleware:
         if (scope["type"] == "websocket" or method in UNSAFE_METHODS) and not same_origin(connection):
             await _deny(scope, receive, send, 403, "Requests from other sites aren't allowed.")
             return
-        if path in PUBLIC_PATHS:
+        if path in PUBLIC_PATHS or path in PEER_PATHS or path.startswith(PEER_PREFIX):
             await self.app(scope, receive, send)
             return
         try:

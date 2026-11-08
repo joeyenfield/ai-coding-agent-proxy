@@ -248,6 +248,10 @@ listed only when a Deployment other than the gateway's serves it.
 - {fn: intercept, type: Exact, path: /api/proxy/tunnel}
 - {fn: fleet, type: Exact, path: /api/machines/connect}
 - {fn: fleet, type: PathPrefix, path: /api/machines/tunnel}
+{{- /* A linked server's socket is held like a machine's; its relayed model and MCP calls are the gateway's (roles.PATH_ROLES). */}}
+- {fn: fleet, type: Exact, path: /api/links/connect}
+- {fn: gateway, type: PathPrefix, path: /api/links/relay/provider}
+- {fn: gateway, type: PathPrefix, path: /api/links/relay/mcp}
 - {fn: realtime, type: PathPrefix, path: /api/terminals}
 - {fn: realtime, type: PathPrefix, path: /api/live}
 - {fn: realtime, type: PathPrefix, path: /api/remote}

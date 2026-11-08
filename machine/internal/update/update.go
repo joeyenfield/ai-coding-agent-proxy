@@ -81,7 +81,7 @@ func Plan(index *Index, platform, dir string, programs []string) ([]Step, error)
 	if index.Version == "" {
 		hint := index.Hint
 		if hint == "" {
-			hint = "build them on the server with scripts/build-dist.sh"
+			hint = "build them on the server with devhelpers/scripts/build-dist.sh"
 		}
 		return nil, fmt.Errorf("the agent-server (%s) has no builds to offer: %s", index.ServerVersion, hint)
 	}

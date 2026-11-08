@@ -525,16 +525,18 @@ def register(app: FastAPI, runtime: Runtime) -> None:
     @app.get("/api/agents")
     async def list_agents(request: Request) -> list[dict[str, Any]]:
         try:
-            agents = runtime.agents()
+            # The server's own, the caller's organization's, and those let in over bridges (full names).
+            agents = runtime.agents(auth.request_identity(request))
         except ValueError as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         # The backends each agent's protocol works with, so the UI offers only those, and the
         # one a launch picks when none is named (the client asks for it, not re-deriving it).
         listed = []
         mine = usable(request)
+        remote = {**settings.remote_backends}
         for agent in agents.values():
             backends = [] if agent.intercept else [
-                name for name, backend in settings.backends.items() if serves(backend, agent.backend_type, agent.protocol) and mine(backend)
+                name for name, backend in {**settings.backends, **remote}.items() if serves(backend, agent.backend_type, agent.protocol) and mine(backend)
             ]
             listed.append({**agent.public(), "backends": backends, "default_backend": DIRECT_BACKEND if agent.intercept else _default_backend(agent, mine)})
         return listed
@@ -545,7 +547,8 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         except ValueError:
             return None
 
-    @app.post("/api/agents/{agent_id}/sessions", status_code=201)
+    # An agent let in over a bridge has its full name as its id (agent:server/org/name), so the id may hold "/".
+    @app.post("/api/agents/{agent_id:path}/sessions", status_code=201)
     async def prepare_agent_session(agent_id: str, request: Request) -> dict[str, Any]:
         """Create a session for an agent and return the environment and command to start it.
 
@@ -555,7 +558,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         project folder, sharing, and the folder it writes the agent's files to (files_dir);
         the console leaves them out and gets the defaults.
         """
-        agent = runtime.agents().get(agent_id)
+        agent = runtime.agents(auth.request_identity(request)).get(agent_id)
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
         data = await request.json()
@@ -589,8 +592,16 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             ) if data.get("account") else None
         except AccountError as exc:
             raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+        launch_tag = str((data.get("tags") or {}).get("launch") or "") if isinstance(data.get("tags"), dict) else ""
+        # A guest of a linked server's launch on this machine (bridges.py): the server set what its session gets
+        # (the guest, the bridge, the backends it may use); only a launch some process really waits on.
+        guest = runtime.fleet.guest_launch(launch_tag) if launch_tag and await asyncio.to_thread(runtime.fleet.pending_launch, launch_tag) else None
+        mine = usable(request)
+        if guest is not None:
+            allowed = list((guest.get("tags") or {}).get("allowed_backends") or [])
+            mine = lambda backend: backend.name in allowed  # noqa: E731
         try:
-            backend = DIRECT_BACKEND if agent.intercept else settings.backend_for(agent.backend_type, data.get("backend") or None, agent.protocol, usable(request)).name
+            backend = DIRECT_BACKEND if agent.intercept else settings.backend_for(agent.backend_type, data.get("backend") or None, agent.protocol, mine).name
             tags = {**access.client_tags(data.get("tags")), "prepared_by": "agent" if data.get("launcher") else "ui"}
             # A launch the console sent to a machine runs under the machine's sign-in: its usage, and the
             # check, are for whoever asked (routes/machines.launch), not the machine's owner.
@@ -613,6 +624,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
                 "tags": {
                     **_new_tags(data, tags, request), **({"mcp": [item["id"] for item in chosen]} if chosen else {}),
                     **({"provider_account": account.id} if account else {}),
+                    **((guest.get("tags") or {}) if guest is not None else {}),
                 },
             }, mcp_token_hash=mcp_token_hash)
         except ValueError as exc:
@@ -681,13 +693,15 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         doesn't contact a model server for anything but agents' traffic.
         """
         mine = usable(request)
-        if backend is not None and (backend not in settings.backends or not mine(settings.backends[backend])):
+        # Providers let in over bridges are listed with the rest, under their full names, with what the giving server said.
+        known = {**settings.backends, **{name: item for name, item in settings.remote_backends.items() if mine(item)}}
+        if backend is not None and (backend not in known or not mine(known[backend])):
             raise HTTPException(status_code=404, detail="No such backend")
-        names = [backend] if backend else [name for name, item in settings.backends.items() if mine(item)]
+        names = [backend] if backend else [name for name, item in known.items() if mine(item)]
         results = await asyncio.gather(*(_backend_models(runtime, name) for name in names))
         identity = auth.request_identity(request)
         for name, result in zip(names, results):
-            machine = runtime.fleet.machines.get(settings.backends[name].machine or "")
+            machine = runtime.fleet.machines.get(known[name].machine or "")
             if not identity.site_admin and (machine is None or not can_see(identity, machine)):
                 result.pop("url", None)
                 result.pop("version", None)
@@ -727,6 +741,15 @@ async def _backend_models(runtime: Runtime, name: str) -> dict[str, Any]:
     except ValueError as exc:
         return {"online": False, "error": str(exc), "models": []}
     base = {"type": backend.type, "url": backend.url}
+    if backend.type == "link":
+        options = backend.options or {}
+        models = [
+            {"name": model, "size": None, "modified_at": None, "family": None, "parameter_size": None, "quantization": None,
+             "loaded": None, "size_loaded": None, "size_vram": None, "context_length": None, "upstream": model,
+             "profile": ModelProfile(ollama_model=model, translate_openai=False).public()}
+            for model in options.get("models") or []
+        ]
+        return {"type": "link", "online": True, "remote": {key: options.get(key) for key in ("server", "remote_org", "remote_name", "remote_type")}, "models": models}
     if backend.type == "api" and not backend.machine:
         # A hosted API or gateway: its configured models, and those its last discovery found (runtime.api_models),
         # without calling it from a console page.

@@ -2,7 +2,7 @@
 
 This chart runs AI Control Mesh on Kubernetes: `agent-server` (the API, the model gateway, HTTPS capture, the fleet and terminals), `agent-auth` (its OIDC issuer), and optionally the standalone console. Both programs come from one image, `ghcr.io/joeyenfield/agent-server`. The chart's `appVersion` is the repository's `VERSION`, and it is the image tag unless you set `image.tag`.
 
-For installs without Kubernetes, use Compose instead (`compose.yaml`, `quickstart/`). The design behind the chart is in `proposals/horizontal-scaling.md` (§5, §7, §10, §11).
+For installs without Kubernetes, use Compose instead (`deploy/compose/`). A one-computer quickstart on a local cluster is in `deploy/helm/quickstart/`. The design behind the chart is in `docs/scaling-internals.md`, and running it in `docs/scaling.md`.
 
 ## Modes
 

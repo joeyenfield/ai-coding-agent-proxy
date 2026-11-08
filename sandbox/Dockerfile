@@ -8,7 +8,7 @@
 # launches on for /workspace and stays in the fleet.
 #
 # Published as ghcr.io/joeyenfield/agent-sandbox (.github/workflows/images.yml), which
-# compose.yaml's sandbox profile and the quickstart's machines run. To build it yourself,
+# deploy/compose/server's sandbox profile and the quickstart's machines run. To build it yourself,
 # from the repository root (it needs client/ and machine/):
 #   docker build -f sandbox/Dockerfile -t agent-sandbox .
 #
@@ -62,7 +62,7 @@ FROM docker.io/library/node:22-bookworm-slim AS node
 # More tools: --build-arg EXTRA_PACKAGES="..." bakes apt packages in; AGENT_APT_PACKAGES="..."
 # installs them when the container starts (entrypoint.sh); and the agent user has sudo without a
 # password (AGENT_SUDO=0 at build leaves it out), so an agent can `sudo apt-get install` what it
-# needs. Keep PACKAGES in step with allinone/Dockerfile's (server/tests/test_allinone.py checks).
+# needs. Keep PACKAGES in step with devhelpers/allinone/Dockerfile's (server/tests/test_allinone.py checks).
 FROM docker.io/library/ubuntu:24.04
 ARG AGENTS="@anthropic-ai/claude-code @openai/codex opencode-ai @qwen-code/qwen-code @github/copilot"
 ARG PACKAGES="ca-certificates curl wget git git-lfs gh openssh-client rsync less nano vim-tiny procps psmisc htop lsof strace file tree jq ripgrep fd-find unzip zip xz-utils bzip2 zstd iputils-ping iputils-tracepath traceroute dnsutils net-tools iproute2 netcat-openbsd telnet socat build-essential pkg-config python3 python-is-python3 python3-pip python3-venv pipx sqlite3 openssl gnupg sudo tini libgomp1 tzdata bash-completion"

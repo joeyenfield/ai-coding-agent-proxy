@@ -165,7 +165,18 @@ def _api_providers(connection: Connection) -> None:
     _add_column(connection, schema.backends, "options", "JSON")
 
 
-API_STEPS: list[Step] = [_create(schema.api), _tenants, _provider_accounts, _access_log, _usage_limits, _scaling, _request_log, _api_providers]
+def _peering(connection: Connection) -> None:
+    """Step 9: links between servers and bridges between their organizations (links.py, bridges.py), agent
+    definitions that belong to an organization, and room for remote providers' full names in request records."""
+    for table in schema.PEERING_TABLES:
+        table.create(connection, checkfirst=True)
+    _add_column(connection, schema.agents, "org", "VARCHAR(40)")
+    if connection.dialect.name != "sqlite":
+        # SQLite doesn't hold a VARCHAR to its length; PostgreSQL does.
+        connection.execute(text(f'ALTER TABLE "{API_SCHEMA}"."requests" ALTER COLUMN "backend" TYPE VARCHAR(255)'))
+
+
+API_STEPS: list[Step] = [_create(schema.api), _tenants, _provider_accounts, _access_log, _usage_limits, _scaling, _request_log, _api_providers, _peering]
 AUTH_STEPS: list[Step] = [_create(schema.auth)]
 
 # One lock id per component, so two processes starting at once don't both migrate.

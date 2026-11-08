@@ -1,4 +1,4 @@
-"""allinone/: the image with the whole system in one container, checked against what it's made from."""
+"""deploy/compose/allinone/: the image with the whole system in one container, checked against what it's made from."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-ALLINONE = (ROOT / "allinone" / "Dockerfile").read_text(encoding="utf-8")
+ALLINONE = (ROOT / "devhelpers" / "allinone" / "Dockerfile").read_text(encoding="utf-8")
 SANDBOX = (ROOT / "sandbox" / "Dockerfile").read_text(encoding="utf-8")
 
 
@@ -34,7 +34,7 @@ def test_it_copies_only_what_exists_and_is_published_with_the_others():
         for source in line.split()[:-1]:
             assert (ROOT / source).exists(), source
     workflow = (ROOT / ".github" / "workflows" / "images.yml").read_text(encoding="utf-8")
-    assert "{ name: ai-control-mesh, dockerfile: allinone/Dockerfile }" in workflow
+    assert "{ name: ai-control-mesh, dockerfile: devhelpers/allinone/Dockerfile }" in workflow
     assert "ai-control-mesh-site, ai-control-mesh]" in workflow
     # One image's name starts another's (ai-control-mesh, ai-control-mesh-site): the merge job must
     # take only its own platforms' digests, so their artifacts end the name with a character names lack.
@@ -44,12 +44,12 @@ def test_it_copies_only_what_exists_and_is_published_with_the_others():
 def test_the_entrypoint_signs_in_with_the_quickstarts_device_flow_at_the_local_ports():
     from agent_server import local
 
-    tree = ast.parse((ROOT / "allinone" / "entrypoint.py").read_text(encoding="utf-8"))
+    tree = ast.parse((ROOT / "devhelpers" / "allinone" / "entrypoint.py").read_text(encoding="utf-8"))
     imported = {(node.module, alias.name) for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) for alias in node.names}
     assert ("quickstart_machine", "sign_in") in imported and ("agent_server", "local") in imported
-    # quickstart/machine.py signs in at fixed addresses: the local instance's defaults, which the image keeps.
-    machine = (ROOT / "quickstart" / "machine.py").read_text(encoding="utf-8")
-    assert f'API = "http://localhost:{local.DEFAULT_PORT}"' in machine
-    assert f'ISSUER = "http://localhost:{local.DEFAULT_AUTH_PORT}"' in machine
+    # deploy/compose/quickstart/machine.py signs in at fixed addresses: the local instance's defaults, which the image keeps.
+    machine = (ROOT / "deploy" / "compose" / "quickstart" / "machine.py").read_text(encoding="utf-8")
+    assert f'API = os.getenv("QUICKSTART_API") or "http://localhost:{local.DEFAULT_PORT}"' in machine
+    assert f'ISSUER = os.getenv("QUICKSTART_ISSUER") or "http://localhost:{local.DEFAULT_AUTH_PORT}"' in machine
     assert "def sign_in(path, password):" in machine
     assert f"EXPOSE {local.DEFAULT_PORT} {local.DEFAULT_AUTH_PORT}" in ALLINONE

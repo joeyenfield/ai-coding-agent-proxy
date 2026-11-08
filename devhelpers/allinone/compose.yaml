@@ -1,0 +1,41 @@
+# The all-in-one image built from this checkout (Dockerfile here), to try changes: from devhelpers/allinone,
+#   podman compose up -d --build
+#   podman compose logs mesh    the console's address and admin's password
+# The same as deploy/compose/allinone, which runs the published image; server/tests/test_quickstart.py
+# keeps the two in step. The ports must stay 19999 and 20000 on the host (see that file).
+#
+# Every image builds from this checkout (no published ones), under local names that devhelpers/basic,
+# peer and allinone share. `up -d --build` rebuilds after a change; their version says <VERSION>+unknown,
+# as the build has no git. Its own project name keeps its volumes apart from the deploy stack's; both
+# use the same host ports, so run one at a time.
+name: ai-control-mesh-allinone-dev
+
+services:
+  mesh:
+    image: localhost/ai-control-mesh-dev
+    build:
+      context: ../..
+      dockerfile: devhelpers/allinone/Dockerfile
+    restart: unless-stopped
+    environment:
+      MESH_ADMIN_PASSWORD: ${MESH_ADMIN_PASSWORD:-}
+      # Extra Debian packages for the agents (installed with the image's sudo), such as "ripgrep jq".
+      AGENT_APT_PACKAGES: ${AGENT_APT_PACKAGES:-}
+    ports:
+      - "127.0.0.1:19999:19999"
+      - "127.0.0.1:20000:20000"
+    volumes:
+      - mesh-data:/data
+      - mesh-home:/home/agent
+      - mesh-workspace:/workspace
+    # Stated here as well as in the image: Podman ignores a HEALTHCHECK in an OCI image.
+    healthcheck:
+      test: [CMD-SHELL, 'curl -fs http://127.0.0.1:19999/health >/dev/null && agent-machine | grep -q "^Fleet *: connected"']
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+
+volumes:
+  mesh-data:
+  mesh-home:
+  mesh-workspace:

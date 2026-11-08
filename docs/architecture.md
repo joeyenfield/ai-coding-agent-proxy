@@ -1,6 +1,6 @@
 # Architecture
 
-This page explains how the system works: its parts, how a request travels through them, what gets recorded, and how each part is kept safe. For a guided first run, see [Getting started](getting-started.md).
+This page starts the technical overview: the system's parts, how a request travels through them, what gets recorded, and how each part is kept safe. [How it works](how-it-works.md) is the plain-language version. The rest of the section goes deeper: [Flows](flows.md) draws the main flows end to end, [Networking and protocols](networking.md) has every connection and message, the internals pages cover [peering](peering-internals.md), [several processes](scaling-internals.md) and [the local instance](local-internals.md), and [API](api.md) lists every endpoint.
 
 ## The idea
 
@@ -10,7 +10,7 @@ There are three kinds of things around the server:
 
 - **Agents** connect to it. They run on any computer with `agent` installed and signed in.
 - **Machines** supply local models. A computer running `agent-machine` joins the server's **fleet**, and the model servers it runs (Ollama, llama.cpp, Strata, Docker Model Runner, or containers it runs for the server) become providers that any agent can use.
-- **Hosted APIs** (the Anthropic API) are the one kind of provider that isn't on a machine.
+- **Hosted APIs** are the providers that aren't on a machine: the Anthropic API for pass-through, and API providers such as OpenAI, OpenRouter or a LiteLLM gateway, whose keys stay on the server.
 
 The server is the hub. It owns all configuration, accounts and recordings. Everything else talks to it over HTTP and WebSockets.
 
@@ -185,7 +185,7 @@ sequenceDiagram
     S--xP: closed
     P-->>A: 407 Proxy Authentication Required
   else tunnel open
-    P-->>A: 200 Connection established
+    S-->>A: 200 Connection established (through the tunnel)
     A->>S: TLS, with a certificate from the server's CA (trusted by this agent only)
     A->>S: POST /v1/messages
     S->>V: the same request, over normally verified TLS

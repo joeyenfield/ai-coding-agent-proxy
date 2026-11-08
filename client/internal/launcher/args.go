@@ -55,10 +55,13 @@ server's fleet (its LLM providers, containers, launches from the console), use a
 
 Options:
   -m, --model NAME        Model name or alias from the server's models.yaml (optional for account agents)
-      --backend NAME      One of the server's backends (default: the one the server picks for the agent)
+      --backend NAME      One of the server's backends, or a provider another server shares with your
+                          organization by its full name, provider:server/org/name (default: the one
+                          the server picks for the agent)
       --trace             Capture full request and response payloads
       --mcp NAMES         MCP servers machines share, for the agent: machine/name, a machine for
-                          all of its servers, or all; comma-separated or repeated
+                          all of its servers, all, or one another server shares by its full name,
+                          mcp:server/org/machine/name; comma-separated or repeated
       --account ID        For account agents: which of your provider accounts (agent accounts list)
                           it runs with; the agent's own sign-in here otherwise
       --list              List the server's agents and whether they're installed here

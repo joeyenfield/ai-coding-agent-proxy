@@ -26,6 +26,9 @@ const LABELS: Record<MachineFeature, string> = {
   mcp: "Use MCP servers",
 };
 
+/** What a machine's owner can let a bridge use (fleet.BRIDGE_FEATURES on the server). */
+const BRIDGE_FEATURES: MachineFeature[] = ["launch", "terminal", "mcp"];
+
 /** The switch on the machine itself that a feature also needs, if any, and whether it's on. */
 function machineSwitch(machine: FleetMachine, feature: MachineFeature): { on: boolean; command: string } | null {
   switch (feature) {
@@ -57,6 +60,12 @@ export function MachineAccess({ machine }: { machine: FleetMachine }) {
   const notify = useToast();
   const features = (machines.data?.features ?? FALLBACK) as Record<MachineFeature, string>;
   const orgs = useQuery({ queryKey: ["orgs"], queryFn: api.orgs, enabled: Boolean(auth.data?.required), retry: false });
+  // The machine's organization's bridges to organizations on linked servers: its admins can let one use the machine.
+  const bridgeOrg = machine.tenant ?? auth.data?.identity?.tenant ?? "";
+  const bridges = useQuery({
+    queryKey: ["org-bridges", bridgeOrg], queryFn: () => api.orgBridges(bridgeOrg), retry: false,
+    enabled: Boolean(bridgeOrg && auth.data?.identity?.role === "admin" && auth.data.identity.tenant === bridgeOrg),
+  });
   const [draft, setDraft] = useState<Grants>(machine.access ?? {});
   // A save elsewhere (or the machine's next update) brings new grants; an unsaved draft stays.
   const saved = JSON.stringify(machine.access ?? {});
@@ -81,7 +90,7 @@ export function MachineAccess({ machine }: { machine: FleetMachine }) {
   const identity = auth.data?.identity;
   const tenant = machine.tenant ?? identity?.tenant;
   const choices = useMemo(() => {
-    const list: { kind: "orgs" | "teams"; value: string; label: string }[] = [];
+    const list: { kind: "orgs" | "teams" | "bridges"; value: string; label: string }[] = [];
     const org = (orgs.data?.orgs ?? []).find((item) => item.id === tenant);
     if (!org) return list;
     const admin = identity?.role === "admin" && identity.tenant === org.id;
@@ -89,9 +98,13 @@ export function MachineAccess({ machine }: { machine: FleetMachine }) {
     for (const team of org.teams) {
       if (admin || identity?.teams.includes(team.key)) list.push({ kind: "teams", value: team.key, label: `${org.name} › ${team.name} (team)` });
     }
+    for (const bridge of bridges.data?.bridges ?? []) {
+      list.push({ kind: "bridges", value: bridge.id, label: `${bridge.peer_org} at ${bridge.server} (bridge)` });
+    }
     return list;
-  }, [orgs.data, tenant, identity]);
-  const labelOf = (kind: "orgs" | "teams", value: string) => choices.find((item) => item.kind === kind && item.value === value)?.label ?? value;
+  }, [orgs.data, tenant, identity, bridges.data]);
+  const labelOf = (kind: "orgs" | "teams" | "bridges", value: string) =>
+    choices.find((item) => item.kind === kind && item.value === value)?.label ?? (kind === "bridges" ? `Bridge ${value}` : value);
 
   if (!auth.data?.required) {
     return (
@@ -117,9 +130,9 @@ export function MachineAccess({ machine }: { machine: FleetMachine }) {
     );
   }
 
-  const change = (feature: MachineFeature, kind: "orgs" | "teams", value: string, add: boolean) => {
+  const change = (feature: MachineFeature, kind: "orgs" | "teams" | "bridges", value: string, add: boolean) => {
     setDraft((current) => {
-      const grant = { orgs: [...(current[feature]?.orgs ?? [])], teams: [...(current[feature]?.teams ?? [])] };
+      const grant = { orgs: [...(current[feature]?.orgs ?? [])], teams: [...(current[feature]?.teams ?? [])], bridges: [...(current[feature]?.bridges ?? [])] };
       grant[kind] = add ? [...new Set([...grant[kind], value])] : grant[kind].filter((item) => item !== value);
       return { ...current, [feature]: grant };
     });
@@ -139,9 +152,10 @@ export function MachineAccess({ machine }: { machine: FleetMachine }) {
       {orgs.isError && <p className="bad">{orgs.error.message}</p>}
       <ul className="access-list">
         {(Object.keys(features) as MachineFeature[]).map((feature) => {
-          const grant = draft[feature] ?? { orgs: [], teams: [] };
+          const grant = { orgs: [], teams: [], bridges: [], ...(draft[feature] ?? {}) } as { orgs: string[]; teams: string[]; bridges: string[] };
           const toggle = machineSwitch(machine, feature);
-          const left = choices.filter((item) => !grant[item.kind].includes(item.value));
+          // A bridge may be let start agents, open terminals and use MCP servers; both organizations' policies still decide what crosses.
+          const left = choices.filter((item) => !grant[item.kind].includes(item.value) && (item.kind !== "bridges" || BRIDGE_FEATURES.includes(feature)));
           return (
             <li key={feature}>
               <div className="access-feature">
@@ -157,8 +171,8 @@ export function MachineAccess({ machine }: { machine: FleetMachine }) {
                 )}
               </div>
               <div className="access-grants">
-                {grant.orgs.length + grant.teams.length === 0 && <span className="subtle">Only {machine.owner ?? "its owner"}{feature === "view" || feature === "models" || feature === "update" ? " and its organization's admins" : ""}</span>}
-                {(["orgs", "teams"] as const).flatMap((kind) =>
+                {grant.orgs.length + grant.teams.length + grant.bridges.length === 0 && <span className="subtle">Only {machine.owner ?? "its owner"}{feature === "view" || feature === "models" || feature === "update" ? " and its organization's admins" : ""}</span>}
+                {(["orgs", "teams", "bridges"] as const).flatMap((kind) =>
                   grant[kind].map((value) => (
                     <span key={`${kind}:${value}`} className="pill access-chip">
                       {labelOf(kind, value)}
@@ -173,7 +187,7 @@ export function MachineAccess({ machine }: { machine: FleetMachine }) {
                     aria-label={`Let another organization or team ${LABELS[feature]?.toLowerCase() ?? feature}`}
                     value=""
                     onChange={(event) => {
-                      const [kind, value] = event.target.value.split("\u0000") as ["orgs" | "teams", string];
+                      const [kind, value] = event.target.value.split("\u0000") as ["orgs" | "teams" | "bridges", string];
                       if (value) change(feature, kind, value, true);
                     }}
                   >
@@ -206,10 +220,11 @@ export function MachineAccess({ machine }: { machine: FleetMachine }) {
 /** The grants without empty ones, sorted, so a draft compares equal to what the server keeps. */
 function normal(access: Grants): Grants {
   const out: Grants = {};
-  for (const [feature, grant] of Object.entries(access) as [MachineFeature, { orgs: string[]; teams: string[] }][]) {
+  for (const [feature, grant] of Object.entries(access) as [MachineFeature, { orgs: string[]; teams: string[]; bridges?: string[] }][]) {
     const orgs = [...new Set(grant?.orgs ?? [])].sort();
     const teams = [...new Set(grant?.teams ?? [])].sort();
-    if (orgs.length || teams.length) out[feature] = { orgs, teams };
+    const bridges = [...new Set(grant?.bridges ?? [])].sort();
+    if (orgs.length || teams.length || bridges.length) out[feature] = { orgs, teams, ...(bridges.length ? { bridges } : {}) };
   }
   return out;
 }

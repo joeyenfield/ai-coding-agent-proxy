@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -108,6 +109,27 @@ func TestLauncherCallsAreSignedAndLimitedToTheShortList(t *testing.T) {
 	}
 	if len(server.seen) != count {
 		t.Fatal("a refused call reached the server")
+	}
+}
+
+func TestABridgedAgentsFullNameReachesTheServerEscaped(t *testing.T) {
+	server := newFakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, `{"session":{"session_id":"s1"}}`)
+	})
+	_, front := newProxy(t, server.URL)
+	path := "/api/agents/" + url.PathEscape("agent:server-a/org-a1/agent-a1") + "/sessions"
+	if response, body := do(t, "POST", front.URL+path, nil, "{}"); response.StatusCode != http.StatusCreated {
+		t.Fatalf("POST %s: %d %s", path, response.StatusCode, body)
+	}
+	if seen := server.last(); seen.URL.EscapedPath() != path {
+		t.Fatalf("the server got %s", seen.URL.EscapedPath())
+	}
+	// Anything else with slashes in the id is still refused.
+	for _, other := range []string{"/api/agents/a/b/sessions", "/api/agents/agent:server-a/org-a1/x/y/sessions", "/api/agents/agent:a/../config/sessions"} {
+		if response, _ := do(t, "POST", front.URL+other, nil, "{}"); response.StatusCode != http.StatusNotFound {
+			t.Fatalf("POST %s: %d", other, response.StatusCode)
+		}
 	}
 }
 

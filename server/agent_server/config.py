@@ -42,6 +42,9 @@ LOCAL_PROXY_URL = f"http://127.0.0.1:{LOCAL_PROXY_PORT}"
 # with the agent's own credentials. api: any server speaking OpenAI Chat Completions, OpenAI Responses
 # or Anthropic Messages (api_providers.py), hosted or on a machine, with the server's key.
 BACKEND_TYPES = {"ollama", "strata", "docker", "llamacpp", "anthropic", "api"}
+# A provider another server's organization let in over a bridge (bridges.py): never stored, never configured
+# here, never picked by backend_for unless named; its requests go to that server, which forwards them.
+LINK_TYPE = "link"
 # Agent protocols the pass-through local servers speak natively.
 NATIVE_PROTOCOLS = {
     "strata": {"openai-chat", "openai-responses", "anthropic"},
@@ -65,6 +68,14 @@ def serves(backend: "Backend", backend_type: str, protocol: str | None = None) -
     llama.cpp lack Ollama's native /api. A generic API provider serves them by the protocols it was
     declared to speak, and only while it's enabled.
     """
+    if backend.type == LINK_TYPE:
+        # As the provider it carries to: its type and protocols, as the other server described it.
+        options = backend.options or {}
+        remote_type = str(options.get("remote_type") or "api")
+        if remote_type == "api":
+            protocols = options.get("protocols") or []
+            return backend_type in ("ollama", "api") and (protocol is None or protocol in protocols)
+        return serves(Backend(backend.name, backend.url, remote_type), backend_type, protocol)
     if backend.type == "api":
         return backend_type in ("ollama", "api") and api_providers.speaks(backend, protocol) and api_providers.enabled(backend)
     if backend.type == backend_type:
@@ -213,6 +224,8 @@ class Settings:
     from_database: bool = field(default=False, repr=False, compare=False)
     # Told when a setting changes here (the runtime tells the server's other processes: config.changed).
     listeners: list[Callable[[str], None]] = field(default_factory=list, repr=False, compare=False)
+    # Providers let in over bridges (bridges.Bridges.rebuild), by full name: never stored or exported.
+    remote_backends: dict[str, Backend] = field(default_factory=dict, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         issuer = urlparse(self.oidc_issuer)
@@ -420,10 +433,12 @@ class Settings:
         """The named backend (else the default). With usable (the caller's tenant's, fleet.usable_by),
         backends it refuses are as unknown as missing ones, and aren't listed as choices."""
         selected = name or self.default_backend
-        backend = self.backends.get(selected)
+        backend = self.backends.get(selected) or (self.remote_backends.get(selected) if name else None)
         if backend is None or (usable is not None and not usable(backend)):
             choices = ", ".join(sorted(key for key, value in self.backends.items() if usable is None or usable(value))) or "none configured"
             raise ValueError(f"Unknown backend '{selected}'. Available: {choices}")
+        if backend.type == LINK_TYPE:
+            return backend
         if backend.type not in BACKEND_TYPES:
             raise ValueError(f"Unsupported backend type: {backend.type}")
         if backend.type == "api" and not api_providers.enabled(backend):

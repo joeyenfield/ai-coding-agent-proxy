@@ -204,36 +204,9 @@ Tests replace the programs it runs with JSON lists of arguments: `AI_PROXY_CONTA
 
 ## The fleet connection
 
-`agent-machine run` holds one WebSocket open to `/api/machines/connect`, signed with its token. Every request carries `X-AI-Proxy-Version` and `X-AI-Proxy-Protocol`. A server that can't take this protocol level refuses it (HTTP 426, or close code 4426), and agent-machine logs why.
+`agent-machine run` keeps one WebSocket open to the server, signed in as the machine's owner. It tells the server what the machine has (its agents, model servers, containers, MCP servers and switches) when it connects and every minute, and the server sends its requests back over the same connection: start an agent or a terminal, manage a model server or a container, list folders, read a file, update itself, or open a tunnel. A server that can't take the machine's protocol level refuses it, and agent-machine logs why.
 
-It sends a **hello** when it connects, and an **update** every 60 seconds, with:
-
-- its id, name, hostname, OS and architecture, version and protocol level;
-- its `address`, when set;
-- which of the server's agents are installed (their executable is on PATH; it asks the server's `/api/agents` for the list);
-- the model servers it found (type, port, version, number of models, and a Strata profile's key);
-- whether it takes launches, its roots, and whether commands and updates are on;
-- `"tunnel": 1`, as it carries agents' traffic to its model servers;
-- whether the `agent` command is installed (`launcher`);
-- containers: whether they're on, the CLI, whether its engine answers, and the engines it can run;
-- servers: whether they're on, and the state of the Ollama, llama.cpp and Strata installed here (for llama.cpp: found, running, started by agent-machine, its port and build, where it came from, and an install's progress);
-- the MCP servers it shares;
-- `accounts`: the provider CLIs here (Claude Code, Codex, Copilot CLI), their versions and whether each is signed in, from `agent accounts detect --json`, looked at every five minutes in the background (never a token; see [Subscriptions](subscriptions.md)).
-
-It also sends an update straight after a launch, after a new look at the provider CLIs and after starting or stopping a model server. It pings every 25 seconds. The server keeps what it learns in its database, apart from Strata keys and the MCP bridge's key, which it keeps in memory only and drops when the machine disconnects.
-
-Over the same connection the server sends requests, each answered on the machine:
-
-| Request | What it is |
-|---|---|
-| `launch`, `shell` | Start an agent or a terminal. See [Launches](#launches) and [Terminals](#terminals). |
-| `provider` | A model server's status, models (pull, delete, load, unload), logs, this machine's load, catalogue searches. See [LLM providers](providers.md). |
-| `server` | Start, stop or restart Ollama, llama.cpp or a Strata profile; install or remove llama.cpp, and the builds it can install; remove old Strata profiles and clean up Strata's leftovers; read or save Ollama's and llama.cpp's settings. |
-| `container` | Status, start, stop, restart, remove and logs of the containers it runs. |
-| `folders` | The folders inside a launch folder, for the folder picker. |
-| `files` | List a folder inside a launch folder, or read one file's text, for the file viewer. See [Files](#files). |
-| `update` | Update agent-machine (and agent) to the server's build. |
-| `tunnel` | Carry one connection to one of its model servers. |
+The messages, their fields, how it keeps its sign-in and how it reconnects are in [Networking and protocols](networking.md#machines-the-fleet-socket-and-tunnels).
 
 ### Model server detection
 
@@ -256,16 +229,9 @@ With `servers on`, Strata profiles serving on other loopback ports are added too
 
 ### Tunnels
 
-Agents' requests to a machine's model servers go through the machine. The server doesn't need a route to it, so a machine behind NAT, in WSL or on another network serves models without a port forward.
+Agents' requests to a machine's model servers go through the machine. The server doesn't need a route to it, so a machine behind NAT, in WSL or on another network serves models without a port forward. For each connection, the server asks the machine over the fleet connection to dial back a tunnel to the model server's loopback port. The machine only tunnels to the ports of the model servers it reported, the containers it runs for the server, and its MCP bridge, and only the machine that was asked can take its tunnel.
 
-- For a backend on a machine that can tunnel, is connected and isn't the server's own computer, the server opens a loopback listener and sends that backend's requests there.
-- Each connection to it asks the machine, over the fleet connection, to open a tunnel.
-- agent-machine dials `/api/machines/tunnel/<id>` back and passes the bytes to and from `127.0.0.1:<port>`.
-- Only the machine that was asked, signed in as its owner, can take its tunnel.
-
-A machine only tunnels to the ports of the model servers it reported, the containers it runs for the server, and its MCP bridge. It refuses any other port. If the model server doesn't answer, it closes the tunnel with code 4502.
-
-A machine on the server's own computer is reached directly. So is one that isn't connected, or whose agent-machine is too old to tunnel: those use the machine's address as the server saw it, or the one set with `agent-machine address`.
+A machine on the server's own computer is reached directly. So is one that isn't connected, or whose agent-machine is too old to tunnel: those use the machine's address as the server saw it, or the one set with `agent-machine address`. How a tunnel is opened, retried and kept signed in is in [Networking and protocols](networking.md#tunnels).
 
 ## What a machine runs for you
 
@@ -354,9 +320,10 @@ sequenceDiagram
   U->>S: POST /api/machines/<id>/update
   S->>M: update request, over the fleet socket
   M->>M: updates on?
-  M-->>S: update_result: from and to versions
+  M->>S: GET /downloads/index.json: the server's build, with each file's SHA-256
   M->>M: starts agent-machine update, detached
-  M->>S: downloads the server's build and its SHA256SUMS
+  M-->>S: update_result: from and to versions, updating
+  M->>S: downloads its file for this platform
   M->>M: checks the SHA-256, replaces its program, restarts
   M->>S: reconnects, on the server's build
 ```
@@ -468,7 +435,7 @@ docker run -d --name agent-sandbox --hostname agent-sandbox --restart unless-sto
 docker build -f sandbox/Dockerfile -t agent-sandbox .     # from the repository root
 ```
 
-Or beside the server in `compose.yaml`, with its `sandbox` profile:
+Or beside the server in `deploy/compose/server/compose.yaml`, with its `sandbox` profile (from that folder):
 
 ```bash
 docker compose --profile sandbox up -d

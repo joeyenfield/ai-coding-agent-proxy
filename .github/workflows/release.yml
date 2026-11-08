@@ -4,7 +4,7 @@
 #   irm https://github.com/<owner>/<repo>/releases/latest/download/install-local.ps1 | iex
 #
 # It builds the console (ui/dist), every platform's agent and agent-machine archives and the
-# Python wheel (tools/dist, without packages or the Android app), then scripts/release/release.py
+# Python wheel (tools/dist, without packages or the Android app), then devhelpers/scripts/release/release.py
 # makes the server bundle and the two installers, with every file's SHA-256 written into them.
 #
 #   a tag v2.1.49   the release v2.1.49, with those files (replaced if it already has them)
@@ -67,7 +67,7 @@ jobs:
         run: go run ./dist -version "${{ steps.version.outputs.version }}" -android=false
       - name: Release files
         run: |
-          python scripts/release/release.py --version "${{ steps.version.outputs.version }}" \
+          python devhelpers/scripts/release/release.py --version "${{ steps.version.outputs.version }}" \
             --base-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/v${{ steps.version.outputs.version }}"
       - name: Publish the release
         if: github.ref_type == 'tag'

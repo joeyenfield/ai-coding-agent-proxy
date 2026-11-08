@@ -44,6 +44,8 @@ var LauncherAPI = []route{
 	{"GET", regexp.MustCompile(`^/api/config$`)},
 	{"GET", regexp.MustCompile(`^/api/agents$`)},
 	{"POST", regexp.MustCompile(`^/api/agents/[^/]+/sessions$`)},
+	// An agent another server's organization shares over a bridge has its full name as its id.
+	{"POST", regexp.MustCompile(`^/api/agents/agent:[a-z0-9][a-z0-9-]*/[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*/sessions$`)},
 	{"GET", regexp.MustCompile(`^/api/intercept(/ca\.pem|/bundle\.pem)?$`)},
 	{"GET", regexp.MustCompile(`^/api/remote$`)},
 	{"POST", regexp.MustCompile(`^/api/sessions$`)},

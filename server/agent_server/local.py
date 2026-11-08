@@ -278,7 +278,7 @@ def stop_process(process: Process) -> None:
 
 def start(instance: Instance, out: Any = sys.stdout, overrides: dict[str, str] | None = None) -> int:
     """Start the two processes. overrides go into their environment last: the all-in-one image
-    (allinone/entrypoint.py) listens on every address of its container, and may name the first password."""
+    (devhelpers/allinone/entrypoint.py) listens on every address of its container, and may name the first password."""
     if all(running(instance.processes.get(name)) for name in PROGRAMS):
         print(f"The local instance is already running at {instance.url}", file=out)
         _next_steps(instance, out)

@@ -99,7 +99,7 @@ agent-machine started inside `python/` runs the checkout, whatever pip installed
 
 ## Building it
 
-`scripts/build-dist.sh` (`.\scripts\build-dist.ps1`) builds the wheel with everything else,
+`devhelpers/scripts/build-dist.sh` (`.\devhelpers\scripts\build-dist.ps1`) builds the wheel with everything else,
 into `dist/<version>/python/`, listed in that version's SHA256SUMS, so the server offers it on
 its Downloads page. `tools/dist/python.go` writes it in Go from `pyproject.toml` and
 `agent_py/`, so no Python build tools are needed and the wheel is the same from any build

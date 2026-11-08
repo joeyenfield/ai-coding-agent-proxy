@@ -30,7 +30,7 @@ $Files = @'
 '@ -split "`n" | Where-Object { $_.Trim() }
 
 if ($Only -and $Only -notin @("agent", "agent-machine")) { throw "-Only takes agent or agent-machine" }
-if (-not $Files) { throw "The agent-server at $Server has no builds to hand out yet (scripts/build-dist.ps1 on its computer)." }
+if (-not $Files) { throw "The agent-server at $Server has no builds to hand out yet (devhelpers/scripts/build-dist.ps1 on its computer)." }
 
 # This computer, named the way tools/dist names its builds ($env:AGENT_PLATFORM overrides it).
 $platform = $env:AGENT_PLATFORM

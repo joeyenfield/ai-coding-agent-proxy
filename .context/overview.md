@@ -48,7 +48,7 @@ The server is one program. Small installs run it as one process, which keeps its
 6. **Secrets stay where they belong.** Never in the stored settings (what `agent-server config export` writes); generated ones in the database's `secrets` tables, passwords in the environment. Strata and MCP keys live in server memory only, and MCP commands and headers never leave their machine.
 7. **One version, one protocol.** `VERSION` and `PROTOCOL` stamp every component; the server refuses programs outside `MIN_PROTOCOL..PROTOCOL`.
 
-## Three routes to a provider
+## Routes to a provider
 
 | Route | Agents | Path |
 | --- | --- | --- |
@@ -56,6 +56,11 @@ The server is one program. Small installs run it as one process, which keeps its
 | Local models | `backend_type: ollama` (default) | `/session/<id>/v1` etc. on agent-proxy :8184 → `routes/compat.py` → `ollama` (translated to `/api/chat`), `strata`, `docker` or `llamacpp` (passed through), via the machine's tunnel |
 | Hosted | `backend_type: anthropic` | `ANTHROPIC_BASE_URL` → passed through unchanged |
 | API providers | `backend_type: ollama` agents, by protocol | the same URLs → `routes/compat.py` `_forward` → an `api` backend (`api_providers.py`): the server's key, model aliases, extra headers; on a machine through its tunnel, hosted ones through `runtime.api_clients` (public addresses only) |
+| Over a bridge | any agent whose backend is a provider another server's organization lets in (`provider:server/org/name`) | the same URLs → `_forward` → a `link` backend (`bridges.upstream`): signed, with an assertion, to that server's `/api/links/relay/provider/...` (directly, or over the link socket), which serves it with `compat.relay` into a bridge session and its own provider |
+
+## Peering: servers linked with servers
+
+Two servers' site admins **link** them (`links.py`); an organization on each then opens a **bridge** (`bridges.py`) and each says what it lets out and in. The servers are the only parties that talk: agents, agent-proxies and machines never reach the other server. Each server has a mesh id and Ed25519 link keys (secret `link-keys`); every request between servers is signed (method, path, time, nonce, body digest, assertion) and checked by `Links.verify`, never by the issuer. The side that reached the other while joining dials a WebSocket (`/api/links/connect`) and sends its requests directly; the other side sends its requests framed over that socket (`links.Channel`), and both run them through their own app, so every request meets the same checks. Someone of the other server is a `bridges.Guest`, which no existing permission helper accepts. See `server.md` (Peering) and `auth.md` (Guests), and `docs/peering.md`.
 
 ## A launch, across components
 
@@ -80,7 +85,7 @@ sequenceDiagram
 
 The console starts agents on a machine the same way: `POST /api/machines/{id}/launch` → the machine runs `agent ... --headless` → the same flow.
 
-The agent gets URLs on its agent-proxy that carry the session id, rendered by the server from the agent's stored templates: `{openai_url}` = `http://127.0.0.1:8184/session/<id>/v1`, `{anthropic_url}` = `…/session/<id>/anthropic`, `{ollama_url}` = `…/session/<id>` (native `/api/...`). Account agents get `HTTPS_PROXY=http://<id>:agent-proxy@127.0.0.1:8183` and the server's CA. Bare `/v1` and `/anthropic` also work with `X-AI-Proxy-Session` and `X-AI-Proxy-Backend`; bare `/api` is kept for the agent-proxy's `LauncherAPI`, so agents use `/session/<id>/api/...`. Everything is recorded through the server's write queue: `sessions`, `requests`, gzipped `traces`, `chat_index`, and a shared terminal's `terminal_chunks`. The server's own log stays a file (`logs/proxy/proxy.log`) so it works when the database doesn't.
+The agent gets URLs on its agent-proxy that carry the session id, rendered by the server from the agent's stored templates: `{openai_url}` = `http://127.0.0.1:8184/session/<id>/v1`, `{anthropic_url}` = `…/session/<id>/anthropic`, `{ollama_url}` = `…/session/<id>` (native `/api/...`). Account agents get `HTTPS_PROXY=http://<id>:agent-proxy@127.0.0.1:8183` and the server's CA. Bare `/v1` and `/anthropic` also work with `X-AI-Proxy-Session` and `X-AI-Proxy-Backend`; the server takes bare `/api/...` native Ollama calls the same way, but the agent-proxy answers `404` to any bare `/api` path not on its `LauncherAPI` allowlist, so agents use `/session/<id>/api/...`. Everything is recorded through the server's write queue: `sessions`, `requests`, gzipped `traces`, `chat_index`, and a shared terminal's `terminal_chunks`. The server's own log stays a file (`logs/proxy/proxy.log`) so it works when the database doesn't.
 
 ## Where state lives
 
@@ -96,11 +101,12 @@ The agent gets URLs on its agent-proxy that carry the session id, rendered by th
 | Server database, retention and audit | `retention_policies`, `legal_holds`; `audit_events` (append-only hash chains per tenant), `audit_chains`, `audit_checkpoints` (signed with the secret `audit-signing-key`) |
 | Blob storage (`AI_PROXY_BLOB_URL`, optional) | traces (messages once per session, by hash) and terminal chunks under `tenant/<org>/<yyyy>/<mm>/<session>/`; audit checkpoints and exports under `audit/` |
 | Redis (`AI_PROXY_REDIS_URL`, several processes only) | which process holds each machine, terminal and tunnel; heartbeats; request and usage counters; leases; launch grants; revocations; messages between processes. Machines' keys only sealed. |
+| Server database, peering | `links` (peer, url, state, the peer's public keys), `peer_codes` (digests of one-use link and bridge codes), `bridges`, `peer_policies` (each side's signed link and bridge policies, every version); the link keys in `secrets` (`link-keys`); the mesh id in meta `mesh_id` (or `AI_PROXY_MESH_ID`); `agents.org` (an organization's own definitions) |
 | Machine | its folder: `credentials.json`, `machine.json`, `status.json`, `mcp.json`, `servers.json`, `ollama.json`, `llamacpp.json`, `llamacpp-install.json`, `llamacpp/` (installed builds), logs |
 
 ## Ports
 
-9999 server · 9100 the server's internal port in Kubernetes (`AI_PROXY_INTERNAL_PORT`) · 10000 agent-auth (its default, loopback) · 8184 agent-proxy (loopback) · 8183 agent-proxy HTTPS proxy (loopback) · 5173 Vite · 11434 Ollama · 18500 Strata · 9931 llama.cpp's llama-server (loopback on its machine) · 12434 Docker Model Runner. Never test on 8183/8184/9999 on the dev machine.
+9999 server (a linked server reaches it there too: `/.well-known/mesh-link`, `/api/links/*`) · 9100 the server's internal port in Kubernetes (`AI_PROXY_INTERNAL_PORT`) · 10000 agent-auth (its default, loopback) · 8184 agent-proxy (loopback) · 8183 agent-proxy HTTPS proxy (loopback) · 5173 Vite · 11434 Ollama · 18500 Strata · 9931 llama.cpp's llama-server (loopback on its machine) · 12434 Docker Model Runner. Never test on 8183/8184/9999 on the dev machine.
 
 ## Cross-component changes
 

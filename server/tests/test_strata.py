@@ -175,7 +175,7 @@ def test_launcher_puts_a_local_agent_on_strata_when_asked(tmp_path, install):
     agent = AgentDefinition(id="qwen", name="Qwen", executable="qwen", protocol="openai-chat", env={"OPENAI_BASE_URL": "{openai_url}"})
     app, client, old = make_app(tmp_path, lambda request: httpx.Response(404))
     try:
-        app.state.runtime.agents = lambda: {"qwen": agent}
+        app.state.runtime.agents = lambda identity=None: {"qwen": agent}
         prepared = client.post("/api/agents/qwen/sessions", json={"model": "qwen-strata", "backend": "strata"}).json()
         assert prepared["session"]["backend"] == "strata"
         assert prepared["env"]["OPENAI_BASE_URL"].endswith(f"/session/{prepared['session']['session_id']}/v1")

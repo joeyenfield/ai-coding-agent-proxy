@@ -48,6 +48,8 @@ agents = Table(
     Column("builtin", Boolean, nullable=False, default=False),
     Column("edited", Boolean, nullable=False, default=False),
     Column("updated_at", Float),
+    # The organization whose definition it is (API step 9); None for the server's own (shipped ones, site admins').
+    Column("org", String(40)),
 )
 
 users = Table(
@@ -105,7 +107,8 @@ requests = Table(
     Column("timestamp", String(40), nullable=False),
     Column("kind", String(40)),
     Column("model", Text),
-    Column("backend", String(100)),
+    # A backend's name, or a remote provider's full name (routing.py), which is longer (widened in API step 9).
+    Column("backend", String(255)),
     Column("input_tokens", BigInteger, nullable=False, default=0),
     Column("output_tokens", BigInteger, nullable=False, default=0),
     Column("record", JSON, nullable=False),
@@ -319,6 +322,58 @@ audit_checkpoints = Table(
 )
 # One row: whether this transaction may delete audit events (the database's triggers check it; retention sets it).
 audit_guard = Table("audit_guard", api, Column("id", Integer, primary_key=True), Column("allow", Integer, nullable=False, default=0))
+
+# Peering (links.py, bridges.py; API step 9). A link joins this server to another; a bridge joins one of
+# this server's organizations to one of the other's, over a link. data holds what the code owns: the
+# peer's public keys, who presented, the catalogue received. No private key is ever here (that's a secret).
+links = Table(
+    "links", api,
+    Column("id", String(64), primary_key=True),
+    Column("peer", String(40), nullable=False),
+    Column("url", Text, nullable=False),
+    Column("state", String(16), nullable=False),
+    Column("data", JSON, nullable=False),
+    Column("created_at", Float),
+    Column("updated_at", Float),
+)
+# One-use codes a site admin (link) or an organization admin (bridge) hands the other side: only their digest.
+peer_codes = Table(
+    "peer_codes", api,
+    Column("digest", String(64), primary_key=True),
+    Column("kind", String(8), nullable=False),
+    Column("org", String(40)),
+    Column("link", String(64)),
+    Column("exp", Float, nullable=False),
+    Column("created_by", String(100)),
+    Column("used_at", Float),
+)
+bridges = Table(
+    "bridges", api,
+    Column("id", String(64), primary_key=True),
+    Column("link", String(64), nullable=False),
+    Column("org", String(40), nullable=False),
+    Column("peer_org", String(40), nullable=False),
+    Column("state", String(16), nullable=False),
+    Column("data", JSON, nullable=False),
+    Column("created_at", Float),
+    Column("updated_at", Float),
+    Index("bridges_link", "link"),
+)
+# Each side's signed policies, every version: scope link or bridge, side local (ours) or peer (theirs).
+peer_policies = Table(
+    "peer_policies", api,
+    Column("scope", String(8), primary_key=True),
+    Column("scope_id", String(64), primary_key=True),
+    Column("side", String(8), primary_key=True),
+    Column("version", Integer, primary_key=True, autoincrement=False),
+    Column("document", JSON, nullable=False),
+    Column("digest", String(64), nullable=False),
+    Column("signature", Text, nullable=False),
+    Column("kid", String(40), nullable=False),
+    Column("created_at", Float),
+)
+
+PEERING_TABLES = (links, peer_codes, bridges, peer_policies)
 
 SCALING_TABLES = (retention_policies, legal_holds, audit_events, audit_chains, audit_checkpoints, audit_guard)
 

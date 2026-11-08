@@ -233,7 +233,7 @@ affinity: {}
 priorityClassName: ""
 
 # The builds the console's Downloads page and `agent update` hand out (dist/<version>/ from
-# scripts/build-dist.sh), mounted read-only at /app/dist. Several pods need ReadOnlyMany or
+# devhelpers/scripts/build-dist.sh), mounted read-only at /app/dist. Several pods need ReadOnlyMany or
 # ReadWriteMany. Empty: no downloads.
 downloads:
   existingClaim: ""
@@ -260,7 +260,7 @@ postgresql:
   cloudnativepg:
     enabled: false
     instances: 3
-    # Empty: the operator's default PostgreSQL image. Use 17, as compose.yaml does.
+    # Empty: the operator's default PostgreSQL image. Use 17, as deploy/compose/server/compose.yaml does.
     imageName: ghcr.io/cloudnative-pg/postgresql:17
     storage:
       size: 20Gi
@@ -498,13 +498,12 @@ migrations:
     requests: {cpu: 100m, memory: 256Mi}
     limits: {memory: 512Mi}
 
-# Seeds the retention policy (proposal §12) on the first install only, passed to the
-# migration Job as AI_PROXY_RETENTION_SEED (JSON). Later changes are made in the console.
+# Seeds the server's retention policy on the first install only, passed to the migration Job as
+# AI_PROXY_RETENTION_SEED (JSON), in the shape of the console's server policy (docs/retention.md):
+# capture, allowed_traces, and days, max and min for traces, terminal, records, sessions and audit.
+# Later changes are made in the console.
 #   retention:
-#     traces_days: 30
-#     terminal_days: 30
-#     sessions_days: 400
-#     audit_days: 365
+#     days: {traces: 30, terminal: 30, sessions: 400, audit: 365}
 retention: {}
 
 # ---------------------------------------------------------------- monitoring

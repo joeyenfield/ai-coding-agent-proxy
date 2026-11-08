@@ -167,7 +167,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         data = await request.json()
         if not isinstance(data, dict):
             raise HTTPException(status_code=400, detail="Send a JSON object")
-        agent = runtime.agents().get(str(data.get("agent") or ""))
+        agent = runtime.agents(auth.request_identity(request)).get(str(data.get("agent") or ""))
         if agent is None:
             raise HTTPException(status_code=400, detail="Choose one of the server's agents")
         if agent.needs_model and not str(data.get("model") or "").strip():
@@ -236,7 +236,8 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             raise HTTPException(status_code=403, detail="Only the machine's owner or an admin can change who can use it.")
         data = await request.json()
         try:
-            target.access = checked_access(identity, (data or {}).get("access") if isinstance(data, dict) else None, runtime.auth.store, target.tenant)
+            # Grants may also name the machine's organization's bridges (bridges.py): what crosses still needs both policies.
+            target.access = checked_access(identity, (data or {}).get("access") if isinstance(data, dict) else None, runtime.auth.store, target.tenant, runtime.bridges.bridges)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         fleet._save(target)

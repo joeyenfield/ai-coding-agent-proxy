@@ -44,6 +44,28 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         """The MCP servers machines share that you may give the agents you start."""
         return mcp.listed(fleet, auth.request_identity(request))
 
+    @app.api_route("/session/{session_id}/mcp/peer/{full:path}", methods=["GET", "POST", "DELETE"])
+    async def peer_relay(session_id: str, full: str, request: Request) -> Response:
+        """An MCP server another server's organization shares over a bridge: relayed to that server, which relays
+        it to its machine's bridge (the bridge's key never leaves it). Recorded here as well as there."""
+        session = runtime.sessions.get(session_id)
+        if session is None or session.ended_at is not None:
+            raise HTTPException(status_code=404, detail="No open session with that id")
+        if full not in (session.tags.get("mcp") or []):
+            raise HTTPException(status_code=404, detail="This session wasn't given that MCP server: choose it when you start the agent (--mcp)")
+        if not mcp.valid_token(session.mcp_token_hash, request.query_params.get("key")):
+            raise HTTPException(status_code=404, detail="MCP access not found")
+        body = await request.body()
+        from ..links import LinkDown
+
+        try:
+            client, target, headers = runtime.bridges.mcp_upstream(request, full, body, session)
+        except LinkDown as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        if request.method != "POST":
+            return await _pass(runtime, request.method, target, headers, body, client)
+        return await _recorded(runtime, session, full, target, headers, body, client)
+
     @app.api_route("/session/{session_id}/mcp/{machine_id}/{name}", methods=["GET", "POST", "DELETE"])
     async def relay(session_id: str, machine_id: str, name: str, request: Request) -> Response:
         session = runtime.sessions.get(session_id)
@@ -56,37 +78,51 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             raise HTTPException(status_code=404, detail="MCP access not found")
         machine = fleet.machines.get(machine_id)
         # Whoever started it (launched_by, for a launch from the console) has to be allowed still: grants change.
+        # A guest's launch over a bridge (launched_by bridge:<id>) was given only what the bridge lets out.
         user = session.tags.get("launched_by") or session.tags.get("owner")
-        identity = runtime.auth.identity_for(str(user), "session") if user else None
-        if machine is None or identity is None or not mcp.usable(fleet, identity, machine):
+        if str(user or "").startswith("bridge:"):
+            allowed_here = machine is not None and runtime.bridges.launch_mcp_allowed(session, machine, name)
+        else:
+            identity = runtime.auth.identity_for(str(user), "session") if user else None
+            allowed_here = machine is not None and identity is not None and mcp.usable(fleet, identity, machine)
+        if not allowed_here:
             raise HTTPException(status_code=403, detail="You may no longer use this machine's MCP servers")
-        shared = machine.mcp or {}
-        # A machine that dropped a moment ago is on its way back: the tunnel waits for it.
-        if not (fleet.connected(machine.id) or fleet.reconnecting(machine)) or not shared.get("port") or not machine.mcp_key:
-            raise HTTPException(status_code=503, detail=f"{machine.name} isn't connected: agent-machine isn't running there")
-        if not any(item["name"] == name for item in shared.get("servers") or []):
-            raise HTTPException(status_code=404, detail=f"{machine.name} no longer shares an MCP server called {name}")
-        # The bridge listens on the machine's loopback: through its tunnel, or directly when it's this computer.
-        bridge = SimpleNamespace(name=f"{machine.name} MCP", machine=machine.id, url=f"http://127.0.0.1:{shared['port']}")
-        if not runtime.tunnels.tunnelled(bridge) and not fleet.loopback(machine):
-            raise HTTPException(status_code=502, detail=f"{machine.name}'s agent-machine can't carry MCP traffic: run agent-machine update there")
-        target = await runtime.tunnels.base_url(bridge) + f"/mcp/{name}"
-        headers = {key: value for key, value in request.headers.items() if key.lower() in REQUEST_HEADERS}
-        headers[KEY_HEADER] = machine.mcp_key
+        target, headers = await bridge_target(runtime, machine, name, request)
         body = await request.body()
         if request.method != "POST":
             return await _pass(runtime, request.method, target, headers, body)
         return await _recorded(runtime, session, f"{machine.name}/{name}", target, headers, body)
 
 
-async def _pass(runtime: Runtime, method: str, target: str, headers: dict[str, str], body: bytes) -> Response:
+async def bridge_target(runtime: Runtime, machine: Any, name: str, request: Request) -> tuple[str, dict[str, str]]:
+    """Where an MCP request for one of a machine's shared servers goes (its bridge, through its tunnel), with the
+    bridge's key and only REQUEST_HEADERS of the agent's."""
+    fleet = runtime.fleet
+    shared = machine.mcp or {}
+    # A machine that dropped a moment ago is on its way back: the tunnel waits for it.
+    if not (fleet.connected(machine.id) or fleet.reconnecting(machine)) or not shared.get("port") or not machine.mcp_key:
+        raise HTTPException(status_code=503, detail=f"{machine.name} isn't connected: agent-machine isn't running there")
+    if not any(item["name"] == name for item in shared.get("servers") or []):
+        raise HTTPException(status_code=404, detail=f"{machine.name} no longer shares an MCP server called {name}")
+    # The bridge listens on the machine's loopback: through its tunnel, or directly when it's this computer.
+    bridge = SimpleNamespace(name=f"{machine.name} MCP", machine=machine.id, url=f"http://127.0.0.1:{shared['port']}")
+    if not runtime.tunnels.tunnelled(bridge) and not fleet.loopback(machine):
+        raise HTTPException(status_code=502, detail=f"{machine.name}'s agent-machine can't carry MCP traffic: run agent-machine update there")
+    target = await runtime.tunnels.base_url(bridge) + f"/mcp/{name}"
+    headers = {key: value for key, value in request.headers.items() if key.lower() in REQUEST_HEADERS}
+    headers[KEY_HEADER] = machine.mcp_key
+    return target, headers
+
+
+async def _pass(runtime: Runtime, method: str, target: str, headers: dict[str, str], body: bytes, client: httpx.AsyncClient | None = None) -> Response:
     """A GET stream or a DELETE, as it is: what the MCP server says outside a request's reply isn't recorded."""
-    assert runtime.client
+    client = client or runtime.client
+    assert client
     # A session's GET stream stays open, silent, for as long as the agent runs: no read timeout.
     timeout = httpx.Timeout(10, read=None) if method == "GET" else None
     try:
-        request = runtime.client.build_request(method, target, headers=headers, content=body or None, **({"timeout": timeout} if timeout else {}))
-        upstream = await runtime.client.send(request, stream=True)
+        request = client.build_request(method, target, headers=headers, content=body or None, **({"timeout": timeout} if timeout else {}))
+        upstream = await client.send(request, stream=True)
     except httpx.HTTPError as exc:
         return JSONResponse({"detail": f"Couldn't reach the machine's MCP server: {runtime.unavailable(exc)}"}, status_code=502)
 
@@ -103,7 +139,7 @@ async def _pass(runtime: Runtime, method: str, target: str, headers: dict[str, s
     return StreamingResponse(chunks(), status_code=upstream.status_code, headers=_headers(upstream), media_type=upstream.headers.get("content-type"))
 
 
-async def _recorded(runtime: Runtime, session: Session, host: str, target: str, headers: dict[str, str], body: bytes) -> Response:
+async def _recorded(runtime: Runtime, session: Session, host: str, target: str, headers: dict[str, str], body: bytes, client: httpx.AsyncClient | None = None) -> Response:
     """One POST to the MCP server, recorded with its reply: JSON, or an event stream that ends with the last response."""
     try:
         payload: Any = json.loads(body or b"null")
@@ -117,9 +153,10 @@ async def _recorded(runtime: Runtime, session: Session, host: str, target: str, 
     )
     runtime.track(telemetry)
     runtime.attach(telemetry, payload)
-    assert runtime.client
+    client = client or runtime.client
+    assert client
     try:
-        upstream = await runtime.client.send(runtime.client.build_request("POST", target, headers=headers, content=body), stream=True)
+        upstream = await client.send(client.build_request("POST", target, headers=headers, content=body), stream=True)
     except httpx.HTTPError as exc:
         telemetry.status, telemetry.error_type = 502, type(exc).__name__
         message = runtime.unavailable(exc)

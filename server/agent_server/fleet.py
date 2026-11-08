@@ -217,7 +217,11 @@ def can_update(identity: Identity | None, machine: Machine) -> bool:
     return allowed(identity, machine, "update")
 
 
-def checked_access(identity: Identity | None, requested: Any, store: Any, tenant: str | None = None) -> dict[str, dict[str, list[str]]]:
+# What a machine's owner can let a bridge use there (what crosses still needs both organizations' policies).
+BRIDGE_FEATURES = frozenset({"launch", "terminal", "mcp"})
+
+
+def checked_access(identity: Identity | None, requested: Any, store: Any, tenant: str | None = None, store_bridges: Any = None) -> dict[str, dict[str, list[str]]]:
     """A machine's grants as asked for, checked: known features, and only the machine's own organization
     (tenant) and its teams (unless an admin asks, only teams the asker is in, as with sharing a session).
     Raises ValueError."""
@@ -233,6 +237,13 @@ def checked_access(identity: Identity | None, requested: Any, store: Any, tenant
         grant = grant if isinstance(grant, dict) else {}
         orgs = sorted({str(item) for item in grant.get("orgs") or []})
         teams = sorted({str(item) for item in grant.get("teams") or []})
+        # A bridge (bridges.py) the machine's organization opened with an organization on a linked server:
+        # what's let out over it still needs that organization's policy, and the other side's.
+        bridge_ids = sorted({str(item).removeprefix("bridge:") for item in grant.get("bridges") or []})
+        for bridge in bridge_ids:
+            known = store_bridges.get(bridge) if store_bridges is not None else None
+            if known is None or known.org != tenant:
+                raise ValueError(f"No bridge {bridge} of {tenant}'s")
         for org in orgs:
             if org != tenant:
                 raise ValueError(f"No organization {org}: a machine is only ever shared within its own organization ({tenant})")
@@ -243,8 +254,10 @@ def checked_access(identity: Identity | None, requested: Any, store: Any, tenant
                 raise ValueError(f"No team {team} in {tenant} (name it as <organization>/<team>)")
             if not identity.admin and team not in identity.teams:
                 raise ValueError(f"You aren't in the team {team}")
-        if orgs or teams:
-            access[feature] = {"orgs": orgs, "teams": teams}
+        if bridge_ids and feature not in BRIDGE_FEATURES:
+            raise ValueError(f"A bridge can be let use {', '.join(sorted(BRIDGE_FEATURES))}, not {feature}")
+        if orgs or teams or bridge_ids:
+            access[feature] = {"orgs": orgs, "teams": teams, **({"bridges": bridge_ids} if bridge_ids else {})}
     return access
 
 
@@ -287,6 +300,9 @@ class Fleet:
         self._waiting: dict[str, asyncio.Future[dict[str, Any]]] = {}
         # Which machine each waiting request went to, so its answer fails when the machine goes.
         self._asked: dict[str, str] = {}
+        # Guests' launches running from here (guest_launch), and the bridges they're checked against (bridges.py).
+        self.guest_launches: dict[str, dict[str, Any]] = {}
+        self.bridges: Any = None
         # Which connection each waiting request went out on: its answer can only come back on that one.
         self._via: dict[str, Any] = {}
         # Progress of streamed requests (pulls), by request id.
@@ -820,8 +836,11 @@ class Fleet:
         """A test of backends for identity's agents: their tenant's and the shared hosted ones; an api
         backend only for the teams it names, in its own organization. No identity, none."""
         def usable(backend: Any) -> bool:
-            if identity is None:
+            if not isinstance(identity, Identity):
                 return False
+            if backend.type == "link":
+                # A provider let in over a bridge: its organization's own, for the teams it was let in for (bridges.py).
+                return self.bridges is not None and self.bridges.usable(identity, backend)
             if backend.type == "api":
                 if identity.site_admin:
                     return True
@@ -891,14 +910,18 @@ class Fleet:
 
     # Launches
 
-    async def launch(self, machine: Machine, identity: Identity | None, request: dict[str, Any], launch_id: str | None = None) -> dict[str, Any]:
+    async def launch(self, machine: Machine, identity: Identity | None, request: dict[str, Any], launch_id: str | None = None, guest: dict[str, Any] | None = None) -> dict[str, Any]:
         """Starts an agent there. request["account"] is a provider account the route already checked for
-        whoever asked (provider_accounts.for_launch), with launch_id the grant it made for it."""
-        if not can_launch(identity, machine):
+        whoever asked (provider_accounts.for_launch), with launch_id the grant it made for it.
+
+        guest: a launch a guest of a linked server asked for (bridges.py), which the peer route already checked
+        (the bridge lets it out, the machine's owner granted the bridge): the tags its session gets (guest,
+        bridge, the backends it may use), which the machine's launcher finds by the launch id (guest_launch)."""
+        if guest is None and not can_launch(identity, machine):
             raise FleetError(403, "Only the machine's owner, or the teams it lets, can start agents on it.")
         where = await self._where(machine) if self.cluster.scaled else ""
         if where:
-            body = {"user": identity.user if identity else None, "request": request, "launch": launch_id}
+            body = {"user": identity.user if identity else None, "request": request, "launch": launch_id, "guest": guest}
             return await self._remote(where, machine, "launch", body, LAUNCH_TIMEOUT)
         socket = await self.wait_socket(machine)
         if socket is None:
@@ -926,6 +949,14 @@ class Fleet:
         if account:
             # The provider account the agent runs with (agent --account): its id, never a credential.
             message["account"] = account
+        if guest is not None:
+            self.guest_launches[launch_id] = guest
+            await asyncio.to_thread(self.cluster.set_json, self.GUEST_PREFIX + launch_id, guest, LAUNCH_TIMEOUT + 60)
+            try:
+                return await self._start(machine, socket, identity, message, agent, project, guest=guest)
+            finally:
+                self.guest_launches.pop(launch_id, None)
+                await asyncio.to_thread(self.cluster.delete, self.GUEST_PREFIX + launch_id)
         return await self._start(machine, socket, identity, message, agent, project)
 
     async def shell(self, machine: Machine, identity: Identity | None, request: dict[str, Any]) -> dict[str, Any]:
@@ -951,6 +982,16 @@ class Fleet:
     # The grant another process can check while a launch runs (the session POST may land
     # on a gateway pod while the fleet pod holds the launch).
     GRANT_PREFIX = "fleet:launch-grant:"
+    # A guest's launch (bridges.py) while it runs: the tags and backends its session gets.
+    GUEST_PREFIX = "fleet:guest-launch:"
+
+    def guest_launch(self, launch_id: str) -> dict[str, Any] | None:
+        if not launch_id:
+            return None
+        if launch_id in self.guest_launches:
+            return self.guest_launches[launch_id]
+        value = self.cluster.get_json(self.GUEST_PREFIX + launch_id)
+        return value if isinstance(value, dict) else None
 
     def pending_launch(self, launch_id: str) -> bool:
         """Whether a launch some process sent to a machine is still running: what makes a
@@ -960,10 +1001,11 @@ class Fleet:
             return False
         return launch_id in self._asked or bool(self.cluster.get(self.GRANT_PREFIX + launch_id))
 
-    async def _start(self, machine: Machine, socket: Any, identity: Identity | None, message: dict[str, Any], agent: str, project: str) -> dict[str, Any]:
+    async def _start(self, machine: Machine, socket: Any, identity: Identity | None, message: dict[str, Any], agent: str, project: str, guest: dict[str, Any] | None = None) -> dict[str, Any]:
         """Sends a launch or shell to the machine and waits for the session it opens, recording it in the machine's history."""
         launch_id = message["launch"]
-        record = {"launch": launch_id, "at": time.time(), "by": identity.user if identity else None, "agent": agent, "project": project, "session_id": None, "error": None}
+        by = identity.user if identity else ((guest or {}).get("tags") or {}).get("guest_name")
+        record = {"launch": launch_id, "at": time.time(), "by": by, "agent": agent, "project": project, "session_id": None, "error": None}
         machine.history = [*machine.history, record][-LAUNCH_HISTORY:]
         future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
         self._waiting[launch_id] = future
@@ -1007,7 +1049,12 @@ class Fleet:
                 record["error"] = "The machine returned a session that doesn't belong to this launch"
             else:
                 record["session_id"] = session.session_id
-                if identity is not None and session.tags.get("owner") != identity.user:
+                if guest is not None:
+                    expected = guest.get("tags") or {}
+                    if any(session.tags.get(key) != value for key, value in expected.items()):
+                        # The launcher's session carries the guest's tags (prepare_agent_session sets them); make sure.
+                        self.sessions.update_tags(session, expected)
+                elif identity is not None and session.tags.get("owner") != identity.user:
                     self.sessions.update_tags(session, {"launched_by": identity.user})
         else:
             record["error"] = str(answer.get("error") or "the launch failed")

@@ -69,7 +69,7 @@ func TestPlanPicksThisPlatformsBinaries(t *testing.T) {
 	if _, err := Plan(index, "darwin-arm64", "/usr/local/bin", Programs); err == nil || !strings.Contains(err.Error(), "darwin-arm64") {
 		t.Fatalf("a platform the server didn't build: %v", err)
 	}
-	if _, err := Plan(&Index{ServerVersion: "0.5.0", Hint: "run scripts/build-dist.sh"}, "linux-amd64", "/x", Programs); err == nil || !strings.Contains(err.Error(), "build-dist") {
+	if _, err := Plan(&Index{ServerVersion: "0.5.0", Hint: "run devhelpers/scripts/build-dist.sh"}, "linux-amd64", "/x", Programs); err == nil || !strings.Contains(err.Error(), "build-dist") {
 		t.Fatalf("no builds: %v", err)
 	}
 	if settings.Platform() == "" || strings.Contains(settings.Platform(), "/") {

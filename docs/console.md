@@ -2,25 +2,26 @@
 
 The console is the server's web app: open the server's address (`http://<server>:9999`, or your HTTPS address) in a browser. The Android app shows the same console in a WebView, so everything here works on a phone.
 
-The screenshots come from the demo (`python scripts/screenshots/demo.py`), which runs a server with made-up machines, agents and traffic.
+The screenshots come from the demo (`python devhelpers/scripts/screenshots/demo.py`), which runs a server with made-up machines, agents and traffic.
 
 The page follows the rail, top to bottom: [Agents](#agents), [the server's traffic and sessions](#server-traffic-and-sessions), [running the server](#server-running-it) (admin pages), then [Machines](#machines) and [a machine's page](#a-machines-page). Dip into the section for the page you're on.
 
 ## Layout
 
-The rail on the left has three parts: the agents, the machines they and their model servers run on, and the server every request passes through.
+The rail on the left has three parts: the agents, the machines they and their model servers run on, and the server every request passes through. The server's pages sit under three headings of their own: **Traffic**, **Logs** and **Admin** (**More** for members, who see only Organizations and Downloads there).
 
 | Part | Pages | What it's for |
 | --- | --- | --- |
 | **1 Agents** | Live agent view, Start an agent, Running agents, Ask a model, Providers, Subscriptions | Start a coding agent through the server, then watch it and type into it from any device, or ask a model a question yourself. |
 | **2 Machines** | All machines, Approve a device, Add a machine | Open **All machines** to search and select a computer. Individual machines aren't listed in the rail. |
-| **3 Server** | Live, Traffic, Requests, Sessions, Server stats, Access log, API log, Audit log, Server settings, Organizations, Downloads | The hub: allowed agent requests pass through it and are recorded. |
+| **3 Server** | Traffic: Live, Traffic, Requests, Sessions. Logs: Access log, API log, Audit log. Admin: Server stats, Server settings, Organizations, Downloads | The hub: allowed agent requests pass through it and are recorded. |
 
 - The small label above each page's title is its breadcrumb ("Machines › build-box").
+- Press a heading to fold its pages away, and again to show them. A folded heading still shows the page you're on. The button at the top left collapses the whole rail to icons, with each page's name as its tooltip. The browser remembers both.
 - The footer of the rail links to the downloads (**Get the apps**) and **Documentation**, shows how many sessions are open, the server's address and its version, and has a System/Light/Dark theme switch.
 - A badge on **Running agents** counts agents waiting for you (or, when none wait, the connected terminals). A badge on **Live** counts requests in flight. A badge on **All machines** counts connected machines; a machine running an older agent-machine shows **Update available** on its row.
 - When an agent asks a question (a permission prompt, say), a banner at the top of every page shows it. **Answer** opens its terminal; **Later** hides it until the agent asks something new.
-- Below 900 px wide the rail becomes a top bar with a menu. Opening the menu adds a history entry, so Back (Android's included) closes it.
+- Below 900 px wide (and in the Android app) the rail becomes a top bar with the menu button at its left. The menu always shows the pages' names; its headings fold as on a computer. Opening the menu adds a history entry, so Back (Android's included) closes it.
 - The console follows your system's light or dark theme, unless the rail's theme switch forces one.
 
 ![The Overview in a phone-sized window](screenshots/overview-phone.png)
@@ -109,7 +110,7 @@ A terminal that isn't connected (launcher closed, or agent exited) has **Remove*
 **Live agent view** (`/live-agents`) is where the console opens (`/` goes there) and the first page under Agents in the rail. It shows several terminals together. Old `/terminals-beta` links open it. The title and two dropdowns share one narrow bar, so the terminals take the rest of the screen.
 
 - **Agents** (with the number in the grid) drops down a searchable list of shared sessions, each with its state, folder and machine. Tick up to 16. It opens by itself while the grid is empty; **Done**, Esc or a click elsewhere closes it.
-- The layout dropdown (**2 × 2**) sets **Rows** and **Columns** (1–4 each) and **Text size**. With more agents than fit, **Previous** and **Next** switch grid pages; only the visible page connects its terminals.
+- The layout dropdown (**2 × 2**) sets **Rows** and **Columns** (1–4 each) and **Text size**. With more agents than fit, the arrows beside the page number (such as **1 / 2**) switch grid pages; only the visible page connects its terminals.
 - The button at the left of the bar hides the dropdowns, leaving one line of chrome: the grid grows into the room until you show them again.
 
 ![Four terminals in the Live agent view](screenshots/terminal-grid.png)
@@ -238,7 +239,7 @@ Agents send their model far more as "the user" than you type: system reminders, 
 - **The agent's replies are on the left**: its text, its thinking (folded), and its tool calls. More than three tool calls in a row fold into one line, such as "Used 7 tools: Bash ×5 · Read ×2". Open a tool call for its input, result and request. Under each reply are its request, tokens and time.
 - **What the agent added itself** shows as small grey notes in the middle, never as a message: an interruption, a command's output, the summary a compacted conversation goes on from, and a marker where it was compacted. Reminders and other context it injects are hidden. **Show what … added** shows them.
 - **In a sub-agent**, what it was asked is on the right as **Main agent**, not you. **In a background call**, the agent's instruction is on the right, marked as the agent's, with the model's **Answer** below. The conversation a sub-agent or background call was handed is hidden behind **Show the … messages it was handed** (or **sent with**).
-- **My previous** and **Next** jump between your own messages. **Newest** (or **New messages**) goes back to the end. The chat opens at the newest messages, loads older ones as you scroll up, and follows new ones while you're at the bottom. Long texts load in full when you open them.
+- The up and down arrows beside **Show what … added** jump to your previous and next message. **Newest** (or **New messages**) goes back to the end. The chat opens at the newest messages, loads older ones as you scroll up, and follows new ones while you're at the bottom. Long texts load in full when you open them.
 
 Claude Code signed in to its account sends most calls with only what's new, naming the call before. The server follows that chain, and Claude Code's request headers say which calls are the main chat, a sub-agent or a background call. For other agents the server matches each call's messages to the conversation they continue, and calls without tools that aren't the main conversation count as background calls.
 
@@ -301,11 +302,15 @@ The log's own requests aren't listed, nor the console's `/assets/`. Requests tha
 - Open an event for its reason, the fields it changed, its place in its organization's chain and its whole record as JSON.
 - **Download CSV** and **Download NDJSON** save the events shown by the filters (up to 5000). **Verify chain** checks every chain against the signed checkpoints and lists any problem; site admins can **Sign checkpoint now**.
 
+### Shared with you
+
+**Shared with you** (`/shared`) lists what organizations on linked servers share with yours, for you ([Peering](peering.md)): their providers, MCP servers and agent definitions under their full names (**Copy** puts one on the clipboard, for `agent --backend`), and their machines. **Start an agent there**, on a machine shared for launches, picks one of the agents installed there, a launch folder, one of the providers that server shares with you and a model, and opens the agent's terminal: it runs as the other server's session, and you watch it (and type into it, if typing is shared too) from here.
+
 ### Server settings
 
 ![Server settings](screenshots/settings.png)
 
-`/settings` (site admins only) changes the server's stored settings, in tabs kept in the address (`?tab=`): **Server and providers**, **Agents**, **Model tuning**, **Storage** and **Audit**. Most changes apply at once, in every server process:
+`/settings` (site admins only) changes the server's stored settings, in tabs kept in the address (`?tab=`): **Server and providers**, **Agents**, **Model tuning**, **Storage**, **Audit** and **Links**. Most changes apply at once, in every server process:
 
 - **Server**: **Listen host**, **Listen port**, **Address agent machines use** (shown for `agent login`) and **Public console address** (`public_url`, optional: where people open the console from anywhere, shown ahead of the addresses the server finds itself). A changed listen address needs a restart.
 - **Providers**: every backend, with its type, address and machine. Choose the **Default**, or remove one. **Add hosted API** adds an Anthropic API backend (name, type, URL). Local providers can't be added here: they come from machines (see [Providers](providers.md)). API providers are listed here too, and can be the default, but are edited on their organization's **API providers** tab (**Organizations**). **Save changes** saves this section and the one above.
@@ -316,6 +321,7 @@ The log's own requests aren't listed, nor the console's `/assets/`. Requests tha
   - for each kind (traces, terminal output, request records, sessions, the audit log) how long it's kept and the least and most organizations may set — empty means forever, or no bound (on a phone each kind is a block of its own);
   - **API log**: saving every request for the [API log](#api-log) (off by default) and for how many days (7 by default), and whether debug mode saves headers and bodies too, and for how many days (1).
 - **Audit**: the key checkpoints are signed with (its id, and the public key to copy), how many events exports haven't sent yet, the checkpoint interval, and the [exports](audit.md#exports): add, edit or remove one (name, kind, URL or blob folder, the environment variable holding its secret, which organizations, on or off).
+- **Links**: links with other servers ([Peering](peering.md#linking-two-servers)). **This server** shows its mesh id (set once, here or with `AI_PROXY_MESH_ID`), address and key fingerprint; **New link code** makes a code for the other server's site admin, and **Rotate the link key** makes a new key (the old one stays valid for a day). **Link with another server** looks an address up, shows its mesh id and fingerprint to check with its admin, and takes its code. A server that entered this one's code shows above the list, to confirm with its code. Open a link for its policy (what kinds of thing this server's organizations may let out and in, and which organizations may bridge; the other side's beside it), **Pause**, **Resume** and **Remove the link**.
 - **Restart the proxy…** (shown when the server can restart itself, which it can't when started with `--reload`): restarts it once requests in flight finish, and says where it comes back. It picks up a new listen address, and settings changed from the command line (`agent-server config import`).
 
 To copy the settings to another server or keep them in version control, use `agent-server config export` and `import` (see [Configuration](configuration.md)). **API reference** links to the server's OpenAPI pages (`/docs`).
@@ -326,9 +332,9 @@ To copy the settings to another server or keep them in version control, use `age
 
 `/organization` separates the directory from your own account. Each organization is a tenant: its people, machines, providers and sessions are its own and never shared ([Accounts](accounts.md#organizations-are-tenants)). Tabs and the selected organization and team stay in the URL, for linking:
 
-- **Your organization** (site admins: **Organizations**, every one, the root as **Site administration**; they also create organizations, and delete one once it has no users left). Its tabs:
-  - **Teams** lists its teams; open one to put its people in or out of it, create a user in it, or rename or delete it.
-  - **People** lists everyone in the organization and, for its admins, creates users there.
+- **Your organization** (site admins: **Organizations**, a table of every one with its people, teams and admins, the root as **Site administration**; **New organization** asks for a name and an ID, which follows the name until you edit it and never changes afterwards). An organization opens with its name, ID, number of people and teams, and its admins; when it has none yet, **Add an admin** opens the form to create one. Its tabs:
+  - **People** (the default; **Site admins** for the root) lists everyone in the organization and, for its admins, creates users there.
+  - **Teams** (not the root) lists its teams; **New team** creates one (a name and an ID, as for an organization). Open one to put its people in or out of it, create a user in it, or rename or delete it.
   - **API providers** (its admins, and site admins) holds the organization's [OpenAI and Anthropic-compatible providers](providers.md#api-providers-openai-and-anthropic-compatible), grouped as hosted APIs, gateways and machine-hosted ones. Each shows its address, protocols, how it authenticates, where its key comes from (stored, an environment variable, missing, or the agent's own; never the key), its models, priority, fallbacks, who may use it and its health.
     - **Add a provider** starts from a preset (OpenAI, Anthropic, OpenRouter, LiteLLM, Groq, Together, Fireworks, DeepSeek, Azure OpenAI) or a blank one. A machine-hosted one keeps its machine's address.
     - **Edit** changes every setting: the key is a write-only field (**Remove key** deletes a stored one), models are aliases mapped to the provider's ids, extra headers can't be credentials, and **Teams that may use it** limits it to some of the organization's teams (none chosen: everyone in it; its admins always may). Site admins also see **Also share with**, to share it with other organizations whole.
@@ -336,9 +342,10 @@ To copy the settings to another server or keep them in version control, use `age
     - Storing a key needs `AI_PROXY_VAULT_KEYS` on the server; without it, name an `AI_PROXY_API_KEY_*` variable instead.
   - **Usage** shows each person's calls and tokens on each provider in a window you choose, with their limits and who's blocked (members: only their own). Its admins set and remove limits there (**Limits**: a person or Everyone, a provider, a window, and tokens such as `1m` or `100k`; see [Usage limits](usage-limits.md#setting-limits)).
   - **Data** (its admins, and site admins) shows the [retention policy](retention.md) its sessions start under, marking what's the server's and what's its own; sets its own within the server's bounds (shown beside each), or goes back to the server's with **Use the server's**. It also lists its [legal holds](retention.md#legal-holds): place one on the whole organization, a person or a session, with a reason, or lift one.
-  - **Settings** renames it.
-- **People**: search the people you can see (your organization's; site admins: everyone). The root organization is the site's own: it has no Teams tab, and its People tab is **Site admins**. Admins can create accounts in their organization (site admins: in any; the root takes only site admins), **Edit user** to change their role, teams or password, and **Delete account**. People belong to one organization and can't be moved: to give someone access to another, add them there as a new user.
-- **Your account**: your identity, role and organization, and OIDC sign-in instructions. To use another account, choose your name at the bottom of the menu: it switches between the accounts this browser is signed in to, adds one, or signs out of one or all ([Accounts](accounts.md#signing-in)). CLI sign-in uses device approval; scripts use explicitly provisioned service clients ([OIDC](oidc.md)). Admins reset account passwords in People or with `agent-server user passwd`.
+  - **Sharing** (its admins; not the root) holds its [bridges](peering.md#bridges) with organizations on linked servers. **Open a bridge** makes a code for the other organization's admin (**New bridge code**, naming the linked server) and checks and enters theirs (**Check it** shows the organization it names; confirm, then **Open the bridge**). Open a bridge for what crosses each way, this side's policy (**lets out**: the organization's providers, its own agent definitions, and machines whose owner let the bridge use them; a provider can also be let out only for its own people's launches there; **lets in**: what the other side lets out, each for everyone or the teams chosen), **Limits** on each provider let out (nothing is used until there's one), **Fetch what they share now**, **Pause**, **Resume** and **End the bridge**.
+  - **Settings** (not the root) renames it (its ID stays) and, for site admins, deletes it once it has no users left.
+- **Everyone** (site admins): search every person on the server, filter by organization, and create accounts in any. Admins can **Edit user** to change a person's role, teams or password, and **Delete account**, here or on an organization's People tab. People belong to one organization and can't be moved: to give someone access to another, add them there as a new user.
+- **Your account**: your identity, role and organization, and OIDC sign-in instructions. To use another account, choose your name at the bottom of the menu: it switches between the accounts this browser is signed in to, adds one, or signs out of one or all ([Accounts](accounts.md#signing-in)). CLI sign-in uses device approval; scripts use explicitly provisioned service clients ([OIDC](oidc.md)). Admins reset account passwords on an organization's People tab or with `agent-server user passwd`.
 
 Members see their organization and its people, read-only; its admins manage them; site admins manage organizations and server settings without seeing inside another organization. Removing someone from a team, or deleting a team, keeps the accounts. Destructive changes ask for confirmation. See [Accounts and sharing](accounts.md).
 
@@ -354,7 +361,7 @@ Members see their organization and its people, read-only; its admins manage them
 - **Android app**: the APK.
 - **Uninstall**: the one-line uninstallers (`/uninstall.sh`, `/uninstall.ps1`), shown even when nothing is built. They remove the programs and agent-machine's service; `--purge` (`-Purge`) also signs them out and deletes their settings.
 
-If nothing has been built (`scripts/build-dist`), it says **Nothing built yet**. See [Deployment](deployment.md#what-the-server-hands-out).
+If nothing has been built (`devhelpers/scripts/build-dist`), it says **Nothing built yet**. See [Deployment](deployment.md#what-the-server-hands-out).
 
 ## Machines
 
@@ -461,4 +468,4 @@ When the machine doesn't report an Ollama, llama.cpp or Strata running, its tab 
 
 ![A machine's Access tab](screenshots/machine-access.png)
 
-**Access**, for its owner and its organization's admins: whether the whole organization, or which of its teams, may use each feature (see it, start agents, open terminals, change models, run model servers, update it, use MCP servers), and which of the machine's own switches each also needs. See [Machines](machines.md#who-may-use-a-machine).
+**Access**, for its owner and its organization's admins: whether the whole organization, or which of its teams (or, for starting agents, terminals and MCP servers, which of the organization's [bridges](peering.md#machines-over-a-bridge)), may use each feature (see it, start agents, open terminals, change models, run model servers, update it, use MCP servers), and which of the machine's own switches each also needs. See [Machines](machines.md#who-may-use-a-machine).

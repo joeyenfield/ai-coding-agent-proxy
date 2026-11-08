@@ -1,0 +1,267 @@
+# A server full of test data, built from this checkout: from devhelpers/testdata,
+#   podman compose up -d --build
+# Development only (no deploy/compose twin). Its ports differ from the basic quickstart's, so the two
+# can run side by side.
+#
+#   Console  http://localhost:49999     (its issuer on :50000)
+#   Site admin: admin / secret (QUICKSTART_ADMIN_PASSWORD). Everyone else: testdata (TESTDATA_PASSWORD).
+#
+#   acme     Acme Labs  alice (admin; platform), bob (platform, web), carol (web)
+#            acme-box, signed in as alice, with its own Ollama
+#   globex   Globex     dana (admin; research), erin (research), frank
+#            globex-box, signed in as dana, with its own Ollama
+#   initech  Initech    grace (admin), heidi (ops), ivan (ops)
+#            initech-box, signed in as grace, with its own Ollama
+#
+# Each machine shares the toolbox MCP server (mcp_toolbox.py here), adds its Ollama as its
+# organization's provider and lets everyone in its organization see it, start agents there and use
+# its MCP servers. A one-shot service pulls a small model into each Ollama (TESTDATA_MODEL; empty
+# for none). Images are the basic stack's, so a build there serves here too.
+# `podman compose down -v` removes it and its data.
+name: ai-control-mesh-testdata-dev
+
+x-auth: &auth
+  AI_PROXY_OIDC_ISSUER: http://localhost:50000
+  AI_PROXY_OIDC_AUDIENCE: http://localhost:49999
+  AI_PROXY_OIDC_REDIRECT_URIS: http://localhost:49999/api/auth/callback
+  AI_PROXY_OIDC_BROWSER_ORIGINS: http://localhost:49999
+  AI_PROXY_OIDC_INTROSPECTION_SECRET: testdata-local-introspection-secret
+  AI_PROXY_USERNAME: admin
+  AI_PROXY_PASSWORD: ${QUICKSTART_ADMIN_PASSWORD:-secret}
+  QUICKSTART_AUTH_PORT: "50000"
+  QUICKSTART_SERVER_PORT: "49999"
+
+x-machine: &machine
+  image: localhost/ai-control-mesh-dev-machine
+  build:
+    context: ../..
+    dockerfile: sandbox/Dockerfile
+  restart: unless-stopped
+  entrypoint: [tini, --, python3, /quickstart/start.py, machine]
+  healthcheck:
+    test: [CMD-SHELL, 'agent-machine | grep -q "^Fleet *: connected"']
+    interval: 30s
+    timeout: 5s
+    start_period: 30s
+
+x-machine-env: &machine-env
+  QUICKSTART_AUTH_PORT: "50000"
+  QUICKSTART_SERVER_PORT: "49999"
+  QUICKSTART_API: http://localhost:49999
+  QUICKSTART_ISSUER: http://localhost:50000
+  QUICKSTART_PASSWORD: ${TESTDATA_PASSWORD:-testdata}
+  QUICKSTART_OLLAMA: "1"
+  QUICKSTART_MCP: toolbox=python3 /testdata/mcp_toolbox.py
+  QUICKSTART_ADOPT: ollama
+  QUICKSTART_GRANT: view,launch,mcp
+  AI_PROXY_URL: http://localhost:49999
+  PYTHONDONTWRITEBYTECODE: "1"
+
+x-ollama: &ollama
+  image: docker.io/ollama/ollama:0.40.14
+  restart: unless-stopped
+  environment:
+    OLLAMA_HOST: 0.0.0.0:11434
+  healthcheck:
+    test: [CMD, ollama, list]
+    interval: 10s
+    timeout: 5s
+    retries: 20
+
+# Pulls TESTDATA_MODEL into one Ollama once, then exits; a model that's there already is quick.
+x-pull: &pull
+  image: docker.io/ollama/ollama:0.40.14
+  restart: "no"
+  entrypoint: [sh, -c, 'if [ -n "$$MODEL" ]; then ollama pull "$$MODEL"; fi']
+
+services:
+  postgres:
+    image: docker.io/library/postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mesh
+      POSTGRES_PASSWORD: testdata-postgres
+      AI_PROXY_DB_API_PASSWORD: testdataapi
+      AI_PROXY_DB_AUTH_PASSWORD: testdataauth
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ../../server/docker/postgres-init.sh:/docker-entrypoint-initdb.d/10-mesh.sh:ro,z
+    healthcheck:
+      test: [CMD, pg_isready, -U, postgres, -d, mesh]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+
+  server:
+    image: localhost/ai-control-mesh-dev-server
+    build:
+      context: ../..
+      dockerfile: server/Dockerfile
+    restart: unless-stopped
+    entrypoint: [python, /quickstart/start.py, server]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      <<: *auth
+      AI_PROXY_URL: http://localhost:49999
+      AI_PROXY_DATABASE_URL: postgresql+psycopg://mesh_api:testdataapi@postgres:5432/mesh
+      QUICKSTART_ORGS: acme=Acme Labs,globex=Globex,initech=Initech
+      # org:person:role:teams (teams joined with +, made as needed).
+      QUICKSTART_ACCOUNTS: >-
+        acme:alice:admin:platform,acme:bob:member:platform+web,acme:carol:member:web,
+        globex:dana:admin:research,globex:erin:member:research,globex:frank:member,
+        initech:grace:admin,initech:heidi:member:ops,initech:ivan:member:ops
+      QUICKSTART_PASSWORD: ${TESTDATA_PASSWORD:-testdata}
+    ports:
+      - "127.0.0.1:49999:9999"
+    volumes:
+      - ../../deploy/compose/quickstart/start.py:/quickstart/start.py:ro,z
+      - server-logs:/app/logs
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9999/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 20
+
+  auth:
+    image: localhost/ai-control-mesh-dev-server
+    build:
+      context: ../..
+      dockerfile: server/Dockerfile
+    restart: unless-stopped
+    entrypoint: [agent-auth]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      <<: *auth
+      AI_PROXY_AUTH_HOST: 0.0.0.0
+      AI_PROXY_AUTH_PORT: "10000"
+      AI_PROXY_AUTH_DATABASE_URL: postgresql+psycopg://mesh_auth:testdataauth@postgres:5432/mesh
+    ports:
+      - "127.0.0.1:50000:10000"
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:10000/health', timeout=3)"]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+
+  acme-box:
+    <<: *machine
+    hostname: acme-box
+    environment:
+      <<: *machine-env
+      QUICKSTART_USER: alice
+      QUICKSTART_OLLAMA_HOST: ollama-acme
+    depends_on:
+      server:
+        condition: service_healthy
+      auth:
+        condition: service_healthy
+      ollama-acme:
+        condition: service_healthy
+    volumes:
+      - ../../deploy/compose/quickstart/start.py:/quickstart/start.py:ro,z
+      - ../../deploy/compose/quickstart/machine.py:/quickstart/machine.py:ro,z
+      - ./mcp_toolbox.py:/testdata/mcp_toolbox.py:ro,z
+      - acme-box-home:/home/agent
+      - acme-box-workspace:/workspace
+
+  globex-box:
+    <<: *machine
+    hostname: globex-box
+    environment:
+      <<: *machine-env
+      QUICKSTART_USER: dana
+      QUICKSTART_OLLAMA_HOST: ollama-globex
+    depends_on:
+      server:
+        condition: service_healthy
+      auth:
+        condition: service_healthy
+      ollama-globex:
+        condition: service_healthy
+    volumes:
+      - ../../deploy/compose/quickstart/start.py:/quickstart/start.py:ro,z
+      - ../../deploy/compose/quickstart/machine.py:/quickstart/machine.py:ro,z
+      - ./mcp_toolbox.py:/testdata/mcp_toolbox.py:ro,z
+      - globex-box-home:/home/agent
+      - globex-box-workspace:/workspace
+
+  initech-box:
+    <<: *machine
+    hostname: initech-box
+    environment:
+      <<: *machine-env
+      QUICKSTART_USER: grace
+      QUICKSTART_OLLAMA_HOST: ollama-initech
+    depends_on:
+      server:
+        condition: service_healthy
+      auth:
+        condition: service_healthy
+      ollama-initech:
+        condition: service_healthy
+    volumes:
+      - ../../deploy/compose/quickstart/start.py:/quickstart/start.py:ro,z
+      - ../../deploy/compose/quickstart/machine.py:/quickstart/machine.py:ro,z
+      - ./mcp_toolbox.py:/testdata/mcp_toolbox.py:ro,z
+      - initech-box-home:/home/agent
+      - initech-box-workspace:/workspace
+
+  ollama-acme:
+    <<: *ollama
+    volumes:
+      - ollama-acme:/root/.ollama
+
+  ollama-globex:
+    <<: *ollama
+    volumes:
+      - ollama-globex:/root/.ollama
+
+  ollama-initech:
+    <<: *ollama
+    volumes:
+      - ollama-initech:/root/.ollama
+
+  pull-acme:
+    <<: *pull
+    environment:
+      OLLAMA_HOST: ollama-acme:11434
+      MODEL: ${TESTDATA_MODEL-qwen3:0.6b}
+    depends_on:
+      ollama-acme:
+        condition: service_healthy
+
+  pull-globex:
+    <<: *pull
+    environment:
+      OLLAMA_HOST: ollama-globex:11434
+      MODEL: ${TESTDATA_MODEL-qwen3:0.6b}
+    depends_on:
+      ollama-globex:
+        condition: service_healthy
+
+  pull-initech:
+    <<: *pull
+    environment:
+      OLLAMA_HOST: ollama-initech:11434
+      MODEL: ${TESTDATA_MODEL-qwen3:0.6b}
+    depends_on:
+      ollama-initech:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  server-logs:
+  ollama-acme:
+  ollama-globex:
+  ollama-initech:
+  acme-box-home:
+  acme-box-workspace:
+  globex-box-home:
+  globex-box-workspace:
+  initech-box-home:
+  initech-box-workspace:

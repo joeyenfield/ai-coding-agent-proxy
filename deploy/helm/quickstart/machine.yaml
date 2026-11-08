@@ -1,0 +1,73 @@
+# A fleet machine for the Kubernetes quickstart (docs/quickstart-kubernetes.md): coding agents
+# (the agent-sandbox image) and Ollama in one pod, so agent-machine finds Ollama on its own
+# loopback. Two relays make the release's public addresses, http://localhost:19999 and :20000,
+# work inside the pod as they do on your computer.
+#   kubectl -n mesh apply -f deploy/helm/quickstart/machine.yaml
+# It assumes the release is called mesh (Services mesh-agent-mesh and mesh-agent-mesh-auth).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: quickstart-machine-home
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests: {storage: 1Gi}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: quickstart-machine-models
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests: {storage: 20Gi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quickstart-machine
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: quickstart-machine}
+  template:
+    metadata:
+      labels: {app: quickstart-machine}
+    spec:
+      # The sandbox runs as agent (1000); its volumes need to be writable by it.
+      securityContext: {fsGroup: 1000}
+      containers:
+        - name: machine
+          image: ghcr.io/joeyenfield/agent-sandbox:latest
+          env:
+            - {name: AI_PROXY_SERVER, value: "http://localhost:19999"}
+            - {name: AI_PROXY_MACHINE_NAME, value: k8s-machine}
+            # Lets the console pull models into the pod's Ollama and change its settings.
+            - {name: AGENT_SERVERS, value: "on"}
+          volumeMounts:
+            - {name: home, mountPath: /home/agent}
+            - {name: workspace, mountPath: /workspace}
+          resources:
+            requests: {cpu: 250m, memory: 512Mi}
+        - name: ollama
+          image: docker.io/ollama/ollama:0.40.14
+          env:
+            - {name: OLLAMA_HOST, value: "127.0.0.1:11434"}
+          volumeMounts:
+            - {name: models, mountPath: /root/.ollama}
+          resources:
+            requests: {cpu: 500m, memory: 2Gi}
+        - name: relay-api
+          image: docker.io/alpine/socat:latest
+          args: ["TCP-LISTEN:19999,fork,reuseaddr,bind=127.0.0.1", "TCP:mesh-agent-mesh:19999"]
+        - name: relay-auth
+          image: docker.io/alpine/socat:latest
+          args: ["TCP-LISTEN:20000,fork,reuseaddr,bind=127.0.0.1", "TCP:mesh-agent-mesh-auth:20000"]
+      volumes:
+        - name: home
+          persistentVolumeClaim: {claimName: quickstart-machine-home}
+        - name: models
+          persistentVolumeClaim: {claimName: quickstart-machine-models}
+        - name: workspace
+          emptyDir: {}

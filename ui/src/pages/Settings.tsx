@@ -8,6 +8,7 @@ import { RestartButton } from "../components/Restart";
 import { useAuth, useStatus } from "../hooks";
 import { machinePath, providersPath } from "./Machine";
 import { TabBar, TabPanel, useTabParam } from "../components/Tabs";
+import { LinksSettings } from "../components/LinksSettings";
 import { AgentDefinitions, AuditSettings, ModelTuningEditor, StorageSettings } from "./SettingsStored";
 
 const URL_PLACEHOLDERS: Record<string, string> = {
@@ -59,7 +60,7 @@ export function SettingsPage() {
   return <ServerSettings />;
 }
 
-const TABS = ["server", "agents", "tuning", "storage", "audit"] as const;
+const TABS = ["server", "agents", "tuning", "storage", "audit", "links"] as const;
 
 function ServerSettings() {
   const [tab, setTab] = useTabParam(TABS);
@@ -152,6 +153,7 @@ function ServerSettings() {
           { id: "tuning", label: "Model tuning" },
           { id: "storage", label: "Storage" },
           { id: "audit", label: "Audit" },
+          { id: "links", label: "Links" },
         ]}
       />
       <TabPanel idPrefix="settings-" id="server" active={tab === "server"} keepMounted className="settings-panel">
@@ -311,6 +313,9 @@ function ServerSettings() {
       </TabPanel>
       <TabPanel idPrefix="settings-" id="audit" active={tab === "audit"} className="settings-panel">
         <AuditSettings />
+      </TabPanel>
+      <TabPanel idPrefix="settings-" id="links" active={tab === "links"} className="settings-panel">
+        <LinksSettings />
       </TabPanel>
     </div>
   );

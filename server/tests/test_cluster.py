@@ -87,6 +87,20 @@ def test_roles_split_the_routes_and_need_shared_state():
     assert roles.keep("/health", "management", {"fleet"}) and roles.keep("/ready", "app", {"worker"})
 
 
+def test_the_charts_routes_send_every_path_role_to_its_role():
+    # A path roles.py gives to a role other than api must have its own route in the chart: anything
+    # unlisted falls to the api Deployment, which drops that route in scaled mode (a 404 there).
+    from pathlib import Path
+    import re
+
+    helpers = (Path(__file__).resolve().parents[2] / "deploy" / "helm" / "agent-mesh" / "templates" / "_helpers.tpl").read_text(encoding="utf-8")
+    table = helpers[helpers.index('define "agent-mesh.routeTable"'):]
+    table = table[: table.index("{{- end -}}\n\n")]
+    routes = {(fn, path.rstrip("/")) for fn, path in re.findall(r"\{fn: (\w+), type: \w+, path: ([^,}\s]+)", table)}
+    for prefix, role in roles.PATH_ROLES:
+        assert (role, prefix.rstrip("/")) in routes, f"add {prefix} (role {role}) to agent-mesh.routeTable"
+
+
 def test_a_role_serves_only_its_routes(tmp_path, monkeypatch):
     monkeypatch.setenv("AI_PROXY_ROLES", "fleet")
     cluster = RedisCluster(f"fakeredis://{uuid.uuid4()}", "fleet-1", TOKEN)

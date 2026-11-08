@@ -577,7 +577,7 @@ function PythonSteps({ server, agent }: { server: string; agent: boolean }) {
   if (!wheel) {
     return (
       <p className="callout">
-        This server has no Python build to hand out yet. It's built with the rest (<code>scripts/build-dist</code> on the server's
+        This server has no Python build to hand out yet. It's built with the rest (<code>devhelpers/scripts/build-dist</code> on the server's
         computer); see <Link to="/get">Downloads</Link>.
       </p>
     );

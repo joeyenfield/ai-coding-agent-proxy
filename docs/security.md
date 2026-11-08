@@ -81,7 +81,7 @@ Step by step:
    - **On the issuer's `/device` page**: type the code, your username and password, and choose approve or deny. The form is bound to a one-time transaction cookie and checks its `Origin`.
 4. **The computer collects its tokens.** It polls the token endpoint every 5 seconds. Polling faster adds 5 seconds to its interval (`slow_down`). Once you've approved, it receives an access token and a refresh token; once you've denied, it gets `access_denied`, and that code can never be approved.
 
-`agent-machine login` is the same flow with its own client and its own credentials file, so a computer that runs agents and is in the fleet signs in twice and you approve two codes.
+`agent-machine login` is the same flow, with the same CLI client but its own credentials file, so a computer that runs agents and is in the fleet signs in twice and you approve two codes.
 
 ### What protects a device code
 
@@ -156,7 +156,7 @@ You'll see `http://` in a few places. Each of these stays on one computer (or in
 |---|---|---|
 | Agents to their `agent-proxy` | `http://127.0.0.1:8184/session/...` | Loopback. Agents have no way to authenticate to a proxy, so the `agent-proxy` binds `127.0.0.1` only and checks every request's `Host` and `Origin`, which shuts out web pages and DNS rebinding. |
 | Account agents' `HTTPS_PROXY` | `http://<session>:agent-proxy@127.0.0.1:8183` | `http` is the proxy protocol, not the traffic: the agent sends `CONNECT` and does TLS inside it, end to end with the server. |
-| nginx to agent-server, agent-auth, the console, the site | `127.0.0.1:9999`, `:10000`, `:8081`, `:8080` | The hop after TLS ends, on the same computer. `compose.yaml` publishes these on loopback (set `AI_PROXY_PUBLISH_HOST=127.0.0.1` for `9999`, see below). |
+| nginx to agent-server, agent-auth, the console, the site | `127.0.0.1:9999`, `:10000`, `:8081`, `:8080` | The hop after TLS ends, on the same computer. `deploy/compose/server/compose.yaml` publishes these on loopback (set `AI_PROXY_PUBLISH_HOST=127.0.0.1` for `9999`, see below). |
 | agent-machine to its model servers | `http://127.0.0.1:11434` and so on | Loopback, on the machine. |
 | The server to its tunnel listeners | `http://127.0.0.1:<port>` | Loopback on the server; the bytes then go to the machine over its WSS socket. |
 | agent-server and agent-auth to PostgreSQL in Compose | `postgres:5432` | Docker's private network on the same host, never published. |
@@ -168,7 +168,7 @@ These can send something in the clear if you set things up that way. Each has a 
 
 | Risk | When it happens | What to do |
 |---|---|---|
-| **agent-server's own port reachable from the network** | `compose.yaml` publishes `9999` on every interface unless you set `AI_PROXY_PUBLISH_HOST`. The programs won't send tokens to it over HTTP, and browsers won't send `Secure` cookies, so sign-in fails there. But it still answers, and serves the public pages. | Behind nginx, set `AI_PROXY_PUBLISH_HOST=127.0.0.1` (and `AI_PROXY_FORWARDED_ALLOW_IPS=*`), so only nginx reaches it. Firewall the port otherwise. |
+| **agent-server's own port reachable from the network** | `deploy/compose/server/compose.yaml` publishes `9999` on every interface unless you set `AI_PROXY_PUBLISH_HOST`. The programs won't send tokens to it over HTTP, and browsers won't send `Secure` cookies, so sign-in fails there. But it still answers, and serves the public pages. | Behind nginx, set `AI_PROXY_PUBLISH_HOST=127.0.0.1` (and `AI_PROXY_FORWARDED_ALLOW_IPS=*`), so only nginx reaches it. Firewall the port otherwise. |
 | **Downloads over plain HTTP** | `curl http://<server>/install.sh \| sh` (or `uninstall.sh`, which has no checksum at all), or `agent update --server http://...` / `agent-machine update --server http://...`, to a server that isn't loopback. The SHA-256 checks come from the same server, so someone on the path could change both the program and its checksum. | Always install and update from the server's `https://` address. |
 | **Model traffic straight to a model server** | Backends from before machines (no `machine`), a machine whose `agent-machine` is too old to tunnel (the console says so), or a backend pointed at another computer's address. The server then sends prompts and replies to `http://<that computer>:11434` across the network, and Ollama itself has no sign-in. | Run a current `agent-machine` beside each model server and add it from its machine's page (**Add as a provider**), so traffic rides the machine's WSS socket. Keep Ollama on `127.0.0.1`. |
 | **A subscription's token on a machine** | A Copilot token stored on the server ([Subscriptions](subscriptions.md)) reaches the agents launched on the machines you assign it to, in their environment. Whoever controls such a machine can use your Copilot plan. | Assign tokens only to machines only you control, keep `AI_PROXY_VAULT_KEYS` apart from database backups, and revoke the token on GitHub as well as on the server when a machine goes. Claude Code and Codex sign-ins never leave their machines. |
@@ -185,7 +185,7 @@ Plain HTTP between computers isn't blocked outright everywhere: a LAN-only insta
 
 ## A checklist for a public server
 
-1. Put nginx (or another reverse proxy) with a real certificate in front of agent-server and agent-auth: `scripts/https/setup-https.ps1` on Windows, or see [Deployment](deployment.md#https).
+1. Put nginx (or another reverse proxy) with a real certificate in front of agent-server and agent-auth: `devhelpers/scripts/https/setup-https.ps1` on Windows, or see [Deployment](deployment.md#https).
 2. Publish agent-server's port on loopback only: `AI_PROXY_PUBLISH_HOST=127.0.0.1`, `AI_PROXY_FORWARDED_ALLOW_IPS=*`.
 3. Use `https://` addresses everywhere you type one: `agent login`, `agent-machine login`, the one-line installers, `--server`, `AI_PROXY_URL`, `AI_PROXY_OIDC_ISSUER`.
 4. Set strong, different passwords for PostgreSQL's three roles and for `AI_PROXY_OIDC_INTROSPECTION_SECRET`, in `.env` or a secret manager, never in a file you commit.

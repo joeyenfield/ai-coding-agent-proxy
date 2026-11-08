@@ -27,8 +27,9 @@ def export(settings: Settings) -> dict[str, Any]:
     db = settings.open_database()
     with db.read() as connection:
         document, models = stored_config(connection)
+        # The server's own agents: an organization's definitions are its own, not the server's settings.
         agents = {row["id"]: row["definition"] for row in connection.execute(
-            select(schema.agents).order_by(schema.agents.c.position, schema.agents.c.id)).mappings()}
+            select(schema.agents).where(schema.agents.c.org.is_(None)).order_by(schema.agents.c.position, schema.agents.c.id)).mappings()}
     return {
         "proxy": document.get("proxy") or {}, "default_backend": document.get("default_backend"),
         "intercept": document.get("intercept") or {}, "retention_days": document.get("retention_days"),
@@ -143,7 +144,11 @@ def reload(settings: Settings, document: dict[str, Any], models: dict[str, Any])
 def replace_agents(connection: Any, agents: dict[str, Any]) -> None:
     """These agents and no others. A shipped one keeps following releases only while unchanged."""
     shipped = defaults.agents()
-    connection.execute(schema.agents.delete())
+    owned = {row[0] for row in connection.execute(select(schema.agents.c.id).where(schema.agents.c.org.is_not(None)))}
+    taken = sorted(set(agents) & owned)
+    if taken:
+        raise ValueError(f"{', '.join(taken)}: an organization's agent already has that id")
+    connection.execute(schema.agents.delete().where(schema.agents.c.org.is_(None)))
     for position, (agent_id, definition) in enumerate(agents.items()):
         builtin = agent_id in shipped
         connection.execute(schema.agents.insert().values(
@@ -153,14 +158,19 @@ def replace_agents(connection: Any, agents: dict[str, Any]) -> None:
     kv.put_meta(connection, "deleted_builtin_agents", sorted(set(shipped) - set(agents)))
 
 
-def put_agent(settings: Settings, agent_id: str, definition: Any) -> dict[str, Any]:
-    """Add or change one agent; a shipped one stops following releases until it's reset."""
+def put_agent(settings: Settings, agent_id: str, definition: Any, org: str | None = None) -> dict[str, Any]:
+    """Add or change one agent; a shipped one stops following releases until it's reset. org: an organization's
+    own definition (None: the server's). Ids are unique on the server, so one can't take another's."""
     if not isinstance(definition, dict):
         raise ValueError("An agent's definition is a mapping (name, executable, protocol, env, args, ...)")
     parse_agents({agent_id: definition})
     shipped = defaults.agents()
+    if org is not None and agent_id in shipped:
+        raise ValueError(f"{agent_id} is one of the server's shipped agents: choose another id")
     with settings.open_database().write() as connection:
         row = connection.execute(select(schema.agents).where(schema.agents.c.id == agent_id)).mappings().first()
+        if row is not None and row["org"] != org:
+            raise ValueError(f"Another organization's agent, or the server's, already has the id {agent_id}")
         if row is None:
             position = (connection.execute(select(schema.agents.c.position).order_by(schema.agents.c.position.desc())).scalar() or 0) + 1
             builtin = agent_id in shipped
@@ -168,16 +178,16 @@ def put_agent(settings: Settings, agent_id: str, definition: Any) -> dict[str, A
             position, builtin = row["position"], row["builtin"]
         kv.upsert(connection, schema.agents, {
             "id": agent_id, "position": position, "definition": definition, "builtin": builtin,
-            "edited": builtin and definition != shipped.get(agent_id), "updated_at": time.time(),
+            "edited": builtin and definition != shipped.get(agent_id), "updated_at": time.time(), "org": org,
         })
         _undelete(connection, agent_id)
-    return {"id": agent_id, "definition": definition, "builtin": builtin, "edited": builtin and definition != shipped.get(agent_id)}
+    return {"id": agent_id, "definition": definition, "builtin": builtin, "edited": builtin and definition != shipped.get(agent_id), "org": org}
 
 
-def delete_agent(settings: Settings, agent_id: str) -> bool:
+def delete_agent(settings: Settings, agent_id: str, org: str | None = None) -> bool:
     with settings.open_database().write() as connection:
-        row = connection.execute(select(schema.agents.c.builtin).where(schema.agents.c.id == agent_id)).first()
-        if row is None:
+        row = connection.execute(select(schema.agents.c.builtin, schema.agents.c.org).where(schema.agents.c.id == agent_id)).first()
+        if row is None or row[1] != org:
             return False
         connection.execute(schema.agents.delete().where(schema.agents.c.id == agent_id))
         if row[0]:

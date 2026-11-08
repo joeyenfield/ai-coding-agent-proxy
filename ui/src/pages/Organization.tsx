@@ -1,11 +1,12 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { API_ORIGIN, api, roleLabel, ROOT_ORG, type Directory, type Identity, type Org, type Team, type User } from "../api";
 import { CodeLine } from "../components/CodeLine";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { PartTag } from "../components/PartTag";
-import { TabBar, TabPanel, useTabParam } from "../components/Tabs";
+import { TabBar, TabCount, TabPanel, useTabParam } from "../components/Tabs";
+import { OrgSharingTab } from "./OrgSharing";
 import { ApiProviderSettings } from "./ApiProviders";
 import { OrgDataTab } from "./OrgData";
 import { OrgUsageTab } from "./OrgUsage";
@@ -21,39 +22,53 @@ function manages(identity: Identity, org: string): boolean {
   return identity.site_admin || (identity.role === "admin" && identity.tenant === org);
 }
 
+/** An id from a display name, as the server accepts ids: lowercase letters, digits, dots, dashes and underscores. */
+function idFrom(name: string): string {
+  return name.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^[^a-z0-9]+/, "").replace(/-+$/, "").slice(0, 40);
+}
+
 export function OrganizationPage() {
   const auth = useAuth();
   const identity = auth.data?.identity;
   const orgs = useQuery({ queryKey: ["orgs"], queryFn: api.orgs, enabled: Boolean(identity) });
   const users = useQuery({ queryKey: ["users"], queryFn: api.users, enabled: Boolean(identity) });
-  const [tab, setTab] = useTabParam(["organizations", "users", "account"] as const);
+  // Everyone but site admins has one organization, whose People tab already lists everyone they can see.
+  const siteAdmin = Boolean(identity?.site_admin);
+  const [tab, setTab] = useTabParam(siteAdmin ? (["organizations", "users", "account"] as const) : (["organizations", "account"] as const));
   const error = orgs.error ?? users.error;
   return (
     <div className="page">
       <header className="page-head">
         <PartTag />
-        <h1>Organizations and users</h1>
+        <h1>{siteAdmin ? "Organizations" : "Your organization"}</h1>
         <p className="lede">
-          Every person belongs to one organization. Its sessions, machines and providers stay inside it. Teams group people within an
-          organization for sharing sessions and machine access.
+          {siteAdmin
+            ? "Each organization is a separate space: its people, sessions, machines and providers stay inside it. Teams are smaller groups within one."
+            : "The people, teams and settings of your organization. Your sessions, machines and providers stay inside it."}
         </p>
       </header>
       {identity && (
         <>
           <TabBar
-            label="Organization management"
+            label="Organizations"
             idPrefix="directory-"
             active={tab}
             onSelect={setTab}
-            tabs={[{ id: "organizations", label: identity.site_admin ? "Organizations" : "Your organization" }, { id: "users", label: "People" }, { id: "account", label: "Your account" }]}
+            tabs={[
+              { id: "organizations", label: siteAdmin ? "Organizations" : "Your organization" },
+              ...(siteAdmin ? [{ id: "users" as const, label: "Everyone" }] : []),
+              { id: "account", label: "Your account" },
+            ]}
           />
-          {(!orgs.data || !users.data) && !error && tab !== "account" && <p className="subtle">Loading directory…</p>}
+          {(!orgs.data || !users.data) && !error && tab !== "account" && <p className="subtle">Loading…</p>}
           <TabPanel idPrefix="directory-" id="organizations" active={tab === "organizations"}>
             {orgs.data && users.data && <Organizations orgs={orgs.data.orgs} users={users.data.users} identity={identity} />}
           </TabPanel>
-          <TabPanel idPrefix="directory-" id="users" active={tab === "users"}>
-            {orgs.data && users.data && <Users orgs={orgs.data.orgs} users={users.data.users} identity={identity} />}
-          </TabPanel>
+          {siteAdmin && (
+            <TabPanel idPrefix="directory-" id="users" active={tab === "users"}>
+              {orgs.data && users.data && <Users orgs={orgs.data.orgs} users={users.data.users} identity={identity} />}
+            </TabPanel>
+          )}
           <TabPanel idPrefix="directory-" id="account" active={tab === "account"}>
             <YourAccount identity={identity} orgs={orgs.data?.orgs ?? []} />
           </TabPanel>
@@ -124,16 +139,69 @@ function orgLabel(org: Org | undefined, id: string): string {
   return org?.name ?? id;
 }
 
+/** A name and an id for something new: the id follows the name until it's edited, and never changes afterwards. */
+function NewNameForm({ kind, example, busy, onCreate, onCancel }: {
+  kind: string;
+  example: string;
+  busy: boolean;
+  onCreate: (id: string, name: string, done: () => void) => void;
+  onCancel?: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [id, setId] = useState("");
+  const [edited, setEdited] = useState(false);
+  const effective = edited ? id.trim() : idFrom(name);
+  return (
+    <form
+      className="panel org-new"
+      onSubmit={(event: FormEvent) => {
+        event.preventDefault();
+        onCreate(effective.toLowerCase(), name.trim() || effective, () => {
+          setName("");
+          setId("");
+          setEdited(false);
+        });
+      }}
+    >
+      <h3>New {kind}</h3>
+      <div className="form-grid two">
+        <label className="field">Name
+          <input value={name} onChange={(event) => setName(event.target.value)} placeholder={`Such as ${example}`} maxLength={80} required />
+          <small className="subtle">What people see. You can rename it later.</small>
+        </label>
+        <label className="field">ID
+          <input
+            className="mono"
+            value={edited ? id : idFrom(name)}
+            onChange={(event) => (setEdited(true), setId(event.target.value))}
+            placeholder={idFrom(example)}
+            pattern={NAME_PATTERN}
+            maxLength={40}
+            autoCapitalize="none"
+            required
+          />
+          <small className="subtle">Used in commands. It can't be changed later.</small>
+        </label>
+      </div>
+      <div className="row">
+        <button type="submit" className="primary" disabled={busy || !effective}>Create {kind}</button>
+        {onCancel && <button type="button" onClick={onCancel}>Cancel</button>}
+      </div>
+    </form>
+  );
+}
+
 function Organizations({ orgs, users, identity }: { orgs: Org[]; users: User[]; identity: Identity }) {
   const siteAdmin = identity.site_admin;
   const [params, setParams] = useSearchParams();
   const [query, setQuery] = useState("");
-  const [draft, setDraft] = useState({ id: "", name: "" });
   const [deleting, setDeleting] = useState<Org | null>(null);
-  const add = useDirectoryChange(() => api.addOrg(draft.id.trim(), draft.name.trim() || draft.id.trim()));
+  const add = useDirectoryChange(({ id, name }: { id: string; name: string }) => api.addOrg(id, name));
   const remove = useDirectoryChange(api.removeOrg);
+  const [creating, setCreating] = useState(false);
   const shown = orgs.filter((org) => matches(query, org.id, org.name, orgLabel(org, org.id), ...org.members));
-  const selected = shown.find((org) => org.id === params.get("org")) ?? shown.find((org) => org.id === identity.tenant && !org.root) ?? shown[0] ?? null;
+  // A site admin starts at the list of organizations and opens one; ?org= keeps it open across reloads.
+  const selected = orgs.find((org) => org.id === params.get("org")) ?? null;
   const select = (id: string | null) =>
     setParams(
       (current) => {
@@ -153,62 +221,85 @@ function Organizations({ orgs, users, identity }: { orgs: Org[]; users: User[]; 
   }
   return (
     <section className="section" aria-labelledby="orgs-heading">
-      <div className="section-head">
-        <h2 id="orgs-heading">Organizations</h2>
-        <span className="subtle">{orgs.filter((org) => !org.root).length} on this server</span>
-      </div>
-      <p className="subtle">
-        Each organization is separate: its people, sessions, machines and providers aren't visible to the others. As a site admin you set
-        them up and add their first users; their own admins take it from there.
-      </p>
-      <div className="filters">
-        <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search organizations or their people" aria-label="Search organizations" />
-      </div>
-      <details className="directory-create">
-        <summary>Create organization</summary>
-        <form
-          className="inline-form"
-          onSubmit={(event: FormEvent) => {
-            event.preventDefault();
-            add.mutate(undefined, {
-              onSuccess: () => {
-                setQuery("");
-                select(draft.id.trim().toLowerCase());
-                setDraft({ id: "", name: "" });
-              },
-            });
-          }}
-        >
-          <input value={draft.id} onChange={(event) => setDraft({ ...draft, id: event.target.value })} placeholder="Organization id, such as acme" aria-label="Organization id" pattern={NAME_PATTERN} maxLength={40} autoCapitalize="none" required />
-          <input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="Name (optional)" aria-label="Organization name" maxLength={80} />
-          <button type="submit" className="primary" disabled={add.isPending}>
-            Create organization
-          </button>
-        </form>
-        <p className="subtle">Then add its first admin under People, in the new organization.</p>
-      </details>
-      <div className="directory-workspace">
-        <nav aria-label="Organizations">
+      {selected ? (
+        <>
+          <nav className="org-switch" aria-label="Organizations">
+            <span className="breadcrumbs">
+              <button type="button" className="link" onClick={() => select(null)}>All organizations</button>
+              <span className="subtle" aria-hidden="true">›</span>
+              <span>{orgLabel(selected, selected.id)}</span>
+            </span>
+            <label className="org-switch-pick">
+              <span className="subtle">Go to</span>
+              <select value={selected.id} onChange={(event) => select(event.target.value)} aria-label="Go to organization">
+                {orgs.map((org) => <option key={org.id} value={org.id}>{orgLabel(org, org.id)}</option>)}
+              </select>
+            </label>
+          </nav>
+          <OrgDetail key={selected.id} org={selected} users={users} identity={identity} onDelete={() => setDeleting(selected)} />
+        </>
+      ) : (
+        <>
+          <div className="filters org-toolbar">
+            <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search organizations or their people" aria-label="Search organizations" />
+            {!creating && <button type="button" className="primary" onClick={() => setCreating(true)}>New organization</button>}
+          </div>
+          {creating && (
+            <NewNameForm
+              kind="organization"
+              example="Acme Labs"
+              busy={add.isPending}
+              onCancel={() => setCreating(false)}
+              onCreate={(id, name, done) =>
+                add.mutate({ id, name }, {
+                  onSuccess: () => {
+                    done();
+                    setQuery("");
+                    setCreating(false);
+                    select(id);
+                  },
+                })
+              }
+            />
+          )}
           {shown.length ? (
-            <ul className="org-list">
-              {shown.map((org) => (
-                <li key={org.id} className={`team-card org-card${selected?.id === org.id ? " selected" : ""}`}>
-                  <button type="button" className="link org-open" aria-current={selected?.id === org.id ? "true" : undefined} onClick={() => select(org.id)}>
-                    <strong>{orgLabel(org, org.id)}</strong>
-                  </button>
-                  <span className="mono subtle">{org.id}</span>
-                  <span className="subtle">
-                    {org.root ? plural(org.members.length, "site admin") : `${plural(org.members.length, "person", "people")} · ${plural(org.teams.length, "team")}`}
-                  </span>
-                </li>
-              ))}
-            </ul>
+            <div className="table-scroll">
+              <table className="table org-table">
+                <thead>
+                  <tr>
+                    <th>Organization</th>
+                    <th>People</th>
+                    <th>Teams</th>
+                    <th>Admins</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {shown.map((org) => {
+                    const people = users.filter((user) => user.tenant === org.id);
+                    const admins = people.filter((user) => user.role === "admin").map((user) => user.name);
+                    return (
+                      <tr key={org.id} className="org-row" onClick={() => select(org.id)}>
+                        <td>
+                          <button type="button" className="link org-open" onClick={(event) => (event.stopPropagation(), select(org.id))}>
+                            {orgLabel(org, org.id)}
+                          </button>
+                          {org.id === identity.tenant && <span className="pill">yours</span>}
+                          <div className="subtle org-row-note">{org.root ? "Site admins only" : <>ID <span className="mono">{org.id}</span></>}</div>
+                        </td>
+                        <td>{people.length}</td>
+                        <td>{org.root ? <span className="subtle">—</span> : org.teams.length}</td>
+                        <td>{admins.length ? admins.join(", ") : <span className="pill bad">No admin yet</span>}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           ) : (
             <p className="subtle">{orgs.length ? "No organizations match." : "No organizations yet."}</p>
           )}
-        </nav>
-        {selected && <OrgDetail key={selected.id} org={selected} users={users} identity={identity} onDelete={() => setDeleting(selected)} />}
-      </div>
+        </>
+      )}
       <ConfirmDialog
         open={deleting !== null}
         title={`Delete ${deleting?.name ?? ""}?`}
@@ -231,88 +322,137 @@ function Organizations({ orgs, users, identity }: { orgs: Org[]; users: User[]; 
   );
 }
 
-type OrgTab = "teams" | "members" | "providers" | "usage" | "data" | "settings";
+/** A tab's heading and what it's for, so each tab says what it holds before showing it. */
+function TabIntro({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="org-tab-intro">
+      <h3>{title}</h3>
+      <p className="subtle">{children}</p>
+    </div>
+  );
+}
+
+type OrgTab = "members" | "teams" | "providers" | "usage" | "data" | "sharing" | "settings";
 
 function OrgDetail({ org, users, identity, onDelete }: { org: Org; users: User[]; identity: Identity; onDelete: () => void }) {
   const manager = manages(identity, org.id);
   const [name, setName] = useState(org.name);
-  const [team, setTeam] = useState({ id: "", name: "" });
-  // Root holds only site admins: no teams.
-  const tabs: OrgTab[] = [...(org.root ? [] : ["teams" as const]), "members", ...(manager ? ["providers" as const] : []), "usage", ...(manager ? ["data" as const] : []), "settings"];
-  const [tab, setTab] = useTabParam(tabs, "orgTab");
+  const label = orgLabel(org, org.id);
+  // Root holds only site admins: no teams, no sharing, and its name is fixed.
+  const tabs: { id: OrgTab; label: string; badge?: ReactNode }[] = [
+    { id: "members", label: org.root ? "Site admins" : "People", badge: <TabCount value={users.filter((user) => user.tenant === org.id).length} /> },
+    ...(org.root ? [] : [{ id: "teams" as const, label: "Teams", badge: <TabCount value={org.teams.length} /> }]),
+    ...(manager ? [{ id: "providers" as const, label: "API providers" }] : []),
+    { id: "usage", label: "Usage" },
+    ...(manager ? [{ id: "data" as const, label: "Data" }] : []),
+    ...(manager && !org.root ? [{ id: "sharing" as const, label: "Sharing" }] : []),
+    ...(org.root ? [] : [{ id: "settings" as const, label: "Settings" }]),
+  ];
+  const [tab, setTab] = useTabParam(tabs.map((item) => item.id), "orgTab");
   const [params, setParams] = useSearchParams();
   const selected = org.teams.find((item) => item.id === params.get("team"));
   const people = users.filter((user) => user.tenant === org.id);
+  const admins = people.filter((user) => user.role === "admin");
   const rename = useDirectoryChange(() => api.renameOrg(org.id, name));
-  const addTeam = useDirectoryChange(() => api.addTeam(org.id, team.id.trim(), team.name.trim() || team.id.trim()));
+  const addTeam = useDirectoryChange(({ id, name }: { id: string; name: string }) => api.addTeam(org.id, id, name));
+  const [creatingTeam, setCreatingTeam] = useState(false);
+  // "Add an admin" opens the add-a-person form with the admin role chosen; the key remounts it that way.
+  const [addingAdmin, setAddingAdmin] = useState(false);
+  const wantsAdmin = addingAdmin && admins.length === 0;
   const selectTeam = (id: string | null) => setParams((current) => {
     const next = new URLSearchParams(current);
     if (id) next.set("team", id);
     else next.delete("team");
     // Pin the organization even when it was selected by default.
     next.set("org", org.id);
+    next.set("orgTab", "teams");
     return next;
   }, { replace: true });
   return (
-    <div className="panel org-detail" aria-labelledby="org-detail-heading">
-      <header>
-        <p className="subtle">
-          {org.root ? "Site administration" : "Organization"} · <span className="mono">{org.id}</span>
-          {org.id === identity.tenant && <> · yours</>}
-        </p>
-        <h2 id="org-detail-heading">{org.name}</h2>
-        <p className="subtle">
-          {org.root
-            ? `${plural(people.length, "site admin")}. Site admins manage the server's settings and set up organizations; they don't see other organizations' sessions or machines.`
-            : `${plural(org.teams.length, "team")} · ${plural(people.length, "person", "people")}`}
-        </p>
+    <div className="org-detail">
+      <header className="org-detail-head">
+        <h2 id="org-detail-heading">
+          {label}
+          {org.id === identity.tenant && <span className="pill">yours</span>}
+        </h2>
+        <dl className="org-facts">
+          {!org.root && (
+            <div>
+              <dt>ID</dt>
+              <dd className="mono">{org.id}</dd>
+            </div>
+          )}
+          <div>
+            <dt>{org.root ? "Site admins" : "People"}</dt>
+            <dd>{people.length}</dd>
+          </div>
+          {!org.root && (
+            <>
+              <div>
+                <dt>Teams</dt>
+                <dd>{org.teams.length}</dd>
+              </div>
+              <div>
+                <dt>Admins</dt>
+                <dd>{admins.length ? admins.map((user) => user.name).join(", ") : "None yet"}</dd>
+              </div>
+            </>
+          )}
+        </dl>
+        {org.root && (
+          <p className="subtle">Site admins manage the server's settings and set up organizations. They don't see other organizations' sessions or machines.</p>
+        )}
       </header>
-      <TabBar label={`${org.name} sections`} idPrefix="org-" active={tab} onSelect={setTab}
-        tabs={[...(org.root ? [] : [{ id: "teams" as const, label: "Teams" }]), { id: "members" as const, label: org.root ? "Site admins" : "People" }, ...(manager ? [{ id: "providers" as const, label: "API providers" }] : []), { id: "usage" as const, label: "Usage" }, ...(manager ? [{ id: "data" as const, label: "Data" }] : []), { id: "settings" as const, label: "Settings" }]} />
+      {!org.root && manager && admins.length === 0 && (
+        <div className="callout row">
+          <span>No one can manage {label} yet. Add a person with the organization admin role; they take it from there.</span>
+          <button type="button" className="primary" onClick={() => (setTab("members"), setAddingAdmin(true))}>Add an admin</button>
+        </div>
+      )}
+      <TabBar label={`${label} sections`} idPrefix="org-" active={tab} onSelect={setTab} tabs={tabs} />
+      <TabPanel idPrefix="org-" id="members" active={tab === "members"}>
+        <TabIntro title={org.root ? "Site admins" : "People"}>
+          {org.root
+            ? "Only site admins belong here. To add one, create them here."
+            : "Everyone who signs in to this organization. People belong to one organization for good: to give someone access, create their account here."}
+        </TabIntro>
+        <UserTable users={people} orgs={[org]} identity={identity} showOrg={false} />
+        {manager && <CreateUser key={`${org.id}${wantsAdmin ? "-admin" : ""}`} orgs={[org]} fixed={org.id} admin={wantsAdmin} />}
+      </TabPanel>
       {!org.root && (
         <TabPanel idPrefix="org-" id="teams" active={tab === "teams"}>
           {selected ? (
             <TeamDetail key={selected.key} org={org} team={selected} users={people} manager={manager} onBack={() => selectTeam(null)} />
           ) : (
             <>
-              <p className="subtle">Teams group people in this organization. A person can be in more than one team.</p>
+              <TabIntro title="Teams">
+                Smaller groups within {label}, for sharing sessions and giving access to machines. A person can be in several teams.
+              </TabIntro>
               {org.teams.length ? (
                 <ul className="team-list">
                   {org.teams.map((item) => (
                     <li key={item.key} className="team-card">
                       <button type="button" className="link org-open" onClick={() => selectTeam(item.id)}>{item.name}</button>
-                      <span className="mono subtle">{item.key}</span>
-                      <span className="subtle">{plural(item.members.length, "member")}</span>
+                      <span className="subtle">{plural(item.members.length, "member")} · ID <span className="mono">{item.id}</span></span>
                     </li>
                   ))}
                 </ul>
-              ) : <p className="subtle">No teams yet. Add a team to share sessions and machine access with a smaller group.</p>}
-              {manager && (
-                <form className="inline-form" onSubmit={(event: FormEvent) => {
-                  event.preventDefault();
-                  addTeam.mutate(undefined, { onSuccess: () => {
-                    selectTeam(team.id.trim().toLowerCase());
-                    setTeam({ id: "", name: "" });
-                  } });
-                }}>
-                  <input value={team.id} onChange={(event) => setTeam({ ...team, id: event.target.value })} placeholder="Team id, such as core" aria-label="Team id" pattern={NAME_PATTERN} maxLength={40} autoCapitalize="none" required />
-                  <input value={team.name} onChange={(event) => setTeam({ ...team, name: event.target.value })} placeholder="Name (optional)" aria-label="Team name" maxLength={80} />
-                  <button type="submit" disabled={addTeam.isPending}>Add team</button>
-                </form>
-              )}
+              ) : <p className="subtle">No teams yet.</p>}
+              {manager && (creatingTeam ? (
+                <NewNameForm
+                  kind="team"
+                  example="Core platform"
+                  busy={addTeam.isPending}
+                  onCancel={() => setCreatingTeam(false)}
+                  onCreate={(id, name, done) => addTeam.mutate({ id, name }, { onSuccess: () => (done(), setCreatingTeam(false), selectTeam(id)) })}
+                />
+              ) : (
+                <div><button type="button" onClick={() => setCreatingTeam(true)}>New team</button></div>
+              ))}
             </>
           )}
         </TabPanel>
       )}
-      <TabPanel idPrefix="org-" id="members" active={tab === "members"}>
-        <p className="subtle">
-          {org.root
-            ? "Only admins belong here. To add one, create a new user here."
-            : "People belong to one organization, for good. To give someone access to this one, add them here as a new user."}
-        </p>
-        <UserTable users={people} orgs={[org]} identity={identity} showOrg={false} />
-        {manager && <CreateUser key={org.id} orgs={[org]} fixed={org.id} />}
-      </TabPanel>
       {manager && (
         <TabPanel idPrefix="org-" id="providers" active={tab === "providers"}>
           <ApiProviderSettings org={org} />
@@ -326,28 +466,38 @@ function OrgDetail({ org, users, identity, onDelete }: { org: Org; users: User[]
           <OrgDataTab org={org.id} people={people.map((user) => user.name)} />
         </TabPanel>
       )}
-      <TabPanel idPrefix="org-" id="settings" active={tab === "settings"}>
-        <p className="subtle">The organization id stays the same when its name changes.</p>
-        {manager ? (
-          <form className="inline-form" onSubmit={(event: FormEvent) => (event.preventDefault(), rename.mutate(undefined))}>
-            <label className="field">Organization name
-              <input value={name} onChange={(event) => setName(event.target.value)} maxLength={80} required />
-            </label>
-            <button type="submit" disabled={rename.isPending || name.trim() === org.name}>Save name</button>
-          </form>
-        ) : <p className="subtle">Only an admin of this organization can change it.</p>}
-        {identity.site_admin && !org.root && (
-          <div className="directory-danger">
-            <h3>Delete organization</h3>
-            <p className="subtle">
-              {people.length
-                ? `It still has ${plural(people.length, "person", "people")}. Delete their accounts first; an organization can only be deleted once it's empty.`
-                : "It has no users left. Deleting it removes its teams too."}
-            </p>
-            <button type="button" className="danger" disabled={people.length > 0} onClick={onDelete}>Delete organization</button>
-          </div>
-        )}
-      </TabPanel>
+      {manager && !org.root && (
+        <TabPanel idPrefix="org-" id="sharing" active={tab === "sharing"}>
+          <OrgSharingTab org={org} />
+        </TabPanel>
+      )}
+      {!org.root && (
+        <TabPanel idPrefix="org-" id="settings" active={tab === "settings"}>
+          <section className="org-setting">
+            <TabIntro title="Name">
+              The name people see in the console. Its ID, <span className="mono">{org.id}</span>, never changes: commands, team keys and sharing use it.
+            </TabIntro>
+            {manager ? (
+              <form className="inline-form" onSubmit={(event: FormEvent) => (event.preventDefault(), rename.mutate(undefined))}>
+                <label className="field">Name
+                  <input value={name} onChange={(event) => setName(event.target.value)} maxLength={80} required />
+                </label>
+                <button type="submit" disabled={rename.isPending || name.trim() === org.name}>Save name</button>
+              </form>
+            ) : <p className="subtle">Only an admin of this organization can change it.</p>}
+          </section>
+          {identity.site_admin && (
+            <section className="org-setting directory-danger">
+              <TabIntro title="Delete organization">
+                {people.length
+                  ? `It still has ${plural(people.length, "person", "people")}. Delete their accounts on the People tab first: only an empty organization can be deleted.`
+                  : "It has no one left. Deleting it removes its teams too. This can't be undone."}
+              </TabIntro>
+              <div><button type="button" className="danger" disabled={people.length > 0} onClick={onDelete}>Delete organization</button></div>
+            </section>
+          )}
+        </TabPanel>
+      )}
     </div>
   );
 }
@@ -359,21 +509,27 @@ function TeamDetail({ org, team, users, manager, onBack }: { org: Org; team: Tea
   const remove = useDirectoryChange(() => api.removeTeam(org.id, team.id));
   return (
     <section className="team-detail" aria-label={`${team.name} team`}>
-      <button type="button" className="link" onClick={onBack}>Back to teams</button>
-      <h3>{org.name} / {team.name}</h3>
-      <p className="subtle"><span className="mono">{team.key}</span> · {plural(team.members.length, "member")}</p>
+      <span className="breadcrumbs">
+        <button type="button" className="link" onClick={onBack}>Teams</button>
+        <span className="subtle" aria-hidden="true">›</span>
+        <span>{team.name}</span>
+      </span>
+      <div className="org-tab-intro">
+        <h3>{team.name}</h3>
+        <p className="subtle">{plural(team.members.length, "member")} · ID <span className="mono">{team.id}</span></p>
+      </div>
       <TeamMembers org={org} team={team} users={users} manager={manager} />
       {manager && (
-        <details>
-          <summary>Team settings</summary>
+        <details className="directory-create">
+          <summary>Rename or delete this team</summary>
           <form className="inline-form" onSubmit={(event: FormEvent) => (event.preventDefault(), rename.mutate(undefined))}>
-            <label className="field">Team name
+            <label className="field">Name
               <input value={name} onChange={(event) => setName(event.target.value)} maxLength={80} required />
             </label>
             <button type="submit" disabled={rename.isPending || name.trim() === team.name}>Save name</button>
           </form>
-          <p className="subtle">Renaming keeps its id, members and sharing rules.</p>
-          <button type="button" className="danger" onClick={() => setDeleting(true)}>Delete team</button>
+          <p className="subtle">Renaming keeps its ID, members and sharing rules.</p>
+          <div><button type="button" className="danger" onClick={() => setDeleting(true)}>Delete team</button></div>
         </details>
       )}
       <ConfirmDialog open={deleting} title={`Delete ${team.name}?`} confirmLabel="Delete team" busy={remove.isPending}
@@ -394,8 +550,8 @@ function TeamMembers({ org, team, users, manager }: { org: Org; team: Team; user
   const membership = useDirectoryChange(({ name, member }: { name: string; member: boolean }) => api.setTeamMember(org.id, team.id, name, member));
   return (
     <div className="directory-members">
-      <h4>Team members</h4>
-      <p className="subtle">{manager ? "Add people from this organization, or create a new user in this team." : "Who is in this team."}</p>
+      <h4>Members</h4>
+      {manager && <p className="subtle">Add people who are already in {org.name}, or create a new account straight into this team.</p>}
       <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search members" aria-label="Search members" />
       {members.length ? (
         <ul className="member-list">
@@ -466,13 +622,13 @@ function Users({ orgs, users, identity }: { orgs: Org[]; users: User[]; identity
   const addable = orgs.filter((item) => manages(identity, item.id));
   return (
     <section className="section" aria-labelledby="users-heading">
-      <div className="section-head">
-        <h2 id="users-heading">People</h2>
-        <span className="subtle">{siteAdmin ? `${users.length} can sign in` : `The people in ${names.get(identity.tenant) ?? identity.tenant}`}</span>
+      <div className="org-tab-intro">
+        <h2 id="users-heading">Everyone on this server</h2>
+        <p className="subtle">
+          {plural(users.length, "person", "people")} in every organization. Each person belongs to one organization for good: to give someone
+          access to another, create an account for them there.
+        </p>
       </div>
-      <p className="subtle">
-        People belong to one organization and can't be moved to another. To give someone access to an organization, add them there as a new user.
-      </p>
       <div className="filters">
         <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search people" aria-label="Search people" />
         {siteAdmin && (
@@ -555,9 +711,9 @@ function UserTable({ users, orgs, identity, showOrg }: { users: User[]; orgs: Or
 }
 
 /** A new user in one organization: fixed names it, else the creator picks one of orgs (those they manage). */
-function CreateUser({ orgs, fixed, team }: { orgs: Org[]; fixed?: string; team?: string }) {
+function CreateUser({ orgs, fixed, team, admin = false }: { orgs: Org[]; fixed?: string; team?: string; admin?: boolean }) {
   const initial = fixed ?? orgs.find((org) => !org.root)?.id ?? orgs[0]?.id ?? "";
-  const blank = { name: "", password: "", role: "member", tenant: initial, teams: team ? [team] : ([] as string[]) };
+  const blank = { name: "", password: "", role: admin ? "admin" : "member", tenant: initial, teams: team ? [team] : ([] as string[]) };
   const [draft, setDraft] = useState(blank);
   const add = useDirectoryChange(api.addUser);
   const org = orgs.find((item) => item.id === draft.tenant);
@@ -565,7 +721,7 @@ function CreateUser({ orgs, fixed, team }: { orgs: Org[]; fixed?: string; team?:
   // Root holds only site admins.
   const role = root ? "admin" : draft.role;
   return (
-    <details className="directory-create">
+    <details className="directory-create" open={admin || undefined}>
       <summary>{team ? "Create a user in this team" : fixed ? (root ? "Add a site admin" : "Add a person to this organization") : "Add a person"}</summary>
       <form className="directory-user-form" onSubmit={(event: FormEvent) => {
         event.preventDefault();

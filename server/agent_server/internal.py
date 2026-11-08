@@ -228,7 +228,9 @@ def register(app: FastAPI, runtime: Any) -> None:
                 identity = runtime.auth.identity_for(str(body.get("user") or ""), "internal") if body.get("user") else None
                 request_body = body.get("request") if isinstance(body.get("request"), dict) else {}
                 if action == "launch":
-                    return await fleet.launch(machine, identity, request_body, str(body.get("launch") or "") or None)
+                    # A guest's launch (bridges.py) was checked by the process that took the peer's request.
+                    guest = body.get("guest") if isinstance(body.get("guest"), dict) else None
+                    return await fleet.launch(machine, identity, request_body, str(body.get("launch") or "") or None, guest=guest)
                 return await fleet.shell(machine, identity, request_body)
             if action == "tunnel":
                 await fleet.send_tunnel(machine, str(body.get("tunnel") or ""), int(body.get("port") or 0))

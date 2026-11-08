@@ -43,6 +43,8 @@ LAUNCHER_API: List[Tuple[str, "re.Pattern[str]"]] = [
     ("GET", re.compile(r"^/api/config$")),
     ("GET", re.compile(r"^/api/agents$")),
     ("POST", re.compile(r"^/api/agents/[^/]+/sessions$")),
+    # An agent another server's organization shares over a bridge has its full name as its id.
+    ("POST", re.compile(r"^/api/agents/agent:[a-z0-9][a-z0-9-]*/[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*/sessions$")),
     ("GET", re.compile(r"^/api/intercept(/ca\.pem|/bundle\.pem)?$")),
     ("GET", re.compile(r"^/api/remote$")),
     ("POST", re.compile(r"^/api/sessions$")),
@@ -257,7 +259,10 @@ class AgentProxy:
             headers[common.TOKEN_HEADER] = await asyncio.to_thread(self.upstream.token, server)
         except (RuntimeError, ValueError, OSError, httpx.HTTPError) as error:
             return JSONResponse({"detail": str(error)}, status_code=token_status(error))
-        target = server + path + (f"?{request.url.query}" if request.url.query else "")
+        # As it came, escaped (an agent's full name keeps its "/" escaped), as the Go agent-proxy sends it.
+        raw = request.scope.get("raw_path")
+        sent = raw.decode("latin-1") if isinstance(raw, (bytes, bytearray)) and raw else path
+        target = server + sent + (f"?{request.url.query}" if request.url.query else "")
         try:
             answer = await self.http.request(request.method, target, content=await request.body(), headers=headers)
         except httpx.HTTPError as error:

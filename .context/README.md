@@ -12,7 +12,7 @@ Design references for coding agents working on this repository: one file per com
 | [console.md](console.md) | `ui/` (React) | Console pages, data layer, the Machine page, split hosting (`VITE_API_URL`, `ui/Dockerfile`, `ui/nginx.conf`) |
 | [auth.md](auth.md) | Accounts and access, across components | OIDC sign-in through the separate `agent-auth` issuer (`issuer.py`), tokens and cookies, `AuthMiddleware`, roles, sharing, machine grants, any new route (the legacy access key and pairing no longer authenticate) |
 | [android.md](android.md) | `android/` (Kotlin) | The app shell around the console, and the debug-only Android Auto monitor (`app/src/debug/`) |
-| [build-and-deploy.md](build-and-deploy.md) | `tools/`, `scripts/`, Docker and Compose (`server/Dockerfile`, `server/docker/`, `ui/Dockerfile`, `compose.yaml`), `sandbox/`, `site/`, `quickstart/` | Versions, builds, downloads, installers, images, the brochure site, HTTPS setup, the local quickstart stack |
+| [build-and-deploy.md](build-and-deploy.md) | `tools/`, `devhelpers/` (scripts, from-source stacks), Docker and Compose (`server/Dockerfile`, `server/docker/`, `ui/Dockerfile`), `sandbox/`, `site/`, `deploy/` (published-image Compose and Helm) | Versions, builds, downloads, installers, images, the brochure site, HTTPS setup, the local quickstart stack |
 
 ## Keeping these files true
 

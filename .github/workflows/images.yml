@@ -3,7 +3,7 @@
 #   ghcr.io/<owner>/agent-server           server/Dockerfile: agent-server and agent-auth (one image, two entrypoints)
 #   ghcr.io/<owner>/agent-sandbox          sandbox/Dockerfile: a fleet machine in a container, with the coding agents
 #   ghcr.io/<owner>/ai-control-mesh-site   site/Dockerfile: the brochure website
-#   ghcr.io/<owner>/ai-control-mesh        allinone/Dockerfile: the whole system in one container, to try it
+#   ghcr.io/<owner>/ai-control-mesh        devhelpers/allinone/Dockerfile: the whole system in one container, to try it
 #
 # The standalone console (ui/Dockerfile) isn't here: it bakes its API's address in when it's
 # built (VITE_API_URL), so each deployment builds its own.
@@ -70,7 +70,7 @@ jobs:
           - { name: agent-server, dockerfile: server/Dockerfile }
           - { name: agent-sandbox, dockerfile: sandbox/Dockerfile }
           - { name: ai-control-mesh-site, dockerfile: site/Dockerfile }
-          - { name: ai-control-mesh, dockerfile: allinone/Dockerfile }
+          - { name: ai-control-mesh, dockerfile: devhelpers/allinone/Dockerfile }
         platform: [linux/amd64, linux/arm64]
     steps:
       - uses: actions/checkout@v4

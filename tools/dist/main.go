@@ -1,5 +1,5 @@
 // Command dist builds the Go components for every standard platform and packages them,
-// for scripts/build-dist.sh and .ps1 (run from tools/):
+// for devhelpers/scripts/build-dist.sh and .ps1 (run from tools/):
 //
 //	go run ./dist                                        every target, both components, the Android app, the Python wheel
 //	go run ./dist linux/arm64 windows/amd64              only these targets
@@ -87,7 +87,7 @@ func main() {
 	native := flag.Bool("packages", false, "also build native packages: .deb, .rpm, .apk and Arch for Linux, .msi (with wix), macOS .pkg (on a Mac)")
 	app := flag.Bool("android", true, "also build the Android app, when a JDK and the Android SDK are here")
 	wheel := flag.Bool("python", true, "also build the Python agent and agent-machine (python/) as a wheel")
-	printVersion := flag.Bool("print-version", false, "print the checkout's version and stop (scripts/build-client and build-machine stamp it)")
+	printVersion := flag.Bool("print-version", false, "print the checkout's version and stop (devhelpers/scripts/build-client and build-machine stamp it)")
 	flag.Parse()
 	if *version == "" {
 		*version = BuildVersion(*root)

@@ -67,28 +67,28 @@
           </div>
           <pre class="qs-cmd" data-v="docker-cpu" tabindex="0" aria-label="Docker quickstart commands"><code id="quickstart-command">git clone https://github.com/joeyenfield/ai-coding-agent-proxy.git
 cd ai-coding-agent-proxy
-docker compose -f quickstart/compose.yaml up -d</code></pre>
+docker compose -f deploy/compose/quickstart/compose.yaml up -d</code></pre>
           <pre class="qs-cmd" data-v="docker-gpu" tabindex="0" aria-label="Docker quickstart commands with an NVIDIA GPU"><code id="qs-docker-gpu">git clone https://github.com/joeyenfield/ai-coding-agent-proxy.git
 cd ai-coding-agent-proxy
-docker compose -f quickstart/compose.yaml -f quickstart/compose.gpu.yaml up -d</code></pre>
+docker compose -f deploy/compose/quickstart/compose.yaml -f deploy/compose/quickstart/compose.gpu.yaml up -d</code></pre>
           <pre class="qs-cmd" data-v="podman-cpu" tabindex="0" aria-label="Podman quickstart commands"><code id="qs-podman-cpu">git clone https://github.com/joeyenfield/ai-coding-agent-proxy.git
 cd ai-coding-agent-proxy
-podman compose -f quickstart/compose.yaml up -d</code></pre>
+podman compose -f deploy/compose/quickstart/compose.yaml up -d</code></pre>
           <pre class="qs-cmd" data-v="podman-gpu" tabindex="0" aria-label="Podman quickstart commands with an NVIDIA GPU"><code id="qs-podman-gpu">git clone https://github.com/joeyenfield/ai-coding-agent-proxy.git
 cd ai-coding-agent-proxy
-podman compose -f quickstart/compose.yaml -f quickstart/compose.gpu.yaml up -d</code></pre>
+podman compose -f deploy/compose/quickstart/compose.yaml -f deploy/compose/quickstart/compose.gpu.yaml up -d</code></pre>
           <pre class="qs-cmd" data-v="helm" tabindex="0" aria-label="Kubernetes quickstart commands with Helm"><code id="qs-helm-cmd">git clone https://github.com/joeyenfield/ai-coding-agent-proxy.git
 cd ai-coding-agent-proxy
-helm install mesh deploy/helm/agent-mesh -n mesh --create-namespace -f quickstart/kubernetes/values.yaml
-kubectl -n mesh apply -f quickstart/kubernetes/machine.yaml
+helm install mesh deploy/helm/agent-mesh -n mesh --create-namespace -f deploy/helm/quickstart/values.yaml
+kubectl -n mesh apply -f deploy/helm/quickstart/machine.yaml
 kubectl -n mesh get pods -w</code></pre>
           <p class="qs-note qs-note-podman">Podman needs a Compose provider (<code>podman compose version</code>). On Windows and macOS, run <code>podman machine init</code> once, then <code>podman machine start</code>.</p>
           <p class="qs-note qs-note-helm">For a cluster on your computer: kind, k3d, minikube, or the one in Docker, Rancher or Podman Desktop, with a default StorageClass, <code>kubectl</code> and Helm 3. Keep the release name <code>mesh</code>. It installs the chart in its smallest form (one pod: the server and its sign-in service, SQLite on a volume) and a fleet machine with the coding agents and Ollama. When both pods are running, forward the ports in a terminal you leave open:</p>
           <pre class="qs-note qs-note-helm qs-note-cmd" tabindex="0" aria-label="Port-forward commands"><code>kubectl -n mesh port-forward svc/mesh-agent-mesh 19999:19999 &amp;
 kubectl -n mesh port-forward svc/mesh-agent-mesh-auth 20000:20000</code></pre>
           <p class="qs-note qs-note-helm">Then open <a href="http://localhost:19999">localhost:19999</a>. The <code>admin</code> password is in the server’s log (<code>kubectl -n mesh logs deploy/mesh-agent-mesh -c agent-server | grep -i password</code>), and the machine signs in with two device codes from its log, approved on <strong>Machines › Approve a device</strong>. <a href="https://github.com/joeyenfield/ai-coding-agent-proxy/blob/master/docs/quickstart-kubernetes.md">Kubernetes quickstart →</a> For production (HTTPS host names, PostgreSQL, a Deployment per role): <a href="https://github.com/joeyenfield/ai-coding-agent-proxy/blob/master/deploy/helm/agent-mesh/README.md">the chart’s README →</a></p>
-          <p class="qs-note qs-note-helm-gpu">The Kubernetes quickstart runs Ollama on the CPU. To give it a GPU, add a <code>nvidia.com/gpu: 1</code> limit to the <code>ollama</code> container in <code>quickstart/kubernetes/machine.yaml</code>; the cluster needs the NVIDIA device plugin.</p>
-          <p class="qs-note qs-note-gpu">The GPU file gives Ollama your NVIDIA GPUs, so models answer much faster. Use it every time you start the stack; without it, Ollama runs on the CPU. Docker needs the NVIDIA Container Toolkit with CDI on. With Podman, check it sees the GPU first: <code>podman run --rm --device nvidia.com/gpu=all docker.io/library/ubuntu:24.04 nvidia-smi</code>. <a href="https://github.com/joeyenfield/ai-coding-agent-proxy/blob/master/quickstart/README.md#use-a-gpu">GPU setup →</a></p>
+          <p class="qs-note qs-note-helm-gpu">The Kubernetes quickstart runs Ollama on the CPU. To give it a GPU, add a <code>nvidia.com/gpu: 1</code> limit to the <code>ollama</code> container in <code>deploy/helm/quickstart/machine.yaml</code>; the cluster needs the NVIDIA device plugin.</p>
+          <p class="qs-note qs-note-gpu">The GPU file gives Ollama your NVIDIA GPUs, so models answer much faster. Use it every time you start the stack; without it, Ollama runs on the CPU. Docker needs the NVIDIA Container Toolkit with CDI on. With Podman, check it sees the GPU first: <code>podman run --rm --device nvidia.com/gpu=all docker.io/library/ubuntu:24.04 nvidia-smi</code>. <a href="https://github.com/joeyenfield/ai-coding-agent-proxy/blob/master/deploy/compose/quickstart/README.md#use-a-gpu">GPU setup →</a></p>
         </div>
         <p id="copy-status" class="copy-status" role="status" aria-live="polite"></p>
         <p class="demo-notice"><strong>Local demo only.</strong> Uses known credentials and ports bound to 127.0.0.1. Keep it on your computer; changing the admin password alone does not make it a production install. For a real deployment, configure your own secrets, HTTPS, and sign-in service. <a href="/teams.html#deployment">Team deployment path →</a></p>

@@ -157,9 +157,13 @@ function TerminalGrid({ selectionKey }: { selectionKey: string }) {
         <h1>Live agent view</h1>
         <div className="grid-actions">
           {pages > 1 && <div className="row grid-pages" aria-label="Grid pages">
-            <button type="button" className="small" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous</button>
+            <button type="button" className="icon-button" title="Previous page" aria-label="Previous page" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>
+              <Icon name="chevron" size={15} className="back" />
+            </button>
             <span className="mono" aria-live="polite">{currentPage + 1} / {pages}</span>
-            <button type="button" className="small" disabled={currentPage === pages - 1} onClick={() => setPage(currentPage + 1)}>Next</button>
+            <button type="button" className="icon-button" title="Next page" aria-label="Next page" disabled={currentPage === pages - 1} onClick={() => setPage(currentPage + 1)}>
+              <Icon name="chevron" size={15} />
+            </button>
           </div>}
           {trusted && <div className="grid-controls" id="grid-controls" hidden={layout.slim}>
             <div className="grid-menu" ref={pickerBox}>

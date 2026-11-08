@@ -147,6 +147,8 @@ export function SessionChat({ session, records, streaming }: { session: Session;
   }, [more, isFetchingNextPage, fetchNextPage, pane, turns.length]);
 
   // Steps between the person's own messages: what they typed is what people come here to find.
+  // Whose messages the arrows step through: yours, or the person whose session you're reading.
+  const mine = names.person === "You" ? "Your" : `${names.person}'s`;
   const jump = useCallback(
     (direction: -1 | 1) => {
       const element = pane.current;
@@ -187,11 +189,11 @@ export function SessionChat({ session, records, streaming }: { session: Session;
           </label>
           {conversational && (
             <span className="chat-mine">
-              <button type="button" className="small" onClick={() => jump(-1)} title={`Your previous message`}>
-                <Icon name="up" size={14} /> {names.person === "You" ? "My" : "Their"} previous
+              <button type="button" className="icon-button" onClick={() => jump(-1)} title={`${mine} previous message`} aria-label={`${mine} previous message`}>
+                <Icon name="up" size={15} />
               </button>
-              <button type="button" className="small" onClick={() => jump(1)} title="Your next message">
-                <Icon name="up" size={14} className="flip" /> Next
+              <button type="button" className="icon-button" onClick={() => jump(1)} title={`${mine} next message`} aria-label={`${mine} next message`}>
+                <Icon name="up" size={15} className="flip" />
               </button>
             </span>
           )}

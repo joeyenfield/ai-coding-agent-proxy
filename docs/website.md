@@ -7,7 +7,7 @@ The public [AIControlMesh website](https://aicontrolmesh.com/) lives in `site/`,
 From the repository root, with Node installed:
 
 ```bash
-node scripts/site/preview.mjs
+node devhelpers/scripts/site/preview.mjs
 ```
 
 Open `http://127.0.0.1:8088`. Pass another free port as the last argument if needed. The preview serves only an allowlist of the three public pages, brochure assets and the five selected demo screenshots; it never serves the repository root or runtime data.
@@ -17,7 +17,7 @@ Browser checks use the same optional `playwright-core` dependency as the console
 ```bash
 npm install --no-save --package-lock=false playwright-core
 npx playwright-core install chromium-headless-shell
-node scripts/site/check.mjs
+node devhelpers/scripts/site/check.mjs
 ```
 
 Alternatively set `CHROMIUM_PATH` to an installed Chromium/Edge executable. The check launches a temporary loopback preview and closes it afterwards. It checks all three pages at 375, 768, and 1440 px, cross-page links and fragments, quickstart inputs, overflow, text contrast, control touch targets, assets, internal anchors, repository documentation targets, keyboard navigation, clipboard success/failure, reduced motion, and operation without JavaScript. Captures are saved to gitignored `.test-site/` for visual inspection. Automated checks do not certify WCAG conformance; also inspect readability, focus, contrast, and enlarged text.
@@ -25,11 +25,11 @@ Alternatively set `CHROMIUM_PATH` to an installed Chromium/Edge executable. The 
 ## Assets and deployment
 
 - `site/Dockerfile` builds from the repository root and copies the brochure, its SEO files, `site/assets/`, and five explicitly selected files from `docs/screenshots/`. The nginx `/health` endpoint is unchanged. No frontend build is needed.
-- Product images are unchanged captures from `scripts/screenshots/demo.py` and `capture.mjs`. The displayed machines, prompts, tools, and metrics are synthetic demo data. Review images visually and verify their provenance before adding them. The homepage uses a focused CSS crop of Session chat and scrollable Machines/MCP captures at a readable minimum width. Full originals remain linked; all five original image URLs remain available. These historical captures illustrate workflows, not the current release’s exact layout or version.
+- Product images are unchanged captures from `devhelpers/scripts/screenshots/demo.py` and `capture.mjs`. The displayed machines, prompts, tools, and metrics are synthetic demo data. Review images visually and verify their provenance before adding them. The homepage uses a focused CSS crop of Session chat and scrollable Machines/MCP captures at a readable minimum width. Full originals remain linked; all five original image URLs remain available. These historical captures illustrate workflows, not the current release’s exact layout or version.
 - The palette is navy, mint and lavender. The brand mark is the step path on an indigo rounded square, the same mark as the console's wordmark, its favicon and the Android launcher icon; change them together. Fonts use the system stack; there are no external font requests.
-- `site/assets/social.svg` and `icon.svg` are editable source artwork. `node scripts/site/check.mjs --render-assets` renders their PNG exports using the browser, then runs checks. It does not modify product screenshots. Commit the PNGs for social crawlers and app icons.
+- `site/assets/social.svg` and `icon.svg` are editable source artwork. `node devhelpers/scripts/site/check.mjs --render-assets` renders their PNG exports using the browser, then runs checks. It does not modify product screenshots. Commit the PNGs for social crawlers and app icons.
 - Canonical, Open Graph, Twitter card, JSON-LD, `robots.txt`, and `sitemap.xml` use the public apex domain. Update these together if it changes. The manifest is for browser icons, not an offline application.
-- Bump the stylesheet/script query versions in all three HTML pages when those assets change. Keep `scripts/site/preview.mjs`'s public file allowlist in step with the Dockerfile.
+- Bump the stylesheet/script query versions in all three HTML pages when those assets change. Keep `devhelpers/scripts/site/preview.mjs`'s public file allowlist in step with the Dockerfile.
 
 ## Journeys and claim evidence
 
@@ -43,8 +43,8 @@ Review baseline: **2026-11-01, commit `c5b57b4` / tag `v2.1.22`**, from root `VE
 
 | Public claim | Implementation source | Relevant test / verification | Limitations | Status |
 | --- | --- | --- | --- | --- |
-| Open source, MIT, self-hosted | [LICENSE](../LICENSE), [server image](../server/Dockerfile), [Compose](../compose.yaml) | License inspected; separate public site and console confirmed | No hosted signup, sales plan, support contract or warranty implied | Implemented |
-| Working local Docker/Podman path | [quickstart Compose](../quickstart/compose.yaml), [helpers](../quickstart/start.py), [guide](quickstart.md) | [test_quickstart.py](../server/tests/test_quickstart.py); site check validates services, ports, password and commands | Six services; loopback 19999/20000; admin/secret; models downloaded separately; RAM/context and speed vary. No container stack was started in this website review | Implemented |
+| Open source, MIT, self-hosted | [LICENSE](../LICENSE), [server image](../server/Dockerfile), [Compose](../deploy/compose/server/compose.yaml) | License inspected; separate public site and console confirmed | No hosted signup, sales plan, support contract or warranty implied | Implemented |
+| Working local Docker/Podman path | [quickstart Compose](../deploy/compose/quickstart/compose.yaml), [helpers](../deploy/compose/quickstart/start.py), [guide](quickstart.md) | [test_quickstart.py](../server/tests/test_quickstart.py); site check validates services, ports, password and commands | Six services; loopback 19999/20000; admin/secret; models downloaded separately; RAM/context and speed vary. No container stack was started in this website review | Implemented |
 | Local agent/provider combinations | [defaults.py](../server/agent_server/defaults.py) agent protocols; [config.py](../server/agent_server/config.py) `serves`, `NATIVE_PROTOCOLS`; [compat.py](../server/agent_server/routes/compat.py) | [test_model_runner.py](../server/tests/test_model_runner.py) `test_agents_list_the_backends_their_protocol_can_use`; [test_llamacpp.py](../server/tests/test_llamacpp.py); [test_strata.py](../server/tests/test_strata.py) | Protocol compatibility is not model/tool quality. Aider/Goose need native Ollama; Codex Responses is pass-through, not Ollama per-request tuning. No assertion that local routing makes an agent offline | Implemented for declared combinations |
 | Docker Model Runner integration | [model_runner.py](../server/agent_server/model_runner.py), [machine provider](../machine/internal/providers/docker.go) | [test_model_runner.py](../server/tests/test_model_runner.py): path mapping and mock forwarding | Repository explicitly says no real Model Runner validation; website labels this boundary | Experimental evaluation; code implemented |
 | Hosted forwarding and vendor-account capture are distinct | [defaults.py](../server/agent_server/defaults.py), [compat.py](../server/agent_server/routes/compat.py), [intercept.py](../server/agent_server/intercept.py) | [test_intercept.py](../server/tests/test_intercept.py): public destination checks, redaction, capture | Hosted route is Anthropic, not arbitrary cloud APIs. Account traffic reaches vendors and requires trust in server TLS interception; passthrough hosts are connection-only | Implemented |
@@ -66,12 +66,12 @@ The private Android Auto monitor is a debug-only development feature and is not 
 
 ## Validation and remaining evaluation work
 
-The site checks exercise every page at 375, 768 and 1440 pixels, internal links/fragments, real documentation files, canonical/OG/structured data, contrast, reduced motion, keyboard menu and disclosure controls, both clipboard outcomes, Docker/Podman command parity, and no-JavaScript navigation through both journeys. PNGs are in `.test-site/`: `homepage|teams|security-{width}.png`, corresponding `-first-screen-` captures, plus focused quickstart/product/architecture/compatibility captures. They are review artifacts, not production assets. Original product screenshots in `docs/screenshots/` were not changed.
+The site checks exercise every page at 375, 768 and 1440 pixels, internal links/fragments, real documentation files, canonical/OG/structured data, contrast, reduced motion, keyboard menu and disclosure controls, both clipboard outcomes, Docker/Podman command parity, and no-JavaScript navigation through both journeys. PNGs are in `.test-site/`: `homepage|teams|security-{width}.png`, corresponding `-first-screen-` captures, plus focused deploy/compose/product/architecture/compatibility captures. They are review artifacts, not production assets. Original product screenshots in `docs/screenshots/` were not changed.
 
 Validation on this checkout:
 
-- `node scripts/site/preview.mjs`: started successfully on loopback :8088.
-- `node scripts/site/check.mjs --render-assets` regenerated the social preview from SVG; the completed `node scripts/site/check.mjs` run passed all three pages at all three widths, then both no-JavaScript journeys. Desktop/tablet/mobile first screens and focused screenshots were visually inspected.
+- `node devhelpers/scripts/site/preview.mjs`: started successfully on loopback :8088.
+- `node devhelpers/scripts/site/check.mjs --render-assets` regenerated the social preview from SVG; the completed `node devhelpers/scripts/site/check.mjs` run passed all three pages at all three widths, then both no-JavaScript journeys. Desktop/tablet/mobile first screens and focused screenshots were visually inspected.
 - `python -m pytest -q -p no:cacheprovider server/tests/test_governance.py server/tests/test_cluster.py server/tests/test_usage_limits.py server/tests/test_provider_accounts.py server/tests/test_model_runner.py server/tests/test_llamacpp.py server/tests/test_mcp.py server/tests/test_quickstart.py --basetemp=.test-site/pytest-evidence`: **64 passed, 1 failed**. The failure was `test_usage_is_counted_and_the_providers_429s_cool_an_account_down` expecting immediate `near_limit` state. Source review found queued usage writes and an unflushed state read, a plausible timing cause, not a proven diagnosis.
 - Retried that test together with `test_auth.py`, `test_intercept.py` and `test_strata.py`, using `.test-site/pytest-access`: **67 passed**, including the retry. Keep the intermittent failure visible; product code was not changed to make the evidence pass. Authlib/Starlette dependency deprecation warnings remain.
 - Direct isolated-store verification confirmed a held session is skipped by scheduled retention but can still be deleted by `SessionStore.delete`, the operation called by the manual API. The website and retention guide now state this limitation.
@@ -95,4 +95,4 @@ These are recommendations for a maintainer to apply in GitHub, not settings chan
 - Website: `https://aicontrolmesh.com/`
 - Topics: `ai-agents`, `coding-agents`, `self-hosted`, `llm-proxy`, `mcp`, `ollama`, `observability`, `fleet-management`, `developer-tools`.
 
-The README links the website, quickstart, documentation, MIT license, and contribution guide. Published image names and version selection are documented in [Deployment](deployment.md) and the [quickstart folder](../quickstart/README.md); do not add unverified registry commands to the homepage.
+The README links the website, quickstart, documentation, MIT license, and contribution guide. Published image names and version selection are documented in [Deployment](deployment.md) and the [quickstart folder](../deploy/compose/quickstart/README.md); do not add unverified registry commands to the homepage.

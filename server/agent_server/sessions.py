@@ -261,6 +261,19 @@ class SessionStore:
                 self._write_session(session)
             return f"{session.request_sequence:06d}"
 
+    def raise_counts(self, session: Session, count: int) -> None:
+        """Records that came from elsewhere (a linked server's launch, mirrored here: bridges.py) with their own ids:
+        the counters reach the highest, so the session's request count is right and later ids don't collide."""
+        if count <= max(session.request_count, session.request_sequence):
+            return
+        session.request_count = session.request_sequence = count
+        session.last_activity_at = utc_now()
+        self._write_counters(session)
+        if self.scaled:
+            base = f"session:{session.session_id}"
+            self.cluster.set(f"{base}:seq", str(count), COUNTER_TTL)
+            self.cluster.set(f"{base}:count", str(count), COUNTER_TTL)
+
     def _shared_counts(self, session: Session) -> tuple[int, int]:
         """The next request number and the count, from counters every process shares."""
         base = f"session:{session.session_id}"

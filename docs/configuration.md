@@ -8,7 +8,7 @@ Settings for agent machines (`agent`, `agent-proxy`) and fleet machines (`agent-
 
 | | What it is |
 |---|---|
-| **PostgreSQL** | Set `AI_PROXY_DATABASE_URL`, such as `postgresql+psycopg://mesh_api:<password>@db.example:5432/mesh`. The server's tables are in schema `mesh`; agent-auth's are in `mesh_auth`, under its own role. `compose.yaml` runs one for you. See [Deployment](deployment.md#postgresql) for the roles, backups and upgrading. |
+| **PostgreSQL** | Set `AI_PROXY_DATABASE_URL`, such as `postgresql+psycopg://mesh_api:<password>@db.example:5432/mesh`. The server's tables are in schema `mesh`; agent-auth's are in `mesh_auth`, under its own role. `deploy/compose/server/compose.yaml` runs one for you. See [Deployment](deployment.md#postgresql) for the roles, backups and upgrading. |
 | **SQLite** | Without `AI_PROXY_DATABASE_URL`: the file `agent-server.sqlite3` in `logs/` (`AI_PROXY_LOG_DIR`). Fine for one computer, development and the tests. agent-auth keeps its own file, `issuer-state.sqlite3`, in its state folder. |
 
 The server brings the tables up to date when it starts (`agent-server db migrate` does it alone). A new database starts with the shipped settings: listen on `0.0.0.0:9999`, HTTPS capture on, a hosted Anthropic backend as the default, the shipped agents and the shipped Ollama tuning.
@@ -205,6 +205,8 @@ See [Agents](agents.md) for the format and how to add one, and [MCP](mcp.md) for
 | `AI_PROXY_HOST`, `AI_PROXY_PORT` | `proxy.listen_host` and `proxy.listen_port`. When either is set and `AI_PROXY_URL` isn't, `proxy.url` becomes `http://<host>:<port>`, with `127.0.0.1` for `0.0.0.0` and `::`. |
 | `AI_PROXY_URL` | `proxy.url`. |
 | `AI_PROXY_PUBLIC_URL` | `proxy.public_url`. |
+| `AI_PROXY_MESH_ID` | This server's mesh id towards linked servers ([Peering](peering.md)): lower-case letters, digits and `-`. Without it, the one set on Server settings › Links (kept in the database). |
+| `AI_PROXY_MESH_URL` | The address linked servers reach this one at (default `proxy.public_url`, then `proxy.url`). |
 | `AI_PROXY_TLS_CERT`, `AI_PROXY_TLS_KEY` | `proxy.tls.cert` and `proxy.tls.key`. |
 | `AI_PROXY_DEFAULT_BACKEND` | `default_backend`. |
 | `AI_PROXY_LOG_DIR` | Where the server's log goes, and the SQLite database without `AI_PROXY_DATABASE_URL` (default `logs/`). |

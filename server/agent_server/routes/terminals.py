@@ -74,12 +74,21 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         in_flight: dict[str, int] = {}
         for record in runtime.active.values():
             in_flight[record["session_id"]] = in_flight.get(record["session_id"], 0) + 1
-        agents = runtime.agents()
         identity = auth.request_identity(request)
+        agents = runtime.agents(identity)
         terminals = []
         # Off the event loop: summaries flush the write queue and read the terminals table,
         # and the console's header polls this route.
         summaries = await asyncio.to_thread(hub.summaries)
+        known = {summary["session_id"] for summary in summaries}
+        # Launches on a linked server's machines (bridges.py): their terminals are there, viewed through the link.
+        for session in runtime.sessions.list():
+            if session.tags.get("peering") == "mirror" and session.tags.get("mirror_of") and session.session_id not in known:
+                summaries.append({
+                    "session_id": session.session_id, "cols": 80, "rows": 24, "command": None, "started_at": session.started_at,
+                    "last_output_at": session.last_activity_at, "ended_at": session.ended_at, "exit_status": None,
+                    "connected": session.ended_at is None, "viewers": 0, "bytes": 0, "remote": True,
+                })
         for summary in summaries:
             session = runtime.sessions.get(summary["session_id"])
             if session is None or not sharing.can_view(identity, session):
@@ -93,7 +102,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
                 **summary,
                 # The fleet machine it runs on, if any; machine_name is the computer's name either way.
                 "machine": machine.id if machine else None,
-                "machine_name": machine.name if machine else session.tags.get("machine_name"),
+                "machine_name": machine.name if machine else session.tags.get("machine_name") or session.tags.get("mirror_machine"),
                 "attention": hub.attention(terminal, in_flight.get(session.session_id, 0)) if terminal else None,
                 "agent": session.client, "agent_name": agent.name if agent else ("Terminal" if session.client == SHELL_CLIENT else session.client),
                 "project": session.project, "project_path": session.tags.get("project_path"),
@@ -157,6 +166,10 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             return
         identity = auth.request_identity(websocket)
         session = runtime.sessions.get(session_id)
+        if session is not None and session.tags.get("peering") == "mirror" and sharing.can_view(identity, session):
+            # A launch on a linked server's machine: its terminal is there, viewed through the link (bridges.py).
+            await relay_mirror_terminal(runtime, websocket, identity, session)
+            return
         terminal = hub.get(session) if session and sharing.can_view(identity, session) else None
         if terminal is None:
             await websocket.close(code=CLOSE_NOT_FOUND, reason="This session has no shared terminal")
@@ -289,3 +302,126 @@ async def _send_to_viewer(
         pass
     except Exception:  # noqa: BLE001 - a closed socket; the receive loop ends the viewer
         pass
+
+
+async def serve_guest_viewer(
+    runtime: Runtime, websocket: WebSocket, session: Any, guest: Any, still_allowed: Callable[[], bool], typing_allowed: Callable[[], bool],
+) -> None:
+    """A guest of a linked server watching a launch it started on this server's machine (routes/links.py, which
+    checked the link, the bridge and the launch): the same history and live output a console viewer gets, and
+    input only while the bridge lets that machine's terminals out."""
+    hub = runtime.terminals
+    terminal = hub.get(session)
+    if terminal is None:
+        await websocket.close(code=CLOSE_NOT_FOUND, reason="This session has no shared terminal")
+        return
+
+    async def permitted(control: bool = False) -> int:
+        if not still_allowed():
+            return 4403
+        return 4403 if control and not typing_allowed() else 0
+
+    since = websocket.query_params.get("from")
+    history, queue, start, resumed = hub.subscribe(terminal, guest, int(since) if since and since.isdigit() else None)
+    sender = asyncio.create_task(_send_to_viewer(websocket, terminal, history, queue, permitted, start, resumed))
+    try:
+        while True:
+            try:
+                message = json.loads(await websocket.receive_text())
+            except ValueError:
+                continue
+            if isinstance(message, dict) and message.get("type") == "input":
+                if await permitted():
+                    await websocket.close(code=4403, reason="The bridge no longer lets this out")
+                    return
+                error = await hub.send_input(terminal, message) if await permitted(control=True) == 0 else "This machine's terminals aren't shared to type into over this bridge."
+                if error:
+                    try:
+                        queue.put_nowait({"type": "error", "message": error})
+                    except asyncio.QueueFull:
+                        pass
+    except (WebSocketDisconnect, RuntimeError):
+        pass
+    finally:
+        hub.unsubscribe(terminal, queue)
+        sender.cancel()
+
+
+async def relay_mirror_terminal(runtime: Runtime, websocket: WebSocket, identity: Any, session: Any) -> None:
+    """The console viewing a launch on a linked server's machine: piped to that server's terminal over the link,
+    with the viewer's own sign-in and the session's sharing re-checked here as for any terminal."""
+    from .. import routing
+    from ..links import PEER_PREFIX, LinkDown
+
+    bridges = runtime.bridges
+    bridge = bridges.bridges.get(str(session.tags.get("mirror_bridge") or ""))
+    link = bridges.link_of(bridge) if bridge else None
+    source = session.tags.get("mirror_of")
+    try:
+        machine = routing.parse(str(session.tags.get("mirror_machine") or ""), "machine")
+    except ValueError:
+        machine = None
+    if bridge is None or link is None or not source or machine is None:
+        await websocket.close(code=CLOSE_NOT_FOUND, reason="This launch's terminal isn't reachable")
+        return
+    since = websocket.query_params.get("from")
+    target = f"{PEER_PREFIX}session/{source}/terminal" + (f"?from={since}" if since and since.isdigit() else "")
+    assertion = bridges.assertion(bridge, bridges.who(identity), {"kind": "launch", "org": bridge.peer_org, "machine": machine.name}, "terminal", session.session_id)
+    try:
+        remote = await runtime.links.websocket(link, target, assertion)
+    except LinkDown as exc:
+        await websocket.close(code=4502, reason=str(exc)[:120])
+        return
+    checked = {"at": time.monotonic()}
+
+    async def allowed() -> bool:
+        if time.monotonic() - checked["at"] < IDENTITY_RECHECK_SECONDS:
+            return True
+        checked["at"] = time.monotonic()
+        try:
+            current = await asyncio.to_thread(runtime.auth.recheck, websocket)
+        except auth.AuthUnavailable:
+            return False
+        return current is not None and sharing.can_view(current, runtime.sessions.get(session.session_id) or session)
+
+    async def inward() -> None:
+        while True:
+            kind, data = await remote.receive()
+            if kind == "close":
+                return
+            if not await allowed():
+                return
+            if kind == "bytes":
+                await websocket.send_bytes(data)
+            else:
+                await websocket.send_text(data)
+
+    async def outward() -> None:
+        while True:
+            message = await websocket.receive()
+            if message["type"] == "websocket.disconnect":
+                return
+            text = message.get("text")
+            if not text:
+                continue
+            renewal = _renewal(text)
+            if renewal is not None:
+                await auth.renew_socket(runtime, websocket, renewal)
+                checked["at"] = 0.0
+                continue
+            current = auth.request_identity(websocket)
+            if '"input"' in text and not (current is not None and sharing.can_control(current, runtime.sessions.get(session.session_id) or session)):
+                continue
+            await remote.send_text(text)
+
+    tasks = [asyncio.ensure_future(inward()), asyncio.ensure_future(outward())]
+    try:
+        await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        for task in tasks:
+            task.cancel()
+        await remote.close()
+        try:
+            await websocket.close(code=1000)
+        except Exception:  # noqa: BLE001 - already closed
+            pass

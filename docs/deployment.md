@@ -4,24 +4,27 @@ How to run the server for other machines and people, put HTTPS in front of it, a
 
 **Authentication is mandatory.** For public deployments, run `agent-auth` separately at your own issuer hostname (`auth.example.com` below), register API callbacks, configure the shared introspection secret and provide HTTPS. The root Compose includes the issuer on host loopback :10000, with its state in its own PostgreSQL schema. See [OIDC authentication](oidc.md) before starting or upgrading public services.
 
-**To try it first**, run the self-contained demo stack on your own computer: [Quickstart with Docker or Podman](quickstart.md), or [Quickstart on Kubernetes](quickstart-kubernetes.md). The demo has its own loopback issuer, signs its machines in through normal device authorization, and mounts no host project folders or Docker socket; `quickstart/README.md` explains how its local sign-in and Podman setup work. For a public install, follow this page and the [OIDC deployment guide](oidc.md).
+**To try it first**, run the self-contained demo stack on your own computer: [Quickstart with Docker or Podman](quickstart.md), or [Quickstart on Kubernetes](quickstart-kubernetes.md). The demo has its own loopback issuer, signs its machines in through normal device authorization, and mounts no host project folders or Docker socket; `deploy/compose/quickstart/README.md` explains how its local sign-in and Podman setup work. For a public install, follow this page and the [OIDC deployment guide](oidc.md).
 
 **For Kubernetes in production**, and for running several server processes behind a load balancer (high availability, or hundreds of engineers), see [Running several server processes](scaling.md) and the Helm chart in `deploy/helm/agent-mesh/`.
 
 ## The server in Docker
 
-The server and its console are one image, `ghcr.io/joeyenfield/agent-server`; agent-auth runs from the same image. `compose.yaml` at the repository root runs them with PostgreSQL and the brochure site, pulling the published images ([Images on ghcr.io](#images-on-ghcrio)):
+The server and its console are one image, `ghcr.io/joeyenfield/agent-server`; agent-auth runs from the same image. `deploy/compose/server/compose.yaml` runs them with PostgreSQL and the brochure site, pulling the published images ([Images on ghcr.io](#images-on-ghcrio)). Run Compose from that folder, with its `.env` beside it:
 
 ```bash
+cd deploy/compose/server
 docker compose up -d                                    # the newest build of master (latest)
 AI_PROXY_IMAGE_TAG=2.0.1 docker compose up -d           # or a release of your choice
 docker compose pull && docker compose up -d             # move to the newest build
 ```
 
-Pick the tag to match the `dist/` build you hand out (below): the server offers the build of its own version. To build the images from your checkout instead, add `compose.build.yaml`:
+**Moving from the old root `compose.yaml`.** It moved to `deploy/compose/server/`. Compose names a project, and so its volumes, after the folder it runs from, so set `COMPOSE_PROJECT_NAME` to your checkout folder's name (the name the volumes have, such as `ai-proxy` for `ai-proxy_postgres-data`; `docker volume ls` shows them) in the `.env`, and move that `.env` beside the new file. `devhelpers/scripts/deploy.sh` does this for you with `-p`.
+
+Pick the tag to match the `dist/` build you hand out (below): the server offers the build of its own version. To build the images from your checkout instead, add `devhelpers/server/compose.build.yaml`, from the repository root:
 
 ```bash
-AI_PROXY_VERSION=2.0.1 docker compose -f compose.yaml -f compose.build.yaml up -d --build
+AI_PROXY_VERSION=2.0.1 docker compose -f deploy/compose/server/compose.yaml -f devhelpers/server/compose.build.yaml up -d --build
 docker build -f server/Dockerfile -t agent-server .     # or one image by hand
 ```
 
@@ -37,13 +40,13 @@ Everything the server keeps is in PostgreSQL ([below](#postgresql)), so its own 
 | `/app/logs` | The server's own log (`proxy/proxy.log`) and the capture CA's certificate files for agents. |
 | `/app/certs` | `first-user-password`, once. |
 | `/app/config`, `/app/auth-state` | Only for an install from before the database: read once, on the first start, to import its files. A new install doesn't need them. |
-| `/app/dist` | The builds to hand out (mount `dist/` read-only; `compose.yaml` does). |
+| `/app/dist` | The builds to hand out (mount `dist/` read-only; `deploy/compose/server/compose.yaml` mounts the checkout's). |
 
 A new server starts with the hosted Anthropic API as its one provider. Local providers come from machines in the fleet: run `agent-machine` where the models are and add them from the console ([Machines](machines.md)).
 
 Authentication is always required. The first start on a new database creates an `admin` user with a random password. `docker compose logs agent-server` shows it, and it's saved as `first-user-password` in the certs volume. See [Accounts](accounts.md).
 
-**Versions in Docker.** The published images carry their version (`2.0.1`, or `2.0.1+<commit>` for `sha-<commit>`). An image you build has no git inside, so pass the version as a build argument: `AI_PROXY_VERSION=1.2.0+abc1234 docker compose -f compose.yaml -f compose.build.yaml build`. The server hands out the `dist/<version>/` of its own version, or the newest of the same `X.Y.Z` when that wasn't built, so match it to the builds you mount.
+**Versions in Docker.** The published images carry their version (`2.0.1`, or `2.0.1+<commit>` for `sha-<commit>`). An image you build has no git inside, so pass the version as a build argument: `AI_PROXY_VERSION=1.2.0+abc1234 docker compose -f deploy/compose/server/compose.yaml -f devhelpers/server/compose.build.yaml build`. The server hands out the `dist/<version>/` of its own version, or the newest of the same `X.Y.Z` when that wasn't built, so match it to the builds you mount.
 
 **A sandbox machine.** `docker compose --profile sandbox up -d` also starts `agent-sandbox` (`ghcr.io/joeyenfield/agent-sandbox`, from `sandbox/Dockerfile`): `agent`, `agent-machine` and npm coding agents in a container that joins the fleet and takes launches in `/workspace` only. Set `AI_PROXY_SERVER` to your HTTPS API and optionally `AI_PROXY_MACHINE_NAME`. Approve both device codes from its logs on first start, or set `AI_PROXY_MACHINE_SETUP_CODE` to a setup code from the console's **Machines** page (**Add a machine** › **Create a setup code**) so agent-machine signs in without one; persistent credentials refresh on later starts. Password/key bootstrap is removed. See [Machines](machines.md).
 
@@ -58,7 +61,7 @@ GitHub Actions (`.github/workflows/images.yml`) builds the images and pushes the
 | `ghcr.io/joeyenfield/agent-server` | `server/Dockerfile` | agent-server and its console; agent-auth is the same image with `entrypoint: [agent-auth]` |
 | `ghcr.io/joeyenfield/agent-sandbox` | `sandbox/Dockerfile` | A fleet machine in a container, with the coding agents ([Machines](machines.md)) |
 | `ghcr.io/joeyenfield/ai-control-mesh-site` | `site/Dockerfile` | The brochure website |
-| `ghcr.io/joeyenfield/ai-control-mesh` | `allinone/Dockerfile` | The whole system in one container, to try it: the server, sign-in and console, and a machine with the coding agents ([Run it on your own computer](local.md#try-it-in-one-container)) |
+| `ghcr.io/joeyenfield/ai-control-mesh` | `devhelpers/allinone/Dockerfile` | The whole system in one container, to try it: the server, sign-in and console, and a machine with the coding agents ([Run it on your own computer](local.md#try-it-in-one-container)) |
 
 | Pushed | Tags |
 |---|---|
@@ -73,7 +76,7 @@ Each image's version (what `/health` reports) is the build's, `2.0.1` on its tag
 docker pull ghcr.io/joeyenfield/agent-server:2.0.1
 ```
 
-`compose.yaml` and the quickstart use these. Two variables choose them:
+Everything under `deploy/` uses these. Two variables choose them:
 
 | Variable | What it does |
 |---|---|
@@ -84,7 +87,7 @@ The server still hands out the agent and agent-machine builds from its `dist/` f
 
 ## PostgreSQL
 
-`compose.yaml` runs PostgreSQL 17 as the `postgres` service, with no published port: only `agent-server` and `agent-auth` reach it. Set three passwords in `.env` beside `compose.yaml` before the first start, using letters and digits:
+`deploy/compose/server/compose.yaml` runs PostgreSQL 17 as the `postgres` service, with no published port: only `agent-server` and `agent-auth` reach it. Set three passwords in `.env` beside it before the first start, using letters and digits:
 
 ```bash
 AI_PROXY_POSTGRES_PASSWORD=...   # PostgreSQL's administrator, postgres
@@ -101,7 +104,7 @@ On its first start the service runs `server/docker/postgres-init.sh`, which make
 
 `agent-server` gets `AI_PROXY_DATABASE_URL=postgresql+psycopg://mesh_api:...@postgres:5432/mesh` and `agent-auth` gets `AI_PROXY_AUTH_DATABASE_URL=postgresql+psycopg://mesh_auth:...@postgres:5432/mesh`. Both wait for the database to be healthy, and the server brings its tables up to date on every start.
 
-**Upgrading from files.** An install from before the database keeps its old volumes (`agent-server-config`, `agent-server-logs`, `agent-server-certs`, `agent-auth-state`), and `compose.yaml` still mounts them. On the first start with PostgreSQL, the server imports `backends.yaml`, `models.yaml`, `agents.yaml`, `users.json`, the keys, the capture CA, `machines.json` and every recorded session, and agent-auth imports its `issuer.sqlite3` and signing key, so everyone stays signed in. A large `logs/` takes a while; the server logs its progress and carries on after an interruption. Nothing is deleted. Once it runs from the database you can drop the old files, and the `/app/config` and `/app/auth-state` mounts. See [Upgrading from files](configuration.md#upgrading-from-files).
+**Upgrading from files.** An install from before the database keeps its old volumes (`agent-server-config`, `agent-server-logs`, `agent-server-certs`, `agent-auth-state`), and `deploy/compose/server/compose.yaml` still mounts them. On the first start with PostgreSQL, the server imports `backends.yaml`, `models.yaml`, `agents.yaml`, `users.json`, the keys, the capture CA, `machines.json` and every recorded session, and agent-auth imports its `issuer.sqlite3` and signing key, so everyone stays signed in. A large `logs/` takes a while; the server logs its progress and carries on after an interruption. Nothing is deleted. Once it runs from the database you can drop the old files, and the `/app/config` and `/app/auth-state` mounts. See [Upgrading from files](configuration.md#upgrading-from-files).
 
 ### A PostgreSQL of your own
 
@@ -174,10 +177,10 @@ Set `proxy.public_url` to the console's HTTPS address. CLI installation and logi
 
 ### nginx and Let's Encrypt on Windows
 
-`scripts/https/setup-https.ps1` sets up nginx with a Let's Encrypt certificate that renews itself. It serves the brochure site on the apex and `www` hostnames, the application on `console.<domain>`, agent/machine API requests on `api.<domain>`, and the OIDC issuer on `auth.<domain>`. Point all five DNS names to this host, start the Compose services, then run it once from an elevated PowerShell; rerun it any time, and it picks up where things are:
+`devhelpers/scripts/https/setup-https.ps1` sets up nginx with a Let's Encrypt certificate that renews itself. It serves the brochure site on the apex and `www` hostnames, the application on `console.<domain>`, agent/machine API requests on `api.<domain>`, and the OIDC issuer on `auth.<domain>`. Point all five DNS names to this host, start the Compose services, then run it once from an elevated PowerShell; rerun it any time, and it picks up where things are:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\https\setup-https.ps1 -HostName aicontrolmesh.com -AdditionalHostNames aiproxy.hopto.me -Email you@example.net
+powershell -ExecutionPolicy Bypass -File devhelpers\scripts\https\setup-https.ps1 -HostName aicontrolmesh.com -AdditionalHostNames aiproxy.hopto.me -Email you@example.net
 ```
 
 It installs, under `-Root` (default `C:\ProgramData\agent-proxy-https`):
@@ -206,7 +209,7 @@ The name has to reach this computer from the internet on port 80 for Let's Encry
 | `-CertFile`, `-KeyFile` | Use your own certificate instead of Let's Encrypt. |
 | `-NoTasks` | Skip the firewall rules and tasks, and the need to run as administrator. |
 
-nginx forwards the `Host` header to each service. The API routes upgrade WebSockets, turn buffering off and allow hour-long reads, so live views, pulls and terminals stream. Requests for any other name get no TLS at all. The templates are `scripts/https/nginx.conf.template` and `nginx-https.conf.template`; on another system, use them as a starting point for your own nginx.
+nginx forwards the `Host` header to each service. The API routes upgrade WebSockets, turn buffering off and allow hour-long reads, so live views, pulls and terminals stream. Requests for any other name get no TLS at all. The templates are `devhelpers/scripts/https/nginx.conf.template` and `nginx-https.conf.template`; on another system, use them as a starting point for your own nginx.
 
 Set `proxy.public_url` to `https://console.<domain>`. The HTTPS script also configures `auth.<domain>` (`-AuthHostName`, `-AuthBackend`) for the separate issuer; supply its registered URLs and shared secret as described in [OIDC](oidc.md).
 
@@ -214,7 +217,7 @@ Set `proxy.public_url` to `https://console.<domain>`. The HTTPS script also conf
 
 Each server offers the builds of its own version, so the programs a machine installs from it always speak its protocol. They're public, like `/health`, because a machine needs them before it can sign in.
 
-- `scripts/build-dist.sh` (`.\scripts\build-dist.ps1`) puts a version's builds in `dist/<version>/`, with a `SHA256SUMS` over every file ([Development](development.md#distributions)).
+- `devhelpers/scripts/build-dist.sh` (`.\devhelpers\scripts\build-dist.ps1`) puts a version's builds in `dist/<version>/`, with a `SHA256SUMS` over every file ([Development](development.md#distributions)).
 - The server serves `dist/<its version>/` (`AI_PROXY_DIST_DIR` moves `dist/`), or when that wasn't built, the newest folder with the same `X.Y.Z`. Only files `SHA256SUMS` lists are reachable.
 - `/downloads/index.json` lists them with their platform, component, kind, size and SHA-256; `/downloads/<version>/<path>` serves each one.
 - The console's **Downloads** page (`/get`) offers them per platform, your own computer's and the Android app first: the `agent` and `agent-machine` archives, native packages, the bare binaries, the Python wheel and the Android app, each with its size, SHA-256 and install commands. It's public: the sign-in page and the rail link to it.
@@ -358,7 +361,7 @@ agent-machine update    # agent-machine; restarts it if it runs in the backgroun
 
 Each takes the server's build for its platform from `artifact/`, checks its SHA-256, and replaces itself. A copy in a folder it can't write to, as a package installs, is left to the package manager: update it from the **Downloads** page. With `agent-machine updates on`, the console's **Update now** on a machine's page does the same from there (`POST /api/machines/{id}/update`).
 
-So to roll out a new version: build it on the server's computer (`scripts/build-dist.sh`), restart `agent-server` on the new code, then update each machine.
+So to roll out a new version: build it on the server's computer (`devhelpers/scripts/build-dist.sh`), restart `agent-server` on the new code, then update each machine.
 
 ## Ports
 

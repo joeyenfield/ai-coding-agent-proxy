@@ -57,7 +57,4 @@ monitoring:
 
 # Seeds the retention policy on the first install only.
 retention:
-  traces_days: 30
-  terminal_days: 30
-  sessions_days: 400
-  audit_days: 365
+  days: {traces: 30, terminal: 30, sessions: 400, audit: 365}

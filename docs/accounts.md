@@ -35,7 +35,7 @@ flowchart TD
 
 Members see their own organization and the people in it. Its admins change them. Site admins see every organization and user.
 
-In **Server → Organizations**, choose an organization, then open a team to manage its members. Add people to an organization by creating them there. Deleting a team keeps its people in the organization; renaming its display name keeps its sharing key. An organization can only be deleted once it has no users left, and the root can't be deleted. Membership changes apply to subsequent session and machine access checks.
+In **Server → Organizations**, choose an organization in the list (site admins; **All organizations** goes back, or go to another from the menu beside it). It opens on its **People**; open a team on **Teams** to manage its members. Add people to an organization by creating them there. Deleting a team keeps its people in the organization; renaming its display name keeps its sharing key. An organization can only be deleted once it has no users left, and the root can't be deleted. Membership changes apply to subsequent session and machine access checks.
 
 Manage them from the console (**Server → Organizations**), the API (`/api/orgs`, `/api/users`; see [API](api.md)), or the server's shell:
 

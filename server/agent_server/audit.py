@@ -556,7 +556,8 @@ class AuditMiddleware:
 
 
 # Changes too frequent and too small to be worth an event: token refreshes, the console's own sign-ins state.
-QUIET = ("/api/auth/refresh", "/api/auth/switch", "/api/auth/accounts", "/api/auth/login", "/api/auth/status")
+# A linked server's relayed requests (links.py) are recorded as sessions; its refusals and changes audit themselves.
+QUIET = ("/api/auth/refresh", "/api/auth/switch", "/api/auth/accounts", "/api/auth/login", "/api/auth/status", "/api/links/relay/", "/api/links/present")
 SIGN_IN = ("/api/auth/callback", "/api/auth/logout")
 
 

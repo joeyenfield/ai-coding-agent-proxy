@@ -93,42 +93,12 @@ Each server is named by its own name in the agent's settings, or `<machine>-<nam
 
 ## How it works
 
-```mermaid
-sequenceDiagram
-  participant A as Agent
-  participant P as agent-proxy :8184
-  participant S as agent-server
-  participant M as agent-machine bridge
-  participant X as MCP server process
-  A->>P: POST /session/<id>/mcp/<machine>/github: initialize
-  P->>S: same path and launch-only URL token
-  S->>S: valid token? was the session given it? may its user still use the machine's MCP servers?
-  S->>M: through the machine's tunnel, with the bridge's key
-  M->>X: starts the command for this MCP session
-  M->>X: initialize (stdin, one JSON message per line)
-  X-->>M: result (stdout)
-  M-->>A: event stream with the result, and Mcp-Session-Id
-  Note over S: every POST is recorded: initialize, tools/call <tool>, …
-  A->>M: tools/call, with Mcp-Session-Id (through agent-proxy and the server)
-  M->>X: tools/call
-  X-->>M: progress notification, then the result
-  M-->>A: both, on that request's event stream
-  A->>M: DELETE, the same way (or six idle hours)
-  M->>X: closes stdin, stops the process
-```
-
-- **They run on their machine**, as the user agent-machine runs as.
-- **The bridge.** When the machine shares at least one server, agent-machine starts its bridge: an HTTP server on a random loopback port that speaks MCP's Streamable HTTP at `/mcp/<name>`. It makes a new key each time it starts. Its hello to the server names the port, the key and the servers by name (with their description, transport and whether the command is installed), never their commands, environments, folders, URLs or headers. The server keeps the key in memory only.
-- **Agents reach it through the server.** The agent's `agent-proxy` forwards `/session/<id>/mcp/...` to the server, signed as the computer's user like the agent's model traffic. The URL also carries a per-session capability token, which is not included in the public session record; the server stores only its hash. The server relays each request through the machine's tunnel, like its model servers, so the machine needs no open port. It sends the bridge's key in `X-AI-Proxy-MCP-Key`, which the bridge checks and removes. A machine on the server's own computer is reached directly. The machine allows the tunnel only to its model servers, its containers and the bridge's port.
-- **What's passed on.** Only `Content-Type`, `Accept`, `Mcp-Session-Id`, `Mcp-Protocol-Version` and `Last-Event-ID` go from the agent to the bridge; the agent's own credentials don't. `Mcp-Session-Id` and `Cache-Control` come back.
-- **A command** gets a process of its own for each MCP session. The agent's `initialize` starts it; a request without `Mcp-Session-Id` that isn't `initialize` is refused. Messages go to the process's stdin one JSON value per line, and its stdout is read the same way; its stderr goes to agent-machine's log.
-  - A POST with requests is answered on an event stream (or as JSON, if the agent doesn't accept event streams) that ends with the last response. A POST with only notifications or responses gets `202`.
-  - A GET with `Accept: text/event-stream` opens the session's stream for what the MCP server says outside a request's reply. Up to 100 such messages are kept while no stream is open. A new GET replaces the old one.
-  - A DELETE ends the session and its process.
-  - A session unused for 6 hours is ended, as agents rarely say goodbye. A machine runs at most 32 such processes at once, over all its servers.
-  - Ending a process closes its stdin first, then stops it and what it started.
-- **A URL** is proxied as it is, with the server's `--header` values added.
+- **They run on their machine**, as the user agent-machine runs as. Their commands, environments, folders, URLs and headers stay there: the server only knows their names and descriptions.
+- **Agents reach them through the server.** The agent sends its MCP requests to its `agent-proxy`, which carries them to the server like its model traffic. The server checks the session was given that server and that whoever started it may still use the machine's MCP servers, then relays the request through the machine's tunnel, so the machine needs no open port. The agent's own credentials are never passed on.
+- **Each agent gets its own process** of a command server, started when the agent first connects and stopped when it's done (or after six idle hours). A machine runs at most 32 at once.
 - **The Python agent-machine** (`python/agent_py/machine`) has the same `mcp` commands, file and bridge.
+
+[Flows](flows.md#an-mcp-tool-call) draws a tool call end to end, with the capability in the URL, the bridge's key and how messages reach a command's stdin.
 
 **What's recorded.** Every POST to a shared server is recorded in the agent's session as a request of kind `mcp`. Its host is `<machine name>/<server>` and its endpoint says what the JSON-RPC message does: `initialize`, `tools/list`, `tools/call search_code`, `resources/read <uri>`, or for a batch the first one and how many more. The reply is recorded too (up to 2 MB of it in the trace), and a JSON-RPC error in it marks the request with an error. Bodies are saved when the session saves payloads (`--trace`). On **Traffic** these show as **MCP**, with the service "MCP `<machine>/<server>`". The GET stream and DELETE are passed on without being recorded.
 

@@ -69,6 +69,10 @@ class AgentDefinition:
     # For an account agent, the kind of provider account it signs in with (provider_accounts.PROVIDERS:
     # claude, codex, copilot), so a launch can pick one of its user's subscriptions. None for others.
     subscription: str | None = None
+    # The organization whose definition it is (its admins manage it); None for the server's own.
+    org: str | None = None
+    # Where a definition another server's organization let in over a bridge comes from (bridges.py), else None.
+    bridge: str | None = None
 
     @property
     def route(self) -> str:
@@ -98,6 +102,8 @@ class AgentDefinition:
             "mcp": bool(self.mcp),
             # The kind of provider account (subscription) it uses, for account agents.
             "subscription": self.subscription,
+            # Whose it is: an organization's own, the server's (None), or let in over a bridge (its full name is its id).
+            "org": self.org, "bridge": self.bridge,
         }
 
     def render(
@@ -206,18 +212,39 @@ def _install(value: Any) -> dict[str, Any]:
 AGENT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 
 
-def load_agents(db: Database) -> dict[str, AgentDefinition]:
-    """Every stored agent, in order. Read on each call: they're few, and an edit applies at once."""
-    with db.read() as connection:
-        rows = connection.execute(select(schema.agents.c.id, schema.agents.c.definition).order_by(schema.agents.c.position, schema.agents.c.id)).all()
-    return parse_agents({agent_id: definition for agent_id, definition in rows})
+# Every organization's agents, the server's own included (load_agents), as opposed to one tenant's.
+ALL_TENANTS = "*"
 
 
-def stored_agents(db: Database) -> list[dict[str, Any]]:
-    """The agents as stored, for editing: each definition with whether it's shipped and edited."""
+def load_agents(db: Database, tenant: str | None = ALL_TENANTS) -> dict[str, AgentDefinition]:
+    """The stored agents, in order: the server's own and, for a tenant, its organization's (every one's with
+    ALL_TENANTS; only the server's with None). Read on each call: they're few, and an edit applies at once."""
+    table = schema.agents
+    query = select(table.c.id, table.c.definition, table.c.org).order_by(table.c.position, table.c.id)
+    if tenant != ALL_TENANTS:
+        query = query.where(table.c.org.is_(None) | (table.c.org == tenant)) if tenant else query.where(table.c.org.is_(None))
     with db.read() as connection:
-        rows = connection.execute(select(schema.agents).order_by(schema.agents.c.position, schema.agents.c.id)).mappings().all()
-    return [{"id": row["id"], "definition": row["definition"], "builtin": row["builtin"], "edited": row["edited"]} for row in rows]
+        rows = connection.execute(query).all()
+    agents = parse_agents({agent_id: definition for agent_id, definition, _ in rows})
+    for agent_id, _, org in rows:
+        agents[agent_id].org = org
+    return agents
+
+
+def stored_agents(db: Database, org: str | None = None) -> list[dict[str, Any]]:
+    """The agents as stored, for editing: each definition with whether it's shipped and edited. org: one
+    organization's own (None: the server's)."""
+    table = schema.agents
+    with db.read() as connection:
+        query = select(table).where(table.c.org.is_(None) if org is None else table.c.org == org).order_by(table.c.position, table.c.id)
+        rows = connection.execute(query).mappings().all()
+    return [{"id": row["id"], "definition": row["definition"], "builtin": row["builtin"], "edited": row["edited"], "org": row["org"]} for row in rows]
+
+
+def stored_definition(db: Database, agent_id: str) -> dict[str, Any] | None:
+    with db.read() as connection:
+        value = connection.execute(select(schema.agents.c.definition).where(schema.agents.c.id == agent_id)).scalar()
+    return value if isinstance(value, dict) else None
 
 
 def parse_agents(definitions: dict[str, Any]) -> dict[str, AgentDefinition]:

@@ -38,6 +38,12 @@ TAGS = [
     ("Retention and audit", "agent_server.routes.governance",
      "What's recorded and for how long (the server's policy, organizations' own, legal holds), and the audit log: "
      "its events, exports, checkpoints and verification (`/api/config/retention`, `/api/orgs/{org}/retention`, `/api/holds`, `/api/audit`)."),
+    ("Links", "agent_server.routes.links",
+     "Links between servers (site admins: `/api/links`, the mesh id, link codes, link policies, keys), and the routes a "
+     "linked server calls (`/api/links/present`, `/api/links/relay/...`): signed with its link key only, never a person's token."),
+    ("Bridges", "agent_server.routes.bridges",
+     "Bridges between an organization here and one on a linked server (`/api/orgs/{org}/bridges`: codes, each side's policy, "
+     "limits), organizations' own agent definitions (`/api/orgs/{org}/agents`), and what crosses in for you (`/api/peer/...`)."),
     ("Containers", "agent_server.routes.containers", "Strata and Ollama containers that machines run for the server."),
     ("Terminals", "agent_server.routes.terminals", "Shared agent terminals. OAuth authentication and session permissions required."),
     ("Downloads", "agent_server.app", "The builds of agent, agent-machine and the Android app this server hands out, and the documentation the console shows (`/help-files/...`); public, like /health."),
@@ -58,6 +64,8 @@ OpenAPI can't describe these, so they're listed here:
 | `/api/machines/tunnel/{id}` | `agent-machine`, with its token, when the server asks | One connection of agents' traffic to a model server on that machine (tunnels.py) |
 | `/api/terminals/{session_id}/host` | The launcher (`--control`) | The agent's terminal output, and viewers' input back to it |
 | `/api/terminals/{session_id}/view` | The console's terminal page | The terminal's history and output, and what the viewer types |
+| `/api/links/connect` | A linked server that dials, signed with its link key | The link socket: pings, re-signing, and requests in the other direction |
+| `/api/links/relay/session/{session_id}/terminal` | A linked server, signed, for its person | The terminal of a launch that person started on this server's machine |
 """
 
 DESCRIPTION = """

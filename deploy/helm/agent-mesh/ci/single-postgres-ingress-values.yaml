@@ -26,7 +26,7 @@ routing:
     className: nginx
     tls: {serverSecretName: api-tls, authSecretName: auth-tls, consoleSecretName: console-tls}
 retention:
-  traces_days: 7
+  days: {traces: 7}
 monitoring:
   serviceMonitor: {enabled: true}
   prometheusRule: {enabled: true}

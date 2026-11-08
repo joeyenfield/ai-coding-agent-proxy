@@ -499,6 +499,12 @@ def register(app: FastAPI, runtime: Runtime) -> None:
                 runtime.api_models.pop(name, None)
         await offboard(identity, org, lambda owner, of: of == org,
                        lambda tags: {"tenant": None} if tags.get("tenant") == org else {})
+        # Its bridges to other servers' organizations end on both sides (bridges.py).
+        for bridge in runtime.bridges.for_org(org):
+            try:
+                runtime.bridges.end(bridge)
+            except Exception:  # noqa: BLE001
+                LOGGER.exception("removing %s: couldn't end bridge %s", org, bridge.id)
 
         def clean() -> None:
             for limit in runtime.usage.tenant_limits(org):
@@ -618,6 +624,8 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         if identity and identity.user == name:
             raise HTTPException(status_code=400, detail="You can't remove your own account.")
         record = user_administered(request, name)
+        # Who they were towards linked servers (bridges.user_uuid): told there once they're gone.
+        created_at = (accounts.store.user(name) or {}).get("created_at")
 
         def remove() -> None:
             if not accounts.store.remove_user(name):
@@ -632,6 +640,10 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             return {key: None for key in ("owner", "launched_by") if tags.get(key) == name}
 
         await offboard(identity, name, lambda owner, of: owner == name and of == tenant, disowned)
+        try:
+            await runtime.bridges.offboard(name, created_at, tenant)
+        except Exception:  # noqa: BLE001
+            LOGGER.exception("offboarding %s: couldn't tell linked servers", name)
 
         try:
             # Their own limits are keyed by name: a recreated user mustn't start blocked (or raised).

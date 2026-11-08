@@ -16,7 +16,8 @@ from agent_server.config import Settings
 from agent_server.issuer import create_auth_app
 
 
-QUICKSTART = Path(__file__).resolve().parents[2] / "quickstart"
+ROOT = Path(__file__).resolve().parents[2]
+QUICKSTART = ROOT / "deploy" / "compose" / "quickstart"
 
 
 def module(name):
@@ -121,8 +122,8 @@ def test_compose_resolves_services_and_isolates_machine_storage():
     assert services["auth"]["environment"]["AI_PROXY_AUTH_DATABASE_URL"].startswith("postgresql+psycopg://mesh_auth:")
     for service in ("server", "auth"):
         assert services[service]["depends_on"]["postgres"]["condition"] == "service_healthy"
-    init = (QUICKSTART / "../server/docker/postgres-init.sh").resolve()
-    assert any(str(volume).startswith("../server/docker/postgres-init.sh:") for volume in services["postgres"]["volumes"]) and init.is_file()
+    init = (QUICKSTART / "../../../server/docker/postgres-init.sh").resolve()
+    assert any(str(volume).startswith("../../../server/docker/postgres-init.sh:") for volume in services["postgres"]["volumes"]) and init.is_file()
     # No shared namespaces: Podman can't recreate a container another one shares with.
     # machine-1's start.py relays its loopback 11434 to Ollama instead.
     assert not any("network_mode" in service for service in services.values())
@@ -140,7 +141,7 @@ def test_compose_resolves_services_and_isolates_machine_storage():
             assert dependency in services
     for service in services.values():
         assert "docker.sock" not in str(service.get("volumes", []))
-        # The demo runs the published images; compose.build.yaml builds this checkout's instead.
+        # The quickstart runs the published images; devhelpers/basic builds this checkout's instead.
         assert "build" not in service
     for name in ("server", "auth"):
         assert services[name]["image"] == "${AI_PROXY_IMAGES:-ghcr.io/joeyenfield}/agent-server:${AI_PROXY_IMAGE_TAG:-latest}"
@@ -148,18 +149,161 @@ def test_compose_resolves_services_and_isolates_machine_storage():
         assert services[name]["image"] == "${AI_PROXY_IMAGES:-ghcr.io/joeyenfield}/agent-sandbox:${AI_PROXY_IMAGE_TAG:-latest}"
 
 
-def test_the_build_override_builds_every_published_image_from_the_checkout():
-    compose = yaml.safe_load((QUICKSTART / "compose.yaml").read_text())
-    override = yaml.safe_load((QUICKSTART / "compose.build.yaml").read_text())["services"]
-    published = {name for name, service in compose["services"].items() if "ghcr.io" in service["image"]}
-    assert set(override) == published
-    for name, service in override.items():
-        # Local names, so the published images aren't overwritten by a local build.
-        assert service["image"].startswith("localhost/")
-        root = (QUICKSTART / service["build"]["context"]).resolve()
-        assert (root / service["build"]["dockerfile"]).is_file()
-    root_compose = yaml.safe_load((QUICKSTART / "../compose.yaml").read_text())["services"]
-    root_override = yaml.safe_load((QUICKSTART / "../compose.build.yaml").read_text())["services"]
-    assert set(root_override) == {name for name, service in root_compose.items() if "ghcr.io" in service.get("image", "")}
-    for service in root_override.values():
-        assert "/" not in service["image"] and ((QUICKSTART / "..").resolve() / service["build"]["dockerfile"]).is_file()
+QUICKSTARTS = QUICKSTART.parent
+DEVHELPERS = ROOT / "devhelpers"
+# Each devhelpers stack is a deploy/compose stack built from this checkout.
+PAIRS = {"basic": "quickstart", "allinone": "allinone", "peer": "peer"}
+PUBLISHED = "${AI_PROXY_IMAGES:-ghcr.io/joeyenfield}/"
+
+
+def services_of(folder: Path) -> dict:
+    return yaml.safe_load((folder / "compose.yaml").read_text())["services"]
+
+
+def mounts_resolved(folder: Path, service: dict) -> list:
+    """A service's volumes, with host paths made absolute so two folders' compose files compare."""
+    found = []
+    for volume in service.get("volumes", []):
+        source, rest = str(volume).split(":", 1)
+        found.append(f"{(folder / source).resolve()}:{rest}" if source.startswith(".") else str(volume))
+    return found
+
+
+def test_deploy_stacks_run_only_the_published_images():
+    for name in ("quickstart", "allinone", "peer", "server"):
+        folder = QUICKSTARTS / name
+        for key, service in services_of(folder).items():
+            image = service.get("image", "")
+            if "build" in service:
+                # Only the server's console is built where it runs: it carries its API's address.
+                assert (name, key, service.get("profiles")) == ("server", "console", ["console"]), (name, key)
+                continue
+            if "joeyenfield" in image:
+                assert image.startswith(PUBLISHED) and image.endswith(":${AI_PROXY_IMAGE_TAG:-latest}"), (name, key)
+            if name != "server":
+                assert all(str(port).startswith("127.0.0.1:") for port in service.get("ports", [])), (name, key)
+            for volume in service.get("volumes", []):
+                source = str(volume).split(":", 1)[0]
+                # Every file a stack mounts from the checkout is there (dist/ only once something is built).
+                if source.startswith(".") and not source.endswith("/dist"):
+                    assert (folder / source).resolve().exists(), (name, key, source)
+
+
+def test_devhelpers_stacks_are_the_deploy_stacks_built_from_the_checkout():
+    for dev, deploy in PAIRS.items():
+        built, published = services_of(DEVHELPERS / dev), services_of(QUICKSTARTS / deploy)
+        assert set(built) == set(published), dev
+        for key, service in built.items():
+            original = published[key]
+            if original.get("image", "").startswith(PUBLISHED):
+                # Local names, so a build never overwrites a published image; the context is the root.
+                assert service["image"].startswith("localhost/ai-control-mesh-dev"), (dev, key)
+                assert (DEVHELPERS / dev / service["build"]["context"]).resolve() == ROOT
+                assert (ROOT / service["build"]["dockerfile"]).is_file(), (dev, key)
+            else:
+                assert service["image"] == original["image"] and "build" not in service, (dev, key)
+            assert mounts_resolved(DEVHELPERS / dev, service) == mounts_resolved(QUICKSTARTS / deploy, original), (dev, key)
+            rest = {field: value for field, value in service.items() if field not in ("image", "build", "volumes")}
+            assert rest == {field: value for field, value in original.items() if field not in ("image", "build", "volumes")}, (dev, key)
+        # Their own project names, so a development build never opens the deploy stack's volumes.
+        names = [yaml.safe_load((folder / "compose.yaml").read_text())["name"] for folder in (DEVHELPERS / dev, QUICKSTARTS / deploy)]
+        assert names[0] == names[1].replace("-quickstart", "") + "-dev", names
+
+
+def test_the_server_build_override_builds_its_published_images_from_the_checkout():
+    server = QUICKSTARTS / "server"
+    compose = services_of(server)
+    override = yaml.safe_load((DEVHELPERS / "server" / "compose.build.yaml").read_text())["services"]
+    assert set(override) == {key for key, service in compose.items() if service.get("image", "").startswith(PUBLISHED)}
+    for service in override.values():
+        # Compose reads every file's paths from the first file's folder: deploy/compose/server.
+        assert (server / service["build"]["context"]).resolve() == ROOT
+        assert "/" not in service["image"] and (ROOT / service["build"]["dockerfile"]).is_file()
+
+
+def test_the_peer_quickstart_is_two_servers_that_can_link():
+    services = yaml.safe_load((QUICKSTARTS / "peer" / "compose.yaml").read_text())["services"]
+    assert set(services) == {"postgres-a", "postgres-b", "server-a", "auth-a", "server-b", "auth-b", "laptop-a", "gpu-box", "ollama"}
+    a, b = services["server-a"]["environment"], services["server-b"]["environment"]
+    # Each its own mesh id, published address (by service name, inside the stack), database and issuer.
+    assert (a["AI_PROXY_MESH_ID"], b["AI_PROXY_MESH_ID"]) == ("server-a", "server-b")
+    assert (a["AI_PROXY_MESH_URL"], b["AI_PROXY_MESH_URL"]) == ("http://server-a:9999", "http://server-b:9999")
+    assert "postgres-a" in a["AI_PROXY_DATABASE_URL"] and "postgres-b" in b["AI_PROXY_DATABASE_URL"]
+    assert a["AI_PROXY_OIDC_ISSUER"] != b["AI_PROXY_OIDC_ISSUER"]
+    # Different host names, so one browser keeps both consoles' cookies.
+    assert a["AI_PROXY_OIDC_BROWSER_ORIGINS"].startswith("http://localhost:") and b["AI_PROXY_OIDC_BROWSER_ORIGINS"].startswith("http://127.0.0.1:")
+    # No port is the basic quickstart's or the all-in-one's, so they can run beside it.
+    ports = [port for service in services.values() for port in service.get("ports", [])]
+    assert len(ports) == len(set(ports)) and not any(":19999:" in port or ":20000:" in port for port in ports)
+    # The machines sign in to their own server as the organization's person.
+    assert services["laptop-a"]["environment"]["QUICKSTART_USER"] == "alice" and services["gpu-box"]["environment"]["QUICKSTART_USER"] == "bob"
+    assert "alice" in a["QUICKSTART_ACCOUNTS"] and "bob" in b["QUICKSTART_ACCOUNTS"]
+
+
+def test_the_relay_and_the_sign_in_take_the_peer_quickstarts_addresses(monkeypatch):
+    monkeypatch.setenv("QUICKSTART_AUTH_HOST", "auth-b")
+    monkeypatch.setenv("QUICKSTART_AUTH_PORT", "40000")
+    monkeypatch.setenv("QUICKSTART_API", "http://127.0.0.1:39999")
+    monkeypatch.setenv("QUICKSTART_USER", "bob")
+    start, machine = module("start"), module("machine")
+    assert (start.AUTH_HOST, start.AUTH_PORT, start.SERVER_HOST, start.SERVER_PORT) == ("auth-b", 40000, "server", 19999)
+    assert (machine.API, machine.USER, machine.ISSUER) == ("http://127.0.0.1:39999", "bob", "http://localhost:20000")
+
+
+def test_accounts_name_their_role_and_teams():
+    start = module("start")
+    assert start.account_arguments("acme:alice") == ["agent-server", "user", "add", "alice", "--org", "acme"]
+    assert start.account_arguments("acme:alice:admin:platform+web") == [
+        "agent-server", "user", "add", "alice", "--org", "acme", "--admin", "--team", "platform", "--team", "web",
+    ]
+    assert start.account_arguments("acme:bob:member:") == ["agent-server", "user", "add", "bob", "--org", "acme"]
+    # A role and no teams: no team named after the role.
+    assert start.account_arguments("acme:frank:member") == ["agent-server", "user", "add", "frank", "--org", "acme"]
+    assert start.account_arguments("acme:grace:admin") == ["agent-server", "user", "add", "grace", "--org", "acme", "--admin"]
+
+
+TESTDATA = DEVHELPERS / "testdata"
+
+
+def test_the_test_data_stack_gives_each_organization_a_machine_with_ollama():
+    compose = yaml.safe_load((TESTDATA / "compose.yaml").read_text())
+    services = compose["services"]
+    server = services["server"]["environment"]
+    accounts = [entry.strip().split(":") for entry in server["QUICKSTART_ACCOUNTS"].split(",") if entry.strip()]
+    admins = {entry[1]: entry[0] for entry in accounts if entry[2:3] == ["admin"]}
+    orgs = dict(item.split("=", 1) for item in server["QUICKSTART_ORGS"].split(","))
+    assert {entry[0] for entry in accounts} == set(orgs) and len(orgs) >= 3
+    for org in orgs:
+        machine = services[f"{org}-box"]
+        env = machine["environment"]
+        # Signed in as its organization's admin, who may adopt its Ollama and grant the rest of it access.
+        assert admins[env["QUICKSTART_USER"]] == org
+        assert env["QUICKSTART_OLLAMA"] == "1" and env["QUICKSTART_OLLAMA_HOST"] == f"ollama-{org}"
+        assert f"ollama-{org}" in services and f"ollama-{org}" in machine["depends_on"]
+        assert env["QUICKSTART_MCP"].startswith("toolbox=") and env["QUICKSTART_ADOPT"] == "ollama"
+        assert services[f"pull-{org}"]["environment"]["OLLAMA_HOST"] == f"ollama-{org}:11434"
+        for volume in machine["volumes"]:
+            source = str(volume).split(":", 1)[0]
+            if source.startswith("."):
+                assert (TESTDATA / source).resolve().exists(), source
+    # Development only: built from the checkout under the basic stack's local names, on ports of its own.
+    assert compose["name"].endswith("-dev") and "testdata" not in PAIRS
+    assert all(service.get("image", "").startswith(("localhost/ai-control-mesh-dev", "docker.io/")) for service in services.values())
+    ports = [port for service in services.values() for port in service.get("ports", [])]
+    assert all(port.startswith("127.0.0.1:") for port in ports) and not any(":19999:" in port or ":20000:" in port for port in ports)
+
+
+def test_the_toolbox_mcp_server_lists_and_calls_its_tools():
+    spec = importlib.util.spec_from_file_location("testdata_toolbox", TESTDATA / "mcp_toolbox.py")
+    toolbox = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(toolbox)
+    assert toolbox.answer({"jsonrpc": "2.0", "method": "notifications/initialized"}) is None
+    started = toolbox.answer({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}})
+    assert started["result"]["serverInfo"]["name"] == "toolbox"
+    names = {tool["name"] for tool in toolbox.answer({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})["result"]["tools"]}
+    assert {"now", "echo", "roll_dice", "word_count", "add_note", "list_notes"} <= names
+    echoed = toolbox.answer({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "echo", "arguments": {"text": "hi"}}})
+    assert echoed["result"]["content"][0]["text"] == "hi"
+    counted = toolbox.answer({"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "word_count", "arguments": {"text": "a b\nc"}}})
+    assert counted["result"]["content"][0]["text"].startswith("2 lines, 3 words")
+    assert toolbox.answer({"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "nope"}})["error"]["code"] == -32602

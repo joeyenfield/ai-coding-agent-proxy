@@ -1,6 +1,6 @@
 # Working on this project
 
-Notes for coding agents (and people) changing this repository. `README.md` is the short introduction and `docs/` (start at `docs/index.md`) the user documentation. This file is the entry point for changing the code: the commands, the rules every change follows, and the dev machine. How each component is built lives in `.context/`. `spec.md` is the original design document and is out of date in places.
+Notes for coding agents (and people) changing this repository. `README.md` is the short introduction and `docs/` (start at `docs/index.md`) the user documentation. This file is the entry point for changing the code: the commands, the rules every change follows, and the dev machine. How each component is built lives in `.context/`. Design write-ups go in `docs/`, in the technical overview section (`architecture.md`, `flows.md`, the `*-internals.md` pages), not in separate design or proposal folders.
 
 ## Read `.context/` before you change a component
 
@@ -15,7 +15,7 @@ Notes for coding agents (and people) changing this repository. `README.md` is th
 | `python/` | `.context/python.md`, plus `client.md` or `machine.md`, which it mirrors |
 | `ui/` | `.context/console.md` (pages, data layer, Machine page, checking visually, writing `docs/` pages) |
 | `android/` | `.context/android.md` |
-| `tools/`, `scripts/`, Docker, `deploy/helm/`, `sandbox/`, `allinone/`, `site/`, `quickstart/` | `.context/build-and-deploy.md` (versions, dist, installers and testing them, images, Compose, deploy) |
+| `tools/`, `devhelpers/` (scripts, from-source stacks), Docker, `deploy/` (published-image Compose and Helm), `sandbox/`, `site/` | `.context/build-and-deploy.md` (versions, dist, installers and testing them, images, Compose, deploy) |
 | Sign-in, tokens, roles, tenants, sharing, machine grants, or any new route | `.context/auth.md` |
 
 When a change alters a component's shape (a module, message type, boundary, file on disk or invariant), update its `.context/` file in the same change. Where `.context/` or this file disagree with the code, the code wins: fix the document.
@@ -37,7 +37,7 @@ If nothing needed updating, say so when reporting the change.
 
 A proxy that every coding-agent request goes through. Components live in their own folders and talk **only over HTTP and WebSockets, never by importing each other**:
 
-- **Server** (`server/`, Python, `agent-server`): the hub. API, accounts, recording, routing to providers; owns all configuration and agent definitions, in one database (PostgreSQL in production, SQLite by default). `agent-auth` (`issuer.py`) is its separate OIDC issuer.
+- **Server** (`server/`, Python, `agent-server`): the hub. API, accounts, recording, routing to providers; owns all configuration and agent definitions, in one database (PostgreSQL in production, SQLite by default). `agent-auth` (`issuer.py`) is its separate OIDC issuer. Servers can link with each other (`links.py`, `bridges.py`: peering) and only ever talk to each other server to server.
 - **Console** (`ui/`, React): only calls the server's API; the server serves its build (`ui/dist`).
 - **Client** (`client/`, Go, `agent`): the launcher, `agent login`, and the loopback `agent-proxy` that carries agents' traffic to the server.
 - **Machine** (`machine/`, Go, its own module, `agent-machine`): keeps a computer in the server's fleet and runs every local model server, container and shared MCP server there.
@@ -64,10 +64,15 @@ python/agent_py/       the Python agent, agent-proxy and agent-machine
 ui/src/                the console: api.ts, navigation.ts, pages/, components/, styles.css
 android/               the Android app
 tools/dist/            builds every platform's archives, packages, the wheel and the APK (Go module)
-scripts/               build, dev, deploy and screenshot scripts (.sh/.ps1 pairs); release/ makes a GitHub Release's files
-deploy/helm/agent-mesh/  the Kubernetes chart
-quickstart/  sandbox/  site/   the local demo stack, the sandbox image, the brochure site
-allinone/              the ai-control-mesh image: the whole system in one container, to try it
+deploy/                runs the PUBLISHED images only (deploy/README.md):
+  compose/             quickstart/ (server, issuer, two machines, Ollama; its start.py and machine.py are shared), allinone/ (the
+                       ai-control-mesh image: the whole system in one container), peer/ (two linked servers), server/ (for real use)
+  helm/                agent-mesh/ (the Kubernetes chart), quickstart/ (its values and a machine on a local cluster)
+devhelpers/            for development (devhelpers/README.md): testdata/ (three organizations with people, machines, Ollama and an
+                       MCP server, on :49999), basic/, allinone/, peer/ (the deploy/compose stacks built from this
+                       checkout; allinone/ has the image's Dockerfile), server/ (an override that builds deploy/compose/server),
+                       scripts/ (build, dev, deploy, screenshot, site and release scripts, .sh/.ps1 pairs)
+sandbox/  site/        the sandbox image, the brochure site
 docs/                  user documentation, also served by the console at /help
 .context/              the design of each component (read it first)
 logs/ certs/ dist/ ui/dist/ client/bin/ machine/bin/   runtime output and builds, all gitignored
@@ -78,9 +83,9 @@ logs/ certs/ dist/ ui/dist/ client/bin/ machine/bin/   runtime output and builds
 ```bash
 cd server && pip install -e ".[dev]"     # once; installs agent-server, agent-auth, agent-benchmark
 cd ui && npm install                     # once
-./scripts/build-client.sh  | .\scripts\build-client.ps1    # the client into client/bin
-./scripts/build-machine.sh | .\scripts\build-machine.ps1   # agent-machine into machine/bin
-./scripts/build-dist.sh    | .\scripts\build-dist.ps1      # every platform into dist/<version>/ (PACKAGES=1 / -Packages adds .deb/.rpm/.apk/Arch)
+./devhelpers/scripts/build-client.sh  | .\devhelpers\scripts\build-client.ps1    # the client into client/bin
+./devhelpers/scripts/build-machine.sh | .\devhelpers\scripts\build-machine.ps1   # agent-machine into machine/bin
+./devhelpers/scripts/build-dist.sh    | .\devhelpers\scripts\build-dist.ps1      # every platform into dist/<version>/ (PACKAGES=1 / -Packages adds .deb/.rpm/.apk/Arch)
 
 cd server && python -m pytest -q         # server tests, a SQLite file per test; test_client.py builds the Go programs
 podman run -d --name agent-test-postgres -e POSTGRES_PASSWORD=testpass -p 55432:5432 postgres:17
@@ -89,24 +94,27 @@ cd client && go test ./...               # plus go vet ./... and GOOS=linux go v
 cd machine && go test ./...              # vet for Windows and Linux too
 cd tools && go test ./...
 cd python && python -m pytest -q         # the Python programs against a real agent-server
-python -m pytest -q quickstart/tests     # end to end against the running quickstart (skipped if it's down)
+python -m pytest -q devhelpers/basic/tests     # end to end against the running quickstart (skipped if it's down)
 cd ui && npm run typecheck && npm run build
 helm lint --strict deploy/helm/agent-mesh -f deploy/helm/agent-mesh/ci/<file>.yaml   # and helm template | kubeconform -strict
 
 agent-server                             # API + ui/dist on 0.0.0.0:9999; rebuilds ui/dist first if stale
 agent-server --reload --no-build         # Python auto-reload, skip the UI build
-agent-server local [start|stop|status]   # a whole instance for one person on loopback 19999/20000 (scripts/install-local.sh|.ps1 installs and starts it)
-python scripts/release/release.py --version X.Y.Z --base-url <url>   # a GitHub Release's files and web installers (release.yml runs it on v* tags)
+agent-server local [start|stop|status]   # a whole instance for one person on loopback 19999/20000 (devhelpers/scripts/install-local.sh|.ps1 installs and starts it)
+python devhelpers/scripts/release/release.py --version X.Y.Z --base-url <url>   # a GitHub Release's files and web installers (release.yml runs it on v* tags)
 agent-tray [--status] [--autostart on|off]   # the tray icon (pip install "./python[tray]"); --status prints what it shows
-podman build --http-proxy=false -f allinone/Dockerfile --build-arg AGENTS= -t ai-control-mesh .   # the all-in-one image (AGENTS= skips the npm agents)
+podman build --http-proxy=false -f devhelpers/allinone/Dockerfile --build-arg AGENTS= -t ai-control-mesh .   # the all-in-one image (AGENTS= skips the npm agents)
 agent-server config export|import        # every setting as one YAML document
 agent-server db info|migrate|import      # the database
 agent-server user add <name> --org <org> # accounts (also org, team)
 agent-auth                               # the OIDC issuer on 127.0.0.1:10000
-./scripts/dev.sh | .\scripts\dev.ps1     # API with reload + Vite on :5173
-python scripts/screenshots/demo.py       # self-contained demo on :8199 for visual checks (--capture [names] takes screenshots and stops; --stop stops a leftover)
-docker compose up -d                     # PostgreSQL, agent-auth and the server from ghcr.io
-cd quickstart && podman compose up -d    # the local demo stack (add -f compose.build.yaml --build to try changes)
+./devhelpers/scripts/dev.sh | .\devhelpers\scripts\dev.ps1     # API with reload + Vite on :5173
+python devhelpers/scripts/screenshots/demo.py       # self-contained demo on :8199 for visual checks (--capture [names] takes screenshots and stops; --stop stops a leftover)
+cd deploy/compose/server && docker compose up -d   # PostgreSQL, agent-auth and the server from ghcr.io
+cd deploy/compose/quickstart && podman compose up -d   # the quickstart, from the published images (deploy/README.md)
+cd devhelpers/basic && podman compose up -d --build     # the same stack built from this checkout, to try changes (devhelpers/README.md)
+cd devhelpers/testdata && podman compose up -d --build  # test data: three organizations, people, a machine with Ollama each, an MCP server (:49999)
+cd deploy/compose/peer && podman compose up -d && python3 setup.py   # two linked servers, bridged (peering: docs/peering.md)
 agent login <url>  ·  agent --list  ·  agent qwen . --model <model> --trace [--control]
 ```
 
@@ -121,7 +129,8 @@ agent login <url>  ·  agent --list  ·  agent qwen . --model <model> --trace [-
 - **The agent-proxy signs as its user**: loopback only, Host and Origin checked, `Proxy: nil` on every HTTP client and dialer.
 - **Tests**: follow the component's pattern in its `.context/` file. Never touch the real `logs/agent-server.sqlite3` or `certs/` (`conftest.py` fails a test that does).
 - **Style**: Python with `from __future__ import annotations`, a module docstring, dataclasses and type hints; Go `gofmt`, standard library first, `go.mod` at Go 1.24, built with `GOTOOLCHAIN=local`; comments explain why, not what. UI, README and docs text: plain short sentences, sentence case.
-- **Scripts** come in `.ps1` and `.sh` pairs; change both (except `scripts/start-ollama.sh` and `scripts/https/setup-https.ps1`).
+- **`deploy/` runs only published images; `devhelpers/` builds from source.** A Compose stack goes in `deploy/compose/` with the `ghcr.io` images at `${AI_PROXY_IMAGE_TAG:-latest}`, and its from-source twin in `devhelpers/` (the same file with `build:` and a `-dev` project name; `server/tests/test_quickstart.py` keeps them in step). Developer scripts live in `devhelpers/scripts/`.
+- **Scripts** come in `.ps1` and `.sh` pairs; change both (except `devhelpers/scripts/start-ollama.sh` and `devhelpers/scripts/https/setup-https.ps1`).
 - **Don't write code containing backslash escapes through Bash heredocs**: the tool mangles `\\`, `\n` and `\x1b`. Use the Edit/Write tools.
 
 ## Environment

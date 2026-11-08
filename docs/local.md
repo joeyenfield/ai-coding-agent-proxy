@@ -23,7 +23,7 @@ The installer comes with each [release](https://github.com/joeyenfield/ai-coding
 1. It downloads the server, with its console already built, and checks its SHA-256.
 2. It installs the server into a Python environment of its own (`venv` in the folder below) and starts it with `agent-server local start`.
 3. It downloads `agent` and `agent-machine` for your computer (the Python versions where there's no Go build), checks them, and installs them into `~/.local/bin` (Windows: `%LOCALAPPDATA%\Programs\agent-proxy`, added to your PATH). `agent-server` goes there too.
-4. It signs `agent` and `agent-machine` in to the new server, with launches and files on, and starts the machine. Each sign-in opens your browser: sign in as `admin` with the password it printed, then approve.
+4. It signs `agent` and `agent-machine` in to the new server, with launches and files on, and starts the machine. Each sign-in prints a link and a code: open the link, sign in as `admin` with the password it printed, enter the code and approve.
 
 Then add a folder for the console to start agents in: `agent-machine roots add ~/projects`.
 
@@ -32,7 +32,7 @@ Run it again to update: it stops the server, replaces its files and starts it ag
 | Option (sh, PowerShell) | What it does |
 | --- | --- |
 | `--port N`, `-Port N` and `--auth-port N`, `-AuthPort N` | Other ports for the console and `agent-auth` (default 19999 and 20000). The choice is kept. |
-| `--prefix DIR`, `-Prefix DIR` | Where `agent-server`, `agent` and `agent-machine` go |
+| `--prefix DIR`, `-Prefix DIR` | Where `agent-server`, `agent` and `agent-machine` go. The sh installer's default is `~/.local/bin`, or `/usr/local/bin` when run as root. |
 | `--no-client`, `-NoClient` | Only the server: no `agent` or `agent-machine` |
 | `--no-login`, `-NoLogin` | Don't sign them in; print the commands instead |
 | `--python`, `-Python` | The Python `agent` and `agent-machine` rather than the Go builds. They go into the server's Python environment. It's used anyway on a system without a Go build. |
@@ -70,7 +70,7 @@ To run the code in a checkout (your own changes, say), you need Python 3.11 or l
 ```bash
 git clone <this repository> ai-coding-agent-proxy
 cd ai-coding-agent-proxy
-./scripts/install-local.sh          # Windows: .\scripts\install-local.ps1
+./devhelpers/scripts/install-local.sh          # Windows: .\devhelpers\scripts\install-local.ps1
 ```
 
 The script installs the server, builds what it can and runs `agent-server local start`.
@@ -83,7 +83,7 @@ When the server is ready, either installer prints:
 - the password of the first account, `admin`;
 - the commands that connect this computer to it.
 
-Open the console and sign in as `admin`. Change the password in **Organizations › People › Edit user**, then delete the `first-user-password` file it names.
+Open the console and sign in as `admin`. Change the password in **Organizations › Everyone › Edit user**, then delete the `first-user-password` file it names.
 
 ## Connect your computer
 
@@ -96,7 +96,7 @@ agent-machine roots add ~/projects
 agent-machine start
 ```
 
-Each `login` opens the sign-in page in your browser; approve it there. Then `agent qwen .` (or any agent from `agent --list`) runs an agent through your local server, and the machine shows on the console's **Machines** page. See [Agents](agents.md) and [Machines](machines.md).
+Each `login` prints a link and a code: open the link, sign in, enter the code and approve. Then `agent qwen .` (or any agent from `agent --list`) runs an agent through your local server, and the machine shows on the console's **Machines** page. See [Agents](agents.md) and [Machines](machines.md).
 
 `localhost` is the one name it signs in on. Use `http://localhost:19999`, not `127.0.0.1`, in the browser and the commands.
 

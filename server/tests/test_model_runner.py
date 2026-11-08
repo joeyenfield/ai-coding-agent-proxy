@@ -148,7 +148,7 @@ def test_agents_list_the_backends_their_protocol_can_use(tmp_path):
     anthropic = Backend("anthropic", "https://api.anthropic.com", type="anthropic")
     app, client, old = make_app(tmp_path, lambda request: httpx.Response(404), strata=strata, anthropic=anthropic)
     try:
-        app.state.runtime.agents = lambda: agents
+        app.state.runtime.agents = lambda identity=None: agents
         listed = {agent["id"]: agent["backends"] for agent in client.get("/api/agents").json()}
         assert listed == {"qwen": ["laptop", "docker", "strata"], "aider": ["laptop", "docker"], "hosted": ["anthropic"], "account": []}
         prepared = client.post("/api/agents/aider/sessions", json={"model": "ai/qwen3", "backend": "docker"}).json()

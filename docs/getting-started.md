@@ -44,7 +44,7 @@ Other options:
 
 ### In Docker
 
-`compose.yaml` pulls the project's published images, with the console inside the server's; add `-f compose.build.yaml` to build them from the checkout instead (see [Deployment](deployment.md)). Before the first start, put these in a `.env` file beside it: `AI_PROXY_POSTGRES_PASSWORD`, `AI_PROXY_DB_API_PASSWORD` and `AI_PROXY_DB_AUTH_PASSWORD` (letters and digits), and `AI_PROXY_OIDC_INTROSPECTION_SECRET`. Compose refuses to start without them.
+`deploy/compose/server/compose.yaml` pulls the project's published images, with the console inside the server's; `devhelpers/server/compose.build.yaml` builds them from the checkout instead (see [Deployment](deployment.md)). Run Compose from `deploy/compose/server`. Before the first start, put these in a `.env` file beside it: `AI_PROXY_POSTGRES_PASSWORD`, `AI_PROXY_DB_API_PASSWORD` and `AI_PROXY_DB_AUTH_PASSWORD` (letters and digits), and `AI_PROXY_OIDC_INTROSPECTION_SECRET`. Compose refuses to start without them.
 
 ```bash
 docker compose up -d                  # console on http://<this host>:9999
@@ -116,11 +116,11 @@ irm http://server:9999/install.ps1 | iex                             # Windows
 | `--python` / `-Python` | Install the Python versions instead, on any system with Python 3.9 or later |
 | `--no-tray` / `-NoTray` | Leave out the tray icon, which is otherwise put in on a desktop with Python 3.9 or later |
 
-The installer only works when the server has builds for its version in `dist/<version>/`. Build them on the server's computer with `./scripts/build-dist.sh` (or `.\scripts\build-dist.ps1`), which needs Go. In Docker, compose mounts `./dist` into the container.
+The installer only works when the server has builds for its version in `dist/<version>/`. Build them on the server's computer with `./devhelpers/scripts/build-dist.sh` (or `.\devhelpers\scripts\build-dist.ps1`), which needs Go. In Docker, compose mounts `./dist` into the container.
 
 **From the Downloads page.** The console's **Downloads** page (`/get`) lists the same builds per platform, with their sizes, SHA-256 and the commands to install them. It's public, so a new computer can use it before signing in. Each archive has its own `install.sh` or `install.ps1` that copies the programs onto your `PATH`.
 
-**Building it yourself.** With Go 1.24 or later, `./scripts/build-client.sh` (or `.\scripts\build-client.ps1`) builds `client/bin/agent`. Put it on your `PATH`.
+**Building it yourself.** With Go 1.24 or later, `./devhelpers/scripts/build-client.sh` (or `.\devhelpers\scripts\build-client.ps1`) builds `client/bin/agent`. Put it on your `PATH`.
 
 A computer without a Go build gets the Python port instead: the one-line installer switches to it by itself, or use `--python` (`-Python`) to choose it. It installs the same commands (`agent`, `agent-proxy`, `agent-machine`) from the wheel the server offers, checked against its SHA-256, into an environment of its own. See [Deployment](deployment.md#the-one-line-installers).
 

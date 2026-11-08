@@ -147,7 +147,7 @@ export function DownloadsPage({ standalone = false }: { standalone?: boolean }) 
               the Android app needs the Android SDK and a JDK, and is skipped without them):
             </p>
           </div>
-          <CodeLine text={index.data.hint || "./scripts/build-dist.sh"} onCopy={() => copy(index.data.hint || "./scripts/build-dist.sh", "Command copied")} />
+          <CodeLine text={index.data.hint || "./devhelpers/scripts/build-dist.sh"} onCopy={() => copy(index.data.hint || "./devhelpers/scripts/build-dist.sh", "Command copied")} />
         </div>
       )}
 

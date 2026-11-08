@@ -37,7 +37,13 @@ SHARING_TAGS = ("owner", "visibility", "team", "org", "access", "tenant")
 # the session is the machine's, its owner's, so this is how they get what they started. Clients can't set it,
 # nor mcp: the shared MCP servers the launch was given (mcp.py), which is all the session may reach.
 # provider_account is the subscription the session runs with (provider_accounts.py), checked when it was made.
-SERVER_TAGS = (*SHARING_TAGS, "launched_by", "mcp", "provider_account", "retention")
+# The peering tags (bridges.py) are the server's too: who a guest of a linked server is, over which bridge and
+# link, the backends its launch may use, and which launch on the other server a mirror session follows.
+PEERING_TAGS = (
+    "guest", "guest_name", "bridge", "link", "allowed_backends", "remote_session", "peering",
+    "mirror_link", "mirror_bridge", "mirror_server", "mirror_machine", "mirror_of",
+)
+SERVER_TAGS = (*SHARING_TAGS, "launched_by", "mcp", "provider_account", "retention", *PEERING_TAGS)
 
 
 def sharing(session: Session) -> dict[str, Any]:
@@ -75,6 +81,9 @@ def can_view(identity: Identity | None, session: Session) -> bool:
     if shared["owner"] is None:
         return identity.admin
     if shared["owner"] == identity.user or session.tags.get("launched_by") == identity.user:
+        return True
+    if session.tags.get("guest") and identity.admin:
+        # A guest of a linked server's launch on this organization's machine: its admins see it, as its owner does.
         return True
     if shared["visibility"] == "org":
         return True

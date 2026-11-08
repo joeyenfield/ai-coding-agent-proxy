@@ -91,9 +91,9 @@ internal/update/        `agent update`: the server's downloads index, checking, 
 
 ## Building and testing
 
-Go 1.24 or later. From the repository root, `scripts/build-client.sh` (or
-`.\scripts\build-client.ps1`) builds `client/bin/agent` for this machine.
-`scripts/build-dist.sh` (`.\scripts\build-dist.ps1`, or `--all`/`-All` here) builds it,
+Go 1.24 or later. From the repository root, `devhelpers/scripts/build-client.sh` (or
+`.\devhelpers\scripts\build-client.ps1`) builds `client/bin/agent` for this machine.
+`devhelpers/scripts/build-dist.sh` (`.\devhelpers\scripts\build-dist.ps1`, or `--all`/`-All` here) builds it,
 and agent-machine, for every standard platform into `dist/<version>/<os>-<arch>/`, each archive with
 an installer (`install.sh` or `install.ps1`), and with `PACKAGES=1` native packages too;
 see the main README's Distributions and Installing on a machine sections.

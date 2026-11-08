@@ -99,3 +99,10 @@ def test_provider_sign_ins_are_looked_at_in_the_background_and_kept():
     assert len(cache.current()["clis"]) == 1
     cache.current()
     assert len(looks) == 1
+
+
+def test_a_bridged_agents_full_name_passes_the_launcher_list_as_the_go_one():
+    # An agent another server's organization shares over a bridge: its id is its full name, with "/" in it.
+    assert localproxy.allowed("POST", "/api/agents/agent:server-a/org-a1/agent-a1/sessions")
+    for path in ("/api/agents/a/b/sessions", "/api/agents/agent:server-a/org-a1/x/y/sessions", "/api/agents/agent:a/../config/sessions"):
+        assert not localproxy.allowed("POST", path), path

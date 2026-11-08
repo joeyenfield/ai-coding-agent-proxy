@@ -22,6 +22,11 @@ export interface NavLinkItem {
   siteAdmin?: boolean;
   /** Only admins (of an organization, or site admins) can use it; hidden from members. */
   admin?: boolean;
+  /**
+   * The rail's heading for it, when its part is split under several (the server's pages are:
+   * Traffic, Logs, Admin). Without one, the link sits under its part's own name.
+   */
+  section?: string;
 }
 
 /** A provider with several pages, shown as a label with its pages indented beneath. */
@@ -61,6 +66,8 @@ export const PARTS: Part[] = [
       { to: "/providers", label: "Providers", icon: "server" },
       // People's own AI plans (Claude, Codex, Copilot), apart from their sign-in to the server.
       { to: "/subscriptions", label: "Subscriptions", icon: "key" },
+      // What organizations on linked servers share with yours (bridges): providers, MCP servers, machines.
+      { to: "/shared", label: "Shared with you", icon: "arrows" },
     ],
   },
   {
@@ -81,26 +88,52 @@ export const PARTS: Part[] = [
     label: "Server",
     summary: "The hub: every request agents make passes through it and is recorded, on its way to a machine.",
     items: [
-      { to: "/live", label: "Live", icon: "activity" },
-      { to: "/traffic", label: "Traffic", icon: "arrows" },
-      { to: "/requests", label: "Requests", icon: "list" },
-      { to: "/sessions", label: "Sessions", icon: "layers" },
-      { to: "/server-stats", label: "Server stats", icon: "cpu", siteAdmin: true },
+      // What agents send, as it happens and afterwards.
+      { to: "/live", label: "Live", icon: "activity", section: "Traffic" },
+      { to: "/traffic", label: "Traffic", icon: "arrows", section: "Traffic" },
+      { to: "/requests", label: "Requests", icon: "list", section: "Traffic" },
+      { to: "/sessions", label: "Sessions", icon: "layers", section: "Traffic" },
       // Every HTTP request and WebSocket, the refused ones too: why a machine shows offline.
-      { to: "/access-log", label: "Access log", icon: "list", siteAdmin: true },
+      { to: "/access-log", label: "Access log", icon: "list", siteAdmin: true, section: "Logs" },
       // Every request saved for the request log's days, with payloads in debug mode.
-      { to: "/api-log", label: "API log", icon: "book", siteAdmin: true },
+      { to: "/api-log", label: "API log", icon: "book", siteAdmin: true, section: "Logs" },
       // Who changed what, chained by hash: admins read their organization's, site admins everyone's.
-      { to: "/audit", label: "Audit log", icon: "shield", admin: true },
-      { to: "/settings", label: "Server settings", icon: "settings", siteAdmin: true },
-      { to: "/organization", label: "Organizations", icon: "users" },
+      { to: "/audit", label: "Audit log", icon: "shield", admin: true, section: "Logs" },
+      { to: "/server-stats", label: "Server stats", icon: "cpu", siteAdmin: true, section: "Admin" },
+      { to: "/settings", label: "Server settings", icon: "settings", siteAdmin: true, section: "Admin" },
+      { to: "/organization", label: "Organizations", icon: "users", section: "Admin" },
       // Not /downloads: the server serves the files themselves there.
-      { to: "/get", label: "Downloads", icon: "download" },
+      { to: "/get", label: "Downloads", icon: "download", section: "Admin" },
     ],
   },
 ];
 
 export const isGroup = (item: NavItem): item is NavGroupItem => "items" in item;
+
+/** One heading in the rail and the items under it. `key` stays the same for a heading whatever its label. */
+export interface NavSection {
+  key: string;
+  label: string;
+  /** The part's summary, for the heading's tooltip. */
+  title: string;
+  items: NavItem[];
+}
+
+/**
+ * A part's headings in the rail: its own name, or one per `section` its links name, in order.
+ * Members have no admin pages left under Admin, only their organization and downloads, so it's "More" for them.
+ */
+export function railSections(part: Part, admin: boolean): NavSection[] {
+  const sections: NavSection[] = [];
+  for (const item of part.items) {
+    const name = (!isGroup(item) && item.section) || part.label;
+    const key = `${part.id}:${name.toLowerCase()}`;
+    const last = sections[sections.length - 1];
+    if (last?.key === key) last.items.push(item);
+    else sections.push({ key, label: name === "Admin" && !admin ? "More" : name, title: part.summary, items: [item] });
+  }
+  return sections.filter((section) => section.items.length > 0);
+}
 
 /** Parts by id, whatever their order in the rail (the routing map draws them in the order a request flows). */
 export function partsById(...ids: PartId[]): Part[] {

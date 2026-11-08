@@ -217,6 +217,22 @@ sequenceDiagram
   M-->>S: {"type": "provider_result", "request": r1, "ok": true, …}
 ```
 
+**What a machine reports.** The `hello`, and each `update` after it, carry:
+
+- its id, name, hostname, OS and architecture, version and protocol level;
+- its `address`, when set;
+- which of the server's agents are installed (their executable is on PATH; it asks the server's `/api/agents` for the list);
+- the model servers it found (type, port, version, number of models, and a Strata profile's key);
+- whether it takes launches, its roots, and whether commands and updates are on;
+- `"tunnel": 1`, as it carries agents' traffic to its model servers;
+- whether the `agent` command is installed (`launcher`);
+- containers: whether they're on, the CLI, whether its engine answers, and the engines it can run;
+- servers: whether they're on, and the state of the Ollama, llama.cpp and Strata installed here (for llama.cpp: found, running, started by agent-machine, its port and build, where it came from, and an install's progress);
+- the MCP servers it shares;
+- `accounts`: the provider CLIs here (Claude Code, Codex, Copilot CLI), their versions and whether each is signed in, from `agent accounts detect --json`, looked at every five minutes in the background (never a token; see [Subscriptions](subscriptions.md)).
+
+It also sends an update straight after a launch, after a new look at the provider CLIs and after starting or stopping a model server. It pings every 25 seconds. The server keeps what it learns in its database, apart from Strata keys and the MCP bridge's key, which it keeps in memory only: they stay while a machine that dropped is likely to be back, and its next hello replaces them.
+
 **From the server to the machine:**
 
 | `type` | Asks for | Answered with |
@@ -228,6 +244,7 @@ sequenceDiagram
 | `launch` | Start an agent in one of its launch folders | `launched` with the session id, or `launch_failed` |
 | `shell` | Open a terminal in one of its launch folders | `launched` or `launch_failed` |
 | `folders` | The folders inside a launch folder | `folders_result` |
+| `files` | A folder's listing inside a launch folder, or one file's text, for the file viewer | `files_result` |
 | `update` | Update itself to the server's build | `update_result` |
 
 Each request carries a `request` id (`launch` for launches) that its answer repeats. The server waits for the answer, with a timeout that suits the operation.
@@ -317,7 +334,7 @@ Everything arrives on one port as plain HTTP/1.1, long-lived streams and WebSock
 - **Forward the original `Host`.** The server compares `Origin` with `Host`, or with the explicit `AI_PROXY_CONSOLE_ORIGINS` allowlist for a separately hosted console. It also only treats a request as this computer's when its Host is a loopback name, so a request through the proxy must keep the public name.
 - **Send `X-Forwarded-For`.** The server uses the client's address to decide whether a machine is on its own computer (tunnel or not, which address Ollama listens on). It takes `X-Forwarded-For` only from a proxy on loopback (`127.0.0.1` or `::1`). For a proxy on another host or in another container, set `FORWARDED_ALLOW_IPS` to its address where `agent-server` runs. Otherwise every machine looks like it's at the proxy's address.
 
-`scripts/https/nginx-https.conf.template`, used by `setup-https.ps1`, does all of this; see [Deployment](deployment.md#https).
+`devhelpers/scripts/https/nginx-https.conf.template`, used by `setup-https.ps1`, does all of this; see [Deployment](deployment.md#https).
 
 ## Troubleshooting
 

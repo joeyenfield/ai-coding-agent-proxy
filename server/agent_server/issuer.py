@@ -823,7 +823,7 @@ def create_auth_app(settings: Settings | None = None) -> FastAPI:
     async def oauth_error(request, error):
         return JSONResponse(dict(error.get_body()), status_code=error.status_code)
 
-    # For container healthchecks (compose.yaml, quickstart/); says nothing about accounts.
+    # For container healthchecks (deploy/compose/, the Helm chart); says nothing about accounts.
     @app.get("/health")
     def health():
         return {"status": "ok"}

@@ -13,6 +13,7 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from .. import api_providers, auth, model_runner, strata
+from ..links import LinkDown
 from ..runtime import Runtime, telemetry_headers
 from ..sessions import Session
 from ..telemetry import RequestTelemetry, has_content, parse_json_line
@@ -32,7 +33,7 @@ LOGGER = logging.getLogger("agent-proxy")
 NATIVE_PROFILE_PATHS = {"/api/chat", "/api/generate"}
 # Backends that speak the Anthropic Messages API themselves, so /anthropic/v1/messages passes through
 # (an api backend only when it was declared to: _forward checks its protocols).
-MESSAGES_BACKENDS = {"anthropic", "strata", "docker", "llamacpp", "api"}
+MESSAGES_BACKENDS = {"anthropic", "strata", "docker", "llamacpp", "api", "link"}
 # The native Ollama calls agents make. The rest (pull, delete, create, copy, push, ...) manage a
 # model server, which only its machine does (agent-machine), so the server doesn't forward them.
 NATIVE_AGENT_PATHS = {"chat", "generate", "embed", "embeddings", "tags", "show", "ps", "version"}
@@ -52,9 +53,9 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         session = runtime.sessions.get(session_id or "")
         backend_name = x_ai_proxy_backend or (session.backend if session else None)
         if path == "models" and request.method == "GET":
-            return await _list_models(runtime, request, backend_name)
+            return await _list_models(runtime, request, backend_name, session)
         # Only Ollama needs translating; Strata, Docker Model Runner and llama.cpp take OpenAI requests as they are.
-        if path == "chat/completions" and request.method == "POST" and _backend(runtime, request, backend_name).type == "ollama":
+        if path == "chat/completions" and request.method == "POST" and _backend(runtime, request, backend_name, session).type == "ollama":
             payload = _json(await request.body())
             profile = runtime.settings.profile(payload.get("model") or _session_model(runtime, session_id))
             if profile.translate_openai:
@@ -94,7 +95,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         payload = _json(await request.body())
         session_id = session_id or x_ai_proxy_session
         session = runtime.sessions.get(session_id or "")
-        backend = _backend(runtime, request, x_ai_proxy_backend or (session.backend if session else None))
+        backend = _backend(runtime, request, x_ai_proxy_backend or (session.backend if session else None), session)
         if backend.type in MESSAGES_BACKENDS:
             return await _forward(runtime, request, session_id, "/v1/messages", x_ai_proxy_backend)
         profile = runtime.settings.profile(payload.get("model") or _session_model(runtime, session_id))
@@ -117,7 +118,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
     ):
         session_id = session_id or x_ai_proxy_session
         session = runtime.sessions.get(session_id or "")
-        backend = _backend(runtime, request, x_ai_proxy_backend or (session.backend if session else None))
+        backend = _backend(runtime, request, x_ai_proxy_backend or (session.backend if session else None), session)
         if backend.type in MESSAGES_BACKENDS and (backend.type != "api" or api_providers.speaks(backend, "anthropic")):
             return await _forward(runtime, request, session_id, "/v1/messages/count_tokens", x_ai_proxy_backend)
         return {"input_tokens": estimate_tokens(_json(await request.body()))}
@@ -135,7 +136,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
     ):
         session_id = session_id or x_ai_proxy_session
         session = runtime.sessions.get(session_id or "")
-        backend = _backend(runtime, request, x_ai_proxy_backend or (session.backend if session else None))
+        backend = _backend(runtime, request, x_ai_proxy_backend or (session.backend if session else None), session)
         if backend.type != "anthropic":
             raise HTTPException(status_code=404, detail=f"/{path} is only available with a hosted Anthropic backend")
         return await _forward(runtime, request, session_id, f"/{path}", x_ai_proxy_backend)
@@ -155,8 +156,8 @@ async def _native_chat(
     media_type: str,
 ):
     """Send a translated request to Ollama's /api/chat and translate the reply back."""
-    session = runtime.resolve_session(session_id, original, backend_override, auth.request_identity(request))
-    backend = _backend(runtime, request, backend_override or session.backend)
+    session = _resolve(runtime, request, session_id, original, backend_override)
+    backend = _backend(runtime, request, backend_override or session.backend, session)
     if backend.type != "ollama":
         raise HTTPException(status_code=400, detail="Ollama translation requires an Ollama backend")
     request_id = await runtime.sessions.next_request_id(session)
@@ -333,8 +334,8 @@ async def _forward(
     payload = _json(body)
     original_payload = json.loads(json.dumps(payload))
     identity = auth.request_identity(request)
-    session = runtime.resolve_session(session_id, payload, backend_override, identity) if session_id else None
-    backend = _backend(runtime, request, backend_override or (session.backend if session else None))
+    session = _resolve(runtime, request, session_id, payload, backend_override) if session_id else None
+    backend = _backend(runtime, request, backend_override or (session.backend if session else None), session)
     if backend.type == "anthropic" and "/anthropic/" not in request.url.path:
         raise HTTPException(status_code=400, detail="Anthropic backends are only reachable through the /anthropic endpoints")
     if backend.type in {"strata", "llamacpp", "api"} and upstream_path.startswith("/api/"):
@@ -342,7 +343,7 @@ async def _forward(
         raise HTTPException(status_code=400, detail=f"{name} speaks the OpenAI and Anthropic APIs, not Ollama's native /api. Point the agent at /v1 or /anthropic.")
     protocol = _api_protocol(backend, upstream_path, request.method) if backend.type == "api" else None
     if session is None and (request.method == "GET" or (request.method == "POST" and upstream_path == "/api/show")):
-        client, url, headers, params, extra = await _upstream_for(runtime, request, backend, upstream_path, protocol)
+        client, url, headers, params, extra = await _upstream_for(runtime, request, backend, upstream_path, protocol, body, None)
         try:
             upstream = await client.request(request.method, url, headers=headers, params=params, content=body or None, **extra)
         except httpx.HTTPError as exc:
@@ -373,7 +374,7 @@ async def _forward(
         return refused
     tried = [backend.name]
     while True:
-        client, url, headers, params, extra = await _upstream_for(runtime, request, backend, upstream_path, protocol)
+        client, url, headers, params, extra = await _upstream_for(runtime, request, backend, upstream_path, protocol, body, session)
         started = time.perf_counter()
         try:
             upstream = await client.send(
@@ -465,9 +466,16 @@ def _api_payload(backend: Any, original: dict[str, Any], body: bytes) -> tuple[d
 
 
 async def _upstream_for(
-    runtime: Runtime, request: Request, backend: Any, upstream_path: str, protocol: str | None,
+    runtime: Runtime, request: Request, backend: Any, upstream_path: str, protocol: str | None, body: bytes = b"", session: Session | None = None,
 ) -> tuple[httpx.AsyncClient, str, dict[str, str], Any, dict[str, Any]]:
     """Where a request goes and with what: client, URL, headers, query and request options."""
+    if backend.type == "link":
+        # A provider let in over a bridge: to the server that gives it, signed (bridges.py), as the agent sent it.
+        try:
+            client, url, headers = runtime.bridges.upstream(request, backend, _agent_path(request), body, session)
+        except LinkDown as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return client, url, headers, None, {}
     headers = _upstream_headers(request.headers)
     if backend.type == "api":
         from .api_providers import upstream
@@ -601,8 +609,15 @@ async def _stream_upstream(
         runtime.complete(session, telemetry, request_payload, response_objects, upstream_request)
 
 
-async def _list_models(runtime: Runtime, request: Request, backend_name: str | None) -> JSONResponse:
-    backend = _backend(runtime, request, backend_name)
+async def _list_models(runtime: Runtime, request: Request, backend_name: str | None, session: Session | None = None) -> JSONResponse:
+    backend = _backend(runtime, request, backend_name, session)
+    if backend.type == "link":
+        try:
+            client, url, headers = runtime.bridges.upstream(request, backend, "/v1/models", b"", session)
+            response = await client.get(url, headers=headers)
+            return JSONResponse(response.json(), status_code=response.status_code)
+        except (LinkDown, httpx.HTTPError, ValueError) as exc:
+            raise HTTPException(status_code=502, detail=f"Backend unavailable: {exc}") from exc
     if backend.type == "api":
         return JSONResponse(await _api_model_list(runtime, backend))
     if backend.type == "anthropic":
@@ -658,14 +673,92 @@ def _over_limit(runtime: Runtime, request: Request, session: Session, telemetry:
     return JSONResponse(body, status_code=429, headers=headers)
 
 
-def _backend(runtime: Runtime, request: Request, name: str | None):
+def _backend(runtime: Runtime, request: Request, name: str | None, session: Session | None = None):
     """The backend named (a session's, or X-AI-Proxy-Backend), if it's one the caller's tenant may use:
-    another tenant's model servers look as unknown as ones that don't exist."""
+    another tenant's model servers look as unknown as ones that don't exist.
+
+    A session a guest of a linked server launched here carries the backends it may use, set by the server
+    from the bridge (allowed_backends); only those. A request a peer relayed (relay) has its backend already."""
+    relayed = _relayed(request)
+    if relayed is not None:
+        return relayed["backend"]
     identity = auth.request_identity(request)
+    usable = runtime.fleet.usable_by(identity)
+    allowed = session.tags.get("allowed_backends") if session is not None else None
+    if isinstance(allowed, list):
+        usable = lambda backend: backend.name in allowed  # noqa: E731
     try:
-        return runtime.settings.backend(name, usable=runtime.fleet.usable_by(identity))
+        return runtime.settings.backend(name, usable=usable)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+# Where the giving side of a bridge puts the session and backend of a request a peer relayed (relay).
+RELAYED = "peer_relay"
+
+
+def _relayed(request: Request) -> dict[str, Any] | None:
+    return (request.scope.get("state") or {}).get(RELAYED)
+
+
+def _resolve(runtime: Runtime, request: Request, session_id: str | None, payload: dict[str, Any], backend_override: str | None) -> Session:
+    relayed = _relayed(request)
+    if relayed is not None:
+        return relayed["session"]
+    return runtime.resolve_session(session_id, payload, backend_override, auth.request_identity(request))
+
+
+def _agent_path(request: Request) -> str:
+    """The path as an agent sent it, without its /session/<id>: what the giving server's relay serves."""
+    path = request.url.path
+    if path.startswith("/session/"):
+        path = "/" + path.split("/", 3)[3] if path.count("/") >= 3 else "/"
+    query = request.url.query
+    return path + (f"?{query}" if query else "")
+
+
+async def relay(runtime: Runtime, request: Request, path: str, session: Session, backend: Any) -> Any:
+    """A request a guest of a linked server sent for one of this server's providers (routes/links.py, which
+    checked it): served as compat serves agents, into the bridge session, with the backend already chosen."""
+    request.scope.setdefault("state", {})[RELAYED] = {"session": session, "backend": backend}
+    path = path.lstrip("/")
+    method = request.method
+    if path == "v1/models" and method == "GET":
+        return await _list_models(runtime, request, None, session)
+    if path == "v1/chat/completions" and method == "POST" and backend.type == "ollama":
+        payload = _json(await request.body())
+        profile = runtime.settings.profile(payload.get("model") or session.model or "")
+        if profile.translate_openai:
+            return await _native_chat(
+                runtime, request, session.session_id, None, payload,
+                to_ollama=lambda: openai_to_ollama(payload, profile),
+                full=lambda data: ollama_to_openai(data, payload.get("model", "")),
+                stream=lambda: OpenAIStreamTranslator(payload.get("model", ""), bool((payload.get("stream_options") or {}).get("include_usage"))),
+                error=lambda body, status: {"error": {"message": _error_message(body), "type": "backend_error", "code": status}},
+                media_type="text/event-stream",
+            )
+    if path.startswith("v1/") and method in ("GET", "POST"):
+        return await _forward(runtime, request, session.session_id, "/" + path, None)
+    if path == "anthropic/v1/messages" and method == "POST":
+        if backend.type in MESSAGES_BACKENDS:
+            return await _forward(runtime, request, session.session_id, "/v1/messages", None)
+        payload = _json(await request.body())
+        profile = runtime.settings.profile(payload.get("model") or session.model or "")
+        return await _native_chat(
+            runtime, request, session.session_id, None, payload,
+            to_ollama=lambda: anthropic_to_ollama(payload, profile),
+            full=lambda data: ollama_to_anthropic(data, payload.get("model", "")),
+            stream=lambda: AnthropicStreamTranslator(payload.get("model", "")),
+            error=lambda body, status: {"type": "error", "error": {"type": "api_error", "message": _error_message(body)}},
+            media_type="text/event-stream",
+        )
+    if path == "anthropic/v1/messages/count_tokens" and method == "POST":
+        if backend.type in MESSAGES_BACKENDS and (backend.type != "api" or api_providers.speaks(backend, "anthropic")):
+            return await _forward(runtime, request, session.session_id, "/v1/messages/count_tokens", None)
+        return {"input_tokens": estimate_tokens(_json(await request.body()))}
+    if path.startswith("api/") and path[4:].strip("/") in NATIVE_AGENT_PATHS:
+        return await _forward(runtime, request, session.session_id, "/" + path, None)
+    raise HTTPException(status_code=404, detail=f"/{path} isn't an agent API a bridged provider serves")
 
 
 def _session_model(runtime: Runtime, session_id: str | None) -> str:
@@ -702,8 +795,9 @@ def _error_message(body: Any) -> str:
 
 
 def _upstream_headers(headers: Any) -> dict[str, str]:
-    excluded = {"host", "content-length", "connection", "x-ai-proxy-session", "x-ai-proxy-backend", "x-ai-proxy-token", FINISH_HEADER, "cookie", "origin", "accept-encoding"}
+    excluded = {"host", "content-length", "connection", "x-ai-proxy-session", "x-ai-proxy-backend", "x-ai-proxy-token", FINISH_HEADER, "cookie", "origin", "accept-encoding", "content-digest"}
     if not headers.get("x-ai-proxy-token") and headers.get("authorization", "").lower().startswith("bearer "):
         excluded.add("authorization")
-    return {key: value for key, value in headers.items() if key.lower() not in excluded}
+    # A linked server's signature and assertion (links.py) are for this server, not the provider.
+    return {key: value for key, value in headers.items() if key.lower() not in excluded and not key.lower().startswith("mesh-")}
 

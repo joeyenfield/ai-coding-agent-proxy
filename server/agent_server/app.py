@@ -27,7 +27,7 @@ from .api_providers import ProviderTransport
 from .intercept import InterceptProxy, InterceptTransport
 from .audit import AuditMiddleware
 from .routes import api_providers as api_provider_routes
-from .routes import auth, compat, containers, governance, machines, management, mcp, provider_accounts, providers, proxy, terminals
+from .routes import auth, bridges, compat, containers, governance, links, machines, management, mcp, provider_accounts, providers, proxy, terminals
 from .runtime import LOGGER, Runtime, upstream_client
 from .ui_build import ensure_built
 from .usage_limits import UsageLimits
@@ -90,6 +90,11 @@ def create_app(
             runtime.intercept = InterceptProxy(runtime)
             await runtime.intercept.start()
         tasks = [asyncio.ensure_future(_flush_terminals(runtime)), asyncio.ensure_future(runtime.live.run())]
+        # Links to other servers: the side that dials keeps their sockets open; bridges fetch the other sides'
+        # policies and catalogues, and mirror guests' launches back to where they were started (bridges.py).
+        runtime.links.start()
+        if "fleet" in runtime.roles:
+            runtime.bridges.start()
         if "worker" in runtime.roles:
             # Jobs one process runs at a time (each takes a lease first): retention, audit checkpoints and exports.
             tasks.append(asyncio.ensure_future(runtime.prune_daily()))
@@ -98,6 +103,8 @@ def create_app(
         runtime.draining = True
         for task in tasks:
             task.cancel()
+        await runtime.bridges.close()
+        await runtime.links.close_all()
         if runtime.intercept:
             await runtime.intercept.stop()
         assert runtime.client
@@ -150,6 +157,10 @@ def create_app(
     registered("provider_accounts", provider_accounts.register, runtime)
     registered("providers", providers.register, runtime)
     registered("governance", governance.register, runtime)
+    # Links and bridges (links.py, bridges.py): the site admins', organization admins' and people's routes, and
+    # the routes a linked server calls; before management (/api/agents/{id:path}/sessions) and compat.
+    registered("links", links.register, runtime)
+    registered("bridges", bridges.register, runtime)
     registered("api_providers", api_provider_routes.register, runtime)
     registered("management", management.register, runtime)
     registered("terminals", terminals.register, runtime)
@@ -256,7 +267,7 @@ def _register_downloads(app: FastAPI, downloads: Downloads) -> None:
         """The Android app of the build the server hands out: a short address to type on a phone."""
         app_file = next((item for item in downloads.index()["files"] if item["kind"] == "android"), None)
         if app_file is None:
-            raise HTTPException(status_code=404, detail="This server has no Android app to hand out. Build it with scripts/build-dist.sh (it needs the Android SDK and a JDK).")
+            raise HTTPException(status_code=404, detail="This server has no Android app to hand out. Build it with devhelpers/scripts/build-dist.sh (it needs the Android SDK and a JDK).")
         return RedirectResponse(app_file["url"], status_code=302)
 
     @app.get("/downloads/{wanted}/{path:path}")

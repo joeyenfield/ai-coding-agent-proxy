@@ -29,7 +29,7 @@ Single-node mode refuses to be run twice: without `AI_PROXY_REDIS_URL`, a server
 | `intercept` | Account agents' HTTPS (`WS /api/proxy/tunnel`), decrypted and recorded | CPU |
 | `fleet` | Machines' connections (`WS /api/machines/connect`) and the tunnels they dial back (`WS /api/machines/tunnel/*`) | Connections (`agent_server_fleet_sockets`) |
 | `realtime` | Shared terminals (`/api/terminals/*`) and the live view (`/api/live`) | Viewers |
-| `worker` | Jobs one process runs at a time: retention, usage roll-ups, the audit log's checkpoints and exports; making the first user | (two, for failover) |
+| `worker` | Jobs one process runs at a time: retention (which also prunes old usage counts), the audit log's checkpoints and exports; making the first user | (two, for failover) |
 
 Every role answers `/health`, `/ready` and its internal port. A route a process doesn't serve answers 404, so the load balancer must send each path to a process that serves it (see [Routing](#routing)).
 
@@ -65,6 +65,7 @@ flowchart LR
 - **Launch grants** for subscriptions are shared keys, and handing a Copilot token over is claimed once, whichever process is asked.
 - **Settings**: a change on one process is announced; every process reads the stored settings again. The listen address still needs a restart (a rollout).
 - **Jobs** (retention, audit checkpoints and exports) take a lease in Redis first, so one process runs each at a time.
+- **Links to other servers** ([Peering](peering.md)): one `fleet` process dials each link's socket, under a lease; any process sends signed requests to a linked server it can reach directly, and nonces are shared keys, so a replay is refused whichever process it reaches. Policy changes are announced to every process. A linked server that can't be reached directly is reached only from the process holding its socket: requests from other processes to it answer `503` for now.
 
 With several processes, the console lists sessions active in the last 30 days (`AI_PROXY_SESSION_LIST_DAYS`); older ones are still found by id. The status page's in-flight requests are the answering process's; the live view shows every process's.
 
@@ -115,9 +116,9 @@ Send each path to a process with its role. The Helm chart writes this table into
 
 | Path | Role |
 | --- | --- |
-| `/v1/*`, `/anthropic/*`, `/session/*` | gateway (`/session/*/mcp/*` to mcp, when it runs apart) |
+| `/v1/*`, `/anthropic/*`, `/session/*`, agents' bare Ollama calls (`/api/chat`, `/api/generate`, `/api/embed`, `/api/embeddings`, `/api/tags`, `/api/show`, `/api/ps`, `/api/version`), and a linked server's relayed calls (`/api/links/relay/provider/*`, `/api/links/relay/mcp/*`) | gateway (`/session/*/mcp/*` to mcp, when it runs apart) |
 | `/api/proxy/tunnel` | intercept |
-| `/api/machines/connect`, `/api/machines/tunnel/*` | fleet |
+| `/api/machines/connect`, `/api/machines/tunnel/*`, `/api/links/connect` (a linked server's socket) | fleet |
 | `/api/terminals/*`, `/api/live`, `/api/live/*`, `/api/remote*` | realtime |
 | Everything else (`/api/*`, `/health`, `/ready`, `/docs`, `/openapi.json`, `/downloads/*`, `/install.*`, `/help-files/*`, the console) | api |
 

@@ -39,7 +39,7 @@ with its size and SHA-256.
 
 ## Building
 
-`scripts/build-dist.sh` (`.\scripts\build-dist.ps1`) builds the APK with everything else,
+`devhelpers/scripts/build-dist.sh` (`.\devhelpers\scripts\build-dist.ps1`) builds the APK with everything else,
 into `dist/<version>/android/`, when it finds the SDK and a JDK; the server then offers
 it on its Downloads page. The app's version is the project's (`../VERSION`), or the build's
 own when tools/dist passes `-PappVersion=0.4.0+56458f9`; `versionCode` comes from its

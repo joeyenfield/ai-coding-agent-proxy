@@ -34,4 +34,4 @@ monitoring:
   serviceMonitor: {enabled: true}
   prometheusRule: {enabled: true}
 retention:
-  traces_days: 30
+  days: {traces: 30}

@@ -4,6 +4,8 @@ The quickest way to try AI Control Mesh. One command starts a complete stack in 
 
 It runs only on your computer (every port is on `localhost`), uses a known demo password, and doesn't touch your projects, your Docker socket or your checkout's settings. To try the Helm chart instead, see [Quickstart on Kubernetes](quickstart-kubernetes.md). For a real install, follow [Getting started](getting-started.md).
 
+This is `deploy/compose/quickstart/`, one of three in [`deploy/compose/`](../deploy/compose/README.md): `deploy/compose/allinone/` runs the whole system in one container, and `deploy/compose/peer/` two linked servers ([Peering](peering.md#try-it)).
+
 ## What you get
 
 ```mermaid
@@ -42,20 +44,20 @@ You need:
 From the repository root:
 
 ```bash
-podman compose -f quickstart/compose.yaml up -d
-podman compose -f quickstart/compose.yaml ps      # all six services say healthy (the machines take half a minute longer)
+podman compose -f deploy/compose/quickstart/compose.yaml up -d
+podman compose -f deploy/compose/quickstart/compose.yaml ps      # all six services say healthy (the machines take half a minute longer)
 ```
 
 The first start downloads about 1 GB of images, most of it the machines' coding agents, so it takes a few minutes. Later starts take seconds.
 
-- **Another version.** The images are the newest build of master (`latest`). Set `AI_PROXY_IMAGE_TAG` to a release (`2.1.20`) or a commit of master (`sha-<commit>`), in your shell or a `.env` file beside `quickstart/compose.yaml`.
-- **Your own changes.** Add `-f quickstart/compose.build.yaml` and `--build` to build the server, the console, the Go programs and the coding agents from your checkout. The first build takes several minutes. Leave the file out to go back to the published images.
-- **A GPU.** Add `-f quickstart/compose.gpu.yaml` to give Ollama your NVIDIA GPUs, every time you start the stack (with only `compose.yaml`, Ollama is recreated on CPU). Podman needs your GPU by its CDI name: check with `podman run --rm --device nvidia.com/gpu=all docker.io/library/ubuntu:24.04 nvidia-smi`, and if it doesn't print your card, run `podman machine ssh "sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml"` (again after a driver update). [The quickstart's README](../quickstart/README.md#use-a-gpu) has the details.
+- **Another version.** The images are the newest build of master (`latest`). Set `AI_PROXY_IMAGE_TAG` to a release (`2.1.20`) or a commit of master (`sha-<commit>`), in your shell or a `.env` file beside `deploy/compose/quickstart/compose.yaml`.
+- **Your own changes.** `devhelpers/basic` is the same stack built from your checkout: the server, the console, the Go programs and the coding agents. Run `podman compose up -d --build` in that folder instead (the first build takes several minutes), and stop this one first: they use the same ports. See [Developer helpers](../devhelpers/README.md).
+- **A GPU.** Add `-f deploy/compose/quickstart/compose.gpu.yaml` to give Ollama your NVIDIA GPUs, every time you start the stack (with only `compose.yaml`, Ollama is recreated on CPU). Podman needs your GPU by its CDI name: check with `podman run --rm --device nvidia.com/gpu=all docker.io/library/ubuntu:24.04 nvidia-smi`, and if it doesn't print your card, run `podman machine ssh "sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml"` (again after a driver update). [The quickstart's README](../deploy/compose/quickstart/README.md#use-a-gpu) has the details.
 - **Another password.** Set `QUICKSTART_ADMIN_PASSWORD` the same way before the first start.
 
 ## Try it, step by step
 
-Every picture below is the real quickstart, started fresh with the command above on a Windows computer with Podman, on the CPU only. Nothing was set up by hand beforehand. The steps take about ten minutes, most of it the model download and the model's first answer. `node scripts/screenshots/quickstart-steps.mjs` takes these pictures again on a fresh quickstart.
+Every picture below is the real quickstart, started fresh with the command above on a Windows computer with Podman, on the CPU only. Nothing was set up by hand beforehand. The steps take about ten minutes, most of it the model download and the model's first answer. `node devhelpers/scripts/screenshots/quickstart-steps.mjs` takes these pictures again on a fresh quickstart.
 
 ### 1. Sign in
 
@@ -131,21 +133,21 @@ From here:
 Then try the rest:
 
 - **A terminal on a machine**: machine-2's **Terminal** tab, **Open a terminal**. A real shell in `/workspace` that only you can see.
-- **The command line**: `podman compose -f quickstart/compose.yaml exec machine-2 agent --list` lists the agents and whether each is installed; `... exec machine-2 sh` gives you a shell to run `agent opencode /workspace --model <model> --control` yourself.
+- **The command line**: `podman compose -f deploy/compose/quickstart/compose.yaml exec machine-2 agent --list` lists the agents and whether each is installed; `... exec machine-2 sh` gives you a shell to run `agent opencode /workspace --model <model> --control` yourself.
 - **Another person**: **Organizations** adds users, organizations and teams. Share a session with a team on its row in **Sessions**, then sign in as that user in a private window.
 - **Machine access**: machine-1's **Access** tab lets an organization or team start agents, open terminals or use its models.
 - **Approving a device**: **Machines › Approve a device** approves another computer's `agent login` code with your console sign-in.
 - **Server settings**: the providers, the agents the server can launch (an edit applies to the next launch), Ollama's model tuning, and how long recordings are kept.
-- **The stored settings and the database**: `podman compose -f quickstart/compose.yaml exec server agent-server config export`, and `... exec postgres psql -U postgres mesh`.
+- **The stored settings and the database**: `podman compose -f deploy/compose/quickstart/compose.yaml exec server agent-server config export`, and `... exec postgres psql -U postgres mesh`.
 
 ## Stop, reset and troubleshoot
 
 ```bash
-podman compose -f quickstart/compose.yaml stop          # stop, keeping everything
-podman compose -f quickstart/compose.yaml up -d         # start again
-podman compose -f quickstart/compose.yaml pull          # a newer release's images; then up -d, keeping everything
-podman compose -f quickstart/compose.yaml logs -f server auth machine-1
-podman compose -f quickstart/compose.yaml down -v       # delete ALL of it, models and workspaces included
+podman compose -f deploy/compose/quickstart/compose.yaml stop          # stop, keeping everything
+podman compose -f deploy/compose/quickstart/compose.yaml up -d         # start again
+podman compose -f deploy/compose/quickstart/compose.yaml pull          # a newer release's images; then up -d, keeping everything
+podman compose -f deploy/compose/quickstart/compose.yaml logs -f server auth machine-1
+podman compose -f deploy/compose/quickstart/compose.yaml down -v       # delete ALL of it, models and workspaces included
 ```
 
 Everything lives in named volumes: the database (settings, accounts, recordings, sign-ins), the server's log, both machines' home folders and workspaces, and Ollama's models. They survive new images and rebuilds. Changing the admin password signs both machines out: reset with `down -v`, or sign their programs in again.
@@ -154,14 +156,14 @@ Everything lives in named volumes: the database (settings, accounts, recordings,
 | --- | --- |
 | `localhost:19999` doesn't answer (Podman on Windows) | Use a rootless Podman machine, Podman's default: `podman machine stop`, `podman machine set --rootful=false`, `podman machine start`, then start the stack again. |
 | Sign-in fails, or says the address isn't allowed | Use `http://localhost:19999`, not `127.0.0.1` or your computer's name. |
-| A machine stays `starting` | `podman compose -f quickstart/compose.yaml logs machine-1`. It waits for the server and the sign-in service to be healthy first. |
-| Too many sign-in attempts | The sign-in service allows 10 password attempts per address in 10 minutes: wait, or `podman compose -f quickstart/compose.yaml restart auth`. |
+| A machine stays `starting` | `podman compose -f deploy/compose/quickstart/compose.yaml logs machine-1`. It waits for the server and the sign-in service to be healthy first. |
+| Too many sign-in attempts | The sign-in service allows 10 password attempts per address in 10 minutes: wait, or `podman compose -f deploy/compose/quickstart/compose.yaml restart auth`. |
 | No model to choose when starting an agent | Add machine-1's Ollama as a provider and pull a model (steps 3 and 4). |
 | The agent is very slow | It's running on CPU: pull a smaller model. |
 | Building from your checkout fails with `checking context: can't stat` | Use the checkout's current `.dockerignore`, which leaves out generated folders. |
 | `nftables` errors before containers start (Windows) | Update WSL (`wsl --update`) and restart it. |
 
-`quickstart/README.md` has the details behind each of these, and how the stack's local sign-in works.
+`deploy/compose/quickstart/README.md` has the details behind each of these, and how the stack's local sign-in works.
 
 ## From the quickstart to a real install
 

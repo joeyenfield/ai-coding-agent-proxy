@@ -102,5 +102,7 @@ With `--account`, the session request names the provider account; when the answe
 
 ## Gotchas
 
+- An agent another server's organization shares over a bridge has its full name as its id (`agent:server/org/name`). The launcher escapes it (`url.PathEscape`), and `localproxy.LauncherAPI` allows that one shape of id with slashes in it; the server's route takes `{agent_id:path}`. `--backend` and `--mcp` pass full names through as they are: the server resolves them.
+
 - Unknown flags (typos included) are passed to the agent silently.
 - `agent proxy` reports `Program="agent"`; only the standalone binary says `agent-proxy` in its User-Agent.

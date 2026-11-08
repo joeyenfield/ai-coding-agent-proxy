@@ -13,6 +13,7 @@ export const DOC_SECTIONS: { title: string; pages: { id: string; label: string }
     title: "Start here",
     pages: [
       { id: "index", label: "Overview" },
+      { id: "how-it-works", label: "How it works" },
       { id: "local", label: "On your own computer" },
       { id: "quickstart", label: "Quickstart: Docker or Podman" },
       { id: "quickstart-kubernetes", label: "Quickstart: Kubernetes" },
@@ -34,6 +35,7 @@ export const DOC_SECTIONS: { title: string; pages: { id: string; label: string }
     title: "People and data",
     pages: [
       { id: "accounts", label: "Accounts and sharing" },
+      { id: "peering", label: "Peering" },
       { id: "usage-limits", label: "Usage limits" },
       { id: "retention", label: "Retention" },
       { id: "audit", label: "Audit log" },
@@ -50,10 +52,14 @@ export const DOC_SECTIONS: { title: string; pages: { id: string; label: string }
     ],
   },
   {
-    title: "How it works",
+    title: "Technical overview",
     pages: [
       { id: "architecture", label: "Architecture" },
+      { id: "flows", label: "Flows" },
       { id: "networking", label: "Networking and protocols" },
+      { id: "peering-internals", label: "Peering internals" },
+      { id: "scaling-internals", label: "Scaling internals" },
+      { id: "local-internals", label: "Local instance internals" },
       { id: "api", label: "API" },
     ],
   },

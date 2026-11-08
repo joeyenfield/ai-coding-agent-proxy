@@ -463,6 +463,10 @@ export interface Agent {
   mcp?: boolean;
   /** For account agents: the kind of provider account (subscription) it runs with. */
   subscription?: SubscriptionProvider | null;
+  /** The organization whose definition it is; null for the server's own. */
+  org?: string | null;
+  /** Set when another server's organization shares it over a bridge (its id is then its full name). */
+  bridge?: string | null;
 }
 
 /** The kinds of subscription (provider_accounts.PROVIDERS on the server). */
@@ -913,7 +917,8 @@ export interface DownloadIndex {
 export type MachineFeature = "view" | "launch" | "terminal" | "files" | "models" | "servers" | "update" | "mcp";
 
 /** Who may use each feature besides its owner: organizations and teams (<org>/<team>). */
-export type MachineAccess = Partial<Record<MachineFeature, { orgs: string[]; teams: string[] }>>;
+/** bridges: bridges (to an organization on a linked server) the owner lets use launch, terminal or mcp. */
+export type MachineAccess = Partial<Record<MachineFeature, { orgs: string[]; teams: string[]; bridges?: string[] }>>;
 
 /** A machine taken out of the fleet: refused when it connects, until allowed back. */
 export interface RemovedMachine {
@@ -2506,6 +2511,48 @@ export const api = {
     request<OrgUsage>(`/api/orgs/${encodeURIComponent(org)}/limits`, { method: "PUT", body: JSON.stringify(limit) }),
   removeUsageLimit: (org: string, limit: Pick<UsageLimit, "user" | "provider" | "window">) =>
     request<OrgUsage>(`/api/orgs/${encodeURIComponent(org)}/limits?${new URLSearchParams(limit)}`, { method: "DELETE" }),
+  // Links between servers (site admins) and bridges between organizations (their admins); see the peering types below.
+  links: () => request<LinksReport>("/api/links"),
+  setMeshId: (id: string) => request<LinksReport>("/api/links/mesh", { method: "PUT", body: JSON.stringify({ id }) }),
+  linkCode: () => request<LinkCode>("/api/links/codes", { method: "POST", body: "{}" }),
+  inspectLink: (url: string) => request<LinkPeer>("/api/links/inspect", { method: "POST", body: JSON.stringify({ url }) }),
+  joinLink: (join: { url?: string; link?: string; code: string; fingerprint?: string }) =>
+    request<LinkInfo>("/api/links/join", { method: "POST", body: JSON.stringify(join) }),
+  link: (id: string) => request<LinkDetail>(`/api/links/${encodeURIComponent(id)}`),
+  setLinkPolicy: (id: string, policy: { out: string[]; in: string[]; orgs: string[] }) =>
+    request<LinkPolicy>(`/api/links/${encodeURIComponent(id)}/policy`, { method: "PUT", body: JSON.stringify(policy) }),
+  linkAction: (id: string, action: "pause" | "resume") =>
+    request<LinkInfo>(`/api/links/${encodeURIComponent(id)}/${action}`, { method: "POST", body: "{}" }),
+  removeLink: (id: string) => request<{ removed: boolean }>(`/api/links/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  rotateLinkKey: () => request<LinksReport>("/api/links/keys/rotate", { method: "POST", body: "{}" }),
+  orgBridges: (org: string) => request<OrgBridges>(`/api/orgs/${encodeURIComponent(org)}/bridges`),
+  bridgeCode: (org: string, link: string) =>
+    request<BridgeCode>(`/api/orgs/${encodeURIComponent(org)}/bridges/codes`, { method: "POST", body: JSON.stringify({ link }) }),
+  inspectBridge: (org: string, link: string, code: string) =>
+    request<{ org: string; name: string; server: string }>(`/api/orgs/${encodeURIComponent(org)}/bridges/inspect`, {
+      method: "POST", body: JSON.stringify({ link, code }),
+    }),
+  joinBridge: (org: string, join: { link: string; code: string; peer_org: string }) =>
+    request<BridgeInfo>(`/api/orgs/${encodeURIComponent(org)}/bridges/join`, { method: "POST", body: JSON.stringify(join) }),
+  bridge: (org: string, id: string) => request<BridgeDetail>(`/api/orgs/${encodeURIComponent(org)}/bridges/${encodeURIComponent(id)}`),
+  setBridgePolicy: (org: string, id: string, policy: { out: BridgeItem[]; in: BridgeItem[] }) =>
+    request<BridgeInfo>(`/api/orgs/${encodeURIComponent(org)}/bridges/${encodeURIComponent(id)}/policy`, { method: "PUT", body: JSON.stringify(policy) }),
+  bridgeAction: (org: string, id: string, action: "pause" | "resume" | "refresh") =>
+    request<BridgeInfo>(`/api/orgs/${encodeURIComponent(org)}/bridges/${encodeURIComponent(id)}/${action}`, { method: "POST", body: "{}" }),
+  endBridge: (org: string, id: string) =>
+    request<{ ended: boolean }>(`/api/orgs/${encodeURIComponent(org)}/bridges/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  setBridgeLimit: (org: string, id: string, limit: { provider: string; window: UsageWindow; tokens: number }) =>
+    request<UsageLimit>(`/api/orgs/${encodeURIComponent(org)}/bridges/${encodeURIComponent(id)}/limits`, { method: "PUT", body: JSON.stringify(limit) }),
+  removeBridgeLimit: (org: string, id: string, provider: string, window: UsageWindow) =>
+    request<{ removed: boolean }>(
+      `/api/orgs/${encodeURIComponent(org)}/bridges/${encodeURIComponent(id)}/limits?${new URLSearchParams({ provider, window })}`,
+      { method: "DELETE" },
+    ),
+  peerResources: () => request<PeerResources>("/api/peer/resources"),
+  peerFolders: (machine: string, path = "") =>
+    request<MachineFolders>(`/api/peer/folders?${new URLSearchParams(path ? { machine, path } : { machine })}`),
+  peerLaunch: (launch: { machine: string; agent: string; project: string; model?: string; backend?: string; mcp?: string[] }) =>
+    request<{ session_id: string; remote_session: string; backend: string }>("/api/peer/launch", { method: "POST", body: JSON.stringify(launch) }),
   addOrg: (id: string, name: string) => request<Directory>("/api/orgs", { method: "POST", body: JSON.stringify({ id, name }) }),
   renameOrg: (id: string, name: string) => request<Directory>(`/api/orgs/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ name }) }),
   removeOrg: (id: string) => request<Directory>(`/api/orgs/${encodeURIComponent(id)}`, { method: "DELETE" }),
@@ -2918,3 +2965,145 @@ export const fetchLiveDetails = (sessionId: string, requestId: string) =>
     }
     return response.json() as Promise<LiveDetails>;
   });
+
+// Peering: links between servers and bridges between organizations (server: links.py, bridges.py).
+
+/** What a link policy lets out or in, by kind. */
+export const LINK_KINDS = ["provider", "mcp", "agent", "launch", "terminal"] as const;
+export type LinkKind = (typeof LINK_KINDS)[number];
+
+export interface LinkKey {
+  kid: string;
+  fingerprint: string;
+  until: number | null;
+}
+
+export interface LinkInfo {
+  id: string;
+  peer: string;
+  url: string;
+  state: "pending" | "active" | "paused";
+  connected: boolean;
+  we_presented: boolean;
+  they_presented: boolean;
+  /** This side dials the link socket (it reached the other while joining). */
+  dials: boolean;
+  /** This side's code waits for the other to dial in (it couldn't be reached from here). */
+  waiting: boolean;
+  fingerprint: string | null;
+  keys: LinkKey[];
+  created_at: number;
+  updated_at: number;
+}
+
+export interface LinksReport {
+  mesh: { id: string | null; url: string; fingerprint: string; link_protocol: number; keys: LinkKey[] };
+  links: LinkInfo[];
+}
+
+export interface LinkCode {
+  code: string;
+  expires_at: number;
+  mesh_id: string;
+  url: string;
+  fingerprint: string;
+}
+
+export interface LinkPeer {
+  mesh_id: string;
+  url: string;
+  fingerprint: string;
+  link_protocol: number;
+}
+
+export interface LinkPolicy {
+  out: LinkKind[];
+  in: LinkKind[];
+  orgs: string[];
+  version?: number;
+}
+
+export interface LinkDetail extends LinkInfo {
+  policy: LinkPolicy;
+  peer_policy: LinkPolicy;
+  bridges: BridgeInfo[];
+}
+
+/** One thing a bridge policy lets out or in. scope "home": only for its own people's launches on the other server. */
+export interface BridgeItem {
+  kind: LinkKind;
+  name?: string;
+  machine?: string;
+  digest?: string;
+  scope?: "home" | null;
+  teams?: string[];
+}
+
+export interface BridgeCatalogue {
+  server?: string;
+  org?: string;
+  providers?: { name: string; type: string; scope?: string | null; protocols: string[]; models: string[]; connected: boolean }[];
+  mcp?: { machine: string; name: string; description?: string; scope?: string | null; connected: boolean }[];
+  agents?: { name: string; digest: string }[];
+  machines?: { name: string; connected: boolean; os?: string; functions: LinkKind[]; agents: string[]; roots: string[]; launches?: boolean }[];
+}
+
+export interface BridgeInfo {
+  id: string;
+  link: string;
+  server: string | null;
+  org: string;
+  peer_org: string;
+  state: "pending" | "active" | "paused";
+  we_confirmed: boolean;
+  they_confirmed: boolean;
+  link_state: string;
+  connected: boolean;
+  policy: { out: BridgeItem[]; in: BridgeItem[]; version?: number | null };
+  peer_policy: { out: BridgeItem[]; in: BridgeItem[]; version?: number | null };
+  crossing: { out: BridgeItem[]; in: BridgeItem[] };
+  catalogue: BridgeCatalogue;
+  refreshed_at?: number | null;
+  link_policy: { local: Partial<LinkPolicy>; peer: Partial<LinkPolicy> };
+}
+
+export interface BridgeDetail extends BridgeInfo {
+  limits: UsageLimit[];
+  shareable: {
+    providers: { name: string; type: string }[];
+    agents: { name: string; display: string }[];
+    machines: { name: string; id: string; granted: string[]; connected: boolean; mcp: string[] }[];
+  };
+}
+
+export interface OrgBridges {
+  bridges: BridgeInfo[];
+  links: { id: string; server: string; connected: boolean; lets_out: LinkKind[]; lets_in: LinkKind[] }[];
+  codes: { id: string; link: string | null; expires_at: number; created_by: string | null }[];
+  mesh_id: string | null;
+}
+
+export interface BridgeCode {
+  code: string;
+  expires_at: number;
+  org: string;
+  server: string;
+}
+
+/** What other servers' organizations let in for you, each under its full name (id). */
+export interface PeerResources {
+  providers: { id: string; name: string; type: string; protocols: string[]; models: string[]; connected: boolean; bridge: string }[];
+  mcp: { id: string; machine: string; name: string; description?: string; connected: boolean; bridge: string }[];
+  agents: { id: string; name: string; digest: string; bridge: string }[];
+  machines: {
+    id: string;
+    name: string;
+    connected: boolean;
+    os?: string;
+    functions: LinkKind[];
+    agents: string[];
+    roots: string[];
+    launches?: boolean;
+    bridge: string;
+  }[];
+}

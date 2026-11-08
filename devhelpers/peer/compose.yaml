@@ -1,0 +1,262 @@
+# The peer quickstart built from this checkout, to try changes: from devhelpers/peer,
+#   podman compose up -d --build
+#   python3 ../../deploy/compose/peer/setup.py
+# The same stack as deploy/compose/peer (two linked servers, a machine each) and its README;
+# server/tests/test_quickstart.py keeps the two in step.
+#
+# Every image builds from this checkout (no published ones), under local names that devhelpers/basic,
+# peer and allinone share. `up -d --build` rebuilds after a change; their version says <VERSION>+unknown,
+# as the build has no git. Its own project name keeps its volumes apart from the deploy stack's; both
+# use the same host ports, so run one at a time.
+#
+# alice, carol and bob sign in with peer-demo (QUICKSTART_PEOPLE_PASSWORD; at least 8 characters), each
+# server's site admin as admin / secret (QUICKSTART_ADMIN_PASSWORD).
+#
+#   server-a  http://localhost:29999   (its issuer on :30000)  organization acme: alice (admin), carol
+#             laptop-a, a machine signed in as alice
+#   server-b  http://127.0.0.1:39999   (its issuer on :40000)  organization globex: bob (admin)
+#             gpu-box, a machine signed in as bob, with Ollama
+#
+# The two consoles use different host names (localhost and 127.0.0.1) so one browser keeps both
+# sign-ins: cookies don't tell ports apart. Inside the stack the servers reach each other by name
+# (AI_PROXY_MESH_URL), which is the address each publishes to the other.
+#
+name: ai-control-mesh-peer-dev
+
+x-auth-a: &auth-a
+  AI_PROXY_OIDC_ISSUER: http://localhost:30000
+  AI_PROXY_OIDC_AUDIENCE: http://localhost:29999
+  AI_PROXY_OIDC_REDIRECT_URIS: http://localhost:29999/api/auth/callback
+  AI_PROXY_OIDC_BROWSER_ORIGINS: http://localhost:29999
+  AI_PROXY_OIDC_INTROSPECTION_SECRET: peer-a-local-introspection-secret
+  AI_PROXY_USERNAME: admin
+  AI_PROXY_PASSWORD: ${QUICKSTART_ADMIN_PASSWORD:-secret}
+  QUICKSTART_AUTH_HOST: auth-a
+  QUICKSTART_AUTH_PORT: "30000"
+  QUICKSTART_SERVER_HOST: server-a
+  QUICKSTART_SERVER_PORT: "29999"
+
+x-auth-b: &auth-b
+  AI_PROXY_OIDC_ISSUER: http://127.0.0.1:40000
+  AI_PROXY_OIDC_AUDIENCE: http://127.0.0.1:39999
+  AI_PROXY_OIDC_REDIRECT_URIS: http://127.0.0.1:39999/api/auth/callback
+  AI_PROXY_OIDC_BROWSER_ORIGINS: http://127.0.0.1:39999
+  AI_PROXY_OIDC_INTROSPECTION_SECRET: peer-b-local-introspection-secret
+  AI_PROXY_USERNAME: admin
+  AI_PROXY_PASSWORD: ${QUICKSTART_ADMIN_PASSWORD:-secret}
+  QUICKSTART_AUTH_HOST: auth-b
+  QUICKSTART_AUTH_PORT: "40000"
+  QUICKSTART_SERVER_HOST: server-b
+  QUICKSTART_SERVER_PORT: "39999"
+
+x-postgres: &postgres
+  image: docker.io/library/postgres:17
+  restart: unless-stopped
+  environment:
+    POSTGRES_DB: mesh
+    POSTGRES_PASSWORD: peer-postgres
+    AI_PROXY_DB_API_PASSWORD: peerapi
+    AI_PROXY_DB_AUTH_PASSWORD: peerauth
+  healthcheck:
+    test: [CMD, pg_isready, -U, postgres, -d, mesh]
+    interval: 5s
+    timeout: 4s
+    retries: 20
+
+x-server: &server
+  image: localhost/ai-control-mesh-dev-server
+  build:
+    context: ../..
+    dockerfile: server/Dockerfile
+  restart: unless-stopped
+  entrypoint: [python, /quickstart/start.py, server]
+  # Stated here as well as in the image: Podman ignores a HEALTHCHECK in an OCI image.
+  healthcheck:
+    test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9999/health', timeout=3)"]
+    interval: 10s
+    timeout: 5s
+    start_period: 20s
+    retries: 20
+
+x-issuer: &issuer
+  image: localhost/ai-control-mesh-dev-server
+  build:
+    context: ../..
+    dockerfile: server/Dockerfile
+  restart: unless-stopped
+  entrypoint: [agent-auth]
+  healthcheck:
+    test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:10000/health', timeout=3)"]
+    interval: 5s
+    timeout: 4s
+    retries: 20
+
+x-machine: &machine
+  image: localhost/ai-control-mesh-dev-machine
+  build:
+    context: ../..
+    dockerfile: sandbox/Dockerfile
+  restart: unless-stopped
+  entrypoint: [tini, --, python3, /quickstart/start.py, machine]
+  healthcheck:
+    test: [CMD-SHELL, 'agent-machine | grep -q "^Fleet *: connected"']
+    interval: 30s
+    timeout: 5s
+    start_period: 30s
+
+services:
+  postgres-a:
+    <<: *postgres
+    volumes:
+      - postgres-a-data:/var/lib/postgresql/data
+      - ../../server/docker/postgres-init.sh:/docker-entrypoint-initdb.d/10-mesh.sh:ro,z
+
+  postgres-b:
+    <<: *postgres
+    volumes:
+      - postgres-b-data:/var/lib/postgresql/data
+      - ../../server/docker/postgres-init.sh:/docker-entrypoint-initdb.d/10-mesh.sh:ro,z
+
+  server-a:
+    <<: *server
+    depends_on:
+      postgres-a:
+        condition: service_healthy
+    environment:
+      <<: *auth-a
+      AI_PROXY_URL: http://localhost:29999
+      AI_PROXY_DATABASE_URL: postgresql+psycopg://mesh_api:peerapi@postgres-a:5432/mesh
+      # Who this server is to linked servers, and where they reach it.
+      AI_PROXY_MESH_ID: server-a
+      AI_PROXY_MESH_URL: http://server-a:9999
+      QUICKSTART_ACCOUNTS: acme:alice:admin,acme:carol:member
+      QUICKSTART_PASSWORD: ${QUICKSTART_PEOPLE_PASSWORD:-peer-demo}
+    ports:
+      - "127.0.0.1:29999:9999"
+    volumes:
+      - ../../deploy/compose/quickstart/start.py:/quickstart/start.py:ro,z
+      - server-a-logs:/app/logs
+
+  auth-a:
+    <<: *issuer
+    depends_on:
+      postgres-a:
+        condition: service_healthy
+    environment:
+      <<: *auth-a
+      AI_PROXY_AUTH_HOST: 0.0.0.0
+      AI_PROXY_AUTH_PORT: "10000"
+      AI_PROXY_AUTH_DATABASE_URL: postgresql+psycopg://mesh_auth:peerauth@postgres-a:5432/mesh
+    ports:
+      - "127.0.0.1:30000:10000"
+
+  server-b:
+    <<: *server
+    depends_on:
+      postgres-b:
+        condition: service_healthy
+    environment:
+      <<: *auth-b
+      AI_PROXY_URL: http://127.0.0.1:39999
+      AI_PROXY_DATABASE_URL: postgresql+psycopg://mesh_api:peerapi@postgres-b:5432/mesh
+      AI_PROXY_MESH_ID: server-b
+      AI_PROXY_MESH_URL: http://server-b:9999
+      QUICKSTART_ACCOUNTS: globex:bob:admin
+      QUICKSTART_PASSWORD: ${QUICKSTART_PEOPLE_PASSWORD:-peer-demo}
+    ports:
+      - "127.0.0.1:39999:9999"
+    volumes:
+      - ../../deploy/compose/quickstart/start.py:/quickstart/start.py:ro,z
+      - server-b-logs:/app/logs
+
+  auth-b:
+    <<: *issuer
+    depends_on:
+      postgres-b:
+        condition: service_healthy
+    environment:
+      <<: *auth-b
+      AI_PROXY_AUTH_HOST: 0.0.0.0
+      AI_PROXY_AUTH_PORT: "10000"
+      AI_PROXY_AUTH_DATABASE_URL: postgresql+psycopg://mesh_auth:peerauth@postgres-b:5432/mesh
+    ports:
+      - "127.0.0.1:40000:10000"
+
+  # alice's computer on server-a: where she starts agents that use globex's model.
+  laptop-a:
+    <<: *machine
+    hostname: laptop-a
+    depends_on:
+      server-a:
+        condition: service_healthy
+      auth-a:
+        condition: service_healthy
+    environment:
+      QUICKSTART_AUTH_HOST: auth-a
+      QUICKSTART_AUTH_PORT: "30000"
+      QUICKSTART_SERVER_HOST: server-a
+      QUICKSTART_SERVER_PORT: "29999"
+      QUICKSTART_API: http://localhost:29999
+      QUICKSTART_ISSUER: http://localhost:30000
+      QUICKSTART_USER: alice
+      QUICKSTART_PASSWORD: ${QUICKSTART_PEOPLE_PASSWORD:-peer-demo}
+      AI_PROXY_URL: http://localhost:29999
+      PYTHONDONTWRITEBYTECODE: "1"
+    volumes:
+      - ../../deploy/compose/quickstart/start.py:/quickstart/start.py:ro,z
+      - ../../deploy/compose/quickstart/machine.py:/quickstart/machine.py:ro,z
+      - laptop-a-home:/home/agent
+      - laptop-a-workspace:/workspace
+
+  # bob's machine on server-b, with Ollama: globex shares its model and lets acme start agents on it.
+  gpu-box:
+    <<: *machine
+    hostname: gpu-box
+    depends_on:
+      server-b:
+        condition: service_healthy
+      auth-b:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    environment:
+      QUICKSTART_AUTH_HOST: auth-b
+      QUICKSTART_AUTH_PORT: "40000"
+      QUICKSTART_SERVER_HOST: server-b
+      QUICKSTART_SERVER_PORT: "39999"
+      QUICKSTART_API: http://127.0.0.1:39999
+      QUICKSTART_ISSUER: http://127.0.0.1:40000
+      QUICKSTART_USER: bob
+      QUICKSTART_PASSWORD: ${QUICKSTART_PEOPLE_PASSWORD:-peer-demo}
+      QUICKSTART_OLLAMA: "1"
+      AI_PROXY_URL: http://127.0.0.1:39999
+      PYTHONDONTWRITEBYTECODE: "1"
+    volumes:
+      - ../../deploy/compose/quickstart/start.py:/quickstart/start.py:ro,z
+      - ../../deploy/compose/quickstart/machine.py:/quickstart/machine.py:ro,z
+      - gpu-box-home:/home/agent
+      - gpu-box-workspace:/workspace
+
+  ollama:
+    image: docker.io/ollama/ollama:0.40.14
+    restart: unless-stopped
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+    volumes:
+      - ollama-models:/root/.ollama
+    healthcheck:
+      test: [CMD, ollama, list]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  postgres-a-data:
+  postgres-b-data:
+  server-a-logs:
+  server-b-logs:
+  laptop-a-home:
+  laptop-a-workspace:
+  gpu-box-home:
+  gpu-box-workspace:
+  ollama-models:

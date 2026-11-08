@@ -121,7 +121,10 @@ input[type="checkbox"], input[type="radio"] { width: auto; min-height: 0; accent
 .row.end { justify-content: flex-end; }
 
 /* Shell: a rail on the left, or a top bar with a slide-in menu on narrow screens (and in the Android app). */
-.shell { display: grid; grid-template-columns: 252px minmax(0, 1fr); min-height: 100vh; background: linear-gradient(to right, var(--paper) 251px, var(--line) 251px 252px, transparent 252px); }
+.shell { --rail-width: 252px; display: grid; grid-template-columns: var(--rail-width) minmax(0, 1fr); min-height: 100vh; background: linear-gradient(to right, var(--paper) calc(var(--rail-width) - 1px), var(--line) calc(var(--rail-width) - 1px) var(--rail-width), transparent var(--rail-width)); }
+.rail-head { display: flex; align-items: center; gap: 4px; }
+.rail-head .wordmark { padding-left: 2px; min-width: 0; white-space: nowrap; font-size: 15px; }
+.rail-toggle { flex: none; color: var(--steel); }
 .topbar, .scrim { display: none; }
 .rail { position: sticky; top: 0; height: 100vh; overflow-y: auto; display: flex; flex-direction: column; gap: 22px; padding: 18px 14px 16px; background: var(--paper); border-right: 1px solid var(--line); }
 .wordmark { display: flex; align-items: center; gap: 10px; font-weight: 650; font-size: 16px; letter-spacing: -0.01em; padding: 2px 8px; color: var(--ink); text-decoration: none; }
@@ -466,7 +469,9 @@ dialog::backdrop { background: rgb(15 20 30 / 0.5); }
 @media (max-width: 900px) {
   /* The page row takes the spare height, not the top bar, when a page is short. */
   .shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; background: none; }
-  .topbar { position: sticky; top: 0; z-index: 15; display: flex; align-items: center; gap: 12px; padding: 8px 10px 8px 14px; padding-top: max(8px, env(safe-area-inset-top)); background: color-mix(in srgb, var(--paper) 88%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+  /* Folding the rail to icons is a desktop choice: the slide-in menu always shows names. */
+  .rail-toggle { display: none; }
+  .topbar { position: sticky; top: 0; z-index: 15; display: flex; align-items: center; gap: 8px; padding: 8px 14px 8px 6px; padding-top: max(8px, env(safe-area-inset-top)); background: color-mix(in srgb, var(--paper) 88%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
   .topbar .wordmark { padding: 0; }
   .topbar .connection { margin-left: auto; font-weight: 500; color: var(--steel); }
   .rail { position: fixed; z-index: 25; top: 0; left: 0; bottom: 0; width: min(300px, 86vw); height: 100dvh; padding-top: max(18px, env(safe-area-inset-top)); transform: translateX(-100%); transition: transform 0.2s ease; box-shadow: none; }
@@ -616,7 +621,28 @@ dialog::backdrop { background: rgb(15 20 30 / 0.5); }
 .route-card .row { margin-top: auto; gap: 14px; font-size: 13.5px; }
 .nav-group { display: flex; flex-direction: column; gap: 1px; }
 .nav-group + .nav-group { margin-top: 16px; }
-.nav-heading { margin: 0 0 4px; padding: 0 10px; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: color-mix(in srgb, var(--steel) 80%, var(--paper)); cursor: default; }
+.nav-heading { display: flex; align-items: center; justify-content: space-between; gap: 6px; width: 100%; margin: 0 0 4px; padding: 3px 10px; border: 0; border-radius: var(--radius-small); background: none; font: inherit; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; text-align: left; color: color-mix(in srgb, var(--steel) 80%, var(--paper)); cursor: pointer; }
+.rail .nav-heading { min-height: 0; border: 0; box-shadow: none; }
+.rail .nav-heading:hover:not(:disabled) { color: var(--ink); background: var(--ground); border: 0; }
+.nav-caret { flex: none; opacity: 0.7; transition: transform 120ms; }
+.nav-caret.open { transform: rotate(90deg); }
+.nav-group + .nav-group:has(> .nav-heading[aria-expanded="false"]) { margin-top: 8px; }
+
+/* The rail collapsed to icons (desktop only): names become tooltips, headings thin rules. */
+@media (min-width: 901px) {
+  .shell.rail-slim { --rail-width: 64px; }
+  .rail-slim .rail { padding-left: 8px; padding-right: 8px; }
+  .rail-slim .rail-head { flex-direction: column; align-items: center; gap: 10px; }
+  .rail-slim .rail-head .wordmark span, .rail-slim .nav-label, .rail-slim .nav-heading span, .rail-slim .nav-caret,
+  .rail-slim .rail-foot span, .rail-slim .rail-version, .rail-slim .rail-foot > :not(a) { display: none; }
+  .rail-slim .rail nav a { justify-content: center; padding: 9px 0; position: relative; }
+  .rail-slim .nav-heading { height: 1px; padding: 0; margin: 4px 6px 6px; width: auto; background: var(--line); pointer-events: none; }
+  .rail-slim .nav-group + .nav-group { margin-top: 8px; }
+  .rail-slim .nav-count { position: absolute; top: 1px; right: 1px; padding: 0 5px; font-size: 10px; line-height: 15px; }
+  .rail-slim .rail-foot { align-items: center; padding-left: 0; padding-right: 0; }
+  .rail-slim .rail-foot a { justify-content: center; padding: 8px; }
+}
+@media (prefers-reduced-motion: reduce) { .nav-caret { transition: none; } }
 .nav-sub { display: flex; flex-direction: column; gap: 1px; }
 .nav-sub-heading { display: flex; align-items: center; gap: 10px; padding: 7px 10px 3px; font-size: 14px; font-weight: 520; color: var(--steel); }
 .nav-sub-heading .icon { opacity: 0.85; }
@@ -877,7 +903,8 @@ details.collapsible > summary::-webkit-details-marker { display: none; }
 .grid-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-left: auto; }
 .grid-controls { display: flex; align-items: center; gap: 6px; }
 .grid-controls[hidden] { display: none; }
-.grid-pages { gap: 6px; }
+.grid-pages { gap: 4px; }
+.grid-pages .icon-button .icon.back { transform: rotate(180deg); }
 .grid-pages .mono { font-size: 12.5px; }
 /* The bar's dropdowns: Agents (the sessions in the grid) and the layout. */
 .grid-menu { position: relative; }
@@ -1023,14 +1050,35 @@ details.collapsible > summary::-webkit-details-marker { display: none; }
 .team-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
 .team-card { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); }
 .team-card button { align-self: flex-start; }
-.org-card.selected { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); background: var(--accent-soft); }
-.org-card .org-open { font-size: 15px; }
 .org-detail h4 { font-size: 14px; font-weight: 650; }
-.directory-workspace { display: grid; grid-template-columns: minmax(200px, 250px) minmax(0, 1fr); gap: 20px; align-items: start; }
-.directory-workspace > *, .org-detail > * { min-width: 0; }
-.org-list { list-style: none; display: grid; gap: 10px; padding: 0; }
+.org-detail > * { min-width: 0; }
+.org-toolbar { display: flex; gap: 10px; align-items: center; }
+.org-toolbar input[type="search"] { flex: 1 1 auto; min-width: 0; }
+.org-toolbar button { flex: 0 0 auto; }
+.org-table .org-row { cursor: pointer; }
+.org-table .org-row:hover { background: var(--accent-soft); }
+.org-table .org-open { font-weight: 650; }
+.org-table td .pill { margin-left: 8px; }
+.org-switch { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.org-switch-pick { display: flex; align-items: center; gap: 8px; }
+.org-switch-pick select { width: auto; min-width: 180px; max-width: 100%; }
+.org-detail-head { display: flex; flex-direction: column; gap: 10px; }
+.org-detail-head h2 { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; font-size: 22px; }
+.org-detail-head p { margin: 0; }
+.org-facts { display: flex; flex-wrap: wrap; gap: 8px 28px; margin: 0; }
+.org-facts > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.org-facts dt { font-size: 12px; font-weight: 600; color: var(--steel); text-transform: uppercase; letter-spacing: 0.04em; }
+.org-facts dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.org-tab-intro { display: flex; flex-direction: column; gap: 4px; }
+.org-tab-intro h2, .org-tab-intro h3, .org-tab-intro p { margin: 0; }
+.org-tab-intro p { max-width: 72ch; }
+.org-detail [role="tabpanel"]:not([hidden]) { display: flex; flex-direction: column; gap: 16px; }
+.org-setting { display: flex; flex-direction: column; gap: 12px; }
+.org-new { display: flex; flex-direction: column; gap: 14px; margin: 12px 0; max-width: 720px; }
+.org-new h3 { margin: 0; }
+.org-row-note { font-size: 12.5px; margin-top: 2px; }
 .org-detail, .team-detail, .directory-members, .directory-user-form { display: flex; flex-direction: column; gap: 16px; }
-.org-detail h2, .team-detail h3, .org-card strong { overflow-wrap: anywhere; }
+.org-detail h2, .team-detail h3 { overflow-wrap: anywhere; }
 .team-detail > h3, .team-detail > p, .directory-members > h4, .directory-members > p { margin: 0; }
 .org-detail .team-list { list-style: none; padding: 0; grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr)); }
 .directory-create { margin: 12px 0; }
@@ -1038,12 +1086,9 @@ details.collapsible > summary::-webkit-details-marker { display: none; }
 .directory-create[open] > summary, .team-detail details[open] > summary { margin-bottom: 16px; }
 .directory-danger { border-top: 1px solid var(--line); padding-top: 20px; margin-top: 12px; }
 .directory-members select { min-width: 0; max-width: 100%; }
-.org-detail > [role="tabpanel"] > .inline-form { margin-top: 16px; }
-@media (max-width: 900px) {
-  .directory-workspace { grid-template-columns: minmax(0, 1fr); }
-  .org-list { grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr)); }
-}
 @media (max-width: 600px) {
+  .org-table th:nth-child(4), .org-table td:nth-child(4) { display: none; }
+  .org-toolbar { flex-wrap: wrap; }
   .users-table, .users-table tbody { display: block; width: 100%; }
   .users-table thead { display: none; }
   .users-table .user-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; padding: 16px; border-bottom: 1px solid var(--line); }
@@ -1072,6 +1117,10 @@ ul.plain { list-style: none; padding: 0; margin: 6px 0; display: flex; flex-dire
 .mono.wrap { overflow-wrap: anywhere; }
 .inline-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; max-width: 720px; }
 .inline-form input { flex: 1 1 200px; width: auto; }
+/* A labelled field in a row form: the label grows, not its input (a column flex would stretch the input's height). */
+.inline-form:has(> .field) { align-items: flex-end; }
+.inline-form > .field { flex: 1 1 240px; }
+.inline-form > .field input { flex: none; width: 100%; }
 
 .restart-overlay { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: 24px; background: color-mix(in srgb, var(--ground) 80%, transparent); backdrop-filter: blur(2px); }
 .restart-overlay .panel { width: min(440px, 100%); }
@@ -1627,3 +1676,14 @@ code { background: var(--ground); border: 1px solid var(--line); padding: 0 5px;
   .api-provider-facts { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .api-provider-facts dd { margin-bottom: 6px; }
 }
+
+/* Peering: links (Server settings), bridges (Organizations → Sharing), Shared with you */
+.link-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.link-card { padding: 12px 16px; background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); }
+.link-detail { border-top: 1px solid var(--line); padding-top: 12px; }
+.facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; }
+.facts dt { color: var(--steel); }
+.facts dd { margin: 0; overflow-wrap: anywhere; }
+.columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.columns fieldset { border: 1px solid var(--line); border-radius: var(--radius-small); padding: 10px 14px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.stack.tight { gap: 4px; margin-top: 0; }

@@ -4,67 +4,23 @@ Run terminal coding agents — Claude Code, Codex, Copilot CLI, Qwen Code, OpenC
 
 ![The console's Overview](screenshots/overview.png)
 
-New here? Run it on your own computer with one command ([Run it on your own computer](local.md)), try it with the [Quickstart with Docker or Podman](quickstart.md) or the [Quickstart on Kubernetes](quickstart-kubernetes.md), then follow [Getting started](getting-started.md) for a real install. The pages are layered: **Start here** and **Use it** stay practical, **Run a server** is for whoever operates one, and **How it works** has the technical depth (architecture, protocols, every endpoint).
+## Start here
 
-## How it fits together
+1. **[How it works](how-it-works.md)**: the parts and how they fit, in plain terms. Five minutes.
+2. **Try it**: [on your own computer](local.md) with one command, with [Docker or Podman](quickstart.md) and a guided tour, or on [Kubernetes](quickstart-kubernetes.md).
+3. **Set it up for real**: [Getting started](getting-started.md), from nothing to a first recorded session.
 
-```mermaid
-flowchart TB
-  subgraph AGENTS["1 · Agent computers"]
-    direction LR
-    agent["Coding agent<br/>Claude Code, Codex,<br/>Qwen Code, OpenCode, …"]
-    proxy["agent-proxy<br/>on 127.0.0.1"]
-    agent -- "every request" --> proxy
-  end
-  subgraph SERVER["2 · The server"]
-    direction LR
-    route["agent-server<br/>routes, translates, captures"]
-    record[("Allowed requests recorded,<br/>per session")]
-    console["Console and API<br/>accounts and sharing"]
-    route --> record
-  end
-  subgraph MACHINES["3 · Machines, the fleet"]
-    direction LR
-    am["agent-machine"]
-    models["Model servers<br/>Ollama, llama.cpp, Strata, Docker"]
-    mcp["MCP servers"]
-    shell["Agents and terminals<br/>started from the console"]
-    am --- models & mcp & shell
-  end
-  proxy == "agent traffic" ==> route
-  route == "through the connection<br/>each machine opens" ==> am
-  route --> outside["Hosted APIs and the<br/>agents' own services"]
-  people(["Browser or<br/>Android app"]) --> console
-  style AGENTS fill:#6366f112,stroke:#6366f1
-  style SERVER fill:#0d948812,stroke:#0d9488
-  style MACHINES fill:#d9770612,stroke:#d97706
-```
-
-- **The server** (`agent-server`) is the hub. Agent traffic goes through it, and allowed requests are recorded in a **session** per agent run. It owns all configuration (the agents it knows, the providers it routes to, its users) and keeps it in its database with the recordings. It serves the **console**, the web app you manage everything from.
-- **Agents** run on any computer with the client installed (`agent`). `agent claude .` asks the server for a session, starts the agent pointed at that computer's **agent-proxy** (`127.0.0.1:8184`), and the agent-proxy carries the agent's traffic to the server. The agent needs nothing but the environment the server renders for it.
-- **Machines** are computers in the server's **fleet**, kept there by `agent-machine`. They supply every local model (the Ollama, llama.cpp, Strata and Docker Model Runner servers they run, and containers they run for the server), and can share MCP servers, take agent launches from the console, open terminals and update themselves. A machine holds one WebSocket to the server, which reaches everything on it through that connection, so a machine behind NAT or in WSL needs no open port.
-
-A computer can be all three. How an agent's request reaches a model depends on the agent:
-
-| Route | For | What happens |
-| --- | --- | --- |
-| **Your accounts** | Claude Code, Copilot CLI and Codex signed in to your own Claude, GitHub Copilot or ChatGPT plan | Nothing is redirected. The agent's HTTPS goes through its agent-proxy to the server, which decrypts and records it with its own certificate authority (trusted only by that agent's process tree) and sends it on to public destinations. |
-| **Local models** | Qwen Code, OpenCode, Claude Code, Copilot CLI, Codex, Aider, Goose against your own models | The agent talks to the proxy's OpenAI, Anthropic or Ollama endpoint. For Ollama, the server translates the request to Ollama's native API and applies the server's model tuning. llama.cpp, Strata and Docker Model Runner take the request as it is. |
-| **Hosted API** | Claude Code with your Anthropic login or key | Passed through to the hosted API unchanged, and recorded. |
-
-**A session** is one run of one agent: its agent, model, provider, project folder, owner, sharing and traffic. Each request records timing, tokens, sizes and status; `--trace` saves full payloads. Start an agent with `--control`, or from a machine's page, and its terminal is shared too: **Running agents** shows it live, and you can type into it, answer its prompts and scroll its history from a browser or the Android app.
-
-**Everyone signs in** through OIDC, loopback included. Sessions are private until shared, and machine owners grant individual features to organizations and teams.
+The documentation has two halves. The **guides** (from *Start here* to *Run a server*) are for using and running it, in plain steps. The **technical overview** is for when you want to know exactly how it works: components, flows as sequence diagrams, protocols and every endpoint.
 
 ## The documentation
 
 | Section | Pages |
 | --- | --- |
-| **Start here** | [Overview](index.md) (this page) · [Run it on your own computer](local.md): the server and sign-in on loopback with one command, no containers · [Quickstart with Docker or Podman](quickstart.md): the whole system in containers with one command, and a guided tour · [Quickstart on Kubernetes](quickstart-kubernetes.md): the Helm chart on a local cluster · [Getting started](getting-started.md): a real install, from nothing to a first recorded session |
+| **Start here** | [Overview](index.md) (this page) · [How it works](how-it-works.md): the parts and how they fit · [Run it on your own computer](local.md): the server and sign-in on loopback with one command, no containers · [Quickstart with Docker or Podman](quickstart.md): the whole system in containers with one command, and a guided tour · [Quickstart on Kubernetes](quickstart-kubernetes.md): the Helm chart on a local cluster · [Getting started](getting-started.md): a real install, from nothing to a first recorded session |
 | **Use it** | [Agents](agents.md): the `agent` command, the agent-proxy, every supported agent, terminal sharing, adding agents · [The console](console.md): every page and control · [Machines](machines.md): the fleet and `agent-machine` · [Providers](providers.md): Ollama, llama.cpp, Strata, Docker Model Runner, containers, OpenAI and Anthropic-compatible APIs (OpenAI, OpenRouter, LiteLLM, LM Studio, vLLM, ...) · [MCP servers](mcp.md): sharing them from machines · [Subscriptions](subscriptions.md): your own Claude, ChatGPT and Copilot plans |
-| **People and data** | [Accounts and sharing](accounts.md): users, organizations, teams, phones · [Usage limits](usage-limits.md): each person's usage of each provider, and organizations' token limits · [Retention](retention.md): what's kept and for how long, legal holds · [The audit log](audit.md): who did what, verified and exported |
+| **People and data** | [Accounts and sharing](accounts.md): users, organizations, teams, phones · [Peering](peering.md): linking servers, and bridges between their organizations · [Usage limits](usage-limits.md): each person's usage of each provider, and organizations' token limits · [Retention](retention.md): what's kept and for how long, legal holds · [The audit log](audit.md): who did what, verified and exported |
 | **Run a server** | [Deployment](deployment.md): Docker, PostgreSQL, HTTPS, installers, packages, updates · [Several server processes](scaling.md): roles, Redis, blob storage, the Helm chart · [Configuration](configuration.md): stored settings, every environment variable, the commands · [Security](security.md): devices, tokens, encryption, a checklist for a public server · [OIDC authentication](oidc.md): the sign-in service |
-| **How it works** | [Architecture](architecture.md): components, a session step by step, capture, tunnels, terminals · [Networking and protocols](networking.md): every connection, port, message and close code · [API](api.md): every endpoint and WebSocket |
+| **Technical overview** | [Architecture](architecture.md): components, routes, a session step by step, capture, tunnels, terminals, what's recorded · [Flows](flows.md): the main flows end to end, as sequence diagrams · [Networking and protocols](networking.md): every connection, port, message and close code · [Peering internals](peering-internals.md): signed requests, the link socket, gates and policies · [Scaling internals](scaling-internals.md): how several processes share the work, retention, token validation and the audit chain · [Local instance internals](local-internals.md): `agent-server local`, the installers and the tray · [API](api.md): every endpoint and WebSocket |
 | **Contribute** | [Development](development.md): building and testing everything · [Marketing website](website.md): the public brochure. [`AGENTS.md`](../AGENTS.md) at the repository root is the guide for changing the code. |
 
 ## Find a feature
@@ -118,11 +74,15 @@ A computer can be all three. How an agent's request reaches a model depends on t
 | Every request saved for days, searchable, with headers and bodies in debug mode | | API log | [Console](console.md#api-log) |
 | Downloads and installers | `/install.sh`, `/install.ps1` | Downloads | [Deployment](deployment.md) |
 | Uninstalling from a computer | `/uninstall.sh`, `/uninstall.ps1`, `install.sh --uninstall` | Downloads › Uninstall | [Deployment](deployment.md#uninstalling) |
-| The server in Docker, HTTPS | `docker compose up -d` | | [Deployment](deployment.md#the-server-in-docker) |
-| A server on your own computer, for you alone | `install-local.sh`/`.ps1` from a release (or `scripts/install-local.sh` in a checkout), `agent-server local start\|stop\|status`, the `agent-tray` icon | localhost:19999 | [Run it on your own computer](local.md) |
+| The server in Docker, HTTPS | `docker compose up -d` in `deploy/compose/server` | | [Deployment](deployment.md#the-server-in-docker) |
+| A server on your own computer, for you alone | `install-local.sh`/`.ps1` from a release (or `devhelpers/scripts/install-local.sh` in a checkout), `agent-server local start\|stop\|status`, the `agent-tray` icon | localhost:19999 | [Run it on your own computer](local.md) |
 | The whole system in one container, to try it | `docker run ... ghcr.io/joeyenfield/ai-control-mesh` | localhost:19999 | [Run it on your own computer](local.md#try-it-in-one-container) |
-| Local demo: server, two machines and Ollama | `podman compose -f quickstart/compose.yaml up -d` (or `docker compose`) | Sign in as admin / secret on localhost:19999 | [Quickstart with Docker or Podman](quickstart.md) |
-| The Helm chart on a local cluster | `helm install mesh deploy/helm/agent-mesh -f quickstart/kubernetes/values.yaml` | localhost:19999 through `kubectl port-forward` | [Quickstart on Kubernetes](quickstart-kubernetes.md) |
+| Local demo: server, two machines and Ollama | `podman compose -f deploy/compose/quickstart/compose.yaml up -d` (or `docker compose`) | Sign in as admin / secret on localhost:19999 | [Quickstart with Docker or Podman](quickstart.md) |
+| Two linked servers, to try peering | `podman compose -f deploy/compose/peer/compose.yaml up -d`, then `python3 deploy/compose/peer/setup.py` | localhost:29999 and 127.0.0.1:39999 | [Peering](peering.md#try-it) |
+| Link this server with another | `AI_PROXY_MESH_ID`, `AI_PROXY_MESH_URL` | Server settings › Links | [Peering](peering.md#linking-two-servers) |
+| Share with an organization on a linked server | | Organizations › Sharing | [Peering](peering.md#bridges) |
+| What other servers share with you, and starting agents on their machines | `--backend provider:server/org/name` | Shared with you | [Peering](peering.md#using-what-crosses) |
+| The Helm chart on a local cluster | `helm install mesh deploy/helm/agent-mesh -f deploy/helm/quickstart/values.yaml` | localhost:19999 through `kubectl port-forward` | [Quickstart on Kubernetes](quickstart-kubernetes.md) |
 | Benchmarks | `agent-benchmark` | | [Configuration](configuration.md#agent-benchmark) |
 | The API | | Server settings › API reference (`/docs`) | [API](api.md) |
 
@@ -139,7 +99,10 @@ A computer can be all three. How an agent's request reaches a model depends on t
 | **route** | How an agent reaches a model: your accounts, local models or hosted API. |
 | **fleet** | The machines signed in to the server. |
 | **tunnel** | A connection the server asks a machine to open back to it, to reach a model server or MCP bridge on that machine's loopback. |
-| **bridge** | agent-machine's loopback HTTP server for the MCP servers it shares. |
+| **MCP bridge** | agent-machine's loopback HTTP server for the MCP servers it shares. |
+| **link** | Two servers joined by their site admins, each with the other's code ([Peering](peering.md)). Nothing crosses a link by itself. |
+| **bridge** | An organization on each of two linked servers, sharing chosen providers, MCP servers, agent definitions and machines; only what both sides let through crosses. |
+| **full name** | How something another server shares is named: `provider:server-b/org-b1/provider-b1`. |
 | **launch** | An agent started on a machine from the console. |
 | **trace** | A request's full saved payload (`--trace`). |
 | **access token** | Short-lived OAuth credential required for API access; distinct from an ID token, session id or vendor API key. |
