@@ -717,14 +717,21 @@ class Auth:
             raise AuthUnavailable("The authentication service is unavailable") from exc
 
     def setup_codes(self, connection: HTTPConnection, form: dict[str, str]) -> httpx.Response:
-        """Create, list or revoke the signed-in person's setup codes at the issuer (its /setup-codes), as
-        device_decision does: their console access token, sent as the introspection client."""
+        """Manage the signed-in person's machine setup codes at the issuer."""
+        return self._issuer_management(connection, "/setup-codes", form)
+
+    def api_credentials(self, connection: HTTPConnection, form: dict[str, str]) -> httpx.Response:
+        """Manage organization API clients with a console sign-in, authenticated as the API relay."""
+        return self._issuer_management(connection, "/api-credentials", form)
+
+    def _issuer_management(self, connection: HTTPConnection, endpoint: str, form: dict[str, str]) -> httpx.Response:
+        """The issuer independently checks the person's token and tenant; the relay conveys no privileges."""
         token, _ = self.request_token(connection)
         if not self.settings or not self.settings.oidc_introspection_secret:
             raise AuthUnavailable("OIDC introspection credentials are not configured")
         try:
             return self.client.post(
-                self.settings.oidc_issuer + "/setup-codes", data={"token": token, **form},
+                self.settings.oidc_issuer + endpoint, data={"token": token, **form},
                 auth=(self.settings.oidc_introspection_client, self.settings.oidc_introspection_secret),
             )
         except httpx.HTTPError as exc:
@@ -872,6 +879,7 @@ SITE_ADMIN_ONLY = [
 # The routes check which organization: these only need an admin of some organization.
 ADMIN_ONLY = [
     *SITE_ADMIN_ONLY,
+    (re.compile(r"GET|POST|DELETE"), re.compile(r"/api/orgs/[^/]+/api-credentials(/.*)?")),
     (re.compile(r"POST"), re.compile(r"/api/containers")),
     (re.compile(r"PUT|DELETE"), re.compile(r"/api/containers/[^/]+")),
     (re.compile(r"POST"), re.compile(r"/api/machines/[^/]+/providers/adopt")),

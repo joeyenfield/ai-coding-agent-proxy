@@ -12,12 +12,16 @@ there is one and where it comes from.
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import json
 import re
 import time
 from typing import Any
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 
 from .. import api_providers, auth, remote
 from ..api_providers import ProviderError
@@ -34,10 +38,14 @@ def register(app: FastAPI, runtime: Runtime) -> None:
     store = runtime.auth.store
 
     def described(backend: Any) -> dict[str, Any]:
+        catalog = runtime.api_discovery.get(backend.name)
         return {**api_providers.public(backend, keys, settings.backends, runtime.api_health, settings.default_backend),
+                "discovered_models": catalog.models if catalog and api_providers.options(backend)["discover"] else [],
+                "balance_supported": api_providers.deepseek(backend),
                 "tenant": fleet.backend_tenant(backend)}
 
-    def listing(providers: list[Any], identity: Any) -> dict[str, Any]:
+    async def listing(providers: list[Any], identity: Any) -> dict[str, Any]:
+        await asyncio.gather(*(auto_discover(runtime, backend) for backend in providers))
         return {
             "providers": [described(backend) for backend in providers],
             "vault": runtime.provider_accounts.vault.configured,
@@ -122,6 +130,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
                     keys.clear(name)
             except (ProviderError, VaultError) as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
+        runtime.api_discovery.pop(name, None)
         return described(settings.backends[name])
 
     async def delete(name: str, request: Request, org: str | None) -> dict[str, Any]:
@@ -133,14 +142,14 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             keys.clear(name)
-        runtime.api_models.pop(name, None)
+        runtime.api_discovery.pop(name, None)
         return {"ok": True}
 
     # Every organization's, for site admins.
 
     @app.get("/api/config/providers")
     async def list_providers(request: Request) -> dict[str, Any]:
-        return listing([backend for backend in settings.backends.values() if backend.type == "api"], auth.request_identity(request))
+        return await listing([backend for backend in settings.backends.values() if backend.type == "api"], auth.request_identity(request))
 
     @app.put("/api/config/providers/{name}")
     async def save_provider(name: str, request: Request) -> dict[str, Any]:
@@ -162,7 +171,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
     async def org_providers(org: str, request: Request) -> dict[str, Any]:
         """The organization's API providers: hosted ones added in it, and those on its machines."""
         identity = managed(request, org)
-        return listing([backend for backend in settings.backends.values() if backend.type == "api" and fleet.backend_tenant(backend) == org], identity)
+        return await listing([backend for backend in settings.backends.values() if backend.type == "api" and fleet.backend_tenant(backend) == org], identity)
 
     @app.put("/api/orgs/{org}/providers/{name}")
     async def save_org_provider(org: str, name: str, request: Request) -> dict[str, Any]:
@@ -181,18 +190,95 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         changing(request)
         return await discover(runtime, provider(name, org))
 
+    @app.post("/api/orgs/{org}/providers/{name}/balance")
+    async def org_provider_balance(org: str, name: str, request: Request) -> JSONResponse:
+        """Read DeepSeek's account balance with this organization's stored provider key."""
+        managed(request, org)
+        changing(request)
+        return JSONResponse(await balance(runtime, provider(name, org)), headers={"Cache-Control": "no-store"})
 
-async def discover(runtime: Runtime, backend: Any) -> dict[str, Any]:
+    @app.post("/api/config/providers/{name}/balance")
+    async def provider_balance(name: str, request: Request) -> JSONResponse:
+        changing(request)
+        return JSONResponse(await balance(runtime, provider(name, None)), headers={"Cache-Control": "no-store"})
+
+
+async def balance(runtime: Runtime, backend: Any) -> dict[str, Any]:
+    """DeepSeek's balance API is account data: explicit admin action only, never polled or persisted."""
+    if not api_providers.deepseek(backend):
+        raise HTTPException(status_code=400, detail="Balance checks are supported for the official DeepSeek API only")
+    key = runtime.api_keys.get(backend, runtime.settings.backends)
+    if not key:
+        raise HTTPException(status_code=400, detail="Set this provider's API key before checking its balance")
+    try:
+        client, _ = await upstream(runtime, backend)
+        response = await client.get("https://api.deepseek.com/user/balance", headers={"Authorization": f"Bearer {key}"},
+                                    timeout=httpx.Timeout(20, connect=api_providers.options(backend)["connect_timeout"]))
+        if response.status_code >= 400:
+            message = "DeepSeek rejected the configured API key" if response.status_code in {401, 403} else "DeepSeek couldn't return the account balance. Try again later"
+            raise HTTPException(status_code=429 if response.status_code == 429 else 502, detail=message)
+        data = response.json()
+        if not isinstance(data, dict) or not isinstance(data.get("is_available"), bool) or not isinstance(data.get("balance_infos"), list):
+            raise ValueError("Invalid balance response")
+        rows = []
+        for item in data["balance_infos"][:10]:
+            if not isinstance(item, dict) or item.get("currency") not in {"USD", "CNY"}:
+                raise ValueError("Invalid balance currency")
+            row = {"currency": item["currency"]}
+            for field in ("total_balance", "granted_balance", "topped_up_balance"):
+                value = item.get(field)
+                if not isinstance(value, str) or not re.fullmatch(r"-?[0-9]{1,40}(\.[0-9]{1,40})?", value):
+                    raise ValueError("Invalid balance amount")
+                row[field] = value
+            rows.append(row)
+        return {"is_available": data["is_available"], "balance_infos": rows}
+    except ProviderError as exc:
+        raise HTTPException(status_code=503, detail="The server isn't ready to reach DeepSeek") from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=503, detail="Couldn't reach DeepSeek to check the balance") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail="DeepSeek returned an invalid balance response") from exc
+
+
+async def auto_discover(runtime: Runtime, backend: Any) -> None:
+    """Only hosted providers with server-side authentication opt into automatic discovery."""
+    configured = api_providers.options(backend)
+    if api_providers.external(backend) and configured["enabled"] and configured["discover"] and configured["auth"] != "agent":
+        await discover(runtime, backend, force=False)
+    elif api_providers.external(backend):
+        runtime.api_discovery.pop(backend.name, None)
+
+
+async def discover(runtime: Runtime, backend: Any, *, force: bool = True) -> dict[str, Any]:
+    """Share model checks across concurrent callers; explicit Test connection bypasses the cache."""
+    catalog = runtime.api_discovery.setdefault(backend.name, api_providers.ModelDiscovery())
+    async with catalog.lock:
+        key = runtime.api_keys.get(backend, runtime.settings.backends)
+        # A URL, option or key change must not keep another configuration's model list or failed check.
+        signature = hashlib.sha256(json.dumps([backend.url, backend.machine, api_providers.options(backend), key], sort_keys=True).encode()).hexdigest()
+        if catalog.signature != signature:
+            catalog.signature, catalog.expires_at = signature, 0
+            catalog.models, catalog.contexts = [], {}
+        if not force and catalog.expires_at > time.monotonic():
+            return catalog.result
+        catalog.result = await _discover(runtime, backend, catalog)
+        catalog.expires_at = time.monotonic() + (300 if catalog.result["ok"] else 30)
+        return catalog.result
+
+
+async def _discover(runtime: Runtime, backend: Any, catalog: api_providers.ModelDiscovery) -> dict[str, Any]:
     """Ask the provider for its models: a connectivity test and model discovery at once. The result is kept
-    as the provider's health and its discovered models (runtime.api_models)."""
+    as this process's health and model catalog, retaining the last good list on transient failures."""
     started = time.perf_counter()
     status: int | None = None
     try:
         client, base = await upstream(runtime, backend)
         key = runtime.api_keys.get(backend, runtime.settings.backends)
         headers = api_providers.headers(backend, {}, key, None)
+        # DeepSeek publishes this at /models, independently of a saved OpenAI /v1 base.
+        url = "https://api.deepseek.com/models" if api_providers.deepseek(backend) else api_providers.target(base, backend, "/v1/models")
         response = await client.get(
-            api_providers.target(base, backend, "/v1/models"), headers=headers,
+            url, headers=headers,
             params=api_providers.query(backend, []), timeout=httpx.Timeout(20, connect=api_providers.options(backend)["connect_timeout"]),
         )
         status = response.status_code
@@ -202,19 +288,29 @@ async def discover(runtime: Runtime, backend: Any) -> dict[str, Any]:
             runtime.api_health.record(backend.name, status, latency, error)
             return {"ok": False, "status": status, "latency_ms": round(latency, 1), "models": None, "error": error}
         listed = response.json().get("data")
-        models = sorted({str(item["id"]) for item in listed if isinstance(item, dict) and isinstance(item.get("id"), str)}) if isinstance(listed, list) else None
+        entries = {item["id"]: item for item in listed if isinstance(item, dict) and isinstance(item.get("id"), str)
+                   and api_providers.MODEL_NAME.fullmatch(item["id"])} if isinstance(listed, list) else None
+        models = sorted(entries)[: api_providers.MAX_MODELS] if entries is not None else None
+        if entries is not None:
+            catalog.contexts = {}
+            for model in models:
+                item = entries[model]
+                size = item.get("context_window", item.get("context_length"))
+                if isinstance(size, int) and not isinstance(size, bool) and size > 0:
+                    catalog.contexts[model] = size
     except ProviderError as exc:
+        runtime.api_health.record(backend.name, None, None, str(exc))
         return {"ok": False, "status": None, "latency_ms": None, "models": None, "error": str(exc)}
     except (httpx.HTTPError, OSError, ValueError, AttributeError) as exc:
         latency = (time.perf_counter() - started) * 1000
         error = str(exc) or type(exc).__name__
         runtime.api_health.record(backend.name, status, latency, error)
         return {"ok": False, "status": status, "latency_ms": round(latency, 1), "models": None, "error": error}
-    runtime.api_health.record(backend.name, status, latency, None)
+    error = None if models is not None else "It answered, but not with a model list"
+    runtime.api_health.record(backend.name, status, latency, error)
     if models is not None:
-        runtime.api_models[backend.name] = models[: api_providers.MAX_MODELS]
-    return {"ok": True, "status": status, "latency_ms": round(latency, 1), "models": models,
-            "error": None if models is not None else "It answered, but not with a model list"}
+        catalog.models = models
+    return {"ok": models is not None, "status": status, "latency_ms": round(latency, 1), "models": models, "error": error}
 
 
 async def upstream(runtime: Runtime, backend: Any) -> tuple[httpx.AsyncClient, str]:

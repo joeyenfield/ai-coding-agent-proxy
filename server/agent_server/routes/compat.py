@@ -656,8 +656,9 @@ async def _api_model_list(runtime: Runtime, backend: Any) -> dict[str, Any]:
     configured = api_providers.options(backend)
     data = [{"id": alias, "object": "model", "owned_by": backend.name} for alias in configured["models"]]
     if configured["discover"]:
-        found = await discover(runtime, backend)
-        data += [{"id": item, "object": "model", "owned_by": backend.name} for item in found.get("models") or [] if item not in configured["models"]]
+        await discover(runtime, backend, force=False)
+        catalog = runtime.api_discovery.get(backend.name)
+        data += [{"id": item, "object": "model", "owned_by": backend.name} for item in catalog.models if item not in configured["models"]] if catalog else []
     return {"object": "list", "data": data}
 
 

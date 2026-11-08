@@ -101,7 +101,7 @@ class Runtime:
         self.api_clients: dict[bool, httpx.AsyncClient] = {}
         self.api_keys = api_providers.ApiKeys(self.db, self.provider_accounts.vault)
         self.api_health = api_providers.Health()
-        self.api_models: dict[str, list[str]] = {}
+        self.api_discovery: dict[str, api_providers.ModelDiscovery] = {}
         # Every HTTP request and WebSocket received, and how it ended (memory only, site admins).
         self.access_log = AccessLog(self.db, lambda: self.settings.retention_days)
         # Every request saved for the request_log setting's days, with payloads in its debug mode (site admins).

@@ -26,6 +26,8 @@ From the folder:
 `<VERSION>+unknown`, as the build has no git. `podman compose down -v` removes a stack and its
 volumes.
 
+The basic stack provisions its vault encryption key automatically on first server start, at `/app/logs/private/vault-keys` in its persistent `server-logs` volume. It reuses that key on restart, so provider API keys entered in the console remain readable. You can supply `AI_PROXY_VAULT_KEYS` through the environment or a `.env` file instead. This is the encryption key, separate from a provider's API token. After updating an existing basic stack, run `podman compose up -d --force-recreate server` from `devhelpers/basic` to enable provisioning. Keep the key when backing up or restoring the database; removing the logs volume loses the generated key.
+
 ## Scripts
 
 [`scripts/`](scripts) holds the scripts, each as a `.sh` and `.ps1` pair (run from anywhere; they

@@ -237,11 +237,15 @@ See [Agents](agents.md) for the format and how to add one, and [MCP](mcp.md) for
 | `AI_PROXY_RETENTION_SEED` | A retention policy (JSON) `agent-server db migrate` stores on a new install. See [Retention](retention.md). |
 | `AI_PROXY_VAULT_KEYS_FILE` | A file holding the same, for container secrets, when `AI_PROXY_VAULT_KEYS` isn't set. |
 
+The Compose quickstart and from-source basic stack provision their vault key on first server start when neither vault setting is supplied. The generated key is stored outside the database at `/app/logs/private/vault-keys` in the persistent server logs volume. Keep it when backing up or restoring the database. Production deployments still supply their own vault keys or secret file. See [the vault](subscriptions.md#the-vault).
+
 **How the server finds its install folder.** The install folder holds `VERSION`, `logs/`, `certs/`, `ui/dist`, `dist/`, `docs/` and `benchmarks/`. The server uses `AI_PROXY_HOME` when it's set. Otherwise it takes the first of these that has `VERSION` and `server/`: the checkout the package was installed from, the current folder, then each folder above it. If none has them, it uses the current folder. The Docker image sets `AI_PROXY_HOME=/app`.
 
 **The standalone console** uses `VITE_API_URL` at build time (for example `https://api.example.net`). It routes HTTP calls, live streams, terminals, documentation and download links there. Leave it unset for same-origin bundled installs. Rebuild after changing it; this value contains no secret.
 
 ## Secrets
+
+Vault master keys stay outside the database. The quickstart/basic wrapper generates its key file in the private persistent folder described above; local/all-in-one instances keep theirs in their private `secrets.json`. Production servers supply them through environment variables or a secret file.
 
 Every secret the server makes is in its database: the capture CA's key, the browser sign-in key and the Strata and llama.cpp containers' API keys. Strata keys a machine reports are kept in memory only. agent-auth's signing key and hashed tokens are in its own schema, which the server's role can't read. Protect the database and its backups as you would those keys. `AI_PROXY_DATABASE_URL` and `AI_PROXY_OIDC_INTROSPECTION_SECRET` come from the environment, never from the stored settings.
 

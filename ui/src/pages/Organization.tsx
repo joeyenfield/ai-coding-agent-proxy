@@ -8,6 +8,7 @@ import { PartTag } from "../components/PartTag";
 import { TabBar, TabCount, TabPanel, useTabParam } from "../components/Tabs";
 import { OrgSharingTab } from "./OrgSharing";
 import { ApiProviderSettings } from "./ApiProviders";
+import { ApiCredentials } from "./ApiCredentials";
 import { OrgDataTab } from "./OrgData";
 import { OrgUsageTab } from "./OrgUsage";
 import { useAuth, useClipboard, useStatus, useToast } from "../hooks";
@@ -332,7 +333,7 @@ function TabIntro({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-type OrgTab = "members" | "teams" | "providers" | "usage" | "data" | "sharing" | "settings";
+type OrgTab = "members" | "teams" | "providers" | "credentials" | "usage" | "data" | "sharing" | "settings";
 
 function OrgDetail({ org, users, identity, onDelete }: { org: Org; users: User[]; identity: Identity; onDelete: () => void }) {
   const manager = manages(identity, org.id);
@@ -343,6 +344,7 @@ function OrgDetail({ org, users, identity, onDelete }: { org: Org; users: User[]
     { id: "members", label: org.root ? "Site admins" : "People", badge: <TabCount value={users.filter((user) => user.tenant === org.id).length} /> },
     ...(org.root ? [] : [{ id: "teams" as const, label: "Teams", badge: <TabCount value={org.teams.length} /> }]),
     ...(manager ? [{ id: "providers" as const, label: "API providers" }] : []),
+    ...(manager ? [{ id: "credentials" as const, label: "API credentials" }] : []),
     { id: "usage", label: "Usage" },
     ...(manager ? [{ id: "data" as const, label: "Data" }] : []),
     ...(manager && !org.root ? [{ id: "sharing" as const, label: "Sharing" }] : []),
@@ -461,6 +463,7 @@ function OrgDetail({ org, users, identity, onDelete }: { org: Org; users: User[]
       <TabPanel idPrefix="org-" id="usage" active={tab === "usage"}>
         <OrgUsageTab org={org.id} />
       </TabPanel>
+      {manager && <TabPanel idPrefix="org-" id="credentials" active={tab === "credentials"}><ApiCredentials org={org.id} users={people} /></TabPanel>}
       {manager && (
         <TabPanel idPrefix="org-" id="data" active={tab === "data"}>
           <OrgDataTab org={org.id} people={people.map((user) => user.name)} />

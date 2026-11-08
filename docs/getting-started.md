@@ -14,6 +14,8 @@ For how the pieces fit together, see [Architecture](architecture.md).
 
 **Authentication prerequisite:** run the separate `agent-auth` issuer and configure HTTPS, callback URLs and the shared introspection secret as described in [OIDC authentication](oidc.md). API authentication is mandatory, including on loopback.
 
+**Automated setup and test data:** after the server creates its first administrator, run `agent-auth client add initial-setup --user admin --bootstrap --label "Initial setup"` on the issuer host. Use that client ID and the secret it prints to obtain an access token and call the API. Site administrators see a warning until you revoke the bootstrap credential. [Automation](oidc.md#automation) explains the exchange and how to create, regenerate and revoke more credentials in the organisation screen.
+
 ## 1. Install the server
 
 The server is `agent-server`, a Python program. It holds the API, the web console, accounts and every recording. Pick one way to run it.

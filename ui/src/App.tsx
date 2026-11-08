@@ -6,6 +6,7 @@ import { AccountMenu, useAccountChanges } from "./components/AccountMenu";
 import { pollEvery, useAuth, useStatus, useTheme, useVersion, type ThemeChoice } from "./hooks";
 import { LoginPage } from "./pages/Login";
 import { OrganizationPage } from "./pages/Organization";
+import { BootstrapCredentialWarning } from "./pages/ApiCredentials";
 import { OverviewPage } from "./pages/Overview";
 import { LivePage } from "./pages/Live";
 import { TrafficPage } from "./pages/Traffic";
@@ -219,6 +220,7 @@ function Shell({ identity }: { identity: Identity | null }) {
         </div>
       </aside>
       <main className="content">
+        {identity?.site_admin && <BootstrapCredentialWarning />}
         {status.data?.restart_required && identity?.site_admin && (
           <p className="banner warn row wrap">
             <span>The listen address was changed in Settings. Restart the proxy to use it.</span>

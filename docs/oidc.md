@@ -85,6 +85,20 @@ The agent-proxy signs every server-bound call, including model and MCP traffic, 
 
 ## Automation
 
+For scripts that manage API data, open **Organizations → an organization → API credentials** as an administrator. Give the credential a description and select the account it acts as. An organization's administrator can select only accounts in that organization. The credential gets that account's role and team access. Use a dedicated account for each automation job.
+
+Secrets are shown once. **Regenerate secret** replaces the secret and invalidates existing access tokens. **Revoke** permanently disables the credential and its tokens. You can create new credentials afterwards. Password resets, account deletion and a different account role also disable credentials. Managing credentials requires a console administrator sign-in; automation credentials cannot create more credentials.
+
+**Bootstrap a new install.** After the server creates its first site administrator, run this on the issuer host with its usual environment and database settings:
+
+```bash
+agent-auth client add initial-setup --user admin --bootstrap --label "Initial setup"
+```
+
+The command prints the generated secret once; `initial-setup` is the client ID. It can configure the server, create organizations and users, and set up test data through the API as `admin`. A warning appears at the top of the console for site administrators until the bootstrap credential is revoked. Find it under **Organizations → Site administration → API credentials** and revoke it after setup. `agent-auth client remove initial-setup` also revokes it. It is never recreated on restart. The console can also create bootstrap credentials in Site administration's API credentials tab.
+
+Use `--management` instead of `--bootstrap` for an administrator credential without the bootstrap warning. Administrator permissions must be explicitly requested; the existing member-only service-client command below keeps its restriction.
+
 Provision a confidential client at the issuer, associated with a dedicated, least-privilege existing account:
 
 ```bash
@@ -104,6 +118,8 @@ grant_type=client_credentials&scope=mesh-api
 Send the resulting token to the API as `Authorization: Bearer <access_token>`. `AI_PROXY_TOKEN` can supply a pre-issued access token to the launcher. Automation must obtain another token before expiry; a client-credentials grant does not turn a token into a permanent key. A service account receives its associated account's existing role and grants, not implicit admin rights.
 
 ## Endpoints
+
+Managed API credentials use opaque tokens even when JWT access tokens are enabled, so every new API request checks rotation and current account permissions at the issuer. They are OAuth clients, separate from API provider keys and machine setup codes. Existing long-lived connections follow the usual credential recheck interval.
 
 On the **auth host**:
 

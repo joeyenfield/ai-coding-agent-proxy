@@ -313,6 +313,46 @@ def register(app: FastAPI, runtime: Runtime) -> None:
                                             (503, "The authentication service couldn't do that. Try again."))
         raise HTTPException(status_code=status, detail=detail)
 
+    async def credential_call(org: str, request: Request, form: dict[str, str]) -> Response:
+        administered(request, org)
+        try:
+            response = await asyncio.to_thread(accounts.api_credentials, request, {**form, "org": org})
+            answer = response.json()
+        except (auth.AuthUnavailable, ValueError) as exc:
+            raise HTTPException(status_code=503, detail="The authentication service is unavailable") from exc
+        if not isinstance(answer, dict):
+            raise HTTPException(status_code=503, detail="The authentication service is unavailable")
+        if response.status_code != 200:
+            messages = {"access_denied": "API credentials require an administrator console sign-in.",
+                        "not_found": "No such organization or credential.", "invalid_account": "Choose an account in this organization.",
+                        "inactive_credential": "Create a new credential for a current account.",
+                        "invalid_request": "Bootstrap credentials require a site administrator.",
+                        "rate_limit_exceeded": "Too many requests. Try again later."}
+            raise HTTPException(status_code=response.status_code if response.status_code in {400, 403, 404, 409, 429} else 503,
+                                detail=messages.get(answer.get("error"), "The authentication service is unavailable."))
+        return JSONResponse(answer, headers={"Cache-Control": "no-store"})
+
+    @app.get("/api/orgs/{org}/api-credentials")
+    async def list_api_credentials(org: str, request: Request) -> Response:
+        return await credential_call(org, request, {"action": "list"})
+
+    @app.post("/api/orgs/{org}/api-credentials")
+    async def create_api_credential(org: str, request: Request) -> Response:
+        data = await request.json()
+        if not isinstance(data, dict):
+            raise HTTPException(status_code=400, detail="Send a JSON object")
+        return await credential_call(org, request, {"action": "create", "user": str(data.get("user") or ""),
+                                                   "label": str(data.get("label") or "")[:80],
+                                                   "bootstrap": "true" if data.get("bootstrap") is True else "false"})
+
+    @app.post("/api/orgs/{org}/api-credentials/{client_id}/regenerate")
+    async def regenerate_api_credential(org: str, client_id: str, request: Request) -> Response:
+        return await credential_call(org, request, {"action": "regenerate", "id": client_id})
+
+    @app.delete("/api/orgs/{org}/api-credentials/{client_id}")
+    async def revoke_api_credential(org: str, client_id: str, request: Request) -> Response:
+        return await credential_call(org, request, {"action": "revoke", "id": client_id})
+
     @app.get("/api/auth/setup-codes")
     async def list_setup_codes(request: Request) -> dict[str, Any]:
         """Your open setup codes (never the codes themselves: id, label, created, expires, uses left)."""
@@ -496,7 +536,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             for name in owned:
                 settings.remove_backend(name)
                 runtime.api_keys.clear(name)
-                runtime.api_models.pop(name, None)
+                runtime.api_discovery.pop(name, None)
         await offboard(identity, org, lambda owner, of: of == org,
                        lambda tags: {"tenant": None} if tags.get("tenant") == org else {})
         # Its bridges to other servers' organizations end on both sides (bridges.py).

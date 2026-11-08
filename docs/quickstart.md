@@ -32,6 +32,8 @@ flowchart LR
 
 Both machines sign themselves in as `admin`, approving their own device codes the way you would ([Security](security.md#device-approval)), so they're in the fleet as soon as they start.
 
+The server also creates a private vault encryption key automatically, so you can save provider API keys such as DeepSeek's in the console. It keeps the generated key at `/app/logs/private/vault-keys` in the persistent `server-logs` volume and reuses it on restart. This is separate from provider API keys and sign-in credentials. `AI_PROXY_VAULT_KEYS` in the environment or the stack's `.env` can supply your own key instead. Keep the generated file private and retain it with a database backup: existing saved API keys need the same encryption key to be read again.
+
 ## Start it
 
 You need:

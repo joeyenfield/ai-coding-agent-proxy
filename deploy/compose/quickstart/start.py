@@ -10,10 +10,14 @@ ollama) with QUICKSTART_OLLAMA=1.
 from __future__ import annotations
 
 import asyncio
+import base64
 import os
+from pathlib import Path
+import secrets
 import signal
 import subprocess
 import sys
+import tempfile
 
 AUTH_HOST = os.getenv("QUICKSTART_AUTH_HOST") or "auth"
 AUTH_PORT = int(os.getenv("QUICKSTART_AUTH_PORT") or 20000)
@@ -58,6 +62,7 @@ async def main(mode):
             ))
         command = [sys.executable, "/quickstart/machine.py"]
     elif mode == "server":
+        configure_vault(Path(os.getenv("AI_PROXY_LOG_DIR") or "/app/logs") / "private")
         add_orgs(os.getenv("QUICKSTART_ORGS") or "")
         add_accounts(os.getenv("QUICKSTART_ACCOUNTS") or "", os.environ.pop("QUICKSTART_PASSWORD", "") or "")
         command = ["agent-server"]
@@ -82,6 +87,31 @@ async def main(mode):
         for listener in listeners:
             listener.close()
             await listener.wait_closed()
+
+
+def configure_vault(directory: Path) -> None:
+    """Provision a quickstart's encryption key once, outside its database, and reuse it on restart."""
+    if os.getenv("AI_PROXY_VAULT_KEYS") or os.getenv("AI_PROXY_VAULT_KEYS_FILE"):
+        return
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(directory, 0o700)
+    path = directory / "vault-keys"
+    if not path.exists():
+        # Publish a complete owner-only file without replacing a key another starter already made.
+        with tempfile.NamedTemporaryFile(mode="w", encoding="ascii", dir=directory, delete=False) as temporary:
+            temporary_path = Path(temporary.name)
+            os.chmod(temporary_path, 0o600)
+            temporary.write("1:" + base64.b64encode(secrets.token_bytes(32)).decode() + "\n")
+        try:
+            try:
+                os.link(temporary_path, path)
+            except FileExistsError:
+                pass
+        finally:
+            temporary_path.unlink()
+    if not path.read_text(encoding="ascii").strip():
+        raise RuntimeError("The quickstart vault key file is empty; restore it from backup before starting")
+    os.environ["AI_PROXY_VAULT_KEYS_FILE"] = str(path)
 
 
 def account_arguments(entry: str) -> list[str]:

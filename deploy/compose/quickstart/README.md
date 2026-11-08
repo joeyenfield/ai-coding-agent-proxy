@@ -31,6 +31,8 @@ docker compose up -d
 
 The examples below use `podman compose`; substitute `docker compose` when using Docker.
 
+The server provisions a random vault encryption key on first start at `/app/logs/private/vault-keys`, in the persistent `server-logs` volume. It enables saving provider API keys in the console and is reused after restarts. An explicit `AI_PROXY_VAULT_KEYS` in the environment or `.env` overrides generation. Back up the generated key along with the database, keeping it private; losing it makes previously saved API keys unreadable. This also applies to the from-source basic stack. After updating the helper, recreate the server with `podman compose up -d --force-recreate server`; no volume reset is needed.
+
 Open **http://localhost:19999** and sign in with **admin** / **secret**. Use `localhost`,
 so the browser matches the registered callback. The first start downloads the images (about
 1 GB, most of it the coding agents) and Ollama; it can take a few minutes. `podman compose

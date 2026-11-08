@@ -630,17 +630,19 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         files_dir = str(data.get("files_dir") or "").strip() or None
+        container = settings.backends.get(backend)
         # Agents guess the context size from the model's name (Qwen Code takes any qwen3.x for 1M); tell them the real one.
         context_window = None if agent.intercept or not model else await _context_window(runtime, backend, model)
         servers = [
             {**item, "name": mcp.entry_name(item, chosen), "url": mcp.url(proxy_url, session.session_id, item, mcp_token)}
             for item in chosen
         ]
+        launch_model = api_providers.claude_launch_model(container, agent, model, context_window)
         launch = agent.render(
-            proxy_url, session.session_id, model, project_path or ".", intercept=intercept, files_dir=files_dir,
+            proxy_url, session.session_id, launch_model, project_path or ".", intercept=intercept, files_dir=files_dir,
             context_window=context_window, mcp_servers=servers,
         )
-        container = settings.backends.get(backend)
+        api_providers.configure_claude_launch(container, agent, model, context_window, launch)
         return {
             "session": described(session, request),
             **launch,
@@ -751,8 +753,9 @@ async def _backend_models(runtime: Runtime, name: str) -> dict[str, Any]:
         ]
         return {"type": "link", "online": True, "remote": {key: options.get(key) for key in ("server", "remote_org", "remote_name", "remote_type")}, "models": models}
     if backend.type == "api" and not backend.machine:
-        # A hosted API or gateway: its configured models, and those its last discovery found (runtime.api_models),
-        # without calling it from a console page.
+        from .api_providers import auto_discover
+
+        await auto_discover(runtime, backend)
         return {**base, "online": (runtime.api_health.get(name) or {}).get("ok", True), "models": _api_models(runtime, backend, [])}
     if backend.type not in PROVIDER_TYPES:
         return {**base, "online": False, "error": "Hosted backend: select a model in the signed-in client. Model discovery is unavailable.", "models": []}
@@ -830,6 +833,8 @@ async def _context_window(runtime: Runtime, backend_name: str, model: str) -> in
     if backend.type == "ollama":
         size = runtime.settings.profile(model).options.get("num_ctx")
         return int(size) if isinstance(size, (int, float)) and size > 0 else None
+    if api_providers.deepseek(backend):
+        model = model.removesuffix("[1m]")
     if backend.type not in PROVIDER_TYPES:
         return None
     try:
@@ -838,7 +843,7 @@ async def _context_window(runtime: Runtime, backend_name: str, model: str) -> in
         LOGGER.warning("Couldn't read the context size of %s on %s", model, backend_name, exc_info=True)
         return None
     # A Strata server runs one model whatever the agent calls it, so its only model counts too.
-    found = [item for item in listed if item.get("name") == model] or (listed if len(listed) == 1 else [])
+    found = [item for item in listed if item.get("name") == model] or (listed if backend.type == "strata" and len(listed) == 1 else [])
     size = found[0].get("context_length") if found else None
     return int(size) if isinstance(size, (int, float)) and size > 0 else None
 
@@ -846,8 +851,9 @@ async def _context_window(runtime: Runtime, backend_name: str, model: str) -> in
 def _api_models(runtime: Runtime, backend: Any, found: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """An api backend's models as /api/models lists them: its aliases first, then the ids it reports."""
     configured = api_providers.options(backend)
-    discovered = found or ([{"id": item} for item in runtime.api_models.get(backend.name, [])] if configured["discover"] else [])
-    sizes = {item["id"]: item.get("context_length") for item in found}
+    catalog = runtime.api_discovery.get(backend.name)
+    discovered = found or ([{"id": item} for item in catalog.models] if catalog and configured["discover"] else [])
+    sizes = {**(catalog.contexts if catalog and configured["discover"] else {}), **{item["id"]: item.get("context_length") for item in found}}
     names = list(configured["models"]) + [item["id"] for item in discovered if item["id"] not in configured["models"]]
     return [
         {

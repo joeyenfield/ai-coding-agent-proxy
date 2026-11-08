@@ -1662,6 +1662,36 @@ code { background: var(--ground); border: 1px solid var(--line); padding: 0 5px;
 .api-editor fieldset.field > legend { padding: 0; margin-bottom: 5px; }
 .api-editor .form-grid > .check { align-self: center; }
 .api-add { align-items: flex-end; }
+.api-add-options { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; min-width: 0; }
+.deepseek-add { display: flex; align-items: center; gap: 16px; width: 100%; padding: 18px 20px; text-align: left; white-space: normal; border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); background: var(--paper); }
+.deepseek-add > span:nth-child(2) { display: grid; gap: 4px; flex: 1; min-width: 0; }
+.deepseek-add strong { font-size: 17px; }
+.deepseek-add small { font-weight: 400; color: var(--steel); line-height: 1.5; }
+.deepseek-add-action { color: var(--accent); white-space: nowrap; }
+.deepseek-mark { display: grid; place-items: center; flex: 0 0 44px; width: 44px; height: 44px; border-radius: 12px; font-size: 24px; font-weight: 750; color: var(--accent); background: var(--accent-soft); }
+.deepseek-setup { display: grid; gap: 22px; }
+.deepseek-heading { display: flex; align-items: center; gap: 14px; }
+.deepseek-heading h3 { margin: 0 0 4px; font-size: 21px; }
+.deepseek-heading p { margin: 0; color: var(--steel); }
+.deepseek-features { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.deepseek-features > div { padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--ground); }
+.deepseek-features strong { font-size: 14px; }
+.deepseek-features p { margin: 6px 0 0; font-size: 13px; line-height: 1.5; color: var(--steel); }
+.deepseek-form { display: grid; gap: 20px; }
+.deepseek-form fieldset > legend { font-size: 15px; margin-bottom: 8px; }
+.deepseek-form fieldset > .row { margin-bottom: 14px; }
+.deepseek-key { display: flex; gap: 8px; }
+.deepseek-key input { flex: 1; min-width: 0; }
+.deepseek-access { padding: 16px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.deepseek-access > summary { cursor: pointer; font-size: 14px; font-weight: 600; }
+.deepseek-access[open] > summary { margin-bottom: 16px; }
+.deepseek-next { border-top: 1px solid var(--line); padding-top: 14px; font-size: 13px; }
+.deepseek-next p { color: var(--steel); margin: 6px 0; }
+@media (max-width: 700px) {
+  .deepseek-features { grid-template-columns: minmax(0, 1fr); }
+  .deepseek-add { flex-wrap: wrap; padding: 16px; }
+  .deepseek-add-action { flex-basis: 100%; margin-left: 60px; }
+}
 .api-provider-group { display: grid; gap: 10px; }
 .panel.is-off { background: var(--raised); }
 .api-provider-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 16px; margin: 0; font-size: 13.5px; }

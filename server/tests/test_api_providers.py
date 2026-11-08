@@ -80,6 +80,203 @@ def sse(*events: dict) -> bytes:
 # Forwarding
 
 
+@pytest.mark.parametrize("base", ["https://api.deepseek.com", "https://api.deepseek.com/v1"])
+def test_deepseek_discovers_models_and_configures_claude_without_exposing_the_key(tmp_path, base):
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        if request.method == "GET":
+            assert str(request.url) == "https://api.deepseek.com/models"
+            return httpx.Response(200, json={"object": "list", "data": [
+                {"id": "deepseek-flash", "name": "DeepSeek Flash", "context_window": 1048576, "max_output_tokens": 393216},
+                {"id": "small-model", "context_window": 131072},
+            ]})
+        return httpx.Response(200, json={"id": "msg-1", "type": "message", "role": "assistant", "model": "deepseek-flash",
+                                       "content": [{"type": "text", "text": "Hello"}], "stop_reason": "end_turn",
+                                       "usage": {"input_tokens": 4, "output_tokens": 2}})
+
+    preset = next(item for item in api_providers.PRESETS if item["id"] == "deepseek")
+    backend = api("deepseek", base, protocols=preset["protocols"], auth=preset["auth"],
+                  anthropic_url=preset["anthropic_url"], key_env="AI_PROXY_API_KEY_TEST", models={"coder": "deepseek-flash"})
+    app, client, old = make_app(tmp_path, handler, deepseek=backend)
+    try:
+        listed = client.get("/api/config/providers").json()["providers"][0]
+        assert listed["discovered_models"] == ["deepseek-flash", "small-model"]
+        models = client.get("/api/models", params={"backend": "deepseek"}).json()["backends"]["deepseek"]["models"]
+        assert [item["name"] for item in models] == ["coder", "deepseek-flash", "small-model"]
+        assert models[0]["context_length"] == 1048576
+        ids = client.get("/v1/models", headers={"x-ai-proxy-backend": "deepseek"}).json()["data"]
+        assert [item["id"] for item in ids] == ["coder", "deepseek-flash", "small-model"]
+        assert len(seen) == 1  # Provider card, picker and agent discovery share one check.
+        launch = client.post("/api/agents/claude/sessions", json={"backend": "deepseek", "model": "coder"})
+        assert launch.status_code == 201, launch.text
+        prepared = launch.json()
+        env = prepared["env"]
+        assert env["ANTHROPIC_MODEL"] == env["ANTHROPIC_DEFAULT_OPUS_MODEL"] == env["ANTHROPIC_DEFAULT_SONNET_MODEL"] == "coder[1m]"
+        assert env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] == env["CLAUDE_CODE_SUBAGENT_MODEL"] == "coder"
+        assert env["CLAUDE_CODE_EFFORT_LEVEL"] == "max"
+        assert env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] == "786432"
+        assert prepared["command"][-2:] == ["--model", "coder[1m]"]
+        assert "sk-upstream-secret" not in launch.text
+        session_id = prepared["session"]["session_id"]
+        assert env["ANTHROPIC_BASE_URL"].endswith(f"/session/{session_id}/anthropic")
+        payload = {"model": "coder[1m]", "messages": [{"role": "user", "content": "Hello"}], "max_tokens": 50,
+                   "thinking": {"type": "adaptive"}, "output_config": {"effort": "max"}}
+        response = client.post(f"/session/{session_id}/anthropic/v1/messages", json=payload)
+        assert response.status_code == 200, response.text
+        assert str(seen[-1].url) == "https://api.deepseek.com/anthropic/v1/messages"
+        assert seen[-1].headers["authorization"] == "Bearer sk-upstream-secret"
+        assert json.loads(seen[-1].content) == {**payload, "model": "deepseek-flash"}
+        small = client.post("/api/agents/claude/sessions", json={"backend": "deepseek", "model": "small-model"}).json()
+        assert small["env"]["ANTHROPIC_MODEL"] == "small-model"
+        assert small["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] == "98304"
+        assert len([request for request in seen if request.method == "GET"]) == 1
+    finally:
+        close_app(app, client, old)
+
+
+def test_discovery_refreshes_and_keeps_last_models_on_failure(tmp_path, monkeypatch):
+    seen = []
+    status = 200
+
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(status, json={"data": [{"id": "model-a", "context_window": 8192}]})
+
+    app, client, old = make_app(tmp_path, handler, hosted=api("hosted", "https://provider.test/v1", key_env="AI_PROXY_API_KEY_TEST"))
+    try:
+        runtime = app.state.runtime
+        url = "/api/models?backend=hosted"
+        assert client.get(url).json()["backends"]["hosted"]["models"][0]["name"] == "model-a"
+        assert len(seen) == 1
+        assert client.get(url).status_code == 200 and len(seen) == 1
+        assert client.post("/api/config/providers/hosted/test").json()["ok"] and len(seen) == 2
+        status = 503
+        runtime.api_discovery["hosted"].expires_at = 0
+        stale = client.get(url).json()["backends"]["hosted"]
+        assert not stale["online"] and stale["models"][0]["name"] == "model-a"
+        assert client.get(url).status_code == 200 and len(seen) == 3  # Failures back off too.
+        status = 200
+        monkeypatch.setenv("AI_PROXY_API_KEY_TEST", "rotated-key")
+        assert client.get(url).status_code == 200 and len(seen) == 4
+        assert seen[-1].headers["authorization"] == "Bearer rotated-key"
+        backend = runtime.settings.backends["hosted"]
+        backend.options["discover"] = False
+        assert client.get(url).json()["backends"]["hosted"]["models"] == []
+        assert len(seen) == 4
+        backend.options.update(discover=True, auth="agent")
+        assert client.get(url).status_code == 200 and len(seen) == 4
+    finally:
+        close_app(app, client, old)
+
+
+def test_concurrent_automatic_discovery_shares_one_request(tmp_path):
+    from agent_server.routes.api_providers import discover
+
+    seen = []
+
+    async def handler(request):
+        seen.append(request)
+        await asyncio.sleep(0)
+        return httpx.Response(200, json={"data": [{"id": "model-a"}]})
+
+    app, client, old = make_app(tmp_path, handler, hosted=api("hosted", "https://provider.test/v1", key_env="AI_PROXY_API_KEY_TEST"))
+    try:
+        runtime = app.state.runtime
+
+        async def concurrent():
+            return await asyncio.gather(*(discover(runtime, runtime.settings.backends["hosted"], force=False) for _ in range(10)))
+
+        assert all(result["models"] == ["model-a"] for result in asyncio.run(concurrent()))
+        assert len(seen) == 1
+    finally:
+        close_app(app, client, old)
+
+
+def test_automatic_discovery_checks_tenant_before_contacting_provider(tmp_path):
+    seen = []
+    app, client, old = make_app(tmp_path, lambda request: seen.append(request) or httpx.Response(200, json={"data": []}))
+    try:
+        store = app.state.runtime.auth.store
+        store.add_org("private")
+        store.add_org("other")
+        store.add_user("viewer", "viewer-password", tenant="other")
+        app.state.runtime.settings.save_backend("private-api", {"type": "api", "url": "https://provider.test/v1",
+                                                              "options": {"org": "private", "auth": "none"}})
+        viewer = signed_in(app, "viewer")
+        assert viewer.get("/api/orgs/private/providers").status_code == 404
+        assert viewer.get("/api/models?backend=private-api").status_code == 404
+        assert seen == []
+    finally:
+        close_app(app, client, old)
+
+
+@pytest.mark.parametrize("base", ["https://api.deepseek.com", "https://api.deepseek.com/v1"])
+def test_deepseek_balance_uses_server_key_and_preserves_currency_amounts(tmp_path, monkeypatch, base):
+    seen = []
+    data = {"is_available": True, "balance_infos": [
+        {"currency": "CNY", "total_balance": "110.00", "granted_balance": "10.00", "topped_up_balance": "100.00"},
+        {"currency": "USD", "total_balance": "0.123456789", "granted_balance": "0.000000000", "topped_up_balance": "0.123456789"},
+    ], "extra_secret": "not-for-the-browser"}
+    status = 200
+
+    def handler(request):
+        seen.append(request)
+        assert request.method == "GET" and str(request.url) == "https://api.deepseek.com/user/balance"
+        assert request.headers["authorization"] == "Bearer sk-upstream-secret"
+        assert "cookie" not in request.headers and "x-ai-proxy-token" not in request.headers
+        return httpx.Response(status, json=data)
+
+    app, client, old = make_app(tmp_path, handler, deepseek=api("deepseek", base, key_env="AI_PROXY_API_KEY_TEST", discover=False),
+                                other=api("other", "https://other.test/v1", key_env="AI_PROXY_API_KEY_TEST", discover=False))
+    try:
+        metadata = {item["name"]: item for item in client.get("/api/config/providers").json()["providers"]}
+        assert metadata["deepseek"]["balance_supported"] and not metadata["other"]["balance_supported"]
+        path = "/api/config/providers/deepseek/balance"
+        result = client.post(path)
+        assert result.status_code == 200 and result.headers["cache-control"] == "no-store"
+        assert result.json() == {key: data[key] for key in ("is_available", "balance_infos")}
+        assert "sk-upstream-secret" not in result.text and "not-for-the-browser" not in result.text
+        assert len(seen) == 1
+        data["is_available"] = False
+        assert client.post(path).json()["is_available"] is False  # Explicit checks always fetch again.
+        status = 401
+        data = {"error": {"message": "sk-upstream-secret"}}
+        rejected = client.post(path)
+        assert rejected.status_code == 502 and "sk-upstream-secret" not in rejected.text
+        status = 200
+        assert client.post(path).status_code == 502  # Invalid schema is never displayed.
+        assert client.post("/api/config/providers/other/balance").status_code == 400
+        count = len(seen)
+        monkeypatch.delenv("AI_PROXY_API_KEY_TEST")
+        assert client.post(path).status_code == 400 and len(seen) == count
+    finally:
+        close_app(app, client, old)
+
+
+def test_deepseek_balance_is_only_available_to_the_provider_organizations_admins(tmp_path):
+    seen = []
+    app, client, old = make_app(tmp_path, lambda request: seen.append(request) or httpx.Response(200, json={"is_available": False, "balance_infos": []}),
+                                deepseek=api("deepseek", "https://api.deepseek.com", org="acme", key_env="AI_PROXY_API_KEY_TEST", discover=False))
+    try:
+        store = app.state.runtime.auth.store
+        store.add_org("acme")
+        store.add_org("other")
+        store.add_user("acme-admin", "admin-password", role="admin", tenant="acme")
+        store.add_user("acme-member", "member-password", role="member", tenant="acme")
+        store.add_user("other-admin", "other-password", role="admin", tenant="other")
+        path = "/api/orgs/acme/providers/deepseek/balance"
+        assert signed_in(app, "acme-member").post(path).status_code == 403
+        assert signed_in(app, "other-admin").post(path).status_code == 404
+        assert signed_in(app, "other-admin").post("/api/orgs/other/providers/deepseek/balance").status_code == 404
+        assert seen == []
+        assert signed_in(app, "acme-admin").post(path).json() == {"is_available": False, "balance_infos": []}
+        assert len(seen) == 1
+    finally:
+        close_app(app, client, old)
+
+
 def test_chat_completions_go_to_the_provider_with_its_key_alias_and_headers(tmp_path):
     seen = []
 

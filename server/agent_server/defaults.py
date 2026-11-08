@@ -230,7 +230,7 @@ agents:
     name: Claude Code (Ollama)
     executable: claude
     protocol: anthropic
-    description: Anthropic's agent, translated from the Messages API to Ollama by the proxy.
+    description: Claude Code with local models or an Anthropic-compatible API provider, including DeepSeek.
     install:
       linux: curl -fsSL https://claude.ai/install.sh | bash
       macos: curl -fsSL https://claude.ai/install.sh | bash
@@ -245,6 +245,7 @@ agents:
       ANTHROPIC_DEFAULT_SONNET_MODEL: "{model}"
       ANTHROPIC_DEFAULT_OPUS_MODEL: "{model}"
       CLAUDE_CODE_SUBAGENT_MODEL: "{model}"
+      # Official DeepSeek launches also receive effort and discovered context defaults on the server.
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
     mcp:
       entry: {type: http, url: "{mcp_url}"}

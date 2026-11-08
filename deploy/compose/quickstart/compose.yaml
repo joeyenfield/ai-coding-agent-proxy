@@ -66,6 +66,8 @@ services:
       # Local providers are adopted from the fleet: machine-1's Ollama.
       AI_PROXY_DEFAULT_BACKEND: machine-1
       AI_PROXY_DATABASE_URL: postgresql+psycopg://mesh_api:quickstartapi@postgres:5432/mesh
+      # Optional operator key; otherwise start.py provisions one in the persistent server-logs volume.
+      AI_PROXY_VAULT_KEYS: ${AI_PROXY_VAULT_KEYS:-}
     ports:
       - "127.0.0.1:19999:9999"
     volumes:

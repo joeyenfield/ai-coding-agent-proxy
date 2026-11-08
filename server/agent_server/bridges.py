@@ -512,7 +512,8 @@ class Bridges:
 
                 options = api_providers.options(backend) if backend.type == "api" else {}
                 models = list(options.get("models") or {}) if backend.type == "api" else []
-                models += [model for model in runtime.api_models.get(backend.name) or [] if model not in models]
+                catalog = runtime.api_discovery.get(backend.name)
+                models += [model for model in catalog.models if model not in models] if catalog else []
                 found["providers"].append({
                     "name": backend.name, "type": backend.type, "scope": item.get("scope"),
                     "protocols": list(options.get("protocols") or []) if backend.type == "api" else [],

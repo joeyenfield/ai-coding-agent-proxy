@@ -12,7 +12,7 @@ There is no separate pairing step any more. Every device pairs with the server b
 | A fleet machine | `agent-machine login https://<server>`: the same device approval, with its own tokens | Tokens in agent-machine's own `credentials.json`, and a machine id | You: the machine is yours, as [below](#pairing-how-each-device-joins) |
 | A browser or a phone's browser | Open the console and sign in on the issuer's page (authorization code with PKCE) | `HttpOnly` cookies on the API's own host | You, in that browser |
 | The Android app | Add the server's address, then sign in as in a browser | The same cookies, in the app's own WebView | You, on that phone |
-| A script or service | An admin provisions a service client (`agent-auth client add <id> --user <name>`) | A client id and secret for the client-credentials grant | A member account, never an admin |
+| A script or service | An admin creates API credentials in the organization, or provisions a service client at the issuer | A client ID and secret for the client-credentials grant | The selected account's tenant and permissions. Administrator permissions require an explicitly managed credential; bootstrap credentials show a warning until revoked. See [automation](oidc.md#automation). |
 
 A computer that runs agents *and* is in the fleet pairs twice, once for each program, and you approve two codes. They're kept apart on purpose: logging `agent` out doesn't take the machine out of the fleet, and the other way round.
 

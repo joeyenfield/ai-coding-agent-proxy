@@ -103,6 +103,54 @@ async def test_quickstart_relay_preserves_bytes_and_half_close():
             await writer.wait_closed()
 
 
+def test_quickstart_vault_key_survives_restarts_and_decrypts_stored_keys(tmp_path, monkeypatch):
+    from agent_server.provider_accounts import Vault
+
+    monkeypatch.delenv("AI_PROXY_VAULT_KEYS", raising=False)
+    monkeypatch.delenv("AI_PROXY_VAULT_KEYS_FILE", raising=False)
+    start = module("start")
+    directory = tmp_path / "private"
+    start.configure_vault(directory)
+    path = Path(os.environ["AI_PROXY_VAULT_KEYS_FILE"])
+    original = path.read_bytes()
+    vault = Vault.from_environment()
+    assert vault.configured
+    version, nonce, ciphertext = vault.encrypt("deepseek-test-key", b"provider")
+    assert b"deepseek-test-key" not in original
+    if os.name != "nt":
+        assert path.stat().st_mode & 0o777 == 0o600
+    monkeypatch.delenv("AI_PROXY_VAULT_KEYS_FILE")
+    start.configure_vault(directory)
+    assert path.read_bytes() == original
+    assert Vault.from_environment().decrypt(version, nonce, ciphertext, b"provider") == "deepseek-test-key"
+    monkeypatch.delenv("AI_PROXY_VAULT_KEYS_FILE")
+    start.configure_vault(tmp_path / "another-instance")
+    assert Path(os.environ["AI_PROXY_VAULT_KEYS_FILE"]).read_bytes() != original
+
+
+@pytest.mark.parametrize("variable", ["AI_PROXY_VAULT_KEYS", "AI_PROXY_VAULT_KEYS_FILE"])
+def test_quickstart_vault_honors_explicit_configuration(tmp_path, monkeypatch, variable):
+    monkeypatch.delenv("AI_PROXY_VAULT_KEYS", raising=False)
+    monkeypatch.delenv("AI_PROXY_VAULT_KEYS_FILE", raising=False)
+    monkeypatch.setenv(variable, "operator-supplied")
+    directory = tmp_path / "private"
+    module("start").configure_vault(directory)
+    assert not directory.exists()
+    assert os.environ[variable] == "operator-supplied"
+
+
+def test_quickstart_does_not_replace_an_empty_existing_vault_key(tmp_path, monkeypatch):
+    monkeypatch.delenv("AI_PROXY_VAULT_KEYS", raising=False)
+    monkeypatch.delenv("AI_PROXY_VAULT_KEYS_FILE", raising=False)
+    directory = tmp_path / "private"
+    directory.mkdir()
+    path = directory / "vault-keys"
+    path.write_bytes(b"")
+    with pytest.raises(RuntimeError, match="restore it from backup"):
+        module("start").configure_vault(directory)
+    assert path.read_bytes() == b""
+
+
 def test_gpu_override_gives_only_ollama_the_nvidia_gpus_by_cdi_name():
     # Podman ignores Compose's deploy.resources device reservations; a CDI device name is what it honours.
     override = yaml.safe_load((QUICKSTART / "compose.gpu.yaml").read_text())

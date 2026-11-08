@@ -1,3 +1,15 @@
+export interface ApiCredential {
+  client_id: string;
+  user: string;
+  label: string;
+  tenant: string;
+  role: string;
+  created_at: number;
+  bootstrap: boolean;
+  revoked: boolean;
+  active: boolean;
+}
+
 export interface Backend {
   type: string;
   url: string;
@@ -1117,6 +1129,9 @@ export interface ApiProvider extends ApiProviderFields {
   machine: string | null;
   has_key: boolean;
   key_source: "vault" | "env" | null;
+  /** Last model IDs fetched automatically from the provider. */
+  discovered_models?: string[];
+  balance_supported?: boolean;
   health: ApiProviderHealth | null;
   /** It's the server's default backend. */
   default: boolean;
@@ -1162,6 +1177,11 @@ export interface ApiProviderTest {
   latency_ms: number | null;
   models: string[] | null;
   error: string | null;
+}
+
+export interface ApiProviderBalance {
+  is_available: boolean;
+  balance_infos: { currency: "CNY" | "USD"; total_balance: string; granted_balance: string; topped_up_balance: string }[];
 }
 
 /** GET /api/requests's filters. */
@@ -2331,6 +2351,8 @@ export const api = {
     request<{ ok: boolean }>(`/api/orgs/${encodeURIComponent(org)}/providers/${encodeURIComponent(name)}`, { method: "DELETE" }),
   testApiProvider: (org: string, name: string) =>
     request<ApiProviderTest>(`/api/orgs/${encodeURIComponent(org)}/providers/${encodeURIComponent(name)}/test`, { method: "POST" }),
+  apiProviderBalance: (org: string, name: string) =>
+    request<ApiProviderBalance>(`/api/orgs/${encodeURIComponent(org)}/providers/${encodeURIComponent(name)}/balance`, { method: "POST" }),
   storage: () => request<StorageInfo>("/api/config/storage"),
   saveRetention: (days: number | null) =>
     request<StorageInfo>("/api/config/storage", { method: "PUT", body: JSON.stringify({ retention_days: days }) }),
@@ -2491,6 +2513,13 @@ export const api = {
     return result;
   },
   /** Your open setup codes (never the codes themselves). */
+  apiCredentials: (org: string) => request<{ credentials: ApiCredential[]; token_endpoint: string }>(`/api/orgs/${encodeURIComponent(org)}/api-credentials`),
+  createApiCredential: (org: string, body: { user: string; label: string; bootstrap: boolean }) =>
+    request<{ client_id: string; client_secret: string }>(`/api/orgs/${encodeURIComponent(org)}/api-credentials`, { method: "POST", body: JSON.stringify(body) }),
+  regenerateApiCredential: (org: string, id: string) =>
+    request<{ client_id: string; client_secret: string }>(`/api/orgs/${encodeURIComponent(org)}/api-credentials/${encodeURIComponent(id)}/regenerate`, { method: "POST" }),
+  revokeApiCredential: (org: string, id: string) =>
+    request(`/api/orgs/${encodeURIComponent(org)}/api-credentials/${encodeURIComponent(id)}`, { method: "DELETE" }),
   setupCodes: () => request<{ codes: SetupCode[] }>("/api/auth/setup-codes"),
   /** A setup code: machines that sign in with it are yours, without approving each. The answer holds the code, once. */
   createSetupCode: (body: { lifetime: number; uses: number; label?: string }) =>

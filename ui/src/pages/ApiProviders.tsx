@@ -23,6 +23,7 @@ import { Icon } from "../components/Icon";
 import { StateDot } from "../components/ProviderState";
 import { formatRelative } from "../format";
 import { useAuth, useMachines, useModels } from "../hooks";
+import { DeepSeekSetup } from "./DeepSeekSetup";
 
 /**
  * OpenAI- and Anthropic-compatible APIs (backend type "api"): an organization's API providers tab,
@@ -148,7 +149,7 @@ function audience(provider: ApiProvider, org: Org): string {
 
 /** An organization's API providers tab (its admins and site admins; it hides itself from anyone the server refuses). */
 export function ApiProviderSettings({ org }: { org: Org }) {
-  const query = useQuery({ queryKey: ["api-providers", org.id], queryFn: () => api.apiProviders(org.id) });
+  const query = useQuery({ queryKey: ["api-providers", org.id], queryFn: () => api.apiProviders(org.id), refetchInterval: 300000 });
   const [adding, setAdding] = useState<{ name: string; fields: ApiProviderFields; preset: ApiPreset | null } | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   if (forbidden(query.error) || (query.error instanceof ApiError && query.error.status === 404)) return null;
@@ -167,7 +168,7 @@ export function ApiProviderSettings({ org }: { org: Org }) {
       </p>
       {query.isError && <p className="bad">{query.error.message}</p>}
       {query.isPending && <p className="subtle">Loading…</p>}
-      {data && !data.vault && (
+      {data && !data.vault && adding?.preset?.id !== "deepseek" && (
         <p className="callout">
           This server can't store keys: that needs <code>AI_PROXY_VAULT_KEYS</code> set on it. Instead, put each key in an environment variable on the server
           whose name starts with <code>{KEY_ENV_PREFIX}</code> and give that name as the key's environment variable.
@@ -186,6 +187,7 @@ export function ApiProviderSettings({ org }: { org: Org }) {
       )}
       {data && adding && (
         <div className="panel">
+          {adding.preset?.id === "deepseek" ? <DeepSeekSetup initialName={adding.name} initial={adding.fields} data={data} org={org} onDone={() => setAdding(null)} /> : <>
           <div className="panel-head">
             <h3>New provider{adding.preset ? `: ${adding.preset.label}` : ""}</h3>
             {adding.preset?.notes && <p className="subtle">{adding.preset.notes}</p>}
@@ -201,6 +203,7 @@ export function ApiProviderSettings({ org }: { org: Org }) {
               if (saved) setOpen(saved);
             }}
           />
+          </>}
         </div>
       )}
       {data && providers.length === 0 && !adding && <p className="empty panel">{org.name} has no API providers yet. Add one from a preset, or start from a blank one.</p>}
@@ -247,7 +250,14 @@ function AddProvider({
 }) {
   const [choice, setChoice] = useState("");
   const preset = presets.find((item) => item.id === choice) ?? null;
+  const deepseek = presets.find((item) => item.id === "deepseek");
   return (
+    <div className="api-add-options">
+      {deepseek && <button type="button" className="deepseek-add" disabled={disabled} onClick={() => onPick(freeName(deepseek.id, taken), fromPreset(deepseek), deepseek)}>
+        <span className="deepseek-mark" aria-hidden="true">D</span>
+        <span><strong>DeepSeek</strong><small>Connect your API key. Models and Claude Code settings are handled for you.</small></span>
+        <span className="deepseek-add-action">Connect DeepSeek</span>
+      </button>}
     <form
       className="row wrap api-add"
       onSubmit={(event) => {
@@ -271,6 +281,7 @@ function AddProvider({
         Add a provider
       </button>
     </form>
+    </div>
   );
 }
 
@@ -278,6 +289,8 @@ function ProviderCard({ provider, data, org, open, onToggle }: { provider: ApiPr
   const client = useQueryClient();
   const machines = useMachines();
   const [removing, setRemoving] = useState(false);
+  const [advanced, setAdvanced] = useState(false);
+  const deepseek = Boolean(provider.balance_supported);
   const [test, setTest] = useState<ApiProviderTest | null>(null);
   const [testError, setTestError] = useState<string | null>(null);
   const refresh = () => client.invalidateQueries();
@@ -301,9 +314,11 @@ function ProviderCard({ provider, data, org, open, onToggle }: { provider: ApiPr
     onSuccess: (result) => {
       setTest(result);
       client.invalidateQueries({ queryKey: ["api-providers", org.id] });
+      client.invalidateQueries({ queryKey: ["models"] });
     },
     onError: (error: Error) => setTestError(error.message),
   });
+  const balance = useMutation({ mutationFn: () => api.apiProviderBalance(org.id, provider.name) });
   const health = healthText(provider.health);
   const aliases = Object.entries(provider.models);
   const machineName = provider.machine ? machines.data?.machines.find((item) => item.id === provider.machine)?.name ?? provider.machine : null;
@@ -311,20 +326,25 @@ function ProviderCard({ provider, data, org, open, onToggle }: { provider: ApiPr
     <li className={`panel ${provider.enabled ? "" : "is-off"}`}>
       <div className="row wrap stored-agent-head">
         <StateDot tone={provider.enabled ? health.tone : "idle"} />
-        <strong>{provider.name}</strong>
+        <strong>{deepseek ? "DeepSeek" : provider.name}</strong>
+        {deepseek && <span className="pill mono">{provider.name}</span>}
         {provider.default && <span className="pill accent">Default</span>}
         {!provider.enabled && <span className="pill">Off</span>}
         {machineName && <span className="pill">On {machineName}</span>}
         <span className="spacer" />
+        {provider.balance_supported && <button type="button" onClick={() => balance.mutate()} disabled={balance.isPending || !provider.has_key}
+          title={provider.has_key ? "Check the balance using this provider's key" : "Set an API key first"}>
+          {balance.isPending ? "Checking balance…" : "Check balance"}
+        </button>}
         <button type="button" onClick={() => check.mutate()} disabled={check.isPending}>
-          {check.isPending ? "Testing…" : "Test connection"}
+          {check.isPending ? "Refreshing…" : deepseek ? "Refresh models" : "Test connection"}
         </button>
-        <button type="button" onClick={onToggle} aria-expanded={open}>
-          {open ? "Close" : "Edit"}
+        <button type="button" onClick={() => { setAdvanced(false); onToggle(); }} aria-expanded={open}>
+          {open ? "Close" : deepseek ? "DeepSeek settings" : "Edit"}
         </button>
       </div>
       <dl className="api-provider-facts">
-        <dt>Address</dt>
+        {!deepseek && <><dt>Address</dt>
         <dd className="mono">{provider.url}{provider.anthropic_url && provider.anthropic_url !== provider.url && <> · Anthropic at {provider.anthropic_url}</>}</dd>
         <dt>Speaks</dt>
         <dd className="chips">
@@ -332,9 +352,10 @@ function ProviderCard({ provider, data, org, open, onToggle }: { provider: ApiPr
             <span key={protocol} className="pill">{protocolLabel(protocol)}</span>
           ))}
         </dd>
-        <dt>Sign-in</dt>
+        </>}
+        <dt>{deepseek ? "API key" : "Sign-in"}</dt>
         <dd>
-          {AUTH_LABELS[provider.auth] ?? provider.auth} · {keyText(provider)}
+          {!deepseek && <>{AUTH_LABELS[provider.auth] ?? provider.auth} · </>}{keyText(provider)}
         </dd>
         <dt>Models</dt>
         <dd>
@@ -347,23 +368,41 @@ function ProviderCard({ provider, data, org, open, onToggle }: { provider: ApiPr
               ))}
             </span>
           ) : (
-            <span className="subtle">None named</span>
+            !provider.discovered_models?.length && <span className="subtle">{deepseek ? "Waiting for DeepSeek's model list" : "None named"}</span>
           )}
-          {provider.discover && <span className="subtle"> · and whatever it lists itself</span>}
+          {provider.discover && (provider.discovered_models?.length ? (
+            <span className="chips" aria-label="Discovered models">
+              {provider.discovered_models.filter((id) => !(id in provider.models)).map((id) => <span key={id} className="pill mono">{id}</span>)}
+            </span>
+          ) : <span className="subtle">{provider.auth === "agent" ? " · automatic discovery needs server-side authentication" : " · models are fetched automatically when a server key is available"}</span>)}
         </dd>
-        <dt>Priority</dt>
+        {!deepseek && <><dt>Priority</dt>
         <dd>
           {provider.priority}
           {provider.fallback.length > 0 && <> · then {provider.fallback.join(", ")} when it can't be reached</>}
         </dd>
-        <dt>Who</dt>
+        </>}
+        <dt>{deepseek ? "Access" : "Who"}</dt>
         <dd>{audience(provider, org)}</dd>
-        <dt>Health</dt>
+        <dt>{deepseek ? "Connection" : "Health"}</dt>
         <dd className={health.tone === "bad" ? "bad" : undefined}>{health.text}</dd>
       </dl>
       {testError && <p className="bad" role="status">{testError}</p>}
+      {balance.isError && <p className="bad" role="alert">{balance.error.message}</p>}
+      {balance.data && <div className="callout" role="status">
+        <strong>{balance.data.is_available ? "Balance available for API calls" : "Insufficient balance for API calls"}</strong>
+        <div className="table-scroll"><table className="table compact">
+          <thead><tr><th scope="col">Currency</th><th scope="col" className="num">Total balance</th><th scope="col" className="num">Granted balance</th><th scope="col" className="num">Topped-up balance</th></tr></thead>
+          <tbody>{balance.data.balance_infos.map((item) => <tr key={item.currency}><td>{item.currency}</td><td className="num">{item.total_balance}</td><td className="num">{item.granted_balance}</td><td className="num">{item.topped_up_balance}</td></tr>)}</tbody>
+        </table></div>
+        {!balance.data.balance_infos.length && <p>No currency balances were returned.</p>}
+      </div>}
       {test && <TestResult provider={provider} org={org} result={test} />}
-      {open && (
+      {deepseek && !open && <div className="deepseek-next"><strong>Use DeepSeek with Claude Code</strong>
+        <p>Start an agent, choose Claude Code and select <span className="mono">{provider.name}</span> as the provider. Pick a model from the list above; its context settings are applied automatically.</p>
+        <Link to="/agents?agent=claude">Start Claude Code</Link>
+      </div>}
+      {open && deepseek && !advanced ? <DeepSeekSetup provider={provider} initialName={provider.name} initial={fieldsOf(provider)} data={data} org={org} onDone={() => onToggle()} /> : open && (
         <ProviderEditor
           key={provider.name}
           provider={provider}
@@ -379,6 +418,7 @@ function ProviderCard({ provider, data, org, open, onToggle }: { provider: ApiPr
           {provider.enabled ? "Turn off" : "Turn on"}
         </button>
         <span className="spacer" />
+        {deepseek && !open && <button type="button" onClick={() => { setAdvanced(true); onToggle(); }}>Advanced settings</button>}
         {toggle.isError && <span className="bad">{toggle.error.message}</span>}
         <button
           type="button"
@@ -685,6 +725,7 @@ function ProviderEditor({
           <input type="checkbox" checked={fields.discover} onChange={(event) => set({ discover: event.target.checked })} />
           Also offer the models it lists itself
         </label>
+        <small>Hosted providers are checked automatically. Lists refresh after five minutes; Test connection refreshes now. Your aliases stay alongside discovered models.</small>
       </fieldset>
 
       <fieldset className="field">

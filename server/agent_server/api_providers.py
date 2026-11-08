@@ -22,6 +22,7 @@ is particular to them:
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import os
 import re
@@ -101,9 +102,9 @@ PRESETS: list[dict[str, Any]] = [
      "protocols": ["openai-chat"], "auth": "bearer", "category": "hosted", "api_version": None, "headers": {}, "notes": ""},
     {"id": "fireworks", "label": "Fireworks AI", "url": "https://api.fireworks.ai/inference/v1", "anthropic_url": None,
      "protocols": ["openai-chat"], "auth": "bearer", "category": "hosted", "api_version": None, "headers": {}, "notes": ""},
-    {"id": "deepseek", "label": "DeepSeek", "url": "https://api.deepseek.com/v1", "anthropic_url": "https://api.deepseek.com/anthropic",
+    {"id": "deepseek", "label": "DeepSeek", "url": "https://api.deepseek.com", "anthropic_url": "https://api.deepseek.com/anthropic",
      "protocols": ["openai-chat", "anthropic"], "auth": "bearer", "category": "hosted", "api_version": None, "headers": {},
-     "notes": "DeepSeek's Anthropic-compatible API is at /anthropic."},
+     "notes": "Claude Code uses the Anthropic-compatible API at /anthropic. Models and context sizes are discovered automatically with the server's key; Claude launch settings follow the selected model."},
     {"id": "azure-openai", "label": "Azure OpenAI (v1 API)", "url": "https://RESOURCE.openai.azure.com/openai/v1", "anthropic_url": None,
      "protocols": ["openai-chat", "openai-responses"], "auth": "api-key", "category": "hosted", "api_version": None, "headers": {},
      "notes": "The model is your deployment's name. For the older per-deployment API, use .../openai/deployments/<deployment> and set the API version."},
@@ -141,7 +142,7 @@ def validate(name: str, value: Any, current: Any | None) -> tuple[str, dict[str,
     A machine-hosted one keeps the address its machine gave it."""
     if not isinstance(value, dict):
         raise ProviderError("A provider is an object")
-    unknown = sorted(set(value) - set(DEFAULT_OPTIONS) - {"url", "type", "name", "machine", "key", "clear_key", "has_key", "key_source", "health", "default"})
+    unknown = sorted(set(value) - set(DEFAULT_OPTIONS) - {"url", "type", "name", "machine", "key", "clear_key", "has_key", "key_source", "health", "default", "discovered_models", "balance_supported"})
     if unknown:
         raise ProviderError(f"Providers have no {', '.join(unknown)}")
     machine = getattr(current, "machine", None)
@@ -333,7 +334,41 @@ def query(backend: Any, params: Any) -> list[tuple[str, str]]:
 
 
 def upstream_model(backend: Any, model: str) -> str:
-    return options(backend)["models"].get(model, model)
+    aliases = options(backend)["models"]
+    if model in aliases:
+        return aliases[model]
+    # Claude's context selector is not part of an alias or the provider's model ID.
+    if deepseek(backend) and model.endswith("[1m]"):
+        plain = model[:-4]
+        return aliases.get(plain, plain)
+    return model
+
+
+def deepseek(backend: Any) -> bool:
+    """Only the official hosted endpoint gets DeepSeek-specific Claude settings."""
+    return external(backend) and origin(backend.url) == "https://api.deepseek.com:443"
+
+
+def claude_launch_model(backend: Any, agent: Any, model: str, context_window: int | None) -> str:
+    """Advertise a large context to Claude only when the provider reports one for this model."""
+    if (backend is not None and deepseek(backend) and agent.executable == "claude" and agent.protocol == "anthropic"
+            and context_window is not None and context_window >= 1_000_000 and not model.endswith("[1m]")):
+        return model + "[1m]"
+    return model
+
+
+def configure_claude_launch(backend: Any, agent: Any, model: str, context_window: int | None, launch: dict[str, Any]) -> None:
+    """DeepSeek's Claude defaults, while keeping the proxy endpoint and upstream key on the server."""
+    if backend is None or not deepseek(backend) or agent.executable != "claude" or agent.protocol != "anthropic":
+        return
+    env = launch["env"]
+    # Preserve effort/compaction choices in edited definitions; models still follow the user's selection.
+    env.setdefault("CLAUDE_CODE_EFFORT_LEVEL", "max")
+    if context_window is not None and context_window > 0:
+        env.setdefault("CLAUDE_CODE_AUTO_COMPACT_WINDOW", str(context_window * 3 // 4))
+    for name in ("ANTHROPIC_DEFAULT_HAIKU_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL"):
+        if agent.env.get(name) == "{model}":
+            env[name] = model.removesuffix("[1m]")
 
 
 def headers(backend: Any, cleaned: dict[str, str], key: str | None, protocol: str | None) -> dict[str, str]:
@@ -347,7 +382,7 @@ def headers(backend: Any, cleaned: dict[str, str], key: str | None, protocol: st
         result[name] = value
     if mode != "agent" and mode != "none":
         if not key:
-            raise ProviderError(f"{backend.name} has no key: set it on Server settings -> Providers")
+            raise ProviderError(f"{backend.name} has no key: set it in the organization's API providers tab")
         if mode == "bearer":
             result["Authorization"] = f"Bearer {key}"
         elif mode == "x-api-key":
@@ -579,6 +614,18 @@ class ProviderTransport(httpx.AsyncHTTPTransport):
 
 
 # Health: what this process saw of each provider's requests and tests (memory only; each process its own).
+
+
+@dataclass
+class ModelDiscovery:
+    """One process's model catalog, checked at most every five minutes (failed checks: 30 seconds)."""
+
+    signature: str = ""
+    expires_at: float = 0
+    result: dict[str, Any] = field(default_factory=dict)
+    models: list[str] = field(default_factory=list)
+    contexts: dict[str, int] = field(default_factory=dict)
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
 @dataclass

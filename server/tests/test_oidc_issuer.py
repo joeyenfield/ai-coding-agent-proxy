@@ -51,7 +51,7 @@ def transaction(response):
     return re.search(r'name="transaction" value="([^"]+)"', response.text).group(1)
 
 
-def browser_code(client, service, **changes):
+def browser_code(client, service, *, username="alice", password="alice-password", **changes):
     params, verifier = auth_params(service, **changes)
     page = client.get("/authorize", params=params)
     # Under no-referrer, browsers post the form with `Origin: null`, which the issuer refuses.
@@ -63,7 +63,7 @@ def browser_code(client, service, **changes):
     for console in service.settings.oidc_browser_origins:
         assert console in page.headers["content-security-policy"].split("form-action", 1)[1].split(";", 1)[0]
     tx = transaction(page)
-    result = client.post("/authorize", data={"transaction": tx, "username": "alice", "password": "alice-password", "approve": "yes"},
+    result = client.post("/authorize", data={"transaction": tx, "username": username, "password": password, "approve": "yes"},
                          headers={"Origin": service.issuer}, follow_redirects=False)
     assert result.status_code == 302, result.text
     query = parse_qs(urlsplit(result.headers["location"]).query)
@@ -365,6 +365,103 @@ def test_refresh_absolute_expiry_scopes_and_revocation_ownership(issuer):
         family["exp"] = 0
         service.state.put("family", record["family"], family)
     assert refresh(client, service, tokens["refresh_token"]).status_code == 400
+
+
+def test_managed_api_credentials_lifecycle_and_tenant_boundary(issuer):
+    client, service, store = issuer
+    store.add_user("org-admin", "org-admin-password", role="admin", tenant="acme")
+
+    def console(user, password):
+        code, verifier, params = browser_code(client, service, username=user, password=password, nonce=user)
+        return exchange(client, service, code, verifier, params).json()["access_token"]
+
+    admin_token = console("admin", "admin-password")
+    org_token = console("org-admin", "org-admin-password")
+    member_token = console("alice", "alice-password")
+
+    def manage(token, org="root", **data):
+        return client.post("/api-credentials", data={"token": token, "org": org, **data},
+                           auth=(service.settings.oidc_introspection_client, service.settings.oidc_introspection_secret))
+
+    assert manage(member_token, "acme", action="list").status_code == 403
+    assert manage(org_token, action="list").status_code == 403
+    assert manage(org_token, "acme", action="create", user="admin").status_code == 400
+    assert manage(org_token, "acme", action="create", user="org-admin", bootstrap="true").status_code == 400
+    created = manage(admin_token, action="create", user="admin", bootstrap="true", label="Initial setup")
+    assert created.status_code == 200, created.text
+    credential = created.json()
+    client_id = credential["client_id"]
+    assert credential["bootstrap"] and credential["active"]
+    listed = manage(admin_token, action="list").json()["credentials"]
+    assert listed[0]["label"] == "Initial setup"
+    assert credential["client_secret"] not in json.dumps(listed)
+    assert "secret_hash" not in json.dumps(listed)
+
+    def mint(secret):
+        return client.post("/token", data={"grant_type": "client_credentials", "scope": "mesh-api"}, auth=(client_id, secret))
+
+    service.jwt = True
+    token = mint(credential["client_secret"]).json()["access_token"]
+    assert token.count(".") != 2  # Must recheck the client's role and rotation even in a JWT deployment.
+    assert introspect(client, service, token).json()["active"]
+    assert manage(token, action="create", user="admin").status_code == 403
+    assert manage(org_token, "acme", action="revoke", id=client_id).status_code == 404
+    rotated = manage(admin_token, action="regenerate", id=client_id).json()
+    assert mint(credential["client_secret"]).status_code == 401
+    assert introspect(client, service, token).json() == {"active": False}
+    current = mint(rotated["client_secret"]).json()["access_token"]
+    assert introspect(client, service, current).json()["active"]
+    assert manage(admin_token, action="revoke", id=client_id).status_code == 200
+    assert introspect(client, service, current).json() == {"active": False}
+    assert mint(rotated["client_secret"]).status_code == 400
+    assert manage(admin_token, action="regenerate", id=client_id).status_code == 409
+    assert manage(admin_token, action="list").json()["credentials"][0]["revoked"]
+    assert manage(admin_token, action="create", user="admin").status_code == 200
+
+    made = manage(org_token, "acme", action="create", user="org-admin").json()
+    client_id = made["client_id"]
+    token = mint(made["client_secret"]).json()["access_token"]
+    store.add_user("other-admin", "other-admin-password", role="admin", tenant="acme")
+    store.update_user("org-admin", role="member")
+    assert introspect(client, service, token).json() == {"active": False}
+    assert mint(made["client_secret"]).status_code == 400
+
+
+def test_api_credential_can_provision_api_data_and_revoke_ends_access(issuer):
+    import httpx
+
+    from agent_server.app import create_app
+
+    client, service, store = issuer
+    code, verifier, params = browser_code(client, service, username="admin", password="admin-password")
+    console_token = exchange(client, service, code, verifier, params).json()["access_token"]
+    api_app = create_app(service.settings)
+    resource_auth = api_app.state.runtime.auth
+    resource_auth.client.close()
+
+    def relay_request(request):
+        response = client.request(request.method, request.url.path, content=request.content, headers=request.headers)
+        return httpx.Response(response.status_code, content=response.content, headers=response.headers)
+
+    resource_auth.client = httpx.Client(transport=httpx.MockTransport(relay_request), trust_env=False)
+    with TestClient(api_app) as api:
+        console_headers = {"Authorization": "Bearer " + console_token}
+        path = "/api/orgs/root/api-credentials"
+        assert api.get(path).status_code == 401
+        created = api.post(path, json={"user": "admin", "label": "Bootstrap", "bootstrap": True}, headers=console_headers)
+        assert created.status_code == 200, created.text
+        assert created.headers["cache-control"] == "no-store"
+        credential = created.json()
+        token = client.post("/token", data={"grant_type": "client_credentials"},
+                            auth=(credential["client_id"], credential["client_secret"])).json()["access_token"]
+        headers = {"Authorization": "Bearer " + token}
+        assert api.post("/api/orgs", json={"id": "test-data", "name": "Test data"}, headers=headers).status_code == 201
+        assert api.post("/api/users", json={"name": "test-user", "password": "test-password", "tenant": "test-data"}, headers=headers).status_code == 201
+        assert store.user("test-user")["tenant"] == "test-data"
+        assert api.get(path, headers=headers).status_code == 403
+        assert api.get(path, headers=console_headers).json()["credentials"][0]["bootstrap"]
+        assert api.delete(path + "/" + credential["client_id"], headers=console_headers).status_code == 200
+        assert api.get("/api/orgs", headers=headers).status_code == 401
 
 
 def test_service_clients_introspection_auth_audience_and_no_admin_grant(issuer):

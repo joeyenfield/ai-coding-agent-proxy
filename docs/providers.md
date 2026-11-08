@@ -133,6 +133,10 @@ Each provider has these settings. Only the key is secret, and it is never shown,
 
 **Test connection** on the console (`POST /api/orgs/{org}/providers/{name}/test`) asks the provider for its models with its key. It shows the status, the time and the listed models, which you can add to `models` (by hand when the provider has no `/models`).
 
+Hosted providers with `discover: true` fetch their model list automatically when their provider card, model picker or launch needs it. The provider card shows discovered IDs alongside your aliases. Successful checks are reused for five minutes; failures are retried after 30 seconds and keep the last good list. **Test connection** forces a fresh check. Changing the URL, settings or key invalidates the cached list. Automatic checks use the server's configured authentication; `auth: agent` needs aliases instead. Discovered lists are kept in each server process's memory and fetched again after a restart.
+
+Provider listing responses include `discovered_models` (the last fetched IDs) and `balance_supported` (true for the official DeepSeek API). `/api/models` returns discovered context sizes as `context_length`, including on aliases.
+
 ### Hosted APIs and gateways
 
 A hosted provider is reached directly from the server, so the server checks where it goes:
@@ -229,6 +233,24 @@ agent claude . --backend claude-api --model claude-sonnet-4-5
 ```
 
 ### Compatibility
+
+**DeepSeek with Claude Code.** Choose **Connect DeepSeek** in your organization's API providers tab (or select the DeepSeek preset). Its dedicated form asks for your API key, with a link to your DeepSeek account. Choose **Save securely on this server**, or **Use a server environment variable** and name `AI_PROXY_API_KEY_DEEPSEEK` after setting it on the server. Expand **Connection name and access** to rename the connection or limit it to teams. **Connect DeepSeek** saves the connection, checks it and fetches models; a failed check is reported while keeping the saved connection available to fix.
+
+![Connect a DeepSeek account](screenshots/deepseek-setup.png)
+
+The official addresses, authentication, Claude support and automatic model discovery come from the preset. You do not need to enter endpoints or select API protocols. **DeepSeek settings** changes the key and team access; an empty replacement field keeps the saved key. **Advanced settings** opens the full provider editor for aliases, sharing, fallback providers and other options. **Refresh models** forces a connection and model check. The preset uses `https://api.deepseek.com` for OpenAI requests and model discovery, and `https://api.deepseek.com/anthropic` for Claude's Messages requests. Available models come from DeepSeek's [model list API](https://api-docs.deepseek.com/api/list-models/), including the reported context window; they are not a hard-coded catalog.
+
+Launch Claude with a discovered model ID, or an alias you made for it:
+
+```bash
+agent claude . --backend deepseek --model deepseek-flash
+```
+
+Following DeepSeek's [Claude Code guide](https://api-docs.deepseek.com/quick_start/agent_integrations/claude_code/), the server supplies `CLAUDE_CODE_EFFORT_LEVEL=max` and sets `CLAUDE_CODE_AUTO_COMPACT_WINDOW` to three quarters of the reported context window. Models reporting at least one million tokens get Claude's `[1m]` selector on the main model, Sonnet and Opus slots; Haiku and subagents use the selected model without that selector. Aliases still resolve to DeepSeek's model ID. If the context is unknown, no large-context or compaction size is guessed. Custom effort and compaction values in an edited agent definition take precedence. The real API key stays on the server; Claude still talks through its proxy session.
+
+**Check balance** on the DeepSeek provider card calls the official [balance API](https://api-docs.deepseek.com/api/get-user-balance/) using that provider's server-side key. It shows whether API calls have sufficient balance and each returned currency's total, granted and topped-up amounts. Only the provider organization's administrators and site administrators can check it. Checks happen only when clicked, and balances are not saved in settings or used as usage limits. A missing key, rejected key or service failure shows an error.
+
+![DeepSeek models and an example balance check](screenshots/deepseek.png)
 
 What a provider supports changes with its version.
 

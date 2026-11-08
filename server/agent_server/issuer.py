@@ -222,10 +222,11 @@ class ProtocolRequest(OAuth2Request):
 
 
 class Client:
-    def __init__(self, client_id, grants, scopes=SCOPES, redirects=(), secret_hash=None, user=None, version=None):
+    def __init__(self, client_id, grants, scopes=SCOPES, redirects=(), secret_hash=None, user=None, version=None, management=None):
         self.client_id, self.grants, self.scopes = client_id, grants, scopes
         self.redirects, self.secret_hash = redirects, secret_hash
         self.user, self.version = user, version
+        self.management = management
 
     def get_client_id(self):
         return self.client_id
@@ -369,8 +370,7 @@ class ServiceGrant(ClientCredentialsGrant):
         super().validate_token_request()
         client = self.request.client
         user = self.server.service.bound_user(client.user, client.version)
-        record = self.server.service.auth.store.user(client.user)
-        if not user or not record or record["role"] != "member":
+        if not user or not self.server.service.client_account_active(client):
             raise InvalidGrantError()
         self.request.user = user
 
@@ -477,7 +477,8 @@ class Server(AuthorizationServer):
         service = self.service
         family = getattr(user, "family", None) or secrets.token_urlsafe(24)
         access = secrets.token_urlsafe(32)
-        if service.jwt:
+        # Managed API credentials always introspect: role changes and rotation apply on the next request.
+        if service.jwt and not client.management:
             account = user or service.bound_user(client.user, client.version)
             if account is not None:
                 access = service.access_jwt(client, account, scope, family)
@@ -575,19 +576,49 @@ class Issuer:
         data = self.state.get("client", client_id)
         return Client(client_id, ["client_credentials"], **data) if data else None
 
-    def provision(self, client_id, user, scope="mesh-api"):
+    def provision(self, client_id: str, user: str, scope: str = "mesh-api", *, management: bool = False,
+                  bootstrap: bool = False, label: str = "") -> str:
         if not re.fullmatch(r"[a-zA-Z0-9._-]{1,100}", client_id) or self.client(client_id):
             raise ValueError("Client ID is invalid or already exists")
         account = self.bound_user(user)
         record = self.auth.store.user(user)
-        if not account or not record or record["role"] != "member":
+        if not account or not record:
+            raise ValueError("API credentials require an existing stored account")
+        if not management and record["role"] != "member":
             raise ValueError("Service clients require an existing member account, never an administrator")
+        if bootstrap and (not management or record["role"] != "admin" or record["tenant"] != "root"):
+            raise ValueError("Bootstrap credentials require a site administrator")
         if scope != "mesh-api":
             raise ValueError("Service clients may request only mesh-api")
         secret = secrets.token_urlsafe(48)
-        self.state.put("client", client_id, {"secret_hash": digest(secret), "user": user,
-                                          "version": account.version, "scopes": scope})
+        data = {"secret_hash": digest(secret), "user": user, "version": account.version, "scopes": scope}
+        if management:
+            data["management"] = {"tenant": record["tenant"], "role": record["role"], "bootstrap": bootstrap,
+                                  "label": label[:80], "created_at": time.time(), "revoked": False}
+        self.state.put("client", client_id, data)
         return secret
+
+    def client_account_active(self, client: Client) -> bool:
+        record = self.auth.store.user(client.user)
+        if not record or not self.bound_user(client.user, client.version):
+            return False
+        if client.management:
+            meta = client.management
+            return not meta["revoked"] and record["tenant"] == meta["tenant"] and record["role"] == meta["role"]
+        return record["role"] == "member"
+
+    def managed_clients(self, tenant: str) -> list[dict]:
+        """Public metadata only; secrets and account versions never leave the issuer."""
+        with self.state.transaction():
+            rows = self.state.connection.execute(select(schema.records.c.key, schema.records.c.data).where(schema.records.c.kind == "client"))
+            result = []
+            for key, raw in rows:
+                data = json.loads(raw)
+                meta = data.get("management")
+                if meta and meta["tenant"] == tenant:
+                    result.append({"client_id": key, "user": data["user"], **meta,
+                                   "active": self.client_account_active(self.client(key))})
+            return result
 
     def access_jwt(self, client, user, scope, family):
         """A signed access token the API checks without asking here (RFC 9068's profile)."""
@@ -666,8 +697,7 @@ class Issuer:
         if data.get("client_version", "") != (client.secret_hash or ""):
             return None
         if client.user:
-            record = self.auth.store.user(client.user)
-            if not self.bound_user(client.user, client.version) or not record or record["role"] != "member":
+            if not self.client_account_active(client):
                 return None
         return data
 
@@ -963,6 +993,59 @@ def create_auth_app(settings: Settings | None = None) -> FastAPI:
                                                      "approved": approved, "exp": code["exp"]})
             return {"approved": approved}
 
+    @app.post("/api-credentials")
+    async def api_credentials(request: Request):
+        """Manage API clients through an authenticated API relay and a console administrator sign-in."""
+        data = await parameters(request)
+        with service.state.transaction():
+            service.authenticate(request, data, introspect=True)
+            record = service.active(data.get("token", ""))
+            identity = service.auth.identity_for(record["user"], "token") if record else None
+            if not record or record["client_id"] != service.settings.oidc_console_client or not identity or not identity.admin:
+                raise IssuerError("access_denied", 403)
+            tenant = data.get("org", "")
+            if not service.auth.store.org(tenant):
+                raise IssuerError("not_found", 404)
+            if not identity.site_admin and identity.tenant != tenant:
+                raise IssuerError("access_denied", 403)
+            action = data.get("action")
+            if action == "list":
+                return {"credentials": service.managed_clients(tenant), "token_endpoint": service.issuer + "/token"}
+            service.rate(("api_credentials", identity.user), 30)
+            client_id = data.get("id", "")
+            if action == "create":
+                user = data.get("user", "")
+                account = service.auth.store.user(user)
+                if not account or account["tenant"] != tenant:
+                    raise IssuerError("invalid_account")
+                bootstrap = data.get("bootstrap") == "true"
+                client_id = "api-" + secrets.token_urlsafe(18)
+                try:
+                    secret = service.provision(client_id, user, management=True,
+                                               bootstrap=bootstrap, label=data.get("label", ""))
+                except ValueError as exc:
+                    raise IssuerError("invalid_request") from exc
+                created = next(item for item in service.managed_clients(tenant) if item["client_id"] == client_id)
+                return {**created, "client_secret": secret}
+            client = service.client(client_id)
+            if not client or not client.management or client.management["tenant"] != tenant:
+                raise IssuerError("not_found", 404)
+            saved = service.state.get("client", client_id)
+            if action == "revoke":
+                saved["management"]["revoked"] = True
+                service.state.put("client", client_id, saved)
+                service.revoked("client", client_id)
+                return {"revoked": client_id}
+            if action == "regenerate":
+                if not service.client_account_active(client):
+                    raise IssuerError("inactive_credential", 409)
+                secret = secrets.token_urlsafe(48)
+                saved["secret_hash"] = digest(secret)
+                service.state.put("client", client_id, saved)
+                service.revoked("client", client_id)
+                return {"client_id": client_id, "client_secret": secret}
+            raise IssuerError("invalid_request")
+
     @app.post("/setup-codes")
     async def setup_codes(request: Request):
         """Setup codes, made by someone signed in to the console: each approves device sign-ins (an
@@ -1126,6 +1209,9 @@ def main():
     add.add_argument("client_id")
     add.add_argument("--user", required=True)
     add.add_argument("--scope", default="mesh-api")
+    add.add_argument("--management", action="store_true", help="Allow the account's current administrator permissions")
+    add.add_argument("--bootstrap", action="store_true", help="Create initial site-administrator API credentials and show a console warning")
+    add.add_argument("--label", default="")
     remove = client.add_parser("remove", help="Revoke a provisioned service client")
     remove.add_argument("client_id")
     args = parser.parse_args()
@@ -1135,7 +1221,8 @@ def main():
         with service.state.transaction():
             if args.client_command == "add":
                 try:
-                    secret = service.provision(args.client_id, args.user, args.scope)
+                    secret = service.provision(args.client_id, args.user, args.scope,
+                                               management=args.management or args.bootstrap, bootstrap=args.bootstrap, label=args.label)
                 except ValueError as error:
                     parser.error(str(error))
                 print(secret)

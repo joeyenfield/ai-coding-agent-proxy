@@ -87,6 +87,8 @@ A non-streaming upstream reply cut off after its headers answers `502` and is re
 | PUT | `/api/orgs/{org}/providers/{name}` | Admin of that organization, site admins; Same origin | Adds or changes one of its providers, as `/api/config/providers/{name}`. A new one belongs to this organization. `teams` are its own teams (`<org>/<team>`; empty is everyone in it); `orgs` is kept as it was unless a site admin sends it. `fallback` names only its own providers. A name another organization uses answers `409`. |
 | DELETE | `/api/orgs/{org}/providers/{name}` | Admin of that organization, site admins; Same origin | Removes one of its providers and its stored key. |
 | POST | `/api/orgs/{org}/providers/{name}/test` | Admin of that organization, site admins; Same origin | Tests one of its providers, as `/api/config/providers/{name}/test`. |
+| POST | `/api/orgs/{org}/providers/{name}/balance` | Admin of that organization, site admins; Same origin | DeepSeek only: GET `https://api.deepseek.com/user/balance` with this provider's server-side key. Returns `is_available` and `balance_infos` (`currency`, `total_balance`, `granted_balance`, `topped_up_balance`, amounts as strings). No-store; no persistence. `400` for another provider or missing key, `502` for a rejected key or invalid response, `503` for connection failures, `429` for rate limiting. |
+| POST | `/api/config/providers/{name}/balance` | Site admin; Same origin | The same balance check across all organizations. |
 | GET | `/api/config/storage` | Site admin | `database` (`kind`: `sqlite` or `postgresql`, `url` with its password hidden, `size` in bytes), `retention_days` and `request_log` (`enabled`, `days`, `payloads`, `payload_days`). |
 | PUT | `/api/config/storage` | Site admin | `{"retention_days": days}` (1 to 36500, or `null` to keep recordings until deleted) and/or `{"request_log": {...}}` with any of `enabled` and `payloads` (true or false), `days` (1 to 3650) and `payload_days` (1 to 365); the others stay. Old recordings go at once. Answers as GET. |
 | GET | `/api/server/stats` | Site admin | The server computer's load and disk use, read when asked (nothing is saved): `hostname`, `platform`, `boot_time`; `cpu` (`percent`, `count`, `load_average`, null on Windows); `memory` and `swap` (bytes, `percent`); `process` (agent-server's `pid`, `rss`, `cpu_percent` of one core, `threads`, `started_at`); `disks`, each filesystem holding the log or build folder once (`mountpoint`, `total`, `used`, `free`, `percent`, `folders`); `folders` (`name`, `path`, `bytes`) and `database` (`kind`, `bytes`), measured in the background every five minutes, so `bytes` is null until `folders_measured_at` is set. |
@@ -132,7 +134,7 @@ A non-streaming upstream reply cut off after its headers answers `502` and is re
 |---|---|---|---|
 | GET | `/api/agents` | Signed in | Every agent the server stores, with the `backends` it can use (your organization's and the shared hosted ones) and the `default_backend` a launch picks (`direct` for account agents). |
 | POST | `/api/agents/{agent_id}/sessions` | Signed in | Opens a session for an agent and returns `session`, the rendered `env`, `command` and `files`, `container` (whether its backend is a container to start first), `mcp` (the shared MCP servers it got, with their URLs) and `shell` (the same as bash and PowerShell lines). Takes `model`, `backend`, `trace`, `project`, `project_path`, `mcp`, sharing, `tags`; the launcher adds `launcher: true`, its `proxy_url`, its `intercept` paths and `files_dir`. `409` for an account agent when capture is off. |
-| GET | `/api/models` | Signed in | The models on each backend your organization's agents may use (or `?backend=` for one; another organization's answers `404`), asked of the backend's machine, with the profile the server applies, plus the `aliases` from its Ollama model tuning. |
+| GET | `/api/models` | Signed in | The models on each backend your organization's agents may use (or `?backend=` for one; another organization's answers `404`), asked of the backend's machine, with the profile the server applies, plus the `aliases` from its Ollama model tuning. Hosted API providers with discovery enabled automatically fetch their model IDs and context sizes, cached for five minutes (failed checks: 30 seconds). |
 | GET | `/api/mcp` | Signed in | The MCP servers machines share that you may give agents. |
 
 ## HTTPS capture
@@ -261,6 +263,17 @@ Shared terminals are a remote shell, so these routes need **Trusted** and **Same
 The two terminal WebSockets are below.
 
 ## Accounts, organizations and users
+
+**API credentials** require an administrator console sign-in and permission to administer `{org}`. Automation and device tokens cannot manage credentials. Responses use `Cache-Control: no-store`.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/orgs/{org}/api-credentials` | List `credentials` metadata and `token_endpoint`; never returns secrets. |
+| POST | `/api/orgs/{org}/api-credentials` | Create with `{user, label, bootstrap?}`. Returns metadata, `client_id` and `client_secret` once. The account must belong to the organization; bootstrap requires a site administrator in `root`. |
+| POST | `/api/orgs/{org}/api-credentials/{client_id}/regenerate` | Return a replacement `client_secret` once; old secret and access tokens stop working. Inactive credentials return 409. |
+| DELETE | `/api/orgs/{org}/api-credentials/{client_id}` | Permanently revoke a credential and its access tokens. |
+
+Metadata includes `user`, `label`, `role`, `tenant`, `created_at`, `bootstrap`, `revoked` and `active`. The API relays to issuer `POST /api-credentials` with its introspection credentials and the person's console token. See [automation](oidc.md#automation) for bootstrap provisioning and token exchange. Scripts use the same tenant, sharing and machine checks as people.
 
 See [Accounts](accounts.md). Changes answer with the directory (`orgs` and `users`) as you may see it. Authentication is always required.
 
