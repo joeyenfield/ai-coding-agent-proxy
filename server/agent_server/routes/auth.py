@@ -338,7 +338,10 @@ def register(app: FastAPI, runtime: Runtime) -> None:
 
     @app.post("/api/orgs/{org}/api-credentials")
     async def create_api_credential(org: str, request: Request) -> Response:
-        data = await request.json()
+        try:
+            data = await request.json()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Send the credential as JSON") from None
         if not isinstance(data, dict):
             raise HTTPException(status_code=400, detail="Send a JSON object")
         return await credential_call(org, request, {"action": "create", "user": str(data.get("user") or ""),
@@ -483,7 +486,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
 
     def directory(request: Request) -> dict[str, Any]:
         viewer = auth.request_identity(request)
-        return {"orgs": accounts.store.orgs(viewer), "users": accounts.store.user_list(viewer)}
+        return {"orgs": accounts.store.orgs(viewer), "users": accounts.user_list(viewer)}
 
     def change(request: Request, action: Any, missing: str) -> dict[str, Any]:
         try:
@@ -594,7 +597,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
 
     @app.get("/api/users")
     async def users(request: Request) -> dict[str, Any]:
-        return {"users": accounts.store.user_list(auth.request_identity(request))}
+        return {"users": accounts.user_list(auth.request_identity(request))}
 
     @app.post("/api/users", status_code=201)
     async def add_user(request: Request) -> dict[str, Any]:

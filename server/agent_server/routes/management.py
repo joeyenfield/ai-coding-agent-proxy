@@ -737,7 +737,7 @@ def _new_tags(data: dict[str, Any], tags: Any, request: Request) -> dict[str, An
     return tags
 
 
-async def _backend_models(runtime: Runtime, name: str) -> dict[str, Any]:
+async def _backend_models(runtime: Runtime, name: str, *, discover: bool = True) -> dict[str, Any]:
     try:
         backend = runtime.settings.backend(name)
     except ValueError as exc:
@@ -753,9 +753,13 @@ async def _backend_models(runtime: Runtime, name: str) -> dict[str, Any]:
         ]
         return {"type": "link", "online": True, "remote": {key: options.get(key) for key in ("server", "remote_org", "remote_name", "remote_type")}, "models": models}
     if backend.type == "api" and not backend.machine:
-        from .api_providers import auto_discover
+        catalog = runtime.api_discovery.get(name)
+        # Without discover, a stale catalog is used as it is, but one this process never filled is
+        # still fetched: otherwise a launch on a fresh process would know no context size at all.
+        if discover or catalog is None or not catalog.result:
+            from .api_providers import auto_discover
 
-        await auto_discover(runtime, backend)
+            await auto_discover(runtime, backend)
         return {**base, "online": (runtime.api_health.get(name) or {}).get("ok", True), "models": _api_models(runtime, backend, [])}
     if backend.type not in PROVIDER_TYPES:
         return {**base, "online": False, "error": "Hosted backend: select a model in the signed-in client. Model discovery is unavailable.", "models": []}
@@ -838,7 +842,7 @@ async def _context_window(runtime: Runtime, backend_name: str, model: str) -> in
     if backend.type not in PROVIDER_TYPES:
         return None
     try:
-        listed = (await _backend_models(runtime, backend_name)).get("models") or []
+        listed = (await _backend_models(runtime, backend_name, discover=False)).get("models") or []
     except Exception:  # a launch never waits on this: without it the agent keeps its own guess
         LOGGER.warning("Couldn't read the context size of %s on %s", model, backend_name, exc_info=True)
         return None

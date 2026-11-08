@@ -691,9 +691,17 @@ details.collapsible > summary::-webkit-details-marker { display: none; }
 .split-main .table .mono { overflow-wrap: anywhere; }
 .split-main .table th.num { width: 104px; }
 .split-main .table:not(.traffic-table) th:nth-child(2) { width: 27%; }
-.traffic-table th:nth-child(2) { width: 118px; }
-.traffic-table th:nth-child(3) { width: 156px; }
+.traffic-table th:nth-child(2) { width: 92px; }
+.traffic-table td:nth-child(2) small { white-space: normal; }
+/* Token columns: narrow, with little padding, so four fit beside the inspector. */
+.split-main .traffic-table th.num.tokens { width: 60px; padding-left: 4px; padding-right: 6px; line-height: 1.2; overflow-wrap: normal; }
+.traffic-table td.tokens { font-size: 13px; padding-left: 4px; padding-right: 6px; }
 .traffic-table td.num small { white-space: normal; }
+.traffic-table td.tokens { font-variant-numeric: tabular-nums; }
+.traffic-table tfoot th, .traffic-table tfoot td { border-top: 2px solid var(--line); font-weight: 700; text-align: right; }
+.traffic-table tfoot th { text-align: left; }
+/* The table scrolls sideways rather than squeezing the request column to nothing. */
+.traffic-table { min-width: 480px; }
 
 /* Page tabs (Ollama models and server) and the settings side menu */
 .tabbed { display: flex; flex-direction: column; gap: 22px; }

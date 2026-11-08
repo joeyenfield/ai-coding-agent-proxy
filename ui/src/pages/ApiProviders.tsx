@@ -372,7 +372,7 @@ function ProviderCard({ provider, data, org, open, onToggle }: { provider: ApiPr
           )}
           {provider.discover && (provider.discovered_models?.length ? (
             <span className="chips" aria-label="Discovered models">
-              {provider.discovered_models.filter((id) => !(id in provider.models)).map((id) => <span key={id} className="pill mono">{id}</span>)}
+              {provider.discovered_models.filter((id) => !(id in provider.models) && !Object.values(provider.models).includes(id)).map((id) => <span key={id} className="pill mono">{id}</span>)}
             </span>
           ) : <span className="subtle">{provider.auth === "agent" ? " · automatic discovery needs server-side authentication" : " · models are fetched automatically when a server key is available"}</span>)}
         </dd>

@@ -337,8 +337,10 @@ def upstream_model(backend: Any, model: str) -> str:
     aliases = options(backend)["models"]
     if model in aliases:
         return aliases[model]
-    # Claude's context selector is not part of an alias or the provider's model ID.
-    if deepseek(backend) and model.endswith("[1m]"):
+    # Claude's context selector is not part of an alias or the provider's model ID. A launch names a
+    # DeepSeek model this way, but the request may fall back to any provider, so strip it everywhere.
+    # A provider whose real model ID ends in [1m] still gets it through an alias, which is checked first.
+    if model.endswith("[1m]"):
         plain = model[:-4]
         return aliases.get(plain, plain)
     return model

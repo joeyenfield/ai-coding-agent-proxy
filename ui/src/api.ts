@@ -346,6 +346,8 @@ export interface User {
   orgs: string[];
   teams: string[];
   created_at: number | null;
+  /** Set for the administrator from the server's environment: outside the database, so it can't be edited here. */
+  environment?: boolean;
 }
 
 /** "Site admin", "Organization admin" or "Member", for an identity or a user. */

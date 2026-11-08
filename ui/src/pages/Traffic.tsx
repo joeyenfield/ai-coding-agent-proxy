@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { isFailure, outcomeLabel, tokens, type RequestRecord } from "../api";
+import { isFailure, outcomeLabel, type RequestRecord } from "../api";
 import { Inspector } from "../components/Inspector";
 import { LiveDetails } from "../components/LiveDetails";
 import { RouteBadge } from "../components/RouteBadge";
@@ -55,6 +55,22 @@ export function TrafficPage() {
   const intercept = status.data?.intercept;
   const shown = matches.reduce((total, row) => total + 1 + (row.repeats?.length ?? 0), 0);
   const services = new Set(matches.map((row) => row.service)).size;
+  // Over every request the filters match, folded repeats included, not just the rows drawn.
+  const totals = useMemo(() => {
+    const sum = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, estimated: false };
+    for (const row of matches) {
+      for (const record of [row.record, ...(row.repeats ?? []).map((repeat) => repeat.record)]) {
+        if (!record) continue;
+        sum.input += record.input_tokens;
+        sum.output += record.output_tokens;
+        sum.cacheRead += record.cache_read_tokens ?? 0;
+        sum.cacheWrite += record.cache_creation_tokens ?? 0;
+        sum.estimated ||= Boolean(record.tokens_estimated);
+      }
+    }
+    return sum;
+  }, [matches]);
+  const anyTokens = totals.input + totals.output + totals.cacheRead + totals.cacheWrite > 0;
 
   const setParam = (key: string, value: string | null) => {
     const next = new URLSearchParams(params);
@@ -146,8 +162,11 @@ export function TrafficPage() {
                 <thead>
                   <tr>
                     <th scope="col">Request</th>
-                    <th scope="col">Status</th>
-                    <th scope="col" className="num">Time and size</th>
+                    <th scope="col">Status and time</th>
+                    <th scope="col" className="num tokens" title="Input tokens the provider reported (not counting cache reads on Anthropic)">In</th>
+                    <th scope="col" className="num tokens" title="Output tokens">Out</th>
+                    <th scope="col" className="num tokens" title="Prompt tokens served from the provider's cache">Cache<br />read</th>
+                    <th scope="col" className="num tokens" title="Prompt tokens written to the provider's cache">Cache<br />write</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -155,6 +174,19 @@ export function TrafficPage() {
                     <TrafficRow key={row.key} row={row} selected={row.key === selectedKey} onSelect={() => setParam("request", row.key)} />
                   ))}
                 </tbody>
+                {anyTokens && (
+                  <tfoot>
+                    <tr className="traffic-totals">
+                      <th scope="row" colSpan={2}>
+                        Total of {formatNumber(shown)} {shown === 1 ? "request" : "requests"}
+                      </th>
+                      <TokenCell value={totals.input} estimated={totals.estimated} />
+                      <TokenCell value={totals.output} estimated={totals.estimated} />
+                      <TokenCell value={totals.cacheRead} />
+                      <TokenCell value={totals.cacheWrite} />
+                    </tr>
+                  </tfoot>
+                )}
               </table>
             </div>
           )}
@@ -204,6 +236,15 @@ function Details({ row }: { row: Row }) {
   );
 }
 
+/** One token count; blank for requests that carry none (sign-in, telemetry, in flight). */
+function TokenCell({ value, estimated }: { value?: number | null; estimated?: boolean }) {
+  return (
+    <td className="num nowrap tokens" title={estimated ? "Estimated: the stream ended before the provider reported counts" : undefined}>
+      {value ? `${estimated ? "≈ " : ""}${formatNumber(value)}` : <span className="subtle">–</span>}
+    </td>
+  );
+}
+
 function TrafficRow({ row, selected, onSelect }: { row: Row; selected: boolean; onSelect: () => void }) {
   const record = row.record;
   const failed = record ? isFailure(record) : false;
@@ -250,21 +291,19 @@ function TrafficRow({ row, selected, onSelect }: { row: Row; selected: boolean; 
         ) : (
           <span className="pill live">pending</span>
         )}
-        {record && (record.input_tokens > 0 || record.output_tokens > 0) && (
-          <small>
-            {tokens(record, record.input_tokens)} in, {tokens(record, record.output_tokens)} out
-          </small>
-        )}
-      </td>
-      <td className="num nowrap">
-        {formatDuration(elapsed)}
-        <small>{new Date(row.started).toLocaleTimeString()}</small>
+        {/* Time and size sit under the status, leaving the columns to the token counts. */}
+        <small>{formatDuration(elapsed)}</small>
+        <small className="subtle">{new Date(row.started).toLocaleTimeString()}</small>
         {record && (
-          <small title={`${formatBytes(record.request_bytes)} sent, ${formatBytes(record.response_bytes)} received`}>
+          <small className="subtle" title={`${formatBytes(record.request_bytes)} sent, ${formatBytes(record.response_bytes)} received`}>
             ↑ {formatBytes(record.request_bytes)} ↓ {formatBytes(record.response_bytes)}
           </small>
         )}
       </td>
+      <TokenCell value={record?.input_tokens} estimated={record?.tokens_estimated} />
+      <TokenCell value={record?.output_tokens} estimated={record?.tokens_estimated} />
+      <TokenCell value={record?.cache_read_tokens} />
+      <TokenCell value={record?.cache_creation_tokens} />
     </tr>
   );
 }

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 import asyncio
+import functools
 import hashlib
 import hmac
 import json
@@ -74,6 +75,25 @@ def valid_name(value: str, what: str) -> str:
 
 def _digest(secret: str) -> str:
     return hashlib.sha256(secret.encode()).hexdigest()
+
+
+@functools.lru_cache(maxsize=8)
+def _environment_version(user: str, password: str) -> str:
+    """The environment account's version, which tokens carry as `acct`.
+
+    Derived with scrypt, never a plain hash: the version travels in every token and the issuer's
+    client records, and a fast digest of the password would let anyone holding one guess it offline.
+    The salt is fixed per user so the API and the issuer, separate processes, derive the same value;
+    the cache keeps token checks from paying the scrypt cost each time.
+    """
+    salt = ("agent-mesh environment account:" + user).encode()
+    return hashlib.scrypt(password.encode(), salt=salt, dklen=32, **SCRYPT).hex()
+
+
+def account_public(name: str, role: str, tenant: str, teams: list[str], created_at: Any, **extra: Any) -> dict[str, Any]:
+    """One user as the directory and the API show it, whichever kind of account it is."""
+    return {"name": name, "role": role, "tenant": tenant, "orgs": [tenant], "teams": list(teams),
+            "created_at": created_at, **extra}
 
 
 def team_key(org: str, team: str) -> str:
@@ -410,10 +430,8 @@ class UserStore:
 
     def _user_public(self, name: str) -> dict[str, Any]:
         record = self._load()["users"][name]
-        return {
-            "name": name, "role": record.get("role", "member"), "tenant": record["tenant"], "orgs": [record["tenant"]],
-            "teams": list(record.get("teams", [])), "created_at": record.get("created_at"),
-        }
+        return account_public(name, record.get("role", "member"), record["tenant"], record.get("teams", []),
+                              record.get("created_at"))
 
     # Users
 
@@ -669,22 +687,40 @@ class Auth:
         user, password = os.getenv("AI_PROXY_USERNAME"), os.getenv("AI_PROXY_PASSWORD")
         return (user.strip().lower(), password) if user and password else None
 
+    def environment_account(self) -> dict[str, Any] | None:
+        """The environment account as the directory lists it: a site admin kept outside the database."""
+        environment = self.environment_user
+        if not environment:
+            return None
+        return account_public(environment[0], "admin", ROOT_TENANT, [], None, environment=True)
+
+    def account_record(self, user: str) -> dict[str, Any] | None:
+        """A stored account, or the environment one: the two kinds the issuer may bind credentials to."""
+        record = self.store.user(user)
+        if record is not None:
+            return record
+        environment = self.environment_account()
+        return environment if environment and environment["name"] == user else None
+
+    def user_list(self, viewer: Identity | None = None) -> list[dict[str, Any]]:
+        """The directory the API shows; site admins also see the environment account."""
+        users = self.store.user_list(viewer)
+        environment = self.environment_account()
+        if (environment and (viewer is None or viewer.site_admin)
+                and environment["name"] not in {user["name"] for user in users}):
+            users = sorted([*users, environment], key=lambda user: user["name"])
+        return users
+
     def account_version(self, user: str) -> str | None:
         version = self.store.account_version(user)
         if version:
             return version
         environment = self.environment_user
-        return _digest(environment[1]) if environment and user == environment[0] else None
+        return _environment_version(*environment) if environment and user == environment[0] else None
 
     def identity_for(self, user: str, via: str) -> Identity | None:
-        environment = self.environment_user
-        record = self.store.user(user)
-        if record:
-            return Identity(user, via, record["role"], tuple(record["teams"]), record["tenant"])
-        if environment and user == environment[0]:
-            # The account from the environment manages the server: a site admin.
-            return Identity(user, via, "admin", (), ROOT_TENANT)
-        return None
+        record = self.account_record(user)
+        return Identity(user, via, record["role"], tuple(record["teams"]), record["tenant"]) if record else None
 
     @staticmethod
     def request_token(connection: HTTPConnection) -> tuple[str, str]:

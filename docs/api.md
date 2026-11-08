@@ -7,7 +7,7 @@ The server also describes its HTTP routes in OpenAPI:
 | Path | What it is |
 |---|---|
 | `/openapi.json` | The OpenAPI document, grouped by area, with a unique id per operation and the sign-in schemes. |
-| `/docs` | Swagger UI. Use **Authorize** with an OAuth access token, or just be signed in to the console. |
+| `/docs` | Swagger UI. Use **Authorize** with an OAuth access token or an API credential's client ID and secret (**apiCredential**), or just be signed in to the console. |
 | `/redoc` | ReDoc. |
 
 These always need an OAuth access token or an authenticated browser cookie. See [OIDC authentication](oidc.md) for the separate issuer's endpoints.
@@ -82,7 +82,7 @@ A non-streaming upstream reply cut off after its headers answers `502` and is re
 | GET | `/api/config/providers` | Site admin | Every organization's API providers (`api` backends): each one's [settings](providers.md#settings), `tenant` (its organization), `has_key` and `key_source` (`vault`, `env` or `null`; never the key), `health` (what this process last saw) and `default`. Also `vault` (a key can be stored), `presets`, `protocols`, `auth_modes` and `share`. See [API providers](providers.md#api-providers-openai-and-anthropic-compatible). |
 | PUT | `/api/config/providers/{name}` | Site admin | Adds or replaces one, from the settings above plus `key` (stored encrypted, write-only; needs `AI_PROXY_VAULT_KEYS`) and `clear_key`; `org` names the organization a new hosted one belongs to. Without `key` a stored key stays, unless the address moved to another origin. A machine-hosted one keeps its machine's address. `400` with the reason when a setting isn't allowed (private addresses, credential headers, `key_env` outside `AI_PROXY_API_KEY_*`, a team of another organization, ...). |
 | DELETE | `/api/config/providers/{name}` | Site admin | Removes one and its stored key. `400` for the default backend. |
-| POST | `/api/config/providers/{name}/test` | Site admin | Asks the provider for its models with its key: `ok`, `status`, `latency_ms`, `models` (ids, or `null`) and `error`. The result becomes its health and its discovered models. |
+| POST | `/api/config/providers/{name}/test` | Site admin | Asks the provider for its models with its key: `ok`, `status`, `latency_ms`, `models` (ids, or `null`) and `error`. The result becomes its health and its discovered models. An answer that isn't a model list is still `ok: true` (the provider is reachable); `error` says what the check couldn't read. |
 | GET | `/api/orgs/{org}/providers` | Admin of that organization, site admins | The organization's API providers (hosted ones added in it, and those on its machines), as above. `share` says whether you may set `orgs`. Others get `404`. |
 | PUT | `/api/orgs/{org}/providers/{name}` | Admin of that organization, site admins; Same origin | Adds or changes one of its providers, as `/api/config/providers/{name}`. A new one belongs to this organization. `teams` are its own teams (`<org>/<team>`; empty is everyone in it); `orgs` is kept as it was unless a site admin sends it. `fallback` names only its own providers. A name another organization uses answers `409`. |
 | DELETE | `/api/orgs/{org}/providers/{name}` | Admin of that organization, site admins; Same origin | Removes one of its providers and its stored key. |
@@ -273,7 +273,7 @@ The two terminal WebSockets are below.
 | POST | `/api/orgs/{org}/api-credentials/{client_id}/regenerate` | Return a replacement `client_secret` once; old secret and access tokens stop working. Inactive credentials return 409. |
 | DELETE | `/api/orgs/{org}/api-credentials/{client_id}` | Permanently revoke a credential and its access tokens. |
 
-Metadata includes `user`, `label`, `role`, `tenant`, `created_at`, `bootstrap`, `revoked` and `active`. The API relays to issuer `POST /api-credentials` with its introspection credentials and the person's console token. See [automation](oidc.md#automation) for bootstrap provisioning and token exchange. Scripts use the same tenant, sharing and machine checks as people.
+Metadata includes `user`, `label`, `role`, `tenant`, `created_at`, `bootstrap`, `revoked` and `active`. The API relays to issuer `POST /api-credentials` with its introspection credentials and the person's console token. See [Using API credentials](api-credentials.md) for getting a token and calling the API, and [automation](oidc.md#automation) for bootstrap provisioning. Scripts use the same tenant, sharing and machine checks as people.
 
 See [Accounts](accounts.md). Changes answer with the directory (`orgs` and `users`) as you may see it. Authentication is always required.
 
@@ -303,7 +303,7 @@ See [Accounts](accounts.md). Changes answer with the directory (`orgs` and `user
 | PUT | `/api/orgs/{org}/teams/{team}` | Admin | `{"name"}`: changes the display name, keeping its id and sharing key. |
 | DELETE | `/api/orgs/{org}/teams/{team}` | Admin | Removes a team. |
 | PUT / DELETE | `/api/orgs/{org}/teams/{team}/members/{name}` | Admin | Adds/removes one team membership, for a user of that organization. No body needed. |
-| GET | `/api/users` | Signed in | Users with their `role`, `tenant` (their organization; `orgs` is `[tenant]`) and `teams`. You see the people in your organization; site admins see everyone. |
+| GET | `/api/users` | Signed in | Users with their `role`, `tenant` (their organization; `orgs` is `[tenant]`) and `teams`. You see the people in your organization; site admins see everyone, including the environment account (`environment: true`) when one is configured. |
 | POST | `/api/users` | Admin | `{"name", "password", "role", "tenant", "teams"}`: adds a user to one organization, for good. An organization's admin adds to their own (`tenant` may be left out); a site admin names any, and without one makes a site admin (`role: "admin"` only). `orgs: [one]` still works for `tenant`. |
 | PUT | `/api/users/{name}` | Admin | Changes `role`, `teams` or `password` together, only if all changes are valid. `orgs` may only repeat the user's own organization. An organization's last admin can't be made a member; root users stay admins. |
 | DELETE | `/api/users/{name}` | Admin | Removes a user. Their machines leave the fleet, their provider accounts (and stored credentials) are deleted, and their sessions become ownerless, kept for the organization's admins: a recreated name inherits nothing. You can't remove yourself. |

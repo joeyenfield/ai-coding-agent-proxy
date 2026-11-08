@@ -188,7 +188,8 @@ Account agents' other calls (sign-in, telemetry, MCP) aren't shown here; they're
 - **Search** by service, host, path, agent or model, pick a **session**, and tick **Failed only**.
 - **Request types** filter the list: Model call, Token count, Model list, MCP, Account, Sign-in, Settings & flags, Telemetry, Updates, Connection and Other, each with its count. What each type covers is in [What the requests are](agents.md#what-the-requests-are).
 - **Group repeats** folds back-to-back identical requests (agents poll some endpoints) into one row.
-- Each row shows the type, service, method and path, the session, its status, timing and size; requests in flight are marked **pending**.
+- Each row shows the type, service, method and path, the session, its status, timing and size, and its tokens in columns of their own: **In**, **Out**, **Cache read** (prompt tokens the provider served from its cache) and **Cache write** (prompt tokens it wrote to its cache). Counts marked `≈` were estimated. Requests in flight are marked **pending**.
+- The last row totals the tokens of every request the filters match, folded repeats included.
 - Selecting a row opens the inspector on the right: timings, tokens and sizes, and tabs for the **Conversation** (a readable view of the messages), the **Request**, the **Response**, what was **Sent to Ollama** (for translated calls), the request and response **Headers** (credentials redacted) for captured HTTPS, and **Metadata**. **Full screen** opens it alone; **Download full trace** saves the JSON.
 - **Still in memory**, in the inspector, marks a request whose session doesn't save payloads while the server still holds them live: read them now or they're gone when the request leaves memory.
 

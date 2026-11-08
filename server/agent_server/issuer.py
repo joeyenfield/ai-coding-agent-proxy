@@ -581,9 +581,9 @@ class Issuer:
         if not re.fullmatch(r"[a-zA-Z0-9._-]{1,100}", client_id) or self.client(client_id):
             raise ValueError("Client ID is invalid or already exists")
         account = self.bound_user(user)
-        record = self.auth.store.user(user)
+        record = self.auth.account_record(user)
         if not account or not record:
-            raise ValueError("API credentials require an existing stored account")
+            raise ValueError("API credentials require an existing account")
         if not management and record["role"] != "member":
             raise ValueError("Service clients require an existing member account, never an administrator")
         if bootstrap and (not management or record["role"] != "admin" or record["tenant"] != "root"):
@@ -599,7 +599,7 @@ class Issuer:
         return secret
 
     def client_account_active(self, client: Client) -> bool:
-        record = self.auth.store.user(client.user)
+        record = self.auth.account_record(client.user)
         if not record or not self.bound_user(client.user, client.version):
             return False
         if client.management:
@@ -1015,7 +1015,7 @@ def create_auth_app(settings: Settings | None = None) -> FastAPI:
             client_id = data.get("id", "")
             if action == "create":
                 user = data.get("user", "")
-                account = service.auth.store.user(user)
+                account = service.auth.account_record(user)
                 if not account or account["tenant"] != tenant:
                     raise IssuerError("invalid_account")
                 bootstrap = data.get("bootstrap") == "true"

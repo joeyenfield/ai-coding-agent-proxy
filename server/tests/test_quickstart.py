@@ -128,6 +128,44 @@ def test_quickstart_vault_key_survives_restarts_and_decrypts_stored_keys(tmp_pat
     assert Path(os.environ["AI_PROXY_VAULT_KEYS_FILE"]).read_bytes() != original
 
 
+def test_quickstart_vault_publishes_without_hardlinks(tmp_path, monkeypatch):
+    from agent_server.provider_accounts import Vault
+
+    monkeypatch.delenv("AI_PROXY_VAULT_KEYS", raising=False)
+    monkeypatch.delenv("AI_PROXY_VAULT_KEYS_FILE", raising=False)
+    start = module("start")
+
+    def unsupported(source, target):
+        raise OSError("hardlinks are not supported here")
+
+    monkeypatch.setattr(start.os, "link", unsupported)
+    directory = tmp_path / "private"
+    start.configure_vault(directory)
+    path = Path(os.environ["AI_PROXY_VAULT_KEYS_FILE"])
+    assert path.read_text(encoding="ascii").startswith("1:")
+    vault = Vault.from_environment()
+    version, nonce, ciphertext = vault.encrypt("deepseek-test-key", b"provider")
+    assert vault.decrypt(version, nonce, ciphertext, b"provider") == "deepseek-test-key"
+
+
+def test_quickstart_vault_without_hardlinks_keeps_a_racing_starts_key(tmp_path, monkeypatch):
+    monkeypatch.delenv("AI_PROXY_VAULT_KEYS", raising=False)
+    monkeypatch.delenv("AI_PROXY_VAULT_KEYS_FILE", raising=False)
+    start = module("start")
+    directory = tmp_path / "private"
+    winner = "1:" + "A" * 43 + "=\n"
+
+    def raced(source, target):
+        # Another start publishes its key after this one checked, before it links.
+        Path(target).write_text(winner, encoding="ascii")
+        raise OSError("hardlinks are not supported here")
+
+    monkeypatch.setattr(start.os, "link", raced)
+    start.configure_vault(directory)
+    assert Path(os.environ["AI_PROXY_VAULT_KEYS_FILE"]).read_text(encoding="ascii") == winner
+    assert sorted(item.name for item in directory.iterdir()) == ["vault-keys"]
+
+
 @pytest.mark.parametrize("variable", ["AI_PROXY_VAULT_KEYS", "AI_PROXY_VAULT_KEYS_FILE"])
 def test_quickstart_vault_honors_explicit_configuration(tmp_path, monkeypatch, variable):
     monkeypatch.delenv("AI_PROXY_VAULT_KEYS", raising=False)

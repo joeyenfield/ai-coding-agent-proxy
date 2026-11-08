@@ -52,7 +52,7 @@ The full list of commands is on [Configuration](configuration.md#users-organizat
 
 **The first admin.** Authentication is always required. On the first start against a new database, if there is no environment account, the API creates `admin`, a site admin, with a random password, including on loopback. It prints the password and saves it in the file `first-user-password` (in `certs/` normally). Reset it with `agent-server user passwd admin`, then delete that file. Removing every user does not disable authentication.
 
-**An account from the environment.** Set `AI_PROXY_USERNAME` and `AI_PROXY_PASSWORD` on the server and that account is a site admin, without an account in the database. Use it for servers set up by script. It can't change its password through the console.
+**An account from the environment.** Set `AI_PROXY_USERNAME` and `AI_PROXY_PASSWORD` on the server and on `agent-auth` (each reads its own environment) and that account is a site admin, without an account in the database. Use it for servers set up by script. Site admins see it in the console's user directory, marked **from the environment**, and it can own API credentials; the console can't edit or delete it. It can't change its password through the console.
 
 **Upgrading from before organizations were tenants.** On the first start of this version, each user goes to their first organization (by id), keeping their role there, and leaves their teams of other organizations. An admin in no organization becomes a site admin; a member in none goes to a new organization, `main`. Sessions and machines go to their owner's organization, and those without an owner to the root. Anything a user shared with another of their old organizations is no longer shared.
 

@@ -80,6 +80,11 @@ OIDC issuer (by default https://auth.aicontrolmesh.com). API requests need one o
 - **An OAuth access token** in `X-AI-Proxy-Token` for agent-proxy traffic, preserving the agent's own vendor Authorization.
 - **The console's sign-in cookie** (`ai_proxy_session`): signed in to the console in this browser, this page already uses it.
 
+For scripts, create an **API credential** (Organizations › API credentials) and exchange its client ID
+and secret for an access token at the issuer's `/token` with the `client_credentials` grant and scope
+`mesh-api`. **Authorize › apiCredential** on this page does that exchange for you. The console's
+documentation has a guide: `/help/api-credentials`.
+
 `agent login` and `agent-machine login` use device authorization at the issuer. Session ids
 identify sessions but do not authenticate API requests. MCP also needs its launch-only URL
 capability. Existing sharing and machine grants still apply. Changes to the server need an admin.
@@ -101,14 +106,21 @@ def install(app: FastAPI, version: str) -> None:
             )
         _tag_and_name(app, schema)
         components = schema.setdefault("components", {})
+        runtime = getattr(app.state, "runtime", None)
+        issuer = runtime.settings.oidc_issuer.rstrip("/") if runtime else ""
         components["securitySchemes"] = {
             "accessToken": {"type": "http", "scheme": "bearer", "description": "An OAuth access token for this API, not an OIDC ID token."},
+            # Swagger UI's Authorize then takes an API credential's client ID and secret and fetches the
+            # token from the issuer itself: the issuer allows the console's origin on /token.
+            "apiCredential": {"type": "oauth2", "description": "An API credential (Organizations › API credentials): its client ID and secret.",
+                              "flows": {"clientCredentials": {"tokenUrl": issuer + "/token",
+                                                              "scopes": {"mesh-api": "This API, as the credential's account."}}}},
             "proxyAccessToken": {"type": "apiKey", "in": "header", "name": "X-AI-Proxy-Token",
                                  "description": "An OAuth access token; the alternate header preserves coding agents' vendor Authorization."},
             "consoleCookie": {"type": "apiKey", "in": "cookie", "name": "ai_proxy_session",
                               "description": "Set by signing in to the console."},
         }
-        schema["security"] = [{"accessToken": []}, {"proxyAccessToken": []}, {"consoleCookie": []}]
+        schema["security"] = [{"accessToken": []}, {"apiCredential": ["mesh-api"]}, {"proxyAccessToken": []}, {"consoleCookie": []}]
         for path, methods in schema.get("paths", {}).items():
             if path in PUBLIC_PATHS or not path.startswith(PROTECTED_PREFIXES):
                 for operation in methods.values():

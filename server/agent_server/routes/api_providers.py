@@ -283,11 +283,13 @@ async def _discover(runtime: Runtime, backend: Any, catalog: api_providers.Model
         )
         status = response.status_code
         latency = (time.perf_counter() - started) * 1000
-        if status >= 400:
+        body = response.json() if status < 400 else None
+        # Some gateways answer an error with 200 and an error body: that is a failure, not a reachable provider.
+        if status >= 400 or (isinstance(body, dict) and body.get("error")):
             error = _error(response)
             runtime.api_health.record(backend.name, status, latency, error)
             return {"ok": False, "status": status, "latency_ms": round(latency, 1), "models": None, "error": error}
-        listed = response.json().get("data")
+        listed = body.get("data")
         entries = {item["id"]: item for item in listed if isinstance(item, dict) and isinstance(item.get("id"), str)
                    and api_providers.MODEL_NAME.fullmatch(item["id"])} if isinstance(listed, list) else None
         models = sorted(entries)[: api_providers.MAX_MODELS] if entries is not None else None
@@ -307,10 +309,12 @@ async def _discover(runtime: Runtime, backend: Any, catalog: api_providers.Model
         runtime.api_health.record(backend.name, status, latency, error)
         return {"ok": False, "status": status, "latency_ms": round(latency, 1), "models": None, "error": error}
     error = None if models is not None else "It answered, but not with a model list"
-    runtime.api_health.record(backend.name, status, latency, error)
+    # A provider that answered is reachable even if its answer isn't a model list (some gateways use
+    # another shape): health is about the connection, while error says what the check couldn't read.
+    runtime.api_health.record(backend.name, status, latency, None)
     if models is not None:
         catalog.models = models
-    return {"ok": models is not None, "status": status, "latency_ms": round(latency, 1), "models": models, "error": error}
+    return {"ok": True, "status": status, "latency_ms": round(latency, 1), "models": models, "error": error}
 
 
 async def upstream(runtime: Runtime, backend: Any) -> tuple[httpx.AsyncClient, str]:

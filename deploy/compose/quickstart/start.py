@@ -107,8 +107,20 @@ def configure_vault(directory: Path) -> None:
                 os.link(temporary_path, path)
             except FileExistsError:
                 pass
+            except OSError:
+                # A volume without hardlinks (some network and overlay filesystems): create the file
+                # exclusively, so a start racing this one can never replace the key it already made.
+                try:
+                    descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+                except FileExistsError:
+                    pass
+                else:
+                    with os.fdopen(descriptor, "wb") as published:
+                        published.write(temporary_path.read_bytes())
+                        published.flush()
+                        os.fsync(published.fileno())
         finally:
-            temporary_path.unlink()
+            temporary_path.unlink(missing_ok=True)
     if not path.read_text(encoding="ascii").strip():
         raise RuntimeError("The quickstart vault key file is empty; restore it from backup before starting")
     os.environ["AI_PROXY_VAULT_KEYS_FILE"] = str(path)

@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import time
 from pathlib import Path
 
 import httpx
@@ -134,6 +135,84 @@ def test_deepseek_discovers_models_and_configures_claude_without_exposing_the_ke
         assert len([request for request in seen if request.method == "GET"]) == 1
     finally:
         close_app(app, client, old)
+
+
+def test_a_launch_reads_the_known_context_without_contacting_the_provider(tmp_path):
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(200, json={"data": [{"id": "deepseek-flash", "context_window": 2_000_000}]})
+
+    preset = next(item for item in api_providers.PRESETS if item["id"] == "deepseek")
+    backend = api("deepseek", "https://api.deepseek.com", protocols=preset["protocols"], auth=preset["auth"],
+                  anthropic_url=preset["anthropic_url"], key_env="AI_PROXY_API_KEY_TEST", models={"coder": "deepseek-flash"})
+    app, client, old = make_app(tmp_path, handler, deepseek=backend)
+    try:
+        assert client.get("/api/config/providers").status_code == 200 and len(seen) == 1
+        # Stale discovery: the launch must use what is known rather than wait on the provider.
+        app.state.runtime.api_discovery["deepseek"].expires_at = 0
+        launch = client.post("/api/agents/claude/sessions", json={"backend": "deepseek", "model": "coder"})
+        assert launch.status_code == 201, launch.text
+        assert len(seen) == 1
+        assert launch.json()["command"][-2:] == ["--model", "coder[1m]"]
+    finally:
+        close_app(app, client, old)
+
+
+def test_a_launch_on_a_fresh_process_fetches_the_context_once(tmp_path):
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(200, json={"data": [{"id": "deepseek-flash", "context_window": 2_000_000}]})
+
+    preset = next(item for item in api_providers.PRESETS if item["id"] == "deepseek")
+    backend = api("deepseek", "https://api.deepseek.com", protocols=preset["protocols"], auth=preset["auth"],
+                  anthropic_url=preset["anthropic_url"], key_env="AI_PROXY_API_KEY_TEST", models={"coder": "deepseek-flash"})
+    app, client, old = make_app(tmp_path, handler, deepseek=backend)
+    try:
+        # Nothing has filled this process's catalog yet: the launch fetches it rather than guess.
+        assert "deepseek" not in app.state.runtime.api_discovery
+        launch = client.post("/api/agents/claude/sessions", json={"backend": "deepseek", "model": "coder"})
+        assert launch.status_code == 201, launch.text
+        assert len(seen) == 1
+        assert launch.json()["command"][-2:] == ["--model", "coder[1m]"]
+    finally:
+        close_app(app, client, old)
+
+
+def test_a_200_answer_with_an_error_body_is_a_failed_check(tmp_path):
+    app, client, old = make_app(tmp_path, lambda request: httpx.Response(200, json={"error": {"message": "invalid key"}}),
+                                hosted=api("hosted", "https://provider.test/v1", key_env="AI_PROXY_API_KEY_TEST"))
+    try:
+        tested = client.post("/api/config/providers/hosted/test").json()
+        assert tested["ok"] is False and tested["error"] == "invalid key"
+        assert app.state.runtime.api_health.get("hosted")["ok"] is False
+    finally:
+        close_app(app, client, old)
+
+
+def test_a_provider_that_answers_without_a_model_list_is_still_reachable(tmp_path):
+    app, client, old = make_app(tmp_path, lambda request: httpx.Response(200, json={"models": [{"id": "x"}]}),
+                                hosted=api("hosted", "https://provider.test/v1", key_env="AI_PROXY_API_KEY_TEST"))
+    try:
+        listed = client.get("/api/models?backend=hosted").json()["backends"]["hosted"]
+        assert listed["online"] is True and listed["models"] == []
+        health = app.state.runtime.api_health.get("hosted")
+        assert health["ok"] is True and health["error"] is None
+        assert app.state.runtime.api_discovery["hosted"].expires_at > time.monotonic() + 200
+        tested = client.post("/api/config/providers/hosted/test").json()
+        assert tested["ok"] is True and tested["models"] is None and "model list" in tested["error"]
+    finally:
+        close_app(app, client, old)
+
+
+def test_the_claude_context_selector_is_never_sent_to_a_fallback_provider():
+    spare = api("spare", "https://spare.test/v1", models={"coder": "spare-model"})
+    assert api_providers.upstream_model(spare, "coder[1m]") == "spare-model"
+    assert api_providers.upstream_model(spare, "other[1m]") == "other"
+    assert api_providers.upstream_model(spare, "coder") == "spare-model"
 
 
 def test_discovery_refreshes_and_keeps_last_models_on_failure(tmp_path, monkeypatch):

@@ -427,7 +427,44 @@ def test_managed_api_credentials_lifecycle_and_tenant_boundary(issuer):
     assert mint(made["client_secret"]).status_code == 400
 
 
-def test_api_credential_can_provision_api_data_and_revoke_ends_access(issuer):
+def test_environment_admin_can_own_management_credentials(issuer, monkeypatch):
+    client, service, _ = issuer
+    monkeypatch.setenv("AI_PROXY_USERNAME", "operator")
+    monkeypatch.setenv("AI_PROXY_PASSWORD", "operator-password")
+    # It's a site admin the directory lists, but only inside the root organization.
+    identity = service.auth.identity_for("operator", "token")
+    assert identity is not None and identity.site_admin
+    listed = {user["name"]: user for user in service.auth.user_list(identity)}
+    assert listed["operator"]["environment"] is True and listed["operator"]["tenant"] == "root"
+    alice = service.auth.identity_for("alice", "token")
+    assert "operator" not in {user["name"] for user in service.auth.user_list(alice)}
+    # Never a plain service client: the member-only rule still holds.
+    with service.state.transaction():
+        with pytest.raises(ValueError, match="member account"):
+            service.provision("automation", "operator")
+        secret = service.provision("initial-setup", "operator", management=True, bootstrap=True, label="Setup")
+    minted = client.post("/token", data={"grant_type": "client_credentials", "scope": "mesh-api"},
+                         auth=("initial-setup", secret))
+    assert minted.status_code == 200, minted.text
+    record = introspect(client, service, minted.json()["access_token"]).json()
+    assert record["active"] and record["username"] == "operator"
+    # The version every token and client record carries never reveals a fast digest of the password.
+    import hashlib
+
+    version = service.auth.account_version("operator")
+    assert version and version != hashlib.sha256(b"operator-password").hexdigest()
+    assert service.client("initial-setup").version == version
+    # Signed in as that account, the console can create one in the root organization too.
+    code, verifier, params = browser_code(client, service, username="operator", password="operator-password", nonce="operator")
+    console = exchange(client, service, code, verifier, params).json()["access_token"]
+    created = client.post("/api-credentials", data={"token": console, "org": "root", "action": "create",
+                                                    "user": "operator", "bootstrap": "true", "label": "Console"},
+                          auth=(service.settings.oidc_introspection_client, service.settings.oidc_introspection_secret))
+    assert created.status_code == 200, created.text
+    assert created.json()["tenant"] == "root" and created.json()["active"]
+
+
+def test_api_credential_can_provision_api_data_and_revoke_ends_access(issuer, monkeypatch):
     import httpx
 
     from agent_server.app import create_app
@@ -462,6 +499,15 @@ def test_api_credential_can_provision_api_data_and_revoke_ends_access(issuer):
         assert api.get(path, headers=console_headers).json()["credentials"][0]["bootstrap"]
         assert api.delete(path + "/" + credential["client_id"], headers=console_headers).status_code == 200
         assert api.get("/api/orgs", headers=headers).status_code == 401
+        assert api.post(path, content=b"not json", headers={**console_headers, "content-type": "application/json"}).status_code == 400
+        # The environment account joins the site-admin directory, and can own a credential for automation.
+        monkeypatch.setenv("AI_PROXY_USERNAME", "operator")
+        monkeypatch.setenv("AI_PROXY_PASSWORD", "operator-password")
+        listed = {item["name"]: item for item in api.get("/api/users", headers=console_headers).json()["users"]}
+        assert listed["operator"]["environment"] is True and listed["operator"]["tenant"] == "root"
+        environment = api.post(path, json={"user": "operator", "label": "Environment", "bootstrap": True}, headers=console_headers)
+        assert environment.status_code == 200, environment.text
+        assert environment.json()["user"] == "operator" and environment.json()["tenant"] == "root"
 
 
 def test_service_clients_introspection_auth_audience_and_no_admin_grant(issuer):

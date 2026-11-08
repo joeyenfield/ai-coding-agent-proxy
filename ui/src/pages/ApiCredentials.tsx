@@ -6,7 +6,9 @@ import { pollEvery } from "../hooks";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 
 export function BootstrapCredentialWarning() {
-  const query = useQuery({ queryKey: ["api-credentials", "root"], queryFn: () => api.apiCredentials("root"), refetchInterval: pollEvery(15000) });
+  // Changes made here invalidate this query at once; the slow poll catches credentials made with
+  // agent-auth or by a script, so the warning to revoke a bootstrap credential doesn't go stale.
+  const query = useQuery({ queryKey: ["api-credentials", "root"], queryFn: () => api.apiCredentials("root"), refetchInterval: pollEvery(60000) });
   if (query.isError) return <p className="banner warn" role="alert">Unable to check bootstrap API credentials: {String(query.error)}</p>;
   if (!query.data?.credentials.some((item) => item.bootstrap && !item.revoked)) return null;
   return <p className="banner warn" role="alert">Bootstrap API credentials are still enabled. Revoke them after setup. <Link to="/organization?org=root&orgTab=credentials">Manage API credentials</Link></p>;

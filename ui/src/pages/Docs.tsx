@@ -49,6 +49,7 @@ export const DOC_SECTIONS: { title: string; pages: { id: string; label: string }
       { id: "configuration", label: "Configuration" },
       { id: "security", label: "Security" },
       { id: "oidc", label: "OIDC authentication" },
+      { id: "api-credentials", label: "Using API credentials" },
     ],
   },
   {

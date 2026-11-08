@@ -378,7 +378,11 @@ def test_the_openapi_document_needs_a_sign_in_and_names_every_operation_once(tmp
     assert tag["/api/auth/token"] == ["Accounts"] and tag["/api/machines"] == ["Machines"]
     assert tag["/session/{session_id}/v1/{path}"] == ["Agent APIs"]
     assert {t for tags in tag.values() for t in tags} <= {item["name"] for item in spec["tags"]}
-    assert {"accessToken", "proxyAccessToken", "consoleCookie"} == set(spec["components"]["securitySchemes"])
+    # Swagger UI's Authorize can take an API credential and fetch its token from the issuer.
+    flow = spec["components"]["securitySchemes"]["apiCredential"]["flows"]["clientCredentials"]
+    assert flow["tokenUrl"] == app.state.runtime.settings.oidc_issuer.rstrip("/") + "/token"
+    assert list(flow["scopes"]) == ["mesh-api"] and {"apiCredential": ["mesh-api"]} in spec["security"]
+    assert {"accessToken", "apiCredential", "proxyAccessToken", "consoleCookie"} == set(spec["components"]["securitySchemes"])
     assert "/api/machines/connect" in spec["info"]["description"]  # the WebSockets, which OpenAPI can't list
 
 

@@ -549,7 +549,8 @@ function TeamMembers({ org, team, users, manager }: { org: Org; team: Team; user
   const [adding, setAdding] = useState("");
   const [removing, setRemoving] = useState<string | null>(null);
   const members = users.filter((user) => team.members.includes(user.name) && matches(query, user.name));
-  const outside = users.filter((user) => !team.members.includes(user.name));
+  // The environment account has no stored record, so it can't join a team.
+  const outside = users.filter((user) => !user.environment && !team.members.includes(user.name));
   const membership = useDirectoryChange(({ name, member }: { name: string; member: boolean }) => api.setTeamMember(org.id, team.id, name, member));
   return (
     <div className="directory-members">
@@ -795,7 +796,8 @@ function UserRow({
   onChange: (body: { role?: string; teams?: string[]; password?: string }) => void;
   onRemove: () => void;
 }) {
-  const manager = manages(identity, user.tenant);
+  // The environment account is the operator's: it lives outside the database, so the console can't change it.
+  const manager = manages(identity, user.tenant) && !user.environment;
   const root = Boolean(org?.root) || user.tenant === ROOT_ORG;
   const [teams, setTeams] = useState(user.teams);
   const [role, setRole] = useState(user.role);
@@ -806,6 +808,7 @@ function UserRow({
         <td>
           <strong>{user.name}</strong>
           {user.name === identity.user && <span className="subtle"> (you)</span>}
+          {user.environment && <span className="subtle"> (from the environment)</span>}
         </td>
         <td>{roleLabel(user)}</td>
         {showOrg && (
