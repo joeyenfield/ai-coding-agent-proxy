@@ -187,6 +187,9 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             ).name
         except ValueError:
             backend = None  # the machine's launcher says what's wrong
+        model = str(data.get("model") or "").strip()
+        if backend in runtime.settings.backends and model and not fleet.model_allowed(identity, runtime.settings.backends[backend], model):
+            raise HTTPException(status_code=403, detail=f"{model} isn't shared with your organization on {backend}")
         refused = runtime.launch_blocked(identity, agent, backend)
         if refused:
             raise HTTPException(status_code=429, detail=refused)

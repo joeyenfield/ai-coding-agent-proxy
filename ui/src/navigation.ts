@@ -1,13 +1,18 @@
 /**
- * The console's three parts: agents (1), the machines they and their model servers run on (2),
- * and the server, the hub every request passes through and is recorded by (3). Machines come
- * before the server because they're where the work happens: they sign in to the server and
- * supply every local model server; only hosted APIs and agents' own accounts aren't on a
- * machine. The rail, the breadcrumb above each page's title and the Overview all come from this list.
+ * The console's navigation.
  *
- * Everything about a model server (its models, settings, logs, the containers that run it,
- * the machine's load) is on its machine's page (/machines/<id>), because the machine does
- * it. All machines opens the searchable fleet list; individual machines aren't listed in the rail.
+ * Two views of the same pages:
+ *
+ * - The three parts a request passes through, in the order it flows: agents (1) start it, the
+ *   server (3) records it and routes it, and a machine (2) answers it with a model server it runs.
+ *   Only hosted APIs and agents' own accounts aren't on a machine. The Overview and its routing
+ *   map explain the console this way.
+ * - The rail's sections, grouped by what you're doing: running agents, the models they use, the
+ *   machines, the traffic, the logs and the server's administration. The breadcrumb above each
+ *   page's title names its section.
+ *
+ * Everything about a model server (its models, settings, logs, the containers that run it, the
+ * machine's load) is on its machine's page (/machines/<id>), because the machine does it.
  */
 import type { IconName } from "./components/Icon";
 
@@ -22,147 +27,159 @@ export interface NavLinkItem {
   siteAdmin?: boolean;
   /** Only admins (of an organization, or site admins) can use it; hidden from members. */
   admin?: boolean;
-  /**
-   * The rail's heading for it, when its part is split under several (the server's pages are:
-   * Traffic, Logs, Admin). Without one, the link sits under its part's own name.
-   */
-  section?: string;
+  /** One line on what the page is for: the command menu's hint. */
+  hint?: string;
 }
 
-/** A provider with several pages, shown as a label with its pages indented beneath. */
-export interface NavGroupItem {
-  label: string;
-  icon?: IconName;
-  items: NavLinkItem[];
-}
-
-export type NavItem = NavLinkItem | NavGroupItem;
-
+/** One of the three parts a request passes through. */
 export interface Part {
   id: PartId;
   number: number;
   label: string;
   /** One line on what the part is for. */
   summary: string;
-  /** The part's landing page, linked from the breadcrumb above each of its pages. */
-  home?: string;
-  items: NavItem[];
+  /** Its main pages, linked from its card on the Overview. */
+  links: NavLinkItem[];
 }
 
+/** A heading in the rail and the pages under it. */
+export interface NavSection {
+  id: string;
+  label: string;
+  /** One line on what the section is for: its heading's tooltip. */
+  summary: string;
+  items: NavLinkItem[];
+}
+
+const PAGES = {
+  liveAgents: { to: "/live-agents", label: "Live agent view", icon: "grid", hint: "Several agents' terminals at once" },
+  terminals: { to: "/terminals", label: "Running agents", icon: "terminal", hint: "Every shared terminal, to watch or type into" },
+  agents: { to: "/agents", label: "Start an agent", icon: "play", hint: "On a machine, or the command to run it yourself" },
+  ask: { to: "/ask", label: "Ask a model", icon: "chat", hint: "Chat with one model through the server" },
+  providers: { to: "/providers", label: "Providers", icon: "cube", hint: "Where agents' calls go, your usage and limits" },
+  subscriptions: { to: "/subscriptions", label: "Subscriptions", icon: "key", hint: "Claude, Codex and Copilot plans" },
+  shared: { to: "/shared", label: "Shared with you", icon: "arrows", hint: "What linked servers' organizations share with yours" },
+  machines: { to: "/machines", label: "All machines", icon: "monitor", hint: "The fleet: computers signed in to the server" },
+  addMachine: { to: "/machines#add", label: "Add a machine", icon: "plus", hint: "One command to put a computer in the fleet" },
+  approve: { to: "/approve-device", label: "Approve a device", icon: "lock", hint: "Sign in agent login or agent-machine login elsewhere" },
+  live: { to: "/live", label: "Live", icon: "activity", hint: "Model calls as they stream" },
+  traffic: { to: "/traffic", label: "Traffic", icon: "arrows", hint: "Every request, grouped by what it was for" },
+  requests: { to: "/requests", label: "Requests", icon: "zap", hint: "Model calls, with their payloads" },
+  sessions: { to: "/sessions", label: "Sessions", icon: "layers", hint: "Each agent run, its sharing and recordings" },
+  accessLog: { to: "/access-log", label: "Access log", icon: "list", siteAdmin: true, hint: "Every HTTP request and WebSocket, the refused ones too" },
+  apiLog: { to: "/api-log", label: "API log", icon: "book", siteAdmin: true, hint: "Saved requests, with payloads in debug mode" },
+  audit: { to: "/audit", label: "Audit log", icon: "shield", admin: true, hint: "Who changed what, chained by hash" },
+  organizations: { to: "/organization", label: "Organizations", icon: "users", hint: "People, teams, providers, limits and data" },
+  settings: { to: "/settings", label: "Server settings", icon: "settings", siteAdmin: true, hint: "Providers, agents, sharing, storage, links" },
+  stats: { to: "/server-stats", label: "Server stats", icon: "cpu", siteAdmin: true, hint: "The server's load and storage" },
+  downloads: { to: "/get", label: "Downloads", icon: "download", hint: "agent, agent-machine and the Android app" },
+  docs: { to: "/help", label: "Documentation", icon: "help", hint: "How everything works" },
+} satisfies Record<string, NavLinkItem>;
+
+export const SECTIONS: NavSection[] = [
+  {
+    id: "agents",
+    label: "Agents",
+    summary: "Start coding agents through the server, then watch them and type into them from any device.",
+    items: [PAGES.liveAgents, PAGES.terminals, PAGES.agents, PAGES.ask],
+  },
+  {
+    id: "models",
+    label: "Models",
+    summary: "Where agents' model calls go: machines' model servers, hosted APIs and your own subscriptions.",
+    items: [PAGES.providers, PAGES.subscriptions, PAGES.shared],
+  },
+  {
+    id: "machines",
+    label: "Machines",
+    summary: "Computers signed in to the server. Each runs model servers, containers and agents, managed on its page.",
+    items: [PAGES.machines, PAGES.addMachine, PAGES.approve],
+  },
+  {
+    id: "activity",
+    label: "Activity",
+    summary: "What agents send through the server, as it happens and afterwards.",
+    items: [PAGES.live, PAGES.traffic, PAGES.requests, PAGES.sessions],
+  },
+  {
+    id: "logs",
+    label: "Logs",
+    summary: "What reached the server, what it saved and who changed what.",
+    items: [PAGES.accessLog, PAGES.apiLog, PAGES.audit],
+  },
+  {
+    id: "admin",
+    label: "Administration",
+    summary: "Organizations, and the server's own settings and load.",
+    items: [PAGES.organizations, PAGES.settings, PAGES.stats],
+  },
+];
+
+/** Pages at the foot of the rail, for everyone. */
+export const HELP_LINKS: NavLinkItem[] = [PAGES.downloads, PAGES.docs];
+
+/** The three parts, in the order a request flows on the routing map: agents, the server, machines. */
 export const PARTS: Part[] = [
   {
     id: "agents",
     number: 1,
     label: "Agents",
     summary: "Start a coding agent through the server, then watch it and type into it from any device.",
-    home: "/live-agents",
-    items: [
-      // Several agents' terminals at once: the first page of the part, and the console's (/ opens it).
-      { to: "/live-agents", label: "Live agent view", icon: "grid" },
-      { to: "/agents", label: "Start an agent", icon: "play" },
-      { to: "/terminals", label: "Running agents", icon: "terminal" },
-      { to: "/ask", label: "Ask a model", icon: "chat" },
-      // Everywhere agents' calls go (machines' model servers, hosted APIs, subscriptions), with your usage and limits.
-      { to: "/providers", label: "Providers", icon: "server" },
-      // People's own AI plans (Claude, Codex, Copilot), apart from their sign-in to the server.
-      { to: "/subscriptions", label: "Subscriptions", icon: "key" },
-      // What organizations on linked servers share with yours (bridges): providers, MCP servers, machines.
-      { to: "/shared", label: "Shared with you", icon: "arrows" },
-    ],
+    links: [PAGES.agents, PAGES.terminals, PAGES.providers],
   },
   {
     id: "machines",
     number: 2,
     label: "Machines",
     summary: "Computers signed in to the server. Each runs model servers agents use (Ollama, Strata, Docker, containers), managed on its page.",
-    home: "/machines",
-    items: [
-      { to: "/machines", label: "All machines", icon: "monitor" },
-      // Signing in agent login or agent-machine login elsewhere, from here.
-      { to: "/approve-device", label: "Approve a device", icon: "key" },
-    ],
+    links: [PAGES.machines, PAGES.addMachine],
   },
   {
     id: "server",
     number: 3,
     label: "Server",
     summary: "The hub: every request agents make passes through it and is recorded, on its way to a machine.",
-    items: [
-      // What agents send, as it happens and afterwards.
-      { to: "/live", label: "Live", icon: "activity", section: "Traffic" },
-      { to: "/traffic", label: "Traffic", icon: "arrows", section: "Traffic" },
-      { to: "/requests", label: "Requests", icon: "list", section: "Traffic" },
-      { to: "/sessions", label: "Sessions", icon: "layers", section: "Traffic" },
-      // Every HTTP request and WebSocket, the refused ones too: why a machine shows offline.
-      { to: "/access-log", label: "Access log", icon: "list", siteAdmin: true, section: "Logs" },
-      // Every request saved for the request log's days, with payloads in debug mode.
-      { to: "/api-log", label: "API log", icon: "book", siteAdmin: true, section: "Logs" },
-      // Who changed what, chained by hash: admins read their organization's, site admins everyone's.
-      { to: "/audit", label: "Audit log", icon: "shield", admin: true, section: "Logs" },
-      { to: "/server-stats", label: "Server stats", icon: "cpu", siteAdmin: true, section: "Admin" },
-      { to: "/settings", label: "Server settings", icon: "settings", siteAdmin: true, section: "Admin" },
-      { to: "/organization", label: "Organizations", icon: "users", section: "Admin" },
-      // Not /downloads: the server serves the files themselves there.
-      { to: "/get", label: "Downloads", icon: "download", section: "Admin" },
-    ],
+    links: [PAGES.live, PAGES.traffic, PAGES.sessions],
   },
 ];
 
-export const isGroup = (item: NavItem): item is NavGroupItem => "items" in item;
-
-/** One heading in the rail and the items under it. `key` stays the same for a heading whatever its label. */
-export interface NavSection {
-  key: string;
-  label: string;
-  /** The part's summary, for the heading's tooltip. */
-  title: string;
-  items: NavItem[];
-}
-
-/**
- * A part's headings in the rail: its own name, or one per `section` its links name, in order.
- * Members have no admin pages left under Admin, only their organization and downloads, so it's "More" for them.
- */
-export function railSections(part: Part, admin: boolean): NavSection[] {
-  const sections: NavSection[] = [];
-  for (const item of part.items) {
-    const name = (!isGroup(item) && item.section) || part.label;
-    const key = `${part.id}:${name.toLowerCase()}`;
-    const last = sections[sections.length - 1];
-    if (last?.key === key) last.items.push(item);
-    else sections.push({ key, label: name === "Admin" && !admin ? "More" : name, title: part.summary, items: [item] });
-  }
-  return sections.filter((section) => section.items.length > 0);
-}
-
-/** Parts by id, whatever their order in the rail (the routing map draws them in the order a request flows). */
+/** Parts by id, whatever their order (the routing map draws them in the order a request flows). */
 export function partsById(...ids: PartId[]): Part[] {
   return ids.map((id) => PARTS.find((part) => part.id === id) as Part);
 }
 
-/** The parts with only the pages this person can use: the server's own pages are for site admins, some for admins. */
-export function visibleParts(siteAdmin: boolean, admin = siteAdmin): Part[] {
-  if (siteAdmin) return PARTS;
-  const allowed = (link: NavLinkItem) => !link.siteAdmin && (admin || !link.admin);
-  const keep = (item: NavItem) => isGroup(item) || allowed(item);
-  return PARTS.map((part) => ({
-    ...part,
-    items: part.items.filter(keep).map((item) => (isGroup(item) ? { ...item, items: item.items.filter(allowed) } : item)),
-  }));
+const allowedFor = (siteAdmin: boolean, admin: boolean) => (link: NavLinkItem) => siteAdmin || (!link.siteAdmin && (admin || !link.admin));
+
+/** The rail's sections with only the pages this person can use; a section left empty is dropped. */
+export function visibleSections(siteAdmin: boolean, admin = siteAdmin): NavSection[] {
+  const allowed = allowedFor(siteAdmin, admin);
+  return SECTIONS.map((section) => ({ ...section, items: section.items.filter(allowed) })).filter((section) => section.items.length > 0);
 }
 
-const matches = (pathname: string, to: string) => pathname === to || pathname.startsWith(`${to}/`);
+/** Every page this person can reach from the rail, with its section: what the command menu searches. */
+export function visiblePages(siteAdmin: boolean, admin = siteAdmin): { page: NavLinkItem; section: string }[] {
+  return [
+    ...visibleSections(siteAdmin, admin).flatMap((section) => section.items.map((page) => ({ page, section: section.label }))),
+    ...HELP_LINKS.map((page) => ({ page, section: "Help" })),
+  ];
+}
 
-/** The part a page belongs to, and the provider group within it (such as Ollama), or null for the Overview. */
-export function partFor(pathname: string): { part: Part; group?: string } | null {
-  for (const part of PARTS) {
-    for (const item of part.items) {
-      if (isGroup(item)) {
-        if (item.items.some((link) => matches(pathname, link.to))) return { part, group: item.label };
-      } else if (matches(pathname, item.to)) {
-        return { part };
-      }
+const pathOf = (to: string) => to.split("#")[0];
+
+/** Whether a rail link is the page you're on. A link to a part of a page (#add) never is: its page's own link is. */
+export function linkActive(link: NavLinkItem, pathname: string): boolean {
+  if (link.to.includes("#")) return false;
+  return pathname === link.to || (!link.end && pathname.startsWith(`${link.to}/`));
+}
+
+/** The section a page belongs to (for the breadcrumb), or null for the Overview and pages outside the rail. */
+export function sectionFor(pathname: string): { section: NavSection; page: NavLinkItem } | null {
+  for (const section of SECTIONS) {
+    for (const page of section.items) {
+      const to = pathOf(page.to);
+      if (pathname === to || pathname.startsWith(`${to}/`)) return { section, page };
     }
   }
-  return null;
+  const help = HELP_LINKS.find((page) => pathname === page.to || pathname.startsWith(`${page.to}/`));
+  return help ? { section: { id: "help", label: "Help", summary: "", items: HELP_LINKS }, page: help } : null;
 }

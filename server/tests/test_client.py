@@ -49,9 +49,13 @@ CLEARED = (
 )
 
 
-# Built as tools/dist builds what ships. A plain debug build of the client gets quarantined by
-# Windows Defender's machine-learning check (Trojan:Win32/Bearfoos.A!ml, a false positive).
-RELEASE_FLAGS = ["-trimpath", "-ldflags", "-s -w"]
+# Windows Defender's machine-learning check quarantines some builds of the client as
+# Trojan:Win32/Bearfoos.A!ml, a false positive that comes and goes with small changes to the bytes,
+# when the file is written or when it's run. Plain debug builds were caught once; lately the stripped
+# ones without a version are (-s -w, and -w alone when run), while the shipped build (tools/dist:
+# -s -w -X main.version=...) and a plain -trimpath build pass. Tests need the version to stay "dev"
+# (the programs then skip update checks), so they build plainly.
+RELEASE_FLAGS = ["-trimpath"]
 
 
 @pytest.fixture(scope="session")

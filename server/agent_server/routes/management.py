@@ -17,7 +17,7 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 from .. import access, api_providers, auth, config_io, mcp, remote, strata, version
 from ..agents import stored_agents
 from ..db import redacted
-from ..config import DIRECT_BACKEND, LOCAL_PROXY_URL, ModelProfile, serves
+from ..config import DIRECT_BACKEND, LOCAL_PROXY_URL, ModelProfile, serves, shared_model
 from ..fleet import PROVIDER_TYPES, SHELL_CLIENT, FleetError, can_see, parse_provider, provider_id, provider_request
 from ..provider_accounts import AccountError
 from ..runtime import Runtime
@@ -78,7 +78,8 @@ def register(app: FastAPI, runtime: Runtime) -> None:
     async def status(request: Request, recent: bool = True) -> dict[str, Any]:
         """Totals, backends and traffic. recent=0 leaves out recent_requests (up to 100 whole records): the
         console's header polls this every few seconds and needs only the counts."""
-        result = runtime.status(visible_ids(request), usable(request))
+        identity = auth.request_identity(request)
+        result = runtime.status(visible_ids(request), usable(request), lambda backend: runtime.fleet.model_limit(identity, backend) is not None)
         if not recent:
             result.pop("recent_requests", None)
         identity = auth.request_identity(request)
@@ -602,6 +603,11 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             mine = lambda backend: backend.name in allowed  # noqa: E731
         try:
             backend = DIRECT_BACKEND if agent.intercept else settings.backend_for(agent.backend_type, data.get("backend") or None, agent.protocol, mine).name
+            if guest is None and backend in settings.backends and model:
+                # A provider shared with every organization only for some models: say so now, not at the first request.
+                limit = runtime.fleet.model_limit(auth.request_identity(request), settings.backends[backend])
+                if limit is not None and not shared_model(limit, model):
+                    raise HTTPException(status_code=403, detail=f"{model} isn't shared with your organization on {backend}")
             tags = {**access.client_tags(data.get("tags")), "prepared_by": "agent" if data.get("launcher") else "ui"}
             # A launch the console sent to a machine runs under the machine's sign-in: its usage, and the
             # check, are for whoever asked (routes/machines.launch), not the machine's owner.
@@ -703,6 +709,11 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         results = await asyncio.gather(*(_backend_models(runtime, name) for name in names))
         identity = auth.request_identity(request)
         for name, result in zip(names, results):
+            limit = runtime.fleet.model_limit(identity, known[name])
+            if limit is not None:
+                # Reached through a share with every organization: only the models shared.
+                result["models"] = [model for model in result.get("models", []) if shared_model(limit, str(model.get("name") or ""))]
+                result["shared"] = True
             machine = runtime.fleet.machines.get(known[name].machine or "")
             if not identity.site_admin and (machine is None or not can_see(identity, machine)):
                 result.pop("url", None)

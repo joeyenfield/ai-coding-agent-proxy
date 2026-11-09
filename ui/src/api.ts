@@ -1058,6 +1058,15 @@ export interface BackendModels {
   version?: string;
   error?: string;
   models: OllamaModel[];
+  /** Reached through a share with every organization: only the shared models are listed. */
+  shared?: boolean;
+}
+
+/** GET /api/config/shared-models: the models every organization may use, by provider ("*" for all of one). */
+export interface SharedModels {
+  shared: Record<string, string[]>;
+  /** The site's own providers, the only ones that can be shared. */
+  backends: { name: string; type: string; machine: string | null }[];
 }
 
 export interface ModelsResponse {
@@ -2355,6 +2364,10 @@ export const api = {
     request<ApiProviderTest>(`/api/orgs/${encodeURIComponent(org)}/providers/${encodeURIComponent(name)}/test`, { method: "POST" }),
   apiProviderBalance: (org: string, name: string) =>
     request<ApiProviderBalance>(`/api/orgs/${encodeURIComponent(org)}/providers/${encodeURIComponent(name)}/balance`, { method: "POST" }),
+  // Models shared with every organization, by provider (site admins).
+  sharedModels: () => request<SharedModels>("/api/config/shared-models"),
+  saveSharedModels: (shared: Record<string, string[]>) =>
+    request<SharedModels>("/api/config/shared-models", { method: "PUT", body: JSON.stringify({ shared }) }),
   storage: () => request<StorageInfo>("/api/config/storage"),
   saveRetention: (days: number | null) =>
     request<StorageInfo>("/api/config/storage", { method: "PUT", body: JSON.stringify({ retention_days: days }) }),

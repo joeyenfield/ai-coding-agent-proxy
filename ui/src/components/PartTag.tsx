@@ -1,28 +1,29 @@
 import { Link, useLocation } from "react-router-dom";
-import { partFor } from "../navigation";
+import { sectionFor } from "../navigation";
+import { Icon } from "./Icon";
 
-/** "Machines › ai-desktop" above a page title: which of the console's parts this page is in. */
+/** "Activity › Requests" above a page title: the rail's section this page is in, and the page when you're deeper in it. */
 export function PartTag() {
   const { pathname } = useLocation();
-  const found = partFor(pathname);
+  const found = sectionFor(pathname);
   if (!found) return null;
-  const { part, group } = found;
+  const { section, page } = found;
+  const home = section.items[0]?.to.split("#")[0];
+  const deeper = pathname !== page.to;
   return (
-    <p className={`part-tag part-${part.id}`}>
-      {part.home && pathname !== part.home ? <Link to={part.home}>{part.label}</Link> : part.label}
-      {group && (
+    <nav className={`part-tag section-${section.id}`} aria-label="Breadcrumb">
+      {home && pathname !== home ? <Link to={home}>{section.label}</Link> : <span>{section.label}</span>}
+      {deeper && (
         <>
-          <span className="part-sep" aria-hidden="true">
-            ›
-          </span>
-          {group}
+          <Icon name="chevron" size={12} className="part-sep" />
+          <Link to={page.to}>{page.label}</Link>
         </>
       )}
-    </p>
+    </nav>
   );
 }
 
-/** The numbered dot used for a part in the rail, the Overview and the routing map. */
+/** The numbered dot used for a part on the Overview and the routing map. */
 export function PartNumber({ value }: { value: number }) {
   return (
     <span className="part-number" aria-hidden="true">

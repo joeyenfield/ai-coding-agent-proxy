@@ -91,7 +91,7 @@ Only an organization's own definitions cross (admins manage them with `PUT /api/
 
 ## Using what crosses
 
-**Shared with you** (in the Agents part of the console) lists what other servers' organizations share with you, under full names.
+**Shared with you** (under **Models** in the console's rail) lists what other servers' organizations share with you, under full names.
 
 - **A provider**: choose it as the provider in **Start an agent**, or `agent qwen . --backend provider:server-b/globex/gpu-box --model <model>`. Your server sends the agent's requests to the other server, which forwards them to its provider with its own key.
 - **An MCP server**: pick it when you start an agent, or `agent ... --mcp mcp:server-b/globex/gpu-box/search`.

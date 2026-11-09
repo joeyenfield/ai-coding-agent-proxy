@@ -2,7 +2,7 @@
 
 The document holds what the old YAML files did (backends.yaml, models.yaml, agents.yaml):
 proxy, default_backend, intercept, retention_days, backends, models and agents, and since then
-request_log. The server
+request_log and shared_models (models shared with every organization). The server
 never reads it from a file by itself; `agent-server config import` or POST /api/config/import
 stores it, and `agent-server config export` or GET /api/config/export writes it out.
 """
@@ -17,10 +17,12 @@ from sqlalchemy import select
 
 from . import defaults
 from .agents import parse_agents
-from .config import BACKEND_TYPES, Settings, _replace_backends, _validate_http_url, checked_request_log, stored_config, validate_models
+from .config import (
+    BACKEND_TYPES, Settings, _replace_backends, _validate_http_url, checked_request_log, checked_shared_models, stored_config, validate_models,
+)
 from .db import kv, schema
 
-KEYS = ("proxy", "default_backend", "intercept", "retention_days", "request_log", "backends", "models", "agents")
+KEYS = ("proxy", "default_backend", "intercept", "retention_days", "request_log", "shared_models", "backends", "models", "agents")
 
 
 def export(settings: Settings) -> dict[str, Any]:
@@ -34,6 +36,7 @@ def export(settings: Settings) -> dict[str, Any]:
         "proxy": document.get("proxy") or {}, "default_backend": document.get("default_backend"),
         "intercept": document.get("intercept") or {}, "retention_days": document.get("retention_days"),
         "request_log": checked_request_log(document.get("request_log") or {}),
+        "shared_models": checked_shared_models(document.get("shared_models") or {}),
         "backends": document.get("backends") or {}, "models": models or {}, "agents": agents,
     }
 
@@ -111,6 +114,8 @@ def apply(settings: Settings, document: dict[str, Any], *, replace: bool = False
         checked["retention_days"] = int(days) if days else None
     if "request_log" in parts:
         checked["request_log"] = checked_request_log(parts["request_log"] or {})
+    if "shared_models" in parts:
+        checked["shared_models"] = checked_shared_models(parts["shared_models"] or {})
     if "models" in parts:
         checked["models"] = validate_models(parts["models"] or {})
     if "agents" in parts:
@@ -125,6 +130,11 @@ def apply(settings: Settings, document: dict[str, Any], *, replace: bool = False
                 kv.put(connection, schema.settings, key, checked[key])
         if "backends" in checked:
             _replace_backends(connection, checked["backends"])
+        if "shared_models" in checked or "backends" in checked:
+            # Only backends the server now has are shared: an imported share of one it lacks is dropped.
+            names = set(checked["backends"]) if "backends" in checked else {row[0] for row in connection.execute(select(schema.backends.c.name))}
+            shared = checked.get("shared_models", kv.get(connection, schema.settings, "shared_models") or {})
+            kv.put(connection, schema.settings, "shared_models", {name: models for name, models in shared.items() if name in names})
         if "agents" in checked:
             replace_agents(connection, checked["agents"])
         kv.put_meta(connection, "config_seeded", True)

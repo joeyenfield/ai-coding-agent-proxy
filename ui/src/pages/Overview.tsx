@@ -8,7 +8,7 @@ import { RoutingMap } from "../components/RoutingMap";
 import { ThroughputChart } from "../components/ThroughputChart";
 import { formatBytes, formatCompact, formatDuration, formatNumber, formatRelative } from "../format";
 import { useAgents, useAuth, useMachines, useModels, useRequests, useSessions, useStatus } from "../hooks";
-import { isGroup, partsById, type NavLinkItem, type Part } from "../navigation";
+import { partsById, type NavLinkItem, type Part } from "../navigation";
 import { isHosted, providerLabel, ROUTE_ORDER, ROUTES, routeOf, type RouteKind } from "../routes";
 
 export function OverviewPage() {
@@ -24,7 +24,13 @@ export function OverviewPage() {
   return (
     <div className="page">
       <header className="page-head">
-        <h1>{live.length ? `${live.length} ${live.length === 1 ? "request" : "requests"} streaming` : "All quiet"}</h1>
+        <div className="title-line">
+          <h1>Overview</h1>
+          <span className={`pill ${live.length ? "live" : "good"}`} role="status">
+            <span className={`state-dot ${live.length ? "live" : "good"}`} aria-hidden="true" />
+            {live.length ? `${live.length} ${live.length === 1 ? "request" : "requests"} streaming` : "All quiet"}
+          </span>
+        </div>
         <p className="lede">
           You start an agent, its traffic passes through this server, the hub, and a machine answers it: the Ollama, Strata or
           Docker server one of your machines runs, or a container it runs for you. Hosted APIs and agents' own accounts are the
@@ -225,7 +231,7 @@ function PartCards({ status }: { status: Status }) {
 }
 
 function PartCard({ part, children, action, links }: { part: Part; children: ReactNode; action?: ReactNode; links?: NavLinkItem[] }) {
-  const pages = links ?? part.items.filter((item): item is NavLinkItem => !isGroup(item));
+  const pages = links ?? part.links;
   return (
     <article className={`part-card part-${part.id}`}>
       <h2>

@@ -4,24 +4,29 @@ The console is the server's web app: open the server's address (`http://<server>
 
 The screenshots come from the demo (`python devhelpers/scripts/screenshots/demo.py`), which runs a server with made-up machines, agents and traffic.
 
-The page follows the rail, top to bottom: [Agents](#agents), [the server's traffic and sessions](#server-traffic-and-sessions), [running the server](#server-running-it) (admin pages), then [Machines](#machines) and [a machine's page](#a-machines-page). Dip into the section for the page you're on.
+This page describes each part of the console: [Agents](#agents), [the server's traffic and sessions](#server-traffic-and-sessions), [running the server](#server-running-it) (admin pages), then [Machines](#machines) and [a machine's page](#a-machines-page). Dip into the section for the page you're on; [Layout](#layout) says where each page is in the rail.
 
 ## Layout
 
-The rail on the left has three parts: the agents, the machines they and their model servers run on, and the server every request passes through. The server's pages sit under three headings of their own: **Traffic**, **Logs** and **Admin** (**More** for members, who see only Organizations and Downloads there).
+The rail on the left groups the pages by what you're doing. Members see only the pages they can use; a section with none left is hidden.
 
-| Part | Pages | What it's for |
+| Section | Pages | What it's for |
 | --- | --- | --- |
-| **1 Agents** | Live agent view, Start an agent, Running agents, Ask a model, Providers, Subscriptions | Start a coding agent through the server, then watch it and type into it from any device, or ask a model a question yourself. |
-| **2 Machines** | All machines, Approve a device, Add a machine | Open **All machines** to search and select a computer. Individual machines aren't listed in the rail. |
-| **3 Server** | Traffic: Live, Traffic, Requests, Sessions. Logs: Access log, API log, Audit log. Admin: Server stats, Server settings, Organizations, Downloads | The hub: allowed agent requests pass through it and are recorded. |
+| **Overview** | Overview | How a request flows (agents, the server, machines) and the server's numbers at a glance. |
+| **Agents** | Live agent view, Running agents, Start an agent, Ask a model | Start coding agents through the server, then watch them and type into them from any device, or ask a model a question yourself. |
+| **Models** | Providers, Subscriptions, Shared with you | Where agents' model calls go: machines' model servers, hosted APIs, your own AI plans, and what linked servers share with your organization. |
+| **Machines** | All machines, Add a machine, Approve a device | The fleet. Open **All machines** to search and open a computer; individual machines aren't listed in the rail. |
+| **Activity** | Live, Traffic, Requests, Sessions | What agents send through the server, as it happens and afterwards. |
+| **Logs** | Access log, API log, Audit log | What reached the server, what it saved and who changed what (admins). |
+| **Administration** | Organizations, Server settings, Server stats | Your organization, and for site admins the server's own settings and load. |
 
-- The small label above each page's title is its breadcrumb ("Machines › build-box").
-- Press a heading to fold its pages away, and again to show them. A folded heading still shows the page you're on. The button at the top left collapses the whole rail to icons, with each page's name as its tooltip. The browser remembers both.
-- The footer of the rail links to the downloads (**Get the apps**) and **Documentation**, shows how many sessions are open, the server's address and its version, and has a System/Light/Dark theme switch.
+- The foot of the rail links to **Downloads** and **Documentation**, and holds your account, the number of open sessions, a System/Light/Dark theme switch and the server's version.
+- **Go to…** at the top of the rail (or Ctrl K, ⌘K on a Mac, on any page) opens a search over every page you can use and every machine you can see. Type part of a name, move with the arrow keys and press Enter.
+- The small label above each page's title is its breadcrumb ("Activity › Sessions", "Machines › build-box").
+- Press a heading to fold its pages away, and again to show them. A folded heading still shows the page you're on. The button beside the name at the top collapses the whole rail to icons, with each page's name as its tooltip. The browser remembers both.
 - A badge on **Running agents** counts agents waiting for you (or, when none wait, the connected terminals). A badge on **Live** counts requests in flight. A badge on **All machines** counts connected machines; a machine running an older agent-machine shows **Update available** on its row.
-- When an agent asks a question (a permission prompt, say), a banner at the top of every page shows it. **Answer** opens its terminal; **Later** hides it until the agent asks something new.
-- Below 900 px wide (and in the Android app) the rail becomes a top bar with the menu button at its left. The menu always shows the pages' names; its headings fold as on a computer. Opening the menu adds a history entry, so Back (Android's included) closes it.
+- When an agent asks a question (a permission prompt, say), a slim bar at the top of every page shows it. **Answer** opens its terminal; **Later** hides it until the agent asks something new.
+- Below 900 px wide (and in the Android app) the rail becomes a top bar, with the menu button at its left and a search button. The menu always shows the pages' names; its headings fold as on a computer. Opening the menu adds a history entry, so Back (Android's included) closes it.
 - The console follows your system's light or dark theme, unless the rail's theme switch forces one.
 
 ![The Overview in a phone-sized window](screenshots/overview-phone.png)
@@ -32,7 +37,7 @@ The rail on the left has three parts: the agents, the machines they and their mo
 
 ![Overview](screenshots/overview.png)
 
-**Overview** (`/overview`, at the top of the rail) shows the whole system at a glance:
+**Overview** (`/overview`, at the top of the rail) shows the whole system at a glance, with a badge beside its title while requests stream:
 
 - **The map**: agents on the left, the server in the middle, and each provider (with its machine) on the right. Lines light up while requests flow.
 - **Agents, Server, Machines** cards: open sessions and installed agents; requests, tokens read and written and requests in flight; machines online. Each card links to its pages.
@@ -311,10 +316,11 @@ The log's own requests aren't listed, nor the console's `/assets/`. Requests tha
 
 ![Server settings](screenshots/settings.png)
 
-`/settings` (site admins only) changes the server's stored settings, in tabs kept in the address (`?tab=`): **Server and providers**, **Agents**, **Model tuning**, **Storage**, **Audit** and **Links**. Most changes apply at once, in every server process:
+`/settings` (site admins only) changes the server's stored settings, in tabs kept in the address (`?tab=`): **Server and providers**, **Shared models**, **Agents**, **Model tuning**, **Storage**, **Audit** and **Links**. Most changes apply at once, in every server process:
 
 - **Server**: **Listen host**, **Listen port**, **Address agent machines use** (shown for `agent login`) and **Public console address** (`public_url`, optional: where people open the console from anywhere, shown ahead of the addresses the server finds itself). A changed listen address needs a restart.
 - **Providers**: every backend, with its type, address and machine. Choose the **Default**, or remove one. **Add hosted API** adds an Anthropic API backend (name, type, URL). Local providers can't be added here: they come from machines (see [Providers](providers.md)). API providers are listed here too, and can be the default, but are edited on their organization's **API providers** tab (**Organizations**). **Save changes** saves this section and the one above.
+- **Shared models**: the site's own providers, each with the models every organization may use there: tick known models, type others (separated by commas) or choose **Every model**, then **Save sharing**. Other organizations see only those models and never the provider's address or machine. See [Sharing models with every organization](providers.md#sharing-models-with-every-organization).
 - **Agents**: every agent launchers can start, each marked **Shipped**, **Shipped, changed** or **Added here**. **Edit** opens its definition as YAML; **Add an agent** takes an id and a definition; **Remove** stops launchers offering it. **Reset to the shipped one** undoes changes to an agent that ships with the server. Shipped agents follow the server's upgrades until you change them. See [Adding a new agent](agents.md#adding-a-new-agent).
 - **Ollama model tuning**: the `defaults`, `profiles` and `aliases` the server applies to requests it sends to Ollama, as one YAML document. **Save tuning** applies it to new requests. See [Model tuning](providers.md#model-tuning).
 - **Storage**: which database the server uses (SQLite or PostgreSQL, its address without the password, and its size), and the server's [retention policy](retention.md):

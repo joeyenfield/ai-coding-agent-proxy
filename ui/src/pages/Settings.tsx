@@ -9,6 +9,7 @@ import { useAuth, useStatus } from "../hooks";
 import { machinePath, providersPath } from "./Machine";
 import { TabBar, TabPanel, useTabParam } from "../components/Tabs";
 import { LinksSettings } from "../components/LinksSettings";
+import { SharedModelsSettings } from "../components/SharedModels";
 import { AgentDefinitions, AuditSettings, ModelTuningEditor, StorageSettings } from "./SettingsStored";
 
 const URL_PLACEHOLDERS: Record<string, string> = {
@@ -60,7 +61,7 @@ export function SettingsPage() {
   return <ServerSettings />;
 }
 
-const TABS = ["server", "agents", "tuning", "storage", "audit", "links"] as const;
+const TABS = ["server", "shared", "agents", "tuning", "storage", "audit", "links"] as const;
 
 function ServerSettings() {
   const [tab, setTab] = useTabParam(TABS);
@@ -149,6 +150,7 @@ function ServerSettings() {
         className="page-tabs"
         tabs={[
           { id: "server", label: "Server and providers" },
+          { id: "shared", label: "Shared models" },
           { id: "agents", label: "Agents" },
           { id: "tuning", label: "Model tuning" },
           { id: "storage", label: "Storage" },
@@ -301,6 +303,9 @@ function ServerSettings() {
             </div>
           </section>
         )}
+      </TabPanel>
+      <TabPanel idPrefix="settings-" id="shared" active={tab === "shared"} className="settings-panel">
+        <SharedModelsSettings />
       </TabPanel>
       <TabPanel idPrefix="settings-" id="agents" active={tab === "agents"} className="settings-panel">
         <AgentDefinitions />

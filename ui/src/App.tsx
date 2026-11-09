@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { Link, NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api, type Identity } from "./api";
@@ -34,7 +34,8 @@ import { DocsPage } from "./pages/Docs";
 import { Icon } from "./components/Icon";
 import { RestartButton } from "./components/Restart";
 import { AttentionAlerts, waitingAgents } from "./components/Attention";
-import { isGroup, railSections, visibleParts, type NavItem, type NavLinkItem } from "./navigation";
+import { CommandMenu, useCommandShortcut } from "./components/CommandMenu";
+import { HELP_LINKS, linkActive, visibleSections, type NavLinkItem } from "./navigation";
 
 // The terminal viewer brings xterm.js; load it when visited.
 const TerminalPage = lazy(() => import("./pages/Terminal").then((module) => ({ default: module.TerminalPage })));
@@ -82,10 +83,14 @@ function Shell({ identity }: { identity: Identity | null }) {
     setMenuOpen(true);
   };
   const closeMenu = () => (window.history.state?.menu ? window.history.back() : setMenuOpen(false));
-  const admin = Boolean(identity?.site_admin) || identity?.role === "admin";
-  const parts = visibleParts(Boolean(identity?.site_admin), identity?.role === "admin");
+  const siteAdmin = Boolean(identity?.site_admin);
+  const admin = siteAdmin || identity?.role === "admin";
+  const sections = visibleSections(siteAdmin, admin);
   const [slim, toggleSlim] = useRailSlim();
   const [folded, toggleFolded] = useFoldedSections();
+  const [searching, setSearching] = useState(false);
+  const openSearch = useCallback(() => setSearching(true), []);
+  useCommandShortcut(openSearch);
   const inFlight = status.data?.current_requests.length ?? 0;
   // After an error (a lapsed sign-in, a dropped network) these keep asking, more slowly, so the
   // counts come back by themselves; only a 403 stops them.
@@ -117,6 +122,7 @@ function Shell({ identity }: { identity: Identity | null }) {
       <span>AI Control Mesh</span>
     </NavLink>
   );
+  const connection = status.isError ? "Server unreachable" : status.data ? `${status.data.active_sessions} active ${status.data.active_sessions === 1 ? "session" : "sessions"}` : "Connecting";
   return (
     <div className={`shell ${menuOpen ? "menu-open" : ""} ${slim ? "rail-slim" : ""}`}>
       <header className="topbar">
@@ -124,6 +130,9 @@ function Shell({ identity }: { identity: Identity | null }) {
           <Icon name={menuOpen ? "close" : "menu"} size={22} />
         </button>
         {wordmark}
+        <button type="button" className="icon-button topbar-search" aria-label="Go to a page or machine" onClick={openSearch}>
+          <Icon name="search" size={20} />
+        </button>
         <span className={`connection ${status.isError ? "offline" : ""}`} title={status.data?.listen_address}>
           <span className="dot" aria-hidden="true" />
           {status.isError ? "Unreachable" : `${status.data?.active_sessions ?? 0} active`}
@@ -132,12 +141,17 @@ function Shell({ identity }: { identity: Identity | null }) {
       <div className="scrim" aria-hidden="true" onClick={closeMenu} />
       <aside className="rail">
         <div className="rail-head">
+          {wordmark}
           <button type="button" className="icon-button rail-toggle" onClick={toggleSlim} aria-expanded={!slim}
             title={slim ? "Expand the menu" : "Collapse the menu to icons"} aria-label={slim ? "Expand the menu" : "Collapse the menu"}>
             <Icon name="sidebar" size={18} />
           </button>
-          {wordmark}
         </div>
+        <button type="button" className="rail-search" onClick={openSearch} title={slim ? "Go to… (Ctrl K)" : undefined}>
+          <Icon name="search" size={16} />
+          <span className="nav-label">Go to…</span>
+          <kbd className="rail-kbd">Ctrl K</kbd>
+        </button>
         <nav aria-label="Main">
           <div className="nav-group">
             <NavLink to="/overview" title={slim ? "Overview" : undefined}>
@@ -145,80 +159,55 @@ function Shell({ identity }: { identity: Identity | null }) {
               <span className="nav-label">Overview</span>
             </NavLink>
           </div>
-          {parts.flatMap((part) => railSections(part, admin).map((section) => {
+          {sections.map((section) => {
             // A folded heading still shows the page you're on, so you can always see where you are.
-            const open = slim || !folded.has(section.key);
-            const shown = open ? section.items : section.items.filter((item) => itemActive(item, pathname));
-            const id = `nav-${section.key.replace(/[^a-z0-9]+/g, "-")}`;
+            const open = slim || !folded.has(section.id);
+            const shown = open ? section.items : section.items.filter((item) => linkActive(item, pathname));
+            const id = `nav-${section.id}`;
             return (
-              <div key={section.key} className={`nav-group part-${part.id}`} role="group" aria-labelledby={id}>
-                <button type="button" className="nav-heading" id={id} title={section.title} aria-expanded={open} onClick={() => toggleFolded(section.key)}>
+              <div key={section.id} className={`nav-group section-${section.id}`} role="group" aria-labelledby={id}>
+                <button type="button" className="nav-heading" id={id} title={section.summary} aria-expanded={open} onClick={() => toggleFolded(section.id)}>
                   <span>{section.label}</span>
                   <Icon name="chevron" size={12} className={`nav-caret${open ? " open" : ""}`} />
                 </button>
-                {shown.map((item) =>
-                  isGroup(item) ? (
-                    <div key={item.label} className="nav-sub" role="group" aria-label={item.label}>
-                      <p className="nav-sub-heading" aria-hidden="true">
-                        {item.icon && <Icon name={item.icon} />}
-                        {item.label}
-                      </p>
-                      {item.items.map((link) => (
-                        <RailLink key={link.to} item={link} counts={counts} slim={slim} />
-                      ))}
-                    </div>
-                  ) : (
-                    <RailLink key={item.to} item={item} counts={counts} waiting={item.to === "/terminals" ? waiting : 0} slim={slim} />
-                  ),
-                )}
-                {open && part.id === "machines" && (
-                  <Link to="/machines#add" className="nav-add" title={slim ? "Add a machine" : undefined}>
-                    <Icon name="plus" />
-                    <span className="nav-label">Add a machine</span>
-                  </Link>
-                )}
+                {shown.map((item) => (
+                  <RailLink key={item.to} item={item} pathname={pathname} counts={counts} waiting={item.to === "/terminals" ? waiting : 0} slim={slim} />
+                ))}
               </div>
             );
-          }))}
+          })}
         </nav>
         <div className="rail-foot">
-          <Link to="/get" className="rail-download">
-            <Icon name="download" size={16} />
-            <span>Get the apps: agent, agent-machine, Android</span>
-          </Link>
-          <Link to="/help" className="rail-docs">
-            <Icon name="book" size={16} />
-            <span>Documentation</span>
-          </Link>
-          <p className={`connection ${status.isError ? "offline" : ""}`}>
-            <span className="dot" aria-hidden="true" />
-            <span>
-              {status.isError
-                ? "Proxy unreachable"
-                : status.data
-                  ? `${status.data.active_sessions} active ${status.data.active_sessions === 1 ? "session" : "sessions"}`
-                  : "Connecting"}
-              {status.data && <span className="mono subtle connection-address">{status.data.listen_address}</span>}
-            </span>
-          </p>
-          <ServerVersion />
-          {identity && <AccountMenu identity={identity} />}
-          <div className="theme-switch" role="radiogroup" aria-label="Theme">
-            {(["system", "light", "dark"] as ThemeChoice[]).map((choice) => (
-              <button
-                key={choice}
-                type="button"
-                role="radio"
-                aria-checked={theme === choice}
-                title={`${choice[0].toUpperCase()}${choice.slice(1)} theme`}
-                onClick={() => setTheme(choice)}
-              >
-                <Icon name={choice === "system" ? "monitor" : choice === "light" ? "sun" : "moon"} size={16} />
-              </button>
+          <nav className="rail-help" aria-label="Help">
+            {HELP_LINKS.map((item) => (
+              <RailLink key={item.to} item={item} pathname={pathname} counts={counts} slim={slim} />
             ))}
+          </nav>
+          {identity && <AccountMenu identity={identity} />}
+          <div className="rail-meta">
+            <p className={`connection ${status.isError ? "offline" : ""}`} title={status.data?.listen_address}>
+              <span className="dot" aria-hidden="true" />
+              <span>{connection}</span>
+            </p>
+            <div className="theme-switch" role="radiogroup" aria-label="Theme">
+              {(["system", "light", "dark"] as ThemeChoice[]).map((choice) => (
+                <button
+                  key={choice}
+                  type="button"
+                  role="radio"
+                  aria-checked={theme === choice}
+                  title={`${choice[0].toUpperCase()}${choice.slice(1)} theme`}
+                  onClick={() => setTheme(choice)}
+                >
+                  <Icon name={choice === "system" ? "monitor" : choice === "light" ? "sun" : "moon"} size={14} />
+                </button>
+              ))}
+            </div>
           </div>
+          <ServerVersion />
         </div>
       </aside>
+      <CommandMenu open={searching} onClose={() => setSearching(false)} siteAdmin={siteAdmin} admin={admin} />
       <main className="content">
         {identity?.site_admin && <BootstrapCredentialWarning />}
         {status.data?.restart_required && identity?.site_admin && (
@@ -293,11 +282,11 @@ function ServerVersion() {
   );
 }
 
-function RailLink({ item, counts, waiting = 0, slim = false }: { item: NavLinkItem; counts: Record<string, number>; waiting?: number; slim?: boolean }) {
+function RailLink({ item, pathname, counts, waiting = 0, slim = false }: { item: NavLinkItem; pathname: string; counts: Record<string, number>; waiting?: number; slim?: boolean }) {
   const count = counts[item.to] ?? 0;
-  // Collapsed to icons, the name is the tooltip.
+  // Collapsed to icons, the name is the tooltip. A link to part of a page (#add) is never the page you are on.
   return (
-    <NavLink to={item.to} end={item.end} title={slim ? item.label : undefined}>
+    <Link to={item.to} className={linkActive(item, pathname) ? "active" : undefined} aria-current={linkActive(item, pathname) ? "page" : undefined} title={slim ? item.label : undefined}>
       {item.icon && <Icon name={item.icon} />}
       <span className="nav-label">{item.label}</span>
       {waiting > 0 ? (
@@ -307,7 +296,7 @@ function RailLink({ item, counts, waiting = 0, slim = false }: { item: NavLinkIt
       ) : (
         count > 0 && <span className="nav-count">{count}</span>
       )}
-    </NavLink>
+    </Link>
   );
 }
 
@@ -342,11 +331,6 @@ function useFoldedSections(): [Set<string>, (key: string) => void] {
     return next;
   });
   return [folded, toggle];
-}
-
-function itemActive(item: NavItem, pathname: string): boolean {
-  const on = (to: string) => pathname === to || pathname.startsWith(`${to}/`);
-  return isGroup(item) ? item.items.some((link) => on(link.to)) : on(item.to);
 }
 
 /** The documentation before signing in, with the console's router for its links between pages. */

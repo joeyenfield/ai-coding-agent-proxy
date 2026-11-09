@@ -84,6 +84,43 @@ def serves(backend: "Backend", backend_type: str, protocol: str | None = None) -
     return backend_type == "ollama" and spoken is not None and (protocol is None or protocol in spoken)
 
 
+# Models site admins share with every organization (Settings.shared_models, fleet.shared_with_all).
+SHARED_MODEL = re.compile(r"[^\s\x00-\x1f]{1,200}")
+MAX_SHARED_MODELS = 100
+
+
+def checked_shared_models(data: Any) -> dict[str, list[str]]:
+    """{backend: [model, ...]}, "*" for all of a backend's models. A backend listing no models isn't shared,
+    so it's left out."""
+    if not isinstance(data, dict):
+        raise ValueError("shared_models maps backend names to the models every organization may use")
+    shared: dict[str, list[str]] = {}
+    for name, models in data.items():
+        if not isinstance(name, str) or not 1 <= len(name) <= 100:
+            raise ValueError(f"shared_models: {name!r} isn't a backend name")
+        if not isinstance(models, list) or len(models) > MAX_SHARED_MODELS or any(
+            not isinstance(model, str) or not SHARED_MODEL.fullmatch(model.strip()) for model in models
+        ):
+            raise ValueError(f'shared_models.{name} lists model names (up to {MAX_SHARED_MODELS}), or "*" for every model')
+        cleaned = sorted({model.strip() for model in models})
+        if cleaned:
+            shared[name] = ["*"] if "*" in cleaned else cleaned
+    return shared
+
+
+def _model_key(model: str) -> str:
+    """A model as a share compares it: Claude's context suffix ([1m]) and Ollama's default :latest tag don't count."""
+    name = re.sub(r"\[[^\]]*\]$", "", model.strip())
+    return name[: -len(":latest")] if name.endswith(":latest") else name
+
+
+def shared_model(models: list[str], model: str | None) -> bool:
+    """Whether a share's models take this one; a request that names no model never is."""
+    if not model:
+        return False
+    return "*" in models or _model_key(model) in {_model_key(item) for item in models}
+
+
 @dataclass(frozen=True)
 class Backend:
     name: str
@@ -218,6 +255,9 @@ class Settings:
     retention_days: int | None = None
     # The request log (request_log.py): enabled, days, payloads (debug mode), payload_days.
     request_log: dict[str, Any] = field(default_factory=lambda: dict(defaults.REQUEST_LOG))
+    # Models site admins share with every organization, by backend (checked_shared_models); the fleet applies
+    # them to the site's own providers only (fleet.shared_with_all).
+    shared_models: dict[str, list[str]] = field(default_factory=dict)
     # The open database (open_database). Settings.load() reads its settings from it; Settings built
     # in code write theirs into it instead, so a test says what it wants and the database follows.
     db: Database | None = field(default=None, repr=False, compare=False)
@@ -352,6 +392,10 @@ class Settings:
             self.request_log = checked_request_log(document.get("request_log") or {})
         except ValueError:
             self.request_log = dict(defaults.REQUEST_LOG)
+        try:
+            self.shared_models = checked_shared_models(document.get("shared_models") or {})
+        except ValueError:
+            self.shared_models = {}
 
     def _store_config(self, connection: Any) -> None:
         """Settings built in code: their values become the database's."""
@@ -366,6 +410,7 @@ class Settings:
         kv.put(connection, schema.settings, "models", self.models_document())
         kv.put(connection, schema.settings, "retention_days", self.retention_days)
         kv.put(connection, schema.settings, "request_log", checked_request_log(self.request_log))
+        kv.put(connection, schema.settings, "shared_models", checked_shared_models(self.shared_models))
         _replace_backends(connection, {name: backend.public() for name, backend in self.backends.items()})
         definitions = defaults.agents() if self.agents is None else self.agents
         connection.execute(schema.agents.delete())
@@ -582,6 +627,7 @@ class Settings:
             name: Backend(name=name, **backend)
             for name, backend in normalized["backends"].items()
         }
+        self._forget_shares()
         self.changed("network")
         return self.network_config()
 
@@ -603,7 +649,29 @@ class Settings:
         with self.open_database().write() as connection:
             connection.execute(schema.backends.delete().where(schema.backends.c.name == name))
         self.backends = {key: value for key, value in self.backends.items() if key != name}
+        self._forget_shares()
         self.changed("backends")
+
+    def set_shared_models(self, value: Any) -> dict[str, list[str]]:
+        """Replace the models shared with every organization ({backend: [model, ...]}); each backend must exist.
+        Whether one may be shared (the site's own) is the fleet's to say: the route checks it first."""
+        shared = checked_shared_models(value)
+        missing = sorted(name for name in shared if name not in self.backends)
+        if missing:
+            raise ValueError(f"No backend named {', '.join(missing)}")
+        with self.open_database().write() as connection:
+            kv.put(connection, schema.settings, "shared_models", shared)
+        self.shared_models = shared
+        self.changed("shared_models")
+        return shared
+
+    def _forget_shares(self) -> None:
+        """A removed backend's share goes with it, so a new backend of the same name never inherits it."""
+        kept = {name: models for name, models in self.shared_models.items() if name in self.backends}
+        if kept != self.shared_models:
+            with self.open_database().write() as connection:
+                kv.put(connection, schema.settings, "shared_models", kept)
+            self.shared_models = kept
 
     def _setting(self, key: str) -> Any:
         with self.open_database().read() as connection:
@@ -678,7 +746,7 @@ def stored_config(connection: Any) -> tuple[dict[str, Any], dict[str, Any]]:
     """The stored network settings (shaped as backends.yaml was) and model tuning."""
     document: dict[str, Any] = {
         key: kv.get(connection, schema.settings, key)
-        for key in ("proxy", "default_backend", "intercept", "retention_days", "request_log")
+        for key in ("proxy", "default_backend", "intercept", "retention_days", "request_log", "shared_models")
     }
     rows = connection.execute(select(schema.backends).order_by(schema.backends.c.position, schema.backends.c.name)).mappings()
     document["backends"] = {
@@ -696,6 +764,7 @@ def seed(connection: Any) -> None:
     for key, value in (
         ("proxy", dict(defaults.PROXY)), ("default_backend", defaults.DEFAULT_BACKEND), ("intercept", dict(defaults.INTERCEPT)),
         ("models", defaults.models()), ("retention_days", defaults.RETENTION_DAYS), ("request_log", dict(defaults.REQUEST_LOG)),
+        ("shared_models", {}),
     ):
         if kv.get(connection, schema.settings, key) is None:
             kv.put(connection, schema.settings, key, value)

@@ -66,6 +66,17 @@ Each agent is declared for a backend type (`backend_type`, default `ollama`) and
 
 Strata and llama.cpp don't speak Ollama's native `/api`, so Aider and Goose can't use them. Account agents (`intercept: true`) don't use a backend: their traffic goes to their vendor. See [Agents](agents.md).
 
+### Sharing models with every organization
+
+A provider belongs to one organization: a machine's model servers to the machine's organization, a hosted API to the one it was added in. A site admin can also let every organization use some models on one of the site's own providers (the root organization's). For example, an Ollama on a site machine with `qwen3:0.6b` for everyone.
+
+- **Server settings** → **Shared models** lists the site's providers. For each one, tick the models to share, type ones that aren't listed, or choose **Every model**. **Save sharing** applies it at once. You can also use `PUT /api/config/shared-models`, or `shared_models` in `config import`.
+- Everyone in every organization may then use that provider for those models. It shows in their agents' backends, in `/api/models` and on **Providers**, with only the shared models. They never see its address or the machine it runs on.
+- A request, a launch or a new session that names another model there is refused with `403` before anything reaches the provider. So is a request that names no model.
+- Names compare as people write them: `qwen3` and `qwen3:latest` are the same model, and so are `deepseek-chat` and Claude's `deepseek-chat[1m]`.
+- Only the site's own providers can be shared this way. Another organization's machine or key is never shared with everyone. To share a whole hosted API with some organizations, use its `orgs` setting ([Who manages them](#who-manages-them-and-who-may-use-them)).
+- Removing the provider removes its share. Each organization's admins can set [usage limits](usage-limits.md) on a shared provider for their people.
+
 When a launch doesn't name a backend, the server picks one (`backend_for()`): the default backend if it serves the agent, else a backend of the agent's own type, else any other that serves it, higher `priority` first. It never picks a hosted API provider that way unless it's the default backend: name it (`--backend openai`). A named backend that can't serve the agent is refused with the reason. The console and the client take the list and the choice from `/api/agents`.
 
 ## API providers (OpenAI and Anthropic-compatible)

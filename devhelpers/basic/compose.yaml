@@ -1,7 +1,9 @@
 # The quickstart built from this checkout, to try changes: from devhelpers/basic,
 #   podman compose up -d --build
 # The same stack as deploy/compose/quickstart (server, issuer, PostgreSQL, two machines, Ollama) and its
-# README; server/tests/test_quickstart.py keeps the two in step. Its GPU file works here too:
+# README; server/tests/test_quickstart.py keeps the two in step. Only this one has test data: Company A
+# (compa.admin, compa.user) and Company B (compb.admin, compb.user), who sign in with testdata (TESTDATA_PASSWORD).
+# Its GPU file works here too:
 #   podman compose -f compose.yaml -f ../../deploy/compose/quickstart/compose.gpu.yaml up -d --build
 #
 # Every image builds from this checkout (no published ones), under local names that devhelpers/basic,
@@ -79,6 +81,12 @@ services:
       AI_PROXY_DATABASE_URL: postgresql+psycopg://mesh_api:quickstartapi@postgres:5432/mesh
       # Optional operator key; otherwise start.py provisions one in the persistent server-logs volume.
       AI_PROXY_VAULT_KEYS: ${AI_PROXY_VAULT_KEYS:-}
+      # Development only (not in the deploy quickstart): two organizations with two people each, made on
+      # every start if missing. They sign in with TESTDATA_PASSWORD (default testdata).
+      QUICKSTART_ORGS: compa=Company A,compb=Company B
+      # org:person:role:teams (teams joined with +, made as needed).
+      QUICKSTART_ACCOUNTS: compa:compa.admin:admin,compa:compa.user:member,compb:compb.admin:admin,compb:compb.user:member
+      QUICKSTART_PASSWORD: ${TESTDATA_PASSWORD:-testdata}
     ports:
       - "127.0.0.1:19999:9999"
     volumes:

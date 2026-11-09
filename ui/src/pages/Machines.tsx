@@ -176,9 +176,9 @@ function MachineRow({ machine }: { machine: FleetMachine }) {
       <td data-label="Functions">
         <ul className="fleet-functions" aria-label={`${machine.name} functions`}>
           {functions.map(({ name, enabled }) => (
-            <li key={name} className={`pill ${enabled ? "good" : ""}`}>
+            <li key={name} className={`pill ${enabled ? "good" : ""}`} title={`${name}: ${enabled ? "on" : "off"}`}>
               <StateDot tone={enabled ? "good" : "idle"} />
-              <span>{name}: {enabled ? "Enabled" : "Disabled"}</span>
+              <span>{name}<span className="visually-hidden">: {enabled ? "on" : "off"}</span></span>
             </li>
           ))}
         </ul>

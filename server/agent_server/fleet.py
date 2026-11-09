@@ -52,7 +52,7 @@ from sqlalchemy import select
 from . import access, api_providers, strata, version
 from .auth import ROOT_TENANT, Identity, same_tenant
 from .cluster import Cluster, ClusterError, LocalCluster
-from .config import MACHINE_TYPES
+from .config import MACHINE_TYPES, shared_model
 from .provider_accounts import reported_clis
 from .db import Database, kv, schema
 from .sessions import SessionStore
@@ -303,6 +303,8 @@ class Fleet:
         # Guests' launches running from here (guest_launch), and the bridges they're checked against (bridges.py).
         self.guest_launches: dict[str, dict[str, Any]] = {}
         self.bridges: Any = None
+        # The models site admins share with every organization, by backend (Settings.shared_models; Runtime sets it).
+        self.shared_models: Any = lambda: {}
         # Which connection each waiting request went out on: its answer can only come back on that one.
         self._via: dict[str, Any] = {}
         # Progress of streamed requests (pulls), by request id.
@@ -832,26 +834,54 @@ class Fleet:
             tenants |= set(api_providers.options(backend)["orgs"])
         return tenants
 
+    def shared_with_all(self, backend: Any) -> list[str]:
+        """The models site admins share from this backend with every organization (none: it isn't shared).
+        Only the site's own providers (the root organization's) can be: a share never hands one
+        organization's machine or key to the others."""
+        models = self.shared_models().get(backend.name) or []
+        if not models or backend.type == "link" or self.backend_tenant(backend) != ROOT_TENANT:
+            return []
+        return list(models)
+
+    def model_limit(self, identity: Identity | None, backend: Any) -> list[str] | None:
+        """None when identity's agents may use any model of backend; otherwise the only models they may,
+        because they reach it through a share with every organization (shared_with_all)."""
+        if self._usable(identity, backend):
+            return None
+        return self.shared_with_all(backend) if isinstance(identity, Identity) else []
+
+    def model_allowed(self, identity: Identity | None, backend: Any, model: str | None) -> bool:
+        limit = self.model_limit(identity, backend)
+        return limit is None or shared_model(limit, model)
+
     def usable_by(self, identity: Identity | None) -> Any:
         """A test of backends for identity's agents: their tenant's and the shared hosted ones; an api
-        backend only for the teams it names, in its own organization. No identity, none."""
+        backend only for the teams it names, in its own organization; and, for some models only, the site's
+        providers shared with every organization (model_limit says which). No identity, none."""
         def usable(backend: Any) -> bool:
+            # Guests of linked servers (bridges.Guest) and no identity: nothing, shares included.
             if not isinstance(identity, Identity):
                 return False
-            if backend.type == "link":
-                # A provider let in over a bridge: its organization's own, for the teams it was let in for (bridges.py).
-                return self.bridges is not None and self.bridges.usable(identity, backend)
-            if backend.type == "api":
-                if identity.site_admin:
-                    return True
-                tenants = self.api_tenants(backend)
-                if identity.tenant == self.backend_tenant(backend):
-                    # Its own organization's admins always may: they manage it, and test what agents get.
-                    return identity.admin or api_providers.for_teams(backend, identity.teams)
-                return self.SHARED in tenants or identity.tenant in tenants
-            tenant = self.backend_tenant(backend)
-            return tenant == self.SHARED or same_tenant(identity, tenant)
+            return self._usable(identity, backend) or bool(self.shared_with_all(backend))
         return usable
+
+    def _usable(self, identity: Identity | None, backend: Any) -> bool:
+        """Whether identity's agents may use every model of backend: usable_by without the shares."""
+        if not isinstance(identity, Identity):
+            return False
+        if backend.type == "link":
+            # A provider let in over a bridge: its organization's own, for the teams it was let in for (bridges.py).
+            return self.bridges is not None and self.bridges.usable(identity, backend)
+        if backend.type == "api":
+            if identity.site_admin:
+                return True
+            tenants = self.api_tenants(backend)
+            if identity.tenant == self.backend_tenant(backend):
+                # Its own organization's admins always may: they manage it, and test what agents get.
+                return identity.admin or api_providers.for_teams(backend, identity.teams)
+            return self.SHARED in tenants or identity.tenant in tenants
+        tenant = self.backend_tenant(backend)
+        return tenant == self.SHARED or same_tenant(identity, tenant)
 
     # What the console sees
 

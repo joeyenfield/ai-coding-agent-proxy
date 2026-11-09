@@ -115,6 +115,8 @@ class Runtime:
         self.links.runtime = self
         self.bridges = Bridges(self)
         self.fleet.bridges = self.bridges
+        # Read on every check, so a change (here or, through config.changed, in another process) applies at once.
+        self.fleet.shared_models = lambda: self.settings.shared_models
         self.recent: deque[dict[str, Any]] = deque(maxlen=100)
         self.active: dict[str, dict[str, Any]] = {}
         self.config_lock = asyncio.Lock()
@@ -301,9 +303,10 @@ class Runtime:
     def total_output_tokens(self) -> int:
         return sum(item[1] for item in self.tokens.values())
 
-    def status(self, visible: Any = None, usable: Any = None) -> dict[str, Any]:
+    def status(self, visible: Any = None, usable: Any = None, shared_only: Any = None) -> dict[str, Any]:
         """Totals and traffic; with visible (a session-id test), only the sessions it allows, and with
-        usable (fleet.usable_by), only the backends the caller's tenant may use."""
+        usable (fleet.usable_by), only the backends the caller's tenant may use. shared_only says which of
+        them the caller reaches only through a share with every organization: just their type, not where they are."""
         sessions = [item for item in self.sessions.list() if visible is None or visible(item.session_id)]
         allowed = (lambda record: True) if visible is None else (lambda record: visible(record.get("session_id", "")))
         backends = {name: backend for name, backend in self.settings.backends.items() if usable is None or usable(backend)}
@@ -320,7 +323,8 @@ class Runtime:
             "default_backend": self.settings.default_backend if self.settings.default_backend in backends else None,
             # Each with the machine that runs it, by name, and its model server there ("ollama-11434"), for the console.
             "backends": {
-                name: {**backend.public(), "machine_name": self._machine_name(backend.machine), "provider": provider_id(backend)}
+                name: {"type": backend.type, "shared": True} if shared_only is not None and shared_only(backend) else
+                {**backend.public(), "machine_name": self._machine_name(backend.machine), "provider": provider_id(backend)}
                 for name, backend in backends.items()
             },
             "intercept": self.intercept_info(),

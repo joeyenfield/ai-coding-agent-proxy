@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Icon } from "./Icon";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import type { TerminalSummary } from "../api";
 import { remember, remembered, useToast } from "../hooks";
@@ -93,10 +94,15 @@ export function AttentionAlerts({ terminals }: { terminals: TerminalSummary[] | 
     <div className="attention" role="status" aria-live="polite">
       {asking.slice(0, 3).map((terminal) => (
         <p key={terminal.session_id} className="attention-item">
+          <span className="attention-icon" aria-hidden="true">
+            <Icon name="chat" size={16} />
+          </span>
           <span className="attention-text">
-            <strong>{nameOf(terminal)}</strong>
-            {terminal.machine_name && <span className="subtle"> on {terminal.machine_name}</span>}
-            <span className="attention-question">{terminal.attention?.question ?? "It's asking you something."}</span>
+            <span className="attention-who">
+              <strong>{nameOf(terminal)}</strong>
+              {terminal.machine_name && <span className="subtle"> on {terminal.machine_name}</span>}
+            </span>
+            <span className="attention-question" title={terminal.attention?.question ?? undefined}>{terminal.attention?.question ?? "It's asking you something."}</span>
           </span>
           <Link to={terminalPath(terminal.session_id)} className="button primary small">
             Answer

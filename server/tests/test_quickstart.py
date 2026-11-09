@@ -240,6 +240,8 @@ DEVHELPERS = ROOT / "devhelpers"
 # Each devhelpers stack is a deploy/compose stack built from this checkout.
 PAIRS = {"basic": "quickstart", "allinone": "allinone", "peer": "peer"}
 PUBLISHED = "${AI_PROXY_IMAGES:-ghcr.io/joeyenfield}/"
+# Settings only a development twin has: the basic stack's static test organizations and people.
+DEV_ONLY = {("basic", "server"): {"QUICKSTART_ORGS", "QUICKSTART_ACCOUNTS", "QUICKSTART_PASSWORD"}}
 
 
 def services_of(folder: Path) -> dict:
@@ -290,6 +292,10 @@ def test_devhelpers_stacks_are_the_deploy_stacks_built_from_the_checkout():
                 assert service["image"] == original["image"] and "build" not in service, (dev, key)
             assert mounts_resolved(DEVHELPERS / dev, service) == mounts_resolved(QUICKSTARTS / deploy, original), (dev, key)
             rest = {field: value for field, value in service.items() if field not in ("image", "build", "volumes")}
+            extra = DEV_ONLY.get((dev, key), set())
+            if extra:
+                assert extra <= set(rest["environment"]) and not extra & set(original.get("environment", {})), (dev, key)
+                rest["environment"] = {name: value for name, value in rest["environment"].items() if name not in extra}
             assert rest == {field: value for field, value in original.items() if field not in ("image", "build", "volumes")}, (dev, key)
         # Their own project names, so a development build never opens the deploy stack's volumes.
         names = [yaml.safe_load((folder / "compose.yaml").read_text())["name"] for folder in (DEVHELPERS / dev, QUICKSTARTS / deploy)]
@@ -346,6 +352,19 @@ def test_accounts_name_their_role_and_teams():
     # A role and no teams: no team named after the role.
     assert start.account_arguments("acme:frank:member") == ["agent-server", "user", "add", "frank", "--org", "acme"]
     assert start.account_arguments("acme:grace:admin") == ["agent-server", "user", "add", "grace", "--org", "acme", "--admin"]
+
+
+def test_the_basic_stack_has_two_organizations_with_two_people_each():
+    server = services_of(DEVHELPERS / "basic")["server"]["environment"]
+    orgs = dict(item.split("=", 1) for item in server["QUICKSTART_ORGS"].split(","))
+    accounts = [entry.strip().split(":") for entry in server["QUICKSTART_ACCOUNTS"].split(",") if entry.strip()]
+    assert len(orgs) == 2
+    for org in orgs:
+        people = [entry for entry in accounts if entry[0] == org]
+        assert len(people) == 2 and sum(entry[2] == "admin" for entry in people) == 1, org
+    assert {entry[0] for entry in accounts} == set(orgs)
+    # The deploy quickstart stays a clean demo.
+    assert "QUICKSTART_ACCOUNTS" not in services_of(QUICKSTART)["server"]["environment"]
 
 
 TESTDATA = DEVHELPERS / "testdata"

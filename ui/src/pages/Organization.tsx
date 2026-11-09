@@ -411,7 +411,7 @@ function OrgDetail({ org, users, identity, onDelete }: { org: Org; users: User[]
           <button type="button" className="primary" onClick={() => (setTab("members"), setAddingAdmin(true))}>Add an admin</button>
         </div>
       )}
-      <TabBar label={`${label} sections`} idPrefix="org-" active={tab} onSelect={setTab} tabs={tabs} />
+      <TabBar label={`${label} sections`} idPrefix="org-" active={tab} onSelect={setTab} tabs={tabs} className="segmented" />
       <TabPanel idPrefix="org-" id="members" active={tab === "members"}>
         <TabIntro title={org.root ? "Site admins" : "People"}>
           {org.root

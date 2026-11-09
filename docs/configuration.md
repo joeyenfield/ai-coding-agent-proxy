@@ -58,6 +58,7 @@ agent-auth imports its `issuer.sqlite3` and `signing-key.pem` the same way, so e
 | `models` | Tuning applied to requests sent to Ollama | **Server settings** → **Model tuning**, `PUT /api/config/models` |
 | `agents` | Every coding agent the server can launch | **Server settings** → **Agents**, `PUT /api/config/agents/<id>` |
 | `retention_days` | How long payloads and terminals are kept, and the access log's saved failures and fleet connections (30 days when unset) | **Server settings** → **Storage**, `PUT /api/config/storage` |
+| `shared_models` | The models every organization may use on the site's own providers: `{backend: [model, ...]}`, `["*"]` for all of one ([Sharing models](providers.md#sharing-models-with-every-organization)) | **Server settings** → **Shared models**, `PUT /api/config/shared-models` |
 | `request_log` | The API log: `enabled` (save every request; off until you turn it on), `days` (7), `payloads` (debug mode: headers and bodies too, off) and `payload_days` (1) | **Server settings** → **Storage**, `PUT /api/config/storage` |
 
 Changes apply at once, except a new listen address, which waits for a restart. Only admins change them.

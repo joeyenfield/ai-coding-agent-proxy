@@ -165,6 +165,45 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         changing(request)
         return await discover(runtime, provider(name, None))
 
+    # Models shared with every organization (Settings.shared_models), for site admins: SITE_ADMIN_ONLY as /api/config/.
+
+    def shareable(backend: Any) -> bool:
+        """Only the site's own providers (the root organization's machines and hosted APIs) can be shared with everyone."""
+        return backend.type != "link" and fleet.backend_tenant(backend) == auth.ROOT_TENANT
+
+    def shares() -> dict[str, Any]:
+        return {
+            "shared": settings.shared_models,
+            "backends": [
+                {"name": backend.name, "type": backend.type, "machine": backend.machine}
+                for backend in settings.backends.values() if shareable(backend)
+            ],
+        }
+
+    @app.get("/api/config/shared-models")
+    async def shared_models() -> dict[str, Any]:
+        """The models every organization may use, by provider, and the providers that can be shared."""
+        return shares()
+
+    @app.put("/api/config/shared-models")
+    async def set_shared_models(request: Request) -> dict[str, Any]:
+        """Replace the shares: {"shared": {backend: [model, ...]}}, "*" for every model of one; a provider left out isn't shared."""
+        changing(request)
+        try:
+            data = await request.json()
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Send JSON") from exc
+        value = data.get("shared") if isinstance(data, dict) else None
+        if isinstance(value, dict):
+            refused = sorted(name for name in value if name in settings.backends and not shareable(settings.backends[name]))
+            if refused:
+                raise HTTPException(status_code=400, detail=f"{', '.join(refused)} isn't the site's own provider, so it can't be shared with every organization")
+        try:
+            settings.set_shared_models(value)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return shares()
+
     # One organization's, for its admins and site admins (changes are in ADMIN_ONLY with the rest of /api/orgs/*).
 
     @app.get("/api/orgs/{org}/providers")

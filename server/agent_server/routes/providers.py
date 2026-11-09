@@ -38,16 +38,19 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         found = []
         for backend in runtime.settings.backends.values():
             owner = fleet.backend_tenant(backend)
+            # The site's providers site admins share some models of with every organization (fleet.shared_with_all).
+            shared = bool(fleet.shared_with_all(backend))
             if backend.type == "api":
                 # It carries a key: its own organization's, and those it's shared with.
                 tenants = fleet.api_tenants(backend)
-                if fleet.SHARED not in tenants and tenant not in tenants:
+                if fleet.SHARED not in tenants and tenant not in tenants and not shared:
                     continue
-            elif owner != fleet.SHARED and owner != tenant:
+            elif owner != fleet.SHARED and owner != tenant and not shared:
                 continue
             if usable is not None and not usable(backend):
                 continue
-            machine = fleet.machines.get(backend.machine) if backend.machine else None
+            # A shared provider's machine stays the site's: other organizations see the provider, not where it runs.
+            machine = fleet.machines.get(backend.machine) if backend.machine and (owner == tenant or not shared) else None
             found.append({
                 "id": f"backend:{backend.name}", "kind": "local" if backend.type in MACHINE_TYPES else "hosted",
                 "type": backend.type, "type_label": PROVIDER_NAMES.get(backend.type, backend.type), "name": backend.name,

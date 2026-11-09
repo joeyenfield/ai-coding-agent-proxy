@@ -70,7 +70,9 @@ export function SessionPage() {
   return (
     <div className="page wide">
       <header className="page-head">
-        <p>
+        <p className="breadcrumbs">
+          <Link to="/live">Activity</Link>
+          <span aria-hidden="true">›</span>
           <Link to="/sessions">Sessions</Link>
         </p>
         <h1>

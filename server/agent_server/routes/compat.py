@@ -13,6 +13,7 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from .. import api_providers, auth, model_runner, strata
+from ..config import shared_model
 from ..links import LinkDown
 from ..runtime import Runtime, telemetry_headers
 from ..sessions import Session
@@ -160,6 +161,7 @@ async def _native_chat(
     backend = _backend(runtime, request, backend_override or session.backend, session)
     if backend.type != "ollama":
         raise HTTPException(status_code=400, detail="Ollama translation requires an Ollama backend")
+    _check_model(runtime, request, backend, session, original.get("model") or session.model)
     request_id = await runtime.sessions.next_request_id(session)
     ollama_payload = to_ollama()
     raw = json.dumps(original).encode()
@@ -336,12 +338,18 @@ async def _forward(
     identity = auth.request_identity(request)
     session = _resolve(runtime, request, session_id, payload, backend_override) if session_id else None
     backend = _backend(runtime, request, backend_override or (session.backend if session else None), session)
+    if request.method == "POST":
+        _check_model(runtime, request, backend, session, payload.get("model") or (session.model if session else None))
     if backend.type == "anthropic" and "/anthropic/" not in request.url.path:
         raise HTTPException(status_code=400, detail="Anthropic backends are only reachable through the /anthropic endpoints")
     if backend.type in {"strata", "llamacpp", "api"} and upstream_path.startswith("/api/"):
         name = {"strata": "Strata", "llamacpp": "llama.cpp", "api": backend.name}[backend.type]
         raise HTTPException(status_code=400, detail=f"{name} speaks the OpenAI and Anthropic APIs, not Ollama's native /api. Point the agent at /v1 or /anthropic.")
     protocol = _api_protocol(backend, upstream_path, request.method) if backend.type == "api" else None
+    if request.method == "GET" and upstream_path in ("/api/tags", "/api/ps"):
+        limit = _model_limit(runtime, request, backend, session)
+        if limit is not None:
+            return await _shared_listing(runtime, request, backend, upstream_path, limit)
     if session is None and (request.method == "GET" or (request.method == "POST" and upstream_path == "/api/show")):
         client, url, headers, params, extra = await _upstream_for(runtime, request, backend, upstream_path, protocol, body, None)
         try:
@@ -510,6 +518,9 @@ def _fallback(runtime: Runtime, request: Request, session: Session, backend: Any
         candidate = runtime.settings.backends.get(name)
         if candidate is None or name in tried or candidate.type != "api" or not api_providers.enabled(candidate) or not usable(candidate):
             continue
+        limit = _model_limit(runtime, request, candidate, session)
+        if limit is not None and not shared_model(limit, model):
+            continue
         configured = api_providers.options(candidate)
         if not api_providers.speaks(candidate, protocol) or (model and model not in configured["models"] and not configured["discover"]):
             continue
@@ -611,6 +622,41 @@ async def _stream_upstream(
 
 async def _list_models(runtime: Runtime, request: Request, backend_name: str | None, session: Session | None = None) -> JSONResponse:
     backend = _backend(runtime, request, backend_name, session)
+    limit = _model_limit(runtime, request, backend, session)
+    if limit is None:
+        return await _all_models(runtime, request, backend, session)
+    # Reached through a share: only the models shared, as the backend lists them (ids it doesn't list aren't made up).
+    listed = await _all_models(runtime, request, backend, session)
+    try:
+        document = json.loads(listed.body)
+    except ValueError:
+        return listed
+    if listed.status_code >= 400 or not isinstance(document, dict) or not isinstance(document.get("data"), list):
+        return listed
+    document["data"] = [item for item in document["data"] if isinstance(item, dict) and shared_model(limit, str(item.get("id") or ""))]
+    return JSONResponse(document, status_code=listed.status_code)
+
+
+async def _shared_listing(runtime: Runtime, request: Request, backend: Any, upstream_path: str, limit: list[str]) -> Response:
+    """Ollama's own model lists (/api/tags, /api/ps) for someone it's shared with: only the shared models."""
+    client, url, headers, params, extra = await _upstream_for(runtime, request, backend, upstream_path, None, b"", None)
+    try:
+        upstream = await client.request("GET", url, headers=headers, params=params, **extra)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Backend unavailable") from exc
+    try:
+        document = upstream.json()
+    except ValueError:
+        document = None
+    if upstream.status_code >= 400 or not isinstance(document, dict) or not isinstance(document.get("models"), list):
+        return Response(upstream.content, status_code=upstream.status_code, media_type=upstream.headers.get("content-type"))
+    document["models"] = [
+        item for item in document["models"] if isinstance(item, dict) and shared_model(limit, str(item.get("name") or item.get("model") or ""))
+    ]
+    return JSONResponse(document, status_code=upstream.status_code)
+
+
+async def _all_models(runtime: Runtime, request: Request, backend: Any, session: Session | None) -> JSONResponse:
     if backend.type == "link":
         try:
             client, url, headers = runtime.bridges.upstream(request, backend, "/v1/models", b"", session)
@@ -672,6 +718,22 @@ def _over_limit(runtime: Runtime, request: Request, session: Session, telemetry:
         return None
     _, body, headers = runtime.refuse_over_limit(session, telemetry, payload, provider, blocked)
     return JSONResponse(body, status_code=429, headers=headers)
+
+
+def _model_limit(runtime: Runtime, request: Request, backend: Any, session: Session | None) -> list[str] | None:
+    """The only models the caller may use on backend, when they reach it through a share with every
+    organization (fleet.model_limit); None for any. A request a peer relayed, or a guest's session, was
+    decided by its bridge instead."""
+    if _relayed(request) is not None or (session is not None and isinstance(session.tags.get("allowed_backends"), list)):
+        return None
+    return runtime.fleet.model_limit(auth.request_identity(request), backend)
+
+
+def _check_model(runtime: Runtime, request: Request, backend: Any, session: Session | None, model: str | None) -> None:
+    """Refuse, before anything goes upstream, a model the caller's share of this backend doesn't include."""
+    limit = _model_limit(runtime, request, backend, session)
+    if limit is not None and not shared_model(limit, model):
+        raise HTTPException(status_code=403, detail=f"{model or 'A request without a model'} isn't shared with your organization on {backend.name}")
 
 
 def _backend(runtime: Runtime, request: Request, name: str | None, session: Session | None = None):
