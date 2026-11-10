@@ -81,6 +81,9 @@ COPY --from=ollama /out/ /usr/local/
 COPY sandbox/entrypoint.sh /usr/local/bin/agent-sandbox-entrypoint
 # ping wherever the runtime allows it (sandbox/ping): cp drops the file capability, so the copy uses ICMP sockets.
 COPY sandbox/ping /usr/local/bin/ping
+# The quickstart's helpers: deploy/compose/quickstart/compose.yaml runs its machines with them, so
+# that one file is all it needs. Stacks that mount their own copy over them (peer, testdata) still can.
+COPY deploy/compose/quickstart/start.py deploy/compose/quickstart/machine.py /quickstart/
 # Shell scripts must have LF endings, whatever the checkout used. Ubuntu's image already has a
 # user 1000 (ubuntu); the agents run as it, renamed agent.
 RUN sed -i 's/\r$//' /usr/local/bin/agent-sandbox-entrypoint /usr/local/bin/ping \

@@ -12,6 +12,7 @@ It reads what tools/dist built (dist/<version>/, with its SHA256SUMS) and the co
     install-local.sh, install-local.ps1   the web installers (templates beside this file), filled in
                                       with --base-url, the version and every download's SHA-256
                                       ({{BASE}}, {{VERSION}}, {{BUNDLE}}, {{FILES}}, {{WHEEL}})
+    uninstall-local.sh, uninstall-local.ps1   what removes such an install again, as they are
     SHA256SUMS                        over all of the above
 
 The installers trust only the hashes written into them, so a release's files can't be swapped
@@ -143,6 +144,13 @@ def make(version: str, base: str, dist: Path, out: Path, root: Path = ROOT) -> l
         target = out / f"install-local.{kind}"
         text = fill(template, base, version, bundle_line, files[kind], kind == "ps1").replace("{{WHEEL}}", wheel_line)
         target.write_bytes(text.encode("utf-8"))
+        made.append(target)
+
+    # The uninstallers aren't templates: they find the install by its folders, not by a version.
+    for kind in ("sh", "ps1"):
+        text = (TEMPLATES / f"uninstall-local.{kind}").read_text(encoding="utf-8").replace("\r\n", "\n")
+        target = out / f"uninstall-local.{kind}"
+        target.write_bytes((text.replace("\n", "\r\n") if kind == "ps1" else text).encode("utf-8"))
         made.append(target)
 
     listing = "".join(f"{sha256(path)}  {path.name}\n" for path in made)

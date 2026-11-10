@@ -376,7 +376,11 @@ def main() -> None:
         from . import local
 
         raise SystemExit(local.main(sys.argv[2:]))
-    parser = argparse.ArgumentParser(description="Run the agent-server: the console, accounts and routing for every agent machine's agent-proxy (users and organizations: agent-server user|org|team --help; its settings and database: agent-server config|db --help; a whole server on this computer: agent-server local --help)")
+    if sys.argv[1:2] == ["downloads"]:
+        from . import fetch_builds
+
+        raise SystemExit(fetch_builds.main(sys.argv[2:]))
+    parser = argparse.ArgumentParser(description="Run the agent-server: the console, accounts and routing for every agent machine's agent-proxy (users and organizations: agent-server user|org|team --help; its settings and database: agent-server config|db --help; a whole server on this computer: agent-server local --help; a release's agent and agent-machine builds to hand out: agent-server downloads fetch)")
     parser.add_argument("--host")
     parser.add_argument("--port", type=int)
     parser.add_argument("--reload", action="store_true", help="Restart on code changes (development)")

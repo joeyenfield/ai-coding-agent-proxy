@@ -22,6 +22,20 @@ set -eu
 
 LABEL=com.ai-control-mesh.agent-machine
 
+# usage: the options, from text in the script itself. Piped into sh there's no file to read them from.
+usage() {
+    cat <<'USAGE'
+Removes agent, agent-proxy and agent-machine from this computer.
+
+  --only agent|agent-machine   just one of them (default: both)
+  --prefix DIR                 the folder they're in (default: /usr/local/bin as root, else ~/.local/bin)
+  --purge                      also sign them out (revoking their tokens) and delete their
+                               settings, sign-ins, logs and caches
+
+Pass options through the pipe with: curl -fsSL <server>/uninstall.sh | sh -s -- --purge
+USAGE
+}
+
 prefix=""
 only=""
 purge=0
@@ -32,7 +46,7 @@ while [ $# -gt 0 ]; do
         --prefix) [ $# -ge 2 ] || { echo "--prefix needs a folder" >&2; exit 2; }; prefix=$2; shift ;;
         --prefix=*) prefix=${1#--prefix=} ;;
         --purge) purge=1 ;;
-        -h|--help) sed -n '2,16p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//' || true; exit 0 ;;
+        -h|--help) usage; exit 0 ;;
         *) echo "uninstall: unknown option $1 (see --help)" >&2; exit 2 ;;
     esac
     shift

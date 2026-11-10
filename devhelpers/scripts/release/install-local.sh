@@ -30,6 +30,26 @@ FILES='{{FILES}}'
 # The Python agent and agent-machine, for any system: name sha256.
 WHEEL='{{WHEEL}}'
 
+# usage: the options, from text in the script itself. Piped into sh there's no file to read them from.
+usage() {
+    cat <<'USAGE'
+Installs AI Control Mesh on this computer, for you alone, and starts it (docs/local.md).
+
+  --port N, --auth-port N   the console's and agent-auth's ports (default 19999 and 20000; kept)
+  --prefix DIR              where agent-server, agent and agent-machine go (default
+                            ~/.local/bin, or /usr/local/bin as root)
+  --no-client               only the server: no agent or agent-machine
+  --no-login                don't sign agent and agent-machine in; print the commands instead
+  --python                  the Python agent and agent-machine rather than the Go builds (used
+                            anyway when there's no Go build for this system)
+  --no-tray                 no tray icon (agent-tray, put in on a desktop: it shows what runs,
+                            starts and stops it, opens the console, and starts at sign-in)
+
+Needs Python 3.11 or later (with venv) and curl or wget. Run it again to update.
+Pass options through the pipe with: curl -fsSL <url>/install-local.sh | sh -s -- --port 29999
+USAGE
+}
+
 ports=""
 prefix=""
 client=1
@@ -46,7 +66,7 @@ while [ $# -gt 0 ]; do
         --prefix=*) prefix=${1#--prefix=} ;;
         --no-client) client=0 ;;
         --no-login) login=0 ;;
-        -h|--help) sed -n '2,21p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//' || true; exit 0 ;;
+        -h|--help) usage; exit 0 ;;
         *) echo "install-local: unknown option $1 (see --help)" >&2; exit 2 ;;
     esac
     shift
@@ -258,6 +278,12 @@ done
 
 say ""
 say "Done: AI Control Mesh $VERSION runs at $server"
+# Said again here: the first start printed it before the sign-ins scrolled it away.
+if [ -f "$home/private/first-user-password" ]; then
+    say "Open $server and sign in as admin. The password is in $home/private/first-user-password"
+else
+    say "Open $server and sign in with your account."
+fi
 case "$installed" in *agent-machine*) say "Let the console start agents in a folder of yours: agent-machine roots add <folder>" ;; esac
 # The archives' installer has said so already when it ran.
 case ":$PATH:" in
@@ -265,6 +291,7 @@ case ":$PATH:" in
     *) [ -n "$installed" ] && [ $use_python -eq 0 ] || say "$prefix isn't on your PATH. Add it, for example in ~/.profile: export PATH=\"$prefix:\$PATH\"" ;;
 esac
 say "Stop it with agent-server local stop; start it again with agent-server local."
+say "Remove it with: curl -fsSL $BASE/uninstall-local.sh | sh"
 if [ $tray -eq 1 ]; then
     # In the background, apart from this shell, so it stays when the terminal closes.
     if command -v setsid >/dev/null 2>&1; then

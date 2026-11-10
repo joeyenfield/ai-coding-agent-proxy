@@ -35,6 +35,9 @@ COPY VERSION /app/VERSION
 # The documentation the console shows under /help.
 COPY docs /app/docs
 COPY benchmarks/tests /app/benchmarks/tests
+# The quickstart's helpers: deploy/compose/quickstart/compose.yaml runs them from here, so that one
+# file is all it needs. Stacks that mount their own copy over them (peer, testdata) still can.
+COPY deploy/compose/quickstart/start.py server/docker/postgres-init.sh /quickstart/
 RUN useradd --system --uid 10001 --home-dir /app agent \
     && mkdir -p /app/config /app/logs /app/certs /app/auth-state \
     && chown -R agent:agent /app/config /app/logs /app/certs /app/auth-state

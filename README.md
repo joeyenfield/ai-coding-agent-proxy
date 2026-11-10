@@ -1,29 +1,93 @@
+<div align="center">
+
+<img src="site/assets/icon.svg" width="76" alt="AI Control Mesh logo">
+
 # AI Control Mesh
 
-**Your AI agents. Your machines. One control plane.**
+### Your AI agents. Your infrastructure. One control plane.
 
-AI Control Mesh is an open-source, self-hosted control plane for AI coding agents. Every agent's traffic goes through one server you run: point agents at your own models or your own vendor plans, share machines and MCP tools across your fleet, and watch and answer running agents from any device. Request metadata, tokens and timings are always recorded; turn on tracing to keep full prompts and responses.
+An open-source, self-hosted control plane for AI coding agents.<br>
+One server you run sits between your agents and their models: see every request, choose the model behind each agent,<br>
+share machines and MCP tools, and answer agents from any device.
 
-![The console's Overview: agents, the server and the machines that answer them](docs/screenshots/overview.png)
+**[Website](https://aicontrolmesh.com/) · [Quick start](#quick-start) · [How it works](#how-it-works) · [Documentation](docs/index.md) · [MIT license](LICENSE)**
 
-**[Website](https://aicontrolmesh.com/) · [Run it on your computer](docs/local.md) · [Try the local quickstart](docs/quickstart.md) ([or on Kubernetes](docs/quickstart-kubernetes.md)) · [Documentation](docs/index.md) · [MIT license](LICENSE)**
+![Live agent view: four coding agents in one grid, one of them waiting for an answer](docs/screenshots/terminal-grid-dark.png)
 
-## What it does
+*Four agents on different machines, one view, one keyboard. Real console, demo data.*
 
-- **Understand agent activity.** Follow live streams, request metadata, tokens and timings. Enable full tracing to save payloads and read sessions back as conversations. Account-agent capture permits public destinations; private and reserved addresses are refused.
-- **Three routes to a model, mixed as you like.**
-  - **Your accounts**: Claude Code, Copilot CLI and Codex on your own plans, captured in transit.
-  - **Local models**: supported agents on compatible Ollama, llama.cpp, Strata or Docker Model Runner backends, with Ollama requests translated and tuned per model.
-  - **Hosted API**: requests passed through to the Anthropic API unchanged.
-  - **API providers**: any OpenAI or Anthropic-compatible API: OpenAI, Anthropic, OpenRouter, LiteLLM Proxy and other hosted services with a key the server keeps, or LM Studio, vLLM and SGLang found on your machines. Requests pass through in the protocols each one speaks (Chat Completions, Responses, Messages), and hosted ones are reached only at public addresses. See [API providers](docs/providers.md#api-providers-openai-and-anthropic-compatible).
-- **A fleet of machines.** Every computer running `agent-machine` supplies its model servers, containers and MCP servers to agents anywhere, through its own connection to the server, so it needs no open port. You can also start agents and open terminals on it from the console.
-- **Agents from your phone.** Share an agent's terminal (`--control`), then watch it and type into it from a browser or the Android app, and answer its permission prompts.
-- **One person or a team.** Mandatory OIDC sign-in, organizations, teams, private or shared sessions, and access grants per machine.
-- **Across companies.** Link two servers and let an organization on each use chosen providers, MCP servers and machines of the other's, with both servers recording everything ([Peering](docs/peering.md)).
+</div>
+
+## Why
+
+Coding agents run in terminals scattered over laptops, servers and containers. Each has its own sign-in, its own model settings and its own idea of what to log. AI Control Mesh puts one server in the middle:
+
+| | |
+| --- | --- |
+| **See every request** | Each call's metadata, tokens and timings are always recorded. Turn on tracing to keep full prompts and responses, and read a session back as a conversation. |
+| **Pick any model** | Keep the agent you know. Point it at a local model, a hosted API, or the Claude, ChatGPT or Copilot plan you already have. |
+| **Share a fleet** | A computer joins with one command and offers its model servers, containers and MCP tools to agents anywhere. It connects outward, so it needs no open port. |
+| **Answer from anywhere** | Share an agent's terminal, then watch it, type into it and answer its permission prompts from a browser or the Android app. |
+| **One person or a team** | Mandatory OIDC sign-in, organizations, teams, private or shared sessions, access grants per machine, usage limits and an audit log. |
+| **Yours** | MIT licensed and self-hosted. There is no hosted service to sign up for. |
+
+## How it works
+
+```mermaid
+flowchart LR
+  subgraph A["Where you run agents"]
+    agent["Claude Code · Codex · Copilot CLI<br>OpenCode · Qwen Code · Aider · Goose · Hermes"] --> proxy["agent-proxy<br>(loopback)"]
+  end
+  subgraph S["Your server"]
+    server["agent-server<br>routes · records · checks access"]
+    console["Console<br>browser · phone"] --> server
+  end
+  subgraph M["Fleet machines"]
+    machine["agent-machine"] --- local["Ollama · llama.cpp · LM Studio · vLLM<br>containers · MCP servers"]
+  end
+  proxy -- "HTTPS / WSS" --> server
+  machine -- "connects outward" --> server
+  server --> hosted["Hosted APIs and vendor accounts<br>OpenAI · Anthropic · OpenRouter · ..."]
+```
+
+1. **Run the server** (`agent-server`): one container, a Compose stack, a Helm chart or a local install. It holds the settings, the accounts and the recordings, and serves the console.
+2. **Start agents with `agent`**: `agent claude-account .` starts the agent you already use, with its traffic going through your server.
+3. **Join machines with `agent-machine`**: each one shares its model servers, containers and MCP tools with the agents you allow.
+
+Read [How it works](docs/how-it-works.md) for the longer version, and [Architecture](docs/architecture.md) for the design.
+
+## Three routes to a model
+
+Every agent takes one of three routes. Mix them as you like; all of them are recorded in the same place.
+
+| Route | Agents | Where requests go |
+| --- | --- | --- |
+| **Your accounts** | Claude Code, Codex, Copilot CLI | The vendor's service, on your own plan and sign-in. The server records the traffic in transit. Only public destinations are allowed: private and reserved addresses are refused. |
+| **Local models** | Qwen Code, OpenCode, Copilot CLI, Claude Code, Codex, Aider, Goose, Hermes Agent | Ollama, llama.cpp, Strata or Docker Model Runner on your machines, with Ollama requests translated and tuned per model. Also LM Studio, vLLM and SGLang, and any [API provider](docs/providers.md#api-providers-openai-and-anthropic-compatible): OpenAI, Anthropic, OpenRouter, LiteLLM Proxy and other OpenAI or Anthropic-compatible services, with a key the server keeps. |
+| **Hosted API** | Claude Code | The Anthropic API, passed through unchanged. |
+
+[Agents](docs/agents.md) lists every agent and its command. [Providers](docs/providers.md#compatibility) says which agent works with which model server.
+
+## A look inside
+
+| | |
+| --- | --- |
+| ![A model call streaming live, with its reasoning, timings and speed](docs/screenshots/live-dark.png) **Watch a session live.** Reasoning, reply and tool calls as they stream. | ![A recorded session read back as a conversation](docs/screenshots/session-chat.png) **Every request, every token.** Sessions read back as conversations, sub-agents included. |
+| ![The fleet: machines, their model servers and what each permits](docs/screenshots/machines.png) **Your machines, their models.** Start, stop and pull models from the console. | ![A machine sharing MCP servers with agents](docs/screenshots/machine-mcp.png) **Shared MCP tools.** Register them once on a machine; grant them per team. |
+
+There is more: usage limits, retention and legal holds, an audit log, [subscriptions](docs/subscriptions.md), and [peering](docs/peering.md), which links two servers so an organization on each can use chosen providers, MCP servers and machines of the other's.
 
 ## Quick start
 
-Install Git and Docker with Compose (or Podman with a Compose provider), then:
+Pick one. All three run on your own computer, on loopback only.
+
+| | You need | You get |
+| --- | --- | --- |
+| [The quickstart stack](#the-quickstart-stack) | Git, and Docker or Podman with Compose | The whole system with two fleet machines and Ollama, and a guided tour |
+| [One container](#one-container) | Docker or Podman | The whole system in a single container, no checkout |
+| [No containers](#no-containers) | Python 3.11 or later | The server, `agent` and `agent-machine` installed for you alone |
+
+### The quickstart stack
 
 ```bash
 git clone https://github.com/joeyenfield/ai-control-mesh.git
@@ -31,32 +95,47 @@ cd ai-control-mesh
 docker compose -f deploy/compose/quickstart/compose.yaml up -d
 ```
 
-For Podman, replace `docker compose` with `podman compose`. One command starts the whole system in containers on your computer: the server and console, the sign-in service, PostgreSQL, two fleet machines with coding agents installed, and Ollama, from the project's published images. Open http://localhost:19999, sign in with **admin** / **secret**, and follow the [guided quickstart](docs/quickstart.md): add a provider, pull a model, start an agent and watch it work, in about ten minutes. There's a [Kubernetes version](docs/quickstart-kubernetes.md) too.
+For Podman, replace `docker compose` with `podman compose`. One command starts the server and console, the sign-in service, PostgreSQL, two fleet machines with coding agents installed, and Ollama, from the project's published images.
+
+Open http://localhost:19999, sign in with **admin** / **secret**, and follow the [guided quickstart](docs/quickstart.md): add a provider, pull a model, start an agent and watch it work, in about ten minutes. There's a [Kubernetes version](docs/quickstart-kubernetes.md) too.
 
 **It's a local demo**: known credentials, ports on localhost only, nothing downloaded for you. Delete it with `docker compose -f deploy/compose/quickstart/compose.yaml down -v`. [`deploy/compose/`](deploy/compose/README.md) also has the all-in-one container as a Compose file, and two linked servers to try peering.
 
-**One container, no checkout.** The whole system, with a machine and the coding agents already in it:
+### One container
+
+The whole system, with a machine and the coding agents already in it:
 
 ```bash
-docker run -d --name mesh -p 127.0.0.1:19999:19999 -p 127.0.0.1:20000:20000 -v mesh-data:/data ghcr.io/joeyenfield/ai-control-mesh
-docker logs mesh     # the admin password
+docker run -d --name mesh -p 127.0.0.1:19999:19999 -p 127.0.0.1:20000:20000 \
+  -v mesh-data:/data -v mesh-home:/home/agent -v mesh-workspace:/workspace \
+  ghcr.io/joeyenfield/ai-control-mesh
+docker logs mesh     # the console's address and the admin password
 ```
 
-**No containers?** One command installs the server, `agent` and `agent-machine` from the latest release and runs them on your own computer with your own folders, for you alone, with an icon in the system tray to start, stop and open it. It needs only Python 3.11 or later:
+Then open http://localhost:19999. The three volumes keep the data, the machine's sign-ins and its projects when the container is re-created.
+
+### No containers
+
+One command installs the server, `agent` and `agent-machine` from the latest release and runs them on your own computer with your own folders, for you alone, with an icon in the system tray to start, stop and open it:
 
 ```bash
 curl -fsSL https://github.com/joeyenfield/ai-control-mesh/releases/latest/download/install-local.sh | sh
-# Windows PowerShell: irm https://github.com/joeyenfield/ai-control-mesh/releases/latest/download/install-local.ps1 | iex
 ```
 
-See [Run it on your own computer](docs/local.md), which covers both, and installing from a checkout (`./devhelpers/scripts/install-local.sh`).
+```powershell
+irm https://github.com/joeyenfield/ai-control-mesh/releases/latest/download/install-local.ps1 | iex
+```
+
+`uninstall-local.sh` (or `.ps1`) from the same address takes it out again. See [Run it on your own computer](docs/local.md), which covers the container, the installer and [removing it](docs/local.md#remove-it), and installing from a checkout (`./devhelpers/scripts/install-local.sh`).
 
 ## A real install
 
 Four steps, walked through in [Getting started](docs/getting-started.md):
 
-1. **Run the sign-in service and the server.** Set up `agent-auth` (the OIDC issuer) with HTTPS and your callback URLs ([OIDC authentication](docs/oidc.md)), then run `agent-server`: from a checkout with `pip install -e ./server`, or in containers with `docker compose up -d` ([Deployment](docs/deployment.md)). Sign-in is mandatory everywhere, loopback included.
-2. **Install `agent` where you run coding agents**, from the server's **Downloads** page or its one-line installer, and sign each computer in once:
+1. **Run the server and its sign-in service.** They are two programs, `agent-server` and `agent-auth` (the OIDC issuer), behind HTTPS with your callback URLs ([OIDC authentication](docs/oidc.md)). Sign-in is mandatory everywhere, loopback included. Either:
+   - **in containers:** in `deploy/compose/server`, put `AI_PROXY_POSTGRES_PASSWORD`, `AI_PROXY_DB_API_PASSWORD`, `AI_PROXY_DB_AUTH_PASSWORD` and `AI_PROXY_OIDC_INTROSPECTION_SECRET` in a `.env` file, then run `docker compose up -d` there ([Deployment](docs/deployment.md)); or
+   - **from a checkout:** `pip install -e ./server`, set the `AI_PROXY_OIDC_*` variables, then run `agent-server` and `agent-auth` ([Getting started](docs/getting-started.md#from-a-checkout)).
+2. **Install `agent` where you run coding agents**, from the server's **Downloads** page or its one-line installer, and sign each computer in once. A new server gets the builds it hands out with `agent-server downloads fetch`.
 
    ```bash
    agent login https://your-server.example.com   # approve the device code in your browser
@@ -73,6 +152,8 @@ Four steps, walked through in [Getting started](docs/getting-started.md):
    ```
 
 4. **Add providers in the console**: open the machine, choose **Add as a provider**, pull a model, and start agents against it from anywhere.
+
+Full traces can contain sensitive code and secrets. Review [Security](docs/security.md) and configure recording [retention](docs/retention.md) before sharing a deployment.
 
 ## Documentation
 
@@ -99,4 +180,6 @@ Start at the [documentation's overview](docs/index.md). The pages, by section:
 | Android app | `android/` | Your servers' consoles on your phone |
 | Python client and machine | `python/` | `agent` and `agent-machine` for computers without a Go build |
 
-See [Contributing](CONTRIBUTING.md) for changes and issue reports, [Development](docs/development.md) for builds and tests, and [`AGENTS.md`](AGENTS.md) for the code's structure and rules. Full traces can contain sensitive code and secrets; review [Security](docs/security.md) and configure recording retention before sharing a deployment.
+## Contributing
+
+See [Contributing](CONTRIBUTING.md) for changes and issue reports, [Development](docs/development.md) for builds and tests, and [`AGENTS.md`](AGENTS.md) for the code's structure and rules. The project is [MIT licensed](LICENSE).

@@ -16,5 +16,7 @@ the folder. To run this checkout's code instead, use the same stack in
 its own. The quickstarts are demos: known passwords, ports on localhost only.
 
 `quickstart/start.py` and `quickstart/machine.py` are shared: the containers' address relay and
-the machines' device-flow sign-in, which `peer/` and the `devhelpers/` stacks mount and the
-all-in-one image copies in.
+the machines' device-flow sign-in. The `agent-server` and `agent-sandbox` images carry them in
+`/quickstart` (with PostgreSQL's first-start script), so `quickstart/compose.yaml` mounts nothing
+from the checkout and runs from a download of that one file. `peer/` and the other `devhelpers/`
+stacks mount their own copy over them, and the all-in-one image copies `machine.py` in.

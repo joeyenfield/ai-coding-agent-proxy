@@ -51,6 +51,7 @@ agent-server --reload --no-build   # Python auto-reload, skip the UI build
 ./devhelpers/scripts/dev.sh                   # agent-server --reload --no-build plus Vite on :5173, with hot reload
 ./devhelpers/scripts/agent.sh qwen . --model qwen3.6:35b   # build the client from this checkout and launch an agent
 agent proxy                        # this machine's agent-proxy in the foreground
+agent-server downloads fetch             # a release's agent and agent-machine builds into dist/, for the server to hand out (no Go needed)
 agent-server local [start|stop|status]   # a whole instance for one person on loopback 19999/20000
 agent-tray [--status] [--autostart on|off]   # the tray icon (pip install "./python[tray]")
 podman build --http-proxy=false -f devhelpers/allinone/Dockerfile --build-arg AGENTS= -t ai-control-mesh .   # the all-in-one image
@@ -151,6 +152,7 @@ Pushing the tag also runs `.github/workflows/release.yml`, which makes the GitHu
 - the server bundle `ai-control-mesh-X.Y.Z.zip`: `VERSION`, a `BUILD` file naming the version (it has no git), the server's sources, `ui/dist`, `docs/` and `benchmarks/tests`;
 - every `agent` and `agent-machine` archive, and the Python wheel (required: it's what the installers' `--python` and any system without a Go build use);
 - `install-local.sh` and `install-local.ps1`, filled in from `devhelpers/scripts/release/` with the release's address and every download's SHA-256;
+- `uninstall-local.sh` and `uninstall-local.ps1`, which remove such an install, copied as they are;
 - `SHA256SUMS`.
 
 The workflow refuses a tag that isn't `v` plus `VERSION`. Run by hand (Actions › Release), it keeps the files as a workflow artifact and makes no release. To try an installer before tagging, make the files with `--base-url http://127.0.0.1:<port>`, serve the folder, and run it with `AI_PROXY_LOCAL_HOME` and `--prefix` set to scratch folders.

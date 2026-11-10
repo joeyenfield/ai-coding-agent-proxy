@@ -3,6 +3,12 @@
 # It runs the published images from the GitHub Container Registry (.github/workflows/images.yml):
 # AI_PROXY_IMAGE_TAG picks the version (default latest, the newest build of master; 2.1.54 for a
 # release). To run this checkout's code instead, use devhelpers/basic, the same stack built from source.
+#
+# This file is all it needs: its helpers (start.py and machine.py beside it, and PostgreSQL's
+# first-start script) are in the images, at /quickstart. So it also runs without a checkout:
+#   curl -fsSLO https://raw.githubusercontent.com/joeyenfield/ai-control-mesh/master/deploy/compose/quickstart/compose.yaml
+#   docker compose up -d
+# The images must be newer than 2.1.57 (an older AI_PROXY_IMAGE_TAG has no /quickstart in them).
 name: ai-control-mesh-quickstart
 
 x-auth: &auth
@@ -35,6 +41,17 @@ x-machine: &machine
       condition: service_healthy
 
 services:
+  # PostgreSQL's first-start script (server/docker/postgres-init.sh: a role and a schema each for
+  # the server and agent-auth) is in the server's image. This copies it to where PostgreSQL looks,
+  # so the stack needs no file beside this one.
+  postgres-init:
+    image: ${AI_PROXY_IMAGES:-ghcr.io/joeyenfield}/agent-server:${AI_PROXY_IMAGE_TAG:-latest}
+    restart: "no"
+    user: "0"
+    entrypoint: [sh, -c, "cp /quickstart/postgres-init.sh /initdb/10-mesh.sh && chmod 644 /initdb/10-mesh.sh"]
+    volumes:
+      - postgres-initdb:/initdb
+
   # Everything the server and agent-auth keep, each in its own schema and role.
   postgres:
     image: docker.io/library/postgres:17
@@ -44,9 +61,12 @@ services:
       POSTGRES_PASSWORD: quickstart-postgres
       AI_PROXY_DB_API_PASSWORD: quickstartapi
       AI_PROXY_DB_AUTH_PASSWORD: quickstartauth
+    depends_on:
+      postgres-init:
+        condition: service_completed_successfully
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ../../../server/docker/postgres-init.sh:/docker-entrypoint-initdb.d/10-mesh.sh:ro,z
+      - postgres-initdb:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: [CMD, pg_isready, -U, postgres, -d, mesh]
       interval: 5s
@@ -71,7 +91,6 @@ services:
     ports:
       - "127.0.0.1:19999:9999"
     volumes:
-      - ./start.py:/quickstart/start.py:ro,z
       - server-logs:/app/logs
     # Stated here as well as in the image: Podman ignores a HEALTHCHECK in an OCI image.
     healthcheck:
@@ -115,8 +134,6 @@ services:
       ollama:
         condition: service_healthy
     volumes:
-      - ./start.py:/quickstart/start.py:ro,z
-      - ./machine.py:/quickstart/machine.py:ro,z
       - machine-1-home:/home/agent
       - machine-1-workspace:/workspace
 
@@ -124,8 +141,6 @@ services:
     <<: *machine
     hostname: machine-2
     volumes:
-      - ./start.py:/quickstart/start.py:ro,z
-      - ./machine.py:/quickstart/machine.py:ro,z
       - machine-2-home:/home/agent
       - machine-2-workspace:/workspace
 
@@ -146,6 +161,7 @@ services:
 
 volumes:
   postgres-data:
+  postgres-initdb:
   server-logs:
   machine-1-home:
   machine-1-workspace:

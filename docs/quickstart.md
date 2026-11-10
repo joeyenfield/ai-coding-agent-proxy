@@ -1,6 +1,6 @@
 # Quickstart with Docker or Podman
 
-The quickest way to try AI Control Mesh. One command starts a complete stack in containers: the server and its console, the sign-in service, a database, two fleet machines with coding agents installed, and Ollama. In about fifteen minutes you'll start a coding agent from the console, watch it work, type into its terminal and read back every request it made.
+The quickest way to try AI Control Mesh. One command starts a complete stack in containers: the server and its console, the sign-in service, a database, two fleet machines with coding agents installed, and Ollama. In about fifteen minutes, downloads included (the tour itself takes about ten), you'll start a coding agent from the console, watch it work, type into its terminal and read back every request it made.
 
 It runs only on your computer (every port is on `localhost`), uses a known demo password, and doesn't touch your projects, your Docker socket or your checkout's settings. To try the Helm chart instead, see [Quickstart on Kubernetes](quickstart-kubernetes.md). For a real install, follow [Getting started](getting-started.md).
 
@@ -39,7 +39,7 @@ The server also creates a private vault encryption key automatically, so you can
 You need:
 
 - **Podman with a Compose provider, or Docker with Compose.** On Windows and macOS, Podman runs in a VM: `podman machine init` once, then `podman machine start`. Check the Compose provider with `podman compose version`; Podman Desktop can install one (**Settings › Resources › Compose**). The commands below use `podman compose`; with Docker, type `docker compose` instead.
-- **A checkout of this repository**, for the Compose files and the small helper scripts they mount. The images come ready-built from the GitHub Container Registry (`ghcr.io/joeyenfield/agent-server` and `agent-sandbox`), for Intel and ARM computers alike.
+- **A checkout of this repository**, or just its one Compose file (below). The images come ready-built from the GitHub Container Registry (`ghcr.io/joeyenfield/agent-server` and `agent-sandbox`), for Intel and ARM computers alike.
 - **Room:** several GB of disk for the images and the models you pull, and enough memory for a small model on CPU (8 GB or more is comfortable). An NVIDIA GPU is optional and makes models much faster.
 - **Free ports** `19999` and `20000` on `localhost`.
 
@@ -49,6 +49,15 @@ From the repository root:
 podman compose -f deploy/compose/quickstart/compose.yaml up -d
 podman compose -f deploy/compose/quickstart/compose.yaml ps      # all six services say healthy (the machines take half a minute longer)
 ```
+
+**Without a checkout.** The Compose file needs nothing beside it: its helper scripts are in the images. Download it into an empty folder and start it there:
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/joeyenfield/ai-control-mesh/master/deploy/compose/quickstart/compose.yaml
+podman compose up -d
+```
+
+The commands on this page then work without their `-f deploy/compose/quickstart/compose.yaml`, from that folder. The GPU file is a second download from the same place (`compose.gpu.yaml`). This needs images newer than 2.1.57, which `latest` is.
 
 The first start downloads about 1 GB of images, most of it the machines' coding agents, so it takes a few minutes. Later starts take seconds.
 

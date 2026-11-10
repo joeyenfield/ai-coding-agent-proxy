@@ -151,6 +151,7 @@ The web installers are made for each GitHub Release by `devhelpers/scripts/relea
 | `agent-<version>-<os>-<arch>.*`, `agent-machine-...` | Every archive `tools/dist` built |
 | `ai_proxy_agent_py-<version>-*.whl` | The Python `agent`, `agent-machine` and `agent-tray`, for any system |
 | `install-local.sh`, `install-local.ps1` | The installers, filled in from the templates beside `release.py` |
+| `uninstall-local.sh`, `uninstall-local.ps1` | What removes such an install: the tray's autostart, `agent` and `agent-machine` (through the server bundle's own `uninstall.sh`/`.ps1`), the `agent-server` link, `app/` and `venv/`; the data only with `--purge`. Not templates: they find the install by its folders |
 | `SHA256SUMS` | Over all of the above |
 
 The bundle has the built console but none of the UI's sources, so the server never tries to rebuild it. Its top folder is the server's root: it holds `VERSION` and `server/`, and `BUILD` gives the version where there's no git.

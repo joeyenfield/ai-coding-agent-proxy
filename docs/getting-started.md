@@ -10,7 +10,7 @@ You need whichever of these you want to try:
 
 For how the pieces fit together, see [Architecture](architecture.md).
 
-**Just want to try it?** A quickstart runs the whole system on your computer with one command: the server, the sign-in service, a database, two fleet machines with coding agents and Ollama. [Quickstart with Docker or Podman](quickstart.md) walks you from `podman compose up` to an agent working in the console in about fifteen minutes, with no HTTPS or accounts to set up; [Quickstart on Kubernetes](quickstart-kubernetes.md) does the same on a local cluster with the Helm chart. To run the server on your own computer, for you alone and without containers, use [Run it on your own computer](local.md): one command. Come back here when you want a real install.
+**Just want to try it?** A quickstart runs the whole system on your computer with one command: the server, the sign-in service, a database, two fleet machines with coding agents and Ollama. [Quickstart with Docker or Podman](quickstart.md) walks you from `podman compose up` to an agent working in the console in about fifteen minutes (downloads included; the tour itself is about ten), with no HTTPS or accounts to set up; [Quickstart on Kubernetes](quickstart-kubernetes.md) does the same on a local cluster with the Helm chart. To run the server on your own computer, for you alone and without containers, use [Run it on your own computer](local.md): one command. Come back here when you want a real install.
 
 **Authentication prerequisite:** run the separate `agent-auth` issuer and configure HTTPS, callback URLs and the shared introspection secret as described in [OIDC authentication](oidc.md). API authentication is mandatory, including on loopback.
 
@@ -30,9 +30,22 @@ cd ai-control-mesh
 python -m venv .venv
 . .venv/bin/activate              # Windows: .venv\Scripts\activate
 pip install -e ./server           # or "./server[dev]" to run the tests too
-
-agent-server                      # console on http://<this computer>:9999
 ```
+
+That installs two programs, and you run both: `agent-auth`, the sign-in service, and `agent-server`. Give both the same sign-in settings first, with your own HTTPS addresses ([OIDC authentication](oidc.md) says what each one is):
+
+```bash
+export AI_PROXY_OIDC_ISSUER=https://auth.example.com
+export AI_PROXY_OIDC_AUDIENCE=https://api.example.com
+export AI_PROXY_OIDC_REDIRECT_URIS=https://api.example.com/api/auth/callback
+export AI_PROXY_OIDC_BROWSER_ORIGINS=https://api.example.com
+export AI_PROXY_OIDC_INTROSPECTION_SECRET=<a long random secret, the same for both>
+
+agent-server                      # the API and console, on port 9999; it makes the first account
+agent-auth                        # in a second terminal: the sign-in service, on 127.0.0.1:10000
+```
+
+Start `agent-server` first: it creates the database and the first account, which `agent-auth` reads. Put your HTTPS reverse proxy in front of both, `api.example.com` to port 9999 and `auth.example.com` to port 10000.
 
 `agent-server` keeps everything in a database: its settings, accounts, machines and every session's recordings. Without `AI_PROXY_DATABASE_URL` that's a SQLite file in the checkout, `logs/agent-server.sqlite3`; production servers use PostgreSQL (see [Deployment](deployment.md)). A new server listens on `0.0.0.0:9999`. Change its settings on the console's **Server settings** page, or with `agent-server config export` and `import` (see [Configuration](configuration.md)). On its first start, and whenever the console's sources are newer than `ui/dist`, it builds the console with npm. `agent-server --no-build` (or `AI_PROXY_UI_BUILD=0`) serves the existing build as it is.
 
@@ -118,7 +131,14 @@ irm http://server:9999/install.ps1 | iex                             # Windows
 | `--python` / `-Python` | Install the Python versions instead, on any system with Python 3.9 or later |
 | `--no-tray` / `-NoTray` | Leave out the tray icon, which is otherwise put in on a desktop with Python 3.9 or later |
 
-The installer only works when the server has builds for its version in `dist/<version>/`. Build them on the server's computer with `./devhelpers/scripts/build-dist.sh` (or `.\devhelpers\scripts\build-dist.ps1`), which needs Go. In Docker, compose mounts `./dist` into the container.
+The installer only works when the server has builds for its version in `dist/<version>/`. A new server has none. Fetch its release's, each checked against the release's SHA-256:
+
+```bash
+agent-server downloads fetch                                              # on the server's computer
+docker compose exec --user 0 agent-server agent-server downloads fetch    # in Compose, from deploy/compose/server
+```
+
+It takes the release of the server's own `X.Y.Z` from GitHub (`--version` names another, `--from <url>` another place), and a running server offers the builds at once. Or build them from a checkout with `./devhelpers/scripts/build-dist.sh` (or `.\devhelpers\scripts\build-dist.ps1`), which needs Go. In Docker, Compose mounts the checkout's `dist/` into the container.
 
 **From the Downloads page.** The console's **Downloads** page (`/get`) lists the same builds per platform, with their sizes, SHA-256 and the commands to install them. It's public, so a new computer can use it before signing in. Each archive has its own `install.sh` or `install.ps1` that copies the programs onto your `PATH`.
 

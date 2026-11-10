@@ -4,7 +4,18 @@
 param([int]$Port, [int]$AuthPort)
 $ErrorActionPreference = "Stop"
 $root = Resolve-Path (Join-Path $PSScriptRoot "..\..")
-$python = if (Get-Command python -ErrorAction SilentlyContinue) { "python" } else { "py" }
+
+# Python 3.11 or later: the py launcher first, as "python" may be the Store's placeholder.
+$python = $null
+foreach ($candidate in @(@("py", "-3"), @("python"), @("python3"))) {
+    if (-not (Get-Command $candidate[0] -ErrorAction SilentlyContinue)) { continue }
+    $arguments = @($candidate | Select-Object -Skip 1)
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try { $found = & $candidate[0] @arguments -c "import sys; print(sys.executable if sys.version_info >= (3, 11) else '')" 2>$null } catch { $found = $null } finally { $ErrorActionPreference = $previous }
+    if ($LASTEXITCODE -eq 0 -and $found) { $python = "$found".Trim(); break }
+}
+if (-not $python) { throw "Needs Python 3.11 or later: install it from https://www.python.org/downloads/ and run this again." }
 
 Write-Output "Installing agent-server..."
 & $python -m pip install --quiet -e (Join-Path $root "server")
@@ -40,5 +51,13 @@ if (Get-Command go -ErrorAction SilentlyContinue) {
 $arguments = @("local", "start")
 if ($Port) { $arguments += @("--port", $Port) }
 if ($AuthPort) { $arguments += @("--auth-port", $AuthPort) }
-agent-server @arguments
+# Where pip put agent-server, which may not be on the PATH (a --user install, say).
+$scripts = & $python -c "import sysconfig; print(sysconfig.get_path('scripts'))"
+$server = Join-Path "$scripts".Trim() "agent-server.exe"
+if (Test-Path $server) {
+    if (-not ($env:Path -split ";" -contains "$scripts".Trim())) { Write-Output "agent-server is in $scripts, which isn't on your PATH." }
+    & $server @arguments
+} else {
+    agent-server @arguments
+}
 exit $LASTEXITCODE

@@ -201,15 +201,28 @@ def test_gpu_override_gives_only_ollama_the_nvidia_gpus_by_cdi_name():
 def test_compose_resolves_services_and_isolates_machine_storage():
     compose = yaml.safe_load((QUICKSTART / "compose.yaml").read_text())
     services = compose["services"]
-    assert set(services) == {"postgres", "server", "auth", "machine-1", "machine-2", "ollama"}
+    assert set(services) == {"postgres-init", "postgres", "server", "auth", "machine-1", "machine-2", "ollama"}
     # The server and agent-auth keep everything in PostgreSQL, as their own roles; it publishes no port.
     assert "ports" not in services["postgres"]
     assert services["server"]["environment"]["AI_PROXY_DATABASE_URL"].startswith("postgresql+psycopg://mesh_api:")
     assert services["auth"]["environment"]["AI_PROXY_AUTH_DATABASE_URL"].startswith("postgresql+psycopg://mesh_auth:")
     for service in ("server", "auth"):
         assert services[service]["depends_on"]["postgres"]["condition"] == "service_healthy"
-    init = (QUICKSTART / "../../../server/docker/postgres-init.sh").resolve()
-    assert any(str(volume).startswith("../../../server/docker/postgres-init.sh:") for volume in services["postgres"]["volumes"]) and init.is_file()
+    # The file needs nothing beside it, so it runs without a checkout: no service mounts a host
+    # path, and the helpers come from the images, where the Dockerfiles put them in /quickstart.
+    for name, service in services.items():
+        assert not any(str(volume).startswith((".", "/", "~")) for volume in service.get("volumes", [])), name
+    server_image = (ROOT / "server" / "Dockerfile").read_text(encoding="utf-8")
+    sandbox_image = (ROOT / "sandbox" / "Dockerfile").read_text(encoding="utf-8")
+    assert "COPY deploy/compose/quickstart/start.py server/docker/postgres-init.sh /quickstart/" in server_image
+    assert "COPY deploy/compose/quickstart/start.py deploy/compose/quickstart/machine.py /quickstart/" in sandbox_image
+    assert (ROOT / "server" / "docker" / "postgres-init.sh").is_file()
+    # PostgreSQL's first-start script reaches it through a volume a one-shot container fills from the server's image.
+    init = services["postgres-init"]
+    assert init["image"] == services["server"]["image"] and "/quickstart/postgres-init.sh" in init["entrypoint"][-1]
+    assert "postgres-initdb:/initdb" in init["volumes"]
+    assert "postgres-initdb:/docker-entrypoint-initdb.d:ro" in services["postgres"]["volumes"]
+    assert services["postgres"]["depends_on"]["postgres-init"]["condition"] == "service_completed_successfully"
     # No shared namespaces: Podman can't recreate a container another one shares with.
     # machine-1's start.py relays its loopback 11434 to Ollama instead.
     assert not any("network_mode" in service for service in services.values())

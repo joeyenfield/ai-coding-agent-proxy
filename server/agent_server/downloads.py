@@ -22,7 +22,8 @@ from . import version
 SUMS = "SHA256SUMS"
 LINE = re.compile(r"([0-9a-f]{64}) [ *](\S.*)")
 HINT = (
-    "No builds for this version yet. Build them on the server's computer with devhelpers/scripts/build-dist.sh "
+    "No builds for this version yet. Fetch its release's with `agent-server downloads fetch` on the server's computer "
+    "(in Compose: docker compose exec --user 0 agent-server agent-server downloads fetch), or build them with devhelpers/scripts/build-dist.sh "
     "(.\\devhelpers\\scripts\\build-dist.ps1 on Windows; PACKAGES=1 / -Packages for .deb, .rpm, .msi and the rest), "
     "or mount them into dist/ (AI_PROXY_DIST_DIR)."
 )

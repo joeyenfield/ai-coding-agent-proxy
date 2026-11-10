@@ -54,8 +54,36 @@ CLEARED = (
 # when the file is written or when it's run. Plain debug builds were caught once; lately the stripped
 # ones without a version are (-s -w, and -w alone when run), while the shipped build (tools/dist:
 # -s -w -X main.version=...) and a plain -trimpath build pass. Tests need the version to stay "dev"
-# (the programs then skip update checks), so they build plainly.
-RELEASE_FLAGS = ["-trimpath"]
+# (the programs then skip update checks). Which build is caught keeps changing (in November 2026 a
+# plain -trimpath client was blocked as the linker wrote it), so the tests try each of these in turn
+# and use the first that builds and is still there after it ran. Each leaves the version "dev".
+BUILD_FLAGS = (
+    ["-trimpath", "-ldflags", "-X main.version=dev"],
+    ["-trimpath"],
+    [],
+    ["-trimpath", "-ldflags", "-s -w -X main.version=dev"],
+)
+
+
+def build_program(go: str, module: Path, package: str, output: Path) -> Path:
+    """Build a Go program for the tests with the first of BUILD_FLAGS the antivirus lets through."""
+    env = {key: value for key, value in os.environ.items() if key not in CLEARED}
+    env.setdefault("GOTOOLCHAIN", "local")
+    errors = []
+    for flags in BUILD_FLAGS:
+        built = subprocess.run([go, "build", *flags, "-o", str(output), package], cwd=module, env=env, capture_output=True, text=True, timeout=600)
+        if built.returncode != 0:
+            errors.append(f"go build {' '.join(flags)}: {built.stderr.strip()}")
+            continue
+        try:
+            ran = subprocess.run([str(output), "--version"], env=env, capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
+        except OSError as error:
+            errors.append(f"go build {' '.join(flags)}: built, but it didn't run: {error}")
+            continue
+        if ran.returncode == 0 and output.exists():
+            return output
+        errors.append(f"go build {' '.join(flags)}: built, but it didn't run: {ran.stderr.strip()}")
+    raise AssertionError("\n".join(errors))
 
 
 @pytest.fixture(scope="session")
@@ -64,21 +92,13 @@ def agent_binary(tmp_path_factory) -> Path:
     if not go or not (CLIENT / "go.mod").exists():
         pytest.skip("Go isn't installed")
     output = tmp_path_factory.mktemp("client") / ("agent.exe" if os.name == "nt" else "agent")
-    env = {key: value for key, value in os.environ.items() if key not in CLEARED}
-    env.setdefault("GOTOOLCHAIN", "local")
-    built = subprocess.run([go, "build", *RELEASE_FLAGS, "-o", str(output), "./cmd/agent"], cwd=CLIENT, env=env, capture_output=True, text=True, timeout=600)
-    assert built.returncode == 0, built.stderr
-    return output
+    return build_program(go, CLIENT, "./cmd/agent", output)
 
 
 @pytest.fixture(scope="session")
 def machine_binary(tmp_path_factory, agent_binary) -> Path:
     output = tmp_path_factory.mktemp("machine") / ("agent-machine.exe" if os.name == "nt" else "agent-machine")
-    env = {key: value for key, value in os.environ.items() if key not in CLEARED}
-    env.setdefault("GOTOOLCHAIN", "local")
-    built = subprocess.run([shutil.which("go"), "build", *RELEASE_FLAGS, "-o", str(output), "./cmd/agent-machine"], cwd=MACHINE, env=env, capture_output=True, text=True, timeout=600)
-    assert built.returncode == 0, built.stderr
-    return output
+    return build_program(shutil.which("go"), MACHINE, "./cmd/agent-machine", output)
 
 
 @contextmanager

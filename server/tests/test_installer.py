@@ -174,6 +174,14 @@ def test_curl_pipe_sh_downloads_checks_and_runs_the_installer(tmp_path):
         only = subprocess.run([sh_tools(), "-c", f"curl -fsSL {server}/install.sh | sh -s -- --only agent-machine --no-login --no-tray"],
                               env=env, capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL)
         assert only.returncode == 0 and "agent-proxy" not in record.read_text() and "agent-machine" in record.read_text()
+        # Piped into sh there's no file to read the options from: --help prints them all the same.
+        helped = subprocess.run([sh_tools(), "-c", f"curl -fsSL {server}/install.sh | sh -s -- --help"],
+                                env=env, capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL)
+        assert helped.returncode == 0 and "--only agent|agent-machine" in helped.stdout
+        # A prefix with a space in it reaches the archive's installer as one argument.
+        spaced = subprocess.run([sh_tools(), "-c", f"curl -fsSL {server}/install.sh | sh -s -- --no-login --no-tray --prefix '/opt/my agents'"],
+                                env=env, capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL)
+        assert spaced.returncode == 0 and record.read_text().splitlines()[:2] == ["--prefix", "/opt/my agents"]
     # A download that doesn't match its SHA-256 is never installed.
     fake_build(tmp_path / "dist", broken="agent-machine")
     record.unlink()

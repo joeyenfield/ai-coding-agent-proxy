@@ -30,7 +30,7 @@ $Files = @'
 '@ -split "`n" | Where-Object { $_.Trim() }
 
 if ($Only -and $Only -notin @("agent", "agent-machine")) { throw "-Only takes agent or agent-machine" }
-if (-not $Files) { throw "The agent-server at $Server has no builds to hand out yet (devhelpers/scripts/build-dist.ps1 on its computer)." }
+if (-not $Files) { throw "The agent-server at $Server has no builds to hand out yet. On its computer, run: agent-server downloads fetch (or devhelpers/scripts/build-dist.ps1 in a checkout)." }
 
 # This computer, named the way tools/dist names its builds ($env:AGENT_PLATFORM overrides it).
 $platform = $env:AGENT_PLATFORM
@@ -154,12 +154,18 @@ try {
     if (-not $components) { throw "Nothing to install for $platform." }
 
     # The zips' own installer puts every program beside it on the PATH (and sets up -Service).
-    $installer = @{}
-    if ($Prefix) { $installer.Prefix = $Prefix }
-    if ($Service) { $installer.Service = $true }
+    # It's a file on disk, which Windows' default execution policy refuses to run (irm | iex isn't
+    # one), so it runs in a PowerShell of its own that is told to allow it.
+    $shell = (Get-Process -Id $PID).Path
+    # Another host (the ISE, say) can't run a file this way: Windows' own PowerShell can.
+    if ((Split-Path -Leaf "$shell") -notmatch '^(powershell|pwsh)\.exe$') { $shell = "powershell.exe" }
+    $installer = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $work "$platform\install.ps1"))
+    if ($Prefix) { $installer += @("-Prefix", $bin.TrimEnd("\")) }
+    if ($Service) { $installer += "-Service" }
     # It leaves signing in to this script.
     $env:AI_PROXY_ONE_LINER = "1"
-    try { & (Join-Path $work "$platform\install.ps1") @installer } finally { Remove-Item Env:AI_PROXY_ONE_LINER -ErrorAction SilentlyContinue }
+    try { Invoke-Native { & $shell @installer } } finally { Remove-Item Env:AI_PROXY_ONE_LINER -ErrorAction SilentlyContinue }
+    if ($LASTEXITCODE -ne 0) { throw "The installer in the download didn't finish (exit code $LASTEXITCODE)." }
     }
     # The tray icon (agent-tray), from the wheel in its own environment. Only agent-tray comes from
     # it: the Go programs stay the ones you run. Without it everything else works the same.

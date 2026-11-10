@@ -26,8 +26,27 @@ VERSION='{{VERSION}}'
 # platform component sha256 path, one archive per line; "python python" is the wheel.
 FILES='{{FILES}}'
 
+# usage: the options, from text in the script itself. Piped into sh there's no file to read them from.
+usage() {
+    cat <<'USAGE'
+Installs agent (with agent-proxy) and agent-machine from this agent-server, then signs them in.
+
+  --only agent|agent-machine   just one of them (default: both)
+  --service                    start agent-machine at boot or login (root: a system service)
+  --prefix DIR                 install into DIR (default: /usr/local/bin as root, else ~/.local/bin)
+  --no-login                   don't sign in; print the commands instead
+  --no-start                   don't start agent-machine after signing it in
+  --python                     the Python versions (any system with Python 3.9 or later), in
+                               their own environment, linked into the prefix
+  --no-tray                    no tray icon (agent-tray, put in on a desktop with Python 3.9 or
+                               later: what runs here, its start and stop, at every sign-in)
+
+Pass options through the pipe with: curl -fsSL <server>/install.sh | sh -s -- --only agent
+USAGE
+}
+
 only=""
-pass=""
+prefix=""
 login=1
 start=1
 service=0
@@ -39,12 +58,12 @@ while [ $# -gt 0 ]; do
         --no-tray) tray=0 ;;
         --only) [ $# -ge 2 ] || { echo "--only needs agent or agent-machine" >&2; exit 2; }; only=$2; shift ;;
         --only=*) only=${1#--only=} ;;
-        --service) service=1; pass="$pass --service" ;;
-        --prefix) [ $# -ge 2 ] || { echo "--prefix needs a folder" >&2; exit 2; }; pass="$pass --prefix $2"; prefix=$2; shift ;;
-        --prefix=*) pass="$pass --prefix ${1#--prefix=}"; prefix=${1#--prefix=} ;;
+        --service) service=1 ;;
+        --prefix) [ $# -ge 2 ] || { echo "--prefix needs a folder" >&2; exit 2; }; prefix=$2; shift ;;
+        --prefix=*) prefix=${1#--prefix=} ;;
         --no-login) login=0 ;;
         --no-start) start=0 ;;
-        -h|--help) sed -n '2,17p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//' || true; exit 0 ;;
+        -h|--help) usage; exit 0 ;;
         *) echo "install: unknown option $1 (see --help)" >&2; exit 2 ;;
     esac
     shift
@@ -82,7 +101,7 @@ if [ -z "$platform" ]; then
 fi
 
 if [ -z "$FILES" ]; then
-    fail "the agent-server at $SERVER has no builds to hand out yet (devhelpers/scripts/build-dist.sh on its computer)"
+    fail "the agent-server at $SERVER has no builds to hand out yet. On its computer, run: agent-server downloads fetch (or devhelpers/scripts/build-dist.sh in a checkout)"
 fi
 
 if command -v curl >/dev/null 2>&1; then
@@ -106,7 +125,7 @@ work=$(mktemp -d 2>/dev/null || mktemp -d -t agent-install)
 trap 'rm -rf "$work"' EXIT INT TERM
 
 # Where the programs go, and where the Python versions' environment is.
-bin=${prefix:-}
+bin=$prefix
 if [ "$(id -u)" -eq 0 ]; then
     [ -n "$bin" ] || bin=/usr/local/bin
     pyhome=/usr/local/lib/agent-py
@@ -209,8 +228,11 @@ else
     [ -n "$components" ] || fail "nothing to install for $platform"
 
     # The archives' own installer puts every program beside it on the PATH (and sets up the service).
-    # shellcheck disable=SC2086
-    AI_PROXY_ONE_LINER=1 sh "$work/$platform/install.sh" $pass
+    # Its options go in "$@", so a prefix with spaces in it stays one argument.
+    set --
+    if [ $service -eq 1 ]; then set -- --service; fi
+    if [ -n "$prefix" ]; then set -- "$@" --prefix "$prefix"; fi
+    AI_PROXY_ONE_LINER=1 sh "$work/$platform/install.sh" "$@"
 fi
 
 # The tray icon (agent-tray), for you on a desktop (macOS, or a display on Linux and BSD), never as

@@ -128,7 +128,10 @@ services:
       # The builds the console's Downloads page and `agent update` hand out
       # (devhelpers/scripts/build-dist.sh). The server offers the one of its own version, or the
       # newest of the same release: use the image of the same version (AI_PROXY_IMAGE_TAG).
-      - ../../../dist:/app/dist:ro
+      # Without a build of your own, fetch a release's into it (writable for that; the server's
+      # own user can't write there, only root in the container):
+      #   docker compose exec --user 0 agent-server agent-server downloads fetch
+      - ../../../dist:/app/dist
     # Stated here as well as in the image: Podman ignores a HEALTHCHECK in an OCI image.
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9999/health', timeout=3)"]

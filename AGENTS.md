@@ -106,6 +106,7 @@ agent-benchmark reasoning --model <model> --backend <backend>   # a benchmark fr
 
 agent-server                             # API + ui/dist on 0.0.0.0:9999; rebuilds ui/dist first if stale
 agent-server --reload --no-build         # Python auto-reload, skip the UI build
+agent-server downloads fetch             # a release's agent and agent-machine builds into dist/, for the server to hand out (no Go needed)
 agent-server local [start|stop|status]   # a whole instance for one person on loopback 19999/20000 (devhelpers/scripts/install-local.sh|.ps1 installs and starts it)
 python devhelpers/scripts/release/release.py --version X.Y.Z --base-url <url>   # a GitHub Release's files and web installers (release.yml runs it on v* tags)
 agent-tray [--status] [--autostart on|off]   # the tray icon (pip install "./python[tray]"); --status prints what it shows

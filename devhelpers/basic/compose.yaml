@@ -45,6 +45,20 @@ x-machine: &machine
       condition: service_healthy
 
 services:
+  # PostgreSQL's first-start script (server/docker/postgres-init.sh: a role and a schema each for
+  # the server and agent-auth) is in the server's image. This copies it to where PostgreSQL looks,
+  # so the stack needs no file beside this one.
+  postgres-init:
+    image: localhost/ai-control-mesh-dev-server
+    build:
+      context: ../..
+      dockerfile: server/Dockerfile
+    restart: "no"
+    user: "0"
+    entrypoint: [sh, -c, "cp /quickstart/postgres-init.sh /initdb/10-mesh.sh && chmod 644 /initdb/10-mesh.sh"]
+    volumes:
+      - postgres-initdb:/initdb
+
   # Everything the server and agent-auth keep, each in its own schema and role.
   postgres:
     image: docker.io/library/postgres:17
@@ -54,9 +68,12 @@ services:
       POSTGRES_PASSWORD: quickstart-postgres
       AI_PROXY_DB_API_PASSWORD: quickstartapi
       AI_PROXY_DB_AUTH_PASSWORD: quickstartauth
+    depends_on:
+      postgres-init:
+        condition: service_completed_successfully
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ../../server/docker/postgres-init.sh:/docker-entrypoint-initdb.d/10-mesh.sh:ro,z
+      - postgres-initdb:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: [CMD, pg_isready, -U, postgres, -d, mesh]
       interval: 5s
@@ -90,7 +107,6 @@ services:
     ports:
       - "127.0.0.1:19999:9999"
     volumes:
-      - ../../deploy/compose/quickstart/start.py:/quickstart/start.py:ro,z
       - server-logs:/app/logs
     # Stated here as well as in the image: Podman ignores a HEALTHCHECK in an OCI image.
     healthcheck:
@@ -137,8 +153,6 @@ services:
       ollama:
         condition: service_healthy
     volumes:
-      - ../../deploy/compose/quickstart/start.py:/quickstart/start.py:ro,z
-      - ../../deploy/compose/quickstart/machine.py:/quickstart/machine.py:ro,z
       - machine-1-home:/home/agent
       - machine-1-workspace:/workspace
 
@@ -146,8 +160,6 @@ services:
     <<: *machine
     hostname: machine-2
     volumes:
-      - ../../deploy/compose/quickstart/start.py:/quickstart/start.py:ro,z
-      - ../../deploy/compose/quickstart/machine.py:/quickstart/machine.py:ro,z
       - machine-2-home:/home/agent
       - machine-2-workspace:/workspace
 
@@ -168,6 +180,7 @@ services:
 
 volumes:
   postgres-data:
+  postgres-initdb:
   server-logs:
   machine-1-home:
   machine-1-workspace:

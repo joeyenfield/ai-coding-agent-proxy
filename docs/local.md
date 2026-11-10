@@ -27,7 +27,7 @@ The installer comes with each [release](https://github.com/joeyenfield/ai-contro
 
 Then add a folder for the console to start agents in: `agent-machine roots add ~/projects`.
 
-Run it again to update: it stops the server, replaces its files and starts it again. Your data stays.
+Run it again to update: it stops the server, replaces its files and starts it again. Your data stays. When it's done it says again where the console is and where the `admin` password is kept. [Remove it](#remove-it) has its twin, which takes it all out.
 
 | Option (sh, PowerShell) | What it does |
 | --- | --- |
@@ -73,7 +73,7 @@ cd ai-control-mesh
 ./devhelpers/scripts/install-local.sh          # Windows: .\devhelpers\scripts\install-local.ps1
 ```
 
-The script installs the server, builds what it can and runs `agent-server local start`.
+The script installs the server, builds what it can and runs `agent-server local start`. It stops with a message when there's no Python 3.11 or later. Where the system's Python doesn't take pip installs (Debian, Ubuntu, Homebrew), it makes an environment in the checkout's `.venv` and installs there; an environment you activated yourself is used as it is.
 
 ## The first start
 
@@ -158,6 +158,28 @@ One folder holds everything: `AI_PROXY_LOCAL_HOME` if you set it, else
 | `app/<version>/`, `venv/` | The server's files and its Python environment (with `agent-tray`), from the web installer |
 | `logs/server.out.log`, `logs/auth.out.log` | Each process's output |
 
-To start again from nothing, stop it and delete the folder. To remove it, stop it, delete the folder and remove `agent`, `agent-machine` and the `agent-server` link (or `agent-server.cmd`) from the folder they went to. To back it up, stop it and copy the folder: `config export` alone isn't a backup.
+To start again from nothing, stop it and delete the folder. To back it up, stop it and copy the folder: `config export` alone isn't a backup.
+
+## Remove it
+
+The web installer's twin takes out what it put in: the tray icon and its start at sign-in, `agent` and `agent-machine` (with `agent-machine`'s service), the server's programs and the `agent-server` link.
+
+```bash
+curl -fsSL https://github.com/joeyenfield/ai-control-mesh/releases/latest/download/uninstall-local.sh | sh
+```
+
+```powershell
+irm https://github.com/joeyenfield/ai-control-mesh/releases/latest/download/uninstall-local.ps1 | iex
+```
+
+| Option (sh / PowerShell) | What it does |
+| --- | --- |
+| `--purge` / `-Purge` | Also delete the server's data (its database, recordings and keys), sign `agent` and `agent-machine` out and delete their settings |
+| `--keep-client` / `-KeepClient` | Leave `agent` and `agent-machine`, and their sign-ins, as they are |
+| `--prefix DIR` / `-Prefix` | The folder the programs went to, if you chose one when installing |
+
+Without `--purge` the data stays in the folder above, so installing again finds your settings and recordings. Pass options like the installer's: `curl -fsSL <url>/uninstall-local.sh | sh -s -- --purge`, or in PowerShell `& ([scriptblock]::Create((irm <url>/uninstall-local.ps1))) -Purge`.
+
+An install from a checkout has no uninstaller: run `agent-server local stop`, `agent-tray --autostart off` if you use the tray, `pip uninstall ai-coding-agent-server`, and delete the folder.
 
 The local server ignores `AI_PROXY_*` variables set in your shell, so one set up for another server can't point it elsewhere. Settings you change in the console are kept in its database as usual.

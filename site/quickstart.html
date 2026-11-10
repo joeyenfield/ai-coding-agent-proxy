@@ -25,7 +25,7 @@
   <link rel="icon" href="/assets/icon-192.png" type="image/png" sizes="192x192">
   <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" sizes="180x180">
   <link rel="manifest" href="/site.webmanifest">
-  <link rel="stylesheet" href="/styles.css?v=af373fa4e5">
+  <link rel="stylesheet" href="/styles.css?v=5bcd7f248f">
   <script src="/site.js?v=68ef62e8cb" defer></script>
   <script type="application/ld+json">{"@context":"https://schema.org","@type":"WebPage","name":"Quickstart","url":"https://aicontrolmesh.com/quickstart.html","isPartOf":{"@type":"WebSite","name":"AIControlMesh","url":"https://aicontrolmesh.com/"}}</script>
 </head>
@@ -48,7 +48,7 @@
 <main id="main" class="detail-page quickstart-page">
 
   <section class="page-intro wrap"><p class="eyebrow">Quickstart / On your computer</p><h1>Your first mesh,<br><span>in ten minutes.</span></h1><p class="hero-lede">Start the server, its sign-in service, PostgreSQL, two fleet machines and Ollama on your own computer. Then add a provider, pull a model and start a coding agent on it. Every screenshot below is the real quickstart, started fresh.</p></section>
-  <nav class="page-nav wrap" aria-label="On this page"><a href="#quickstart">Start it</a><a href="#steps">Step by step</a><a href="#next">Then</a></nav>
+  <nav class="page-nav wrap" aria-label="On this page"><a href="#quickstart">Start it</a><a href="#other-ways">Other ways</a><a href="#steps">Step by step</a><a href="#next">Then</a></nav>
 
   <section class="quickstart section wrap" id="quickstart" aria-labelledby="quickstart-title">
       <div class="quickstart-copy">
@@ -93,6 +93,24 @@ kubectl -n mesh port-forward svc/mesh-agent-mesh-auth 20000:20000</code></pre>
         <p id="copy-status" class="copy-status" role="status" aria-live="polite"></p>
         <p class="demo-notice"><strong>Local demo only.</strong> Uses known credentials and ports bound to 127.0.0.1. Keep it on your computer; changing the admin password alone does not make it a production install. For a real deployment, configure your own secrets, HTTPS, and sign-in service. <a href="/teams.html#deployment">Team deployment path →</a></p>
       </div>
+  </section>
+
+  <section class="section wrap qs-steps-section" id="other-ways" aria-labelledby="other-title">
+    <div class="section-heading"><p class="eyebrow">Or / Without a checkout</p><h2 id="other-title">Two shorter ways in.</h2><p>Both run on your own computer, on localhost only, with the same console on <a href="http://localhost:19999">localhost:19999</a>. They make their own <code>admin</code> password and print it.</p></div>
+    <div class="route-grid other-ways">
+      <article><h3>One container</h3><p>The whole system in a single container: the server, sign-in, the console and a fleet machine with the coding agents and Ollama. Needs Docker or Podman, and no Git.</p>
+        <div class="code-window"><pre tabindex="0" aria-label="The command for one container"><code>docker run -d --name mesh \
+  -p 127.0.0.1:19999:19999 -p 127.0.0.1:20000:20000 \
+  -v mesh-data:/data -v mesh-home:/home/agent \
+  -v mesh-workspace:/workspace \
+  ghcr.io/joeyenfield/ai-control-mesh
+docker logs mesh</code></pre></div>
+        <p><code>docker logs</code> prints the address and the password. With Podman, write <code>podman</code> for <code>docker</code>. <a href="https://github.com/joeyenfield/ai-control-mesh/blob/master/docs/local.md#try-it-in-one-container">One container, in the guide →</a></p></article>
+      <article><h3>No containers</h3><p>One command installs the server, <code>agent</code> and <code>agent-machine</code> for you alone and starts them, with an icon in the system tray. Needs Python 3.11 or later.</p>
+        <div class="code-window"><pre tabindex="0" aria-label="The install command for Linux, macOS and FreeBSD"><code>curl -fsSL https://github.com/joeyenfield/ai-control-mesh/releases/latest/download/install-local.sh | sh</code></pre>
+        <pre tabindex="0" aria-label="The install command for Windows PowerShell"><code>irm https://github.com/joeyenfield/ai-control-mesh/releases/latest/download/install-local.ps1 | iex</code></pre></div>
+        <p>The first is for Linux, macOS and FreeBSD, the second for Windows PowerShell. Every download is checked against its SHA-256, and <code>uninstall-local</code> from the same address removes it again. <a href="https://github.com/joeyenfield/ai-control-mesh/blob/master/docs/local.md">Run it on your own computer →</a></p></article>
+    </div>
   </section>
 
   <section class="section wrap qs-steps-section" id="steps" aria-labelledby="steps-title">

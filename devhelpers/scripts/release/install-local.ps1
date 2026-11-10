@@ -176,8 +176,16 @@ try {
         }
         if ($installed) {
             # The zips' own installer puts the programs in the prefix; signing in is done below.
+            # It's a file on disk, which Windows' default execution policy refuses to run (irm | iex
+            # isn't one), so it runs in a PowerShell of its own that is told to allow it.
+            $shell = (Get-Process -Id $PID).Path
+            # Another host (the ISE, say) can't run a file this way: Windows' own PowerShell can.
+            if ((Split-Path -Leaf "$shell") -notmatch '^(powershell|pwsh)\.exe$') { $shell = "powershell.exe" }
             $env:AI_PROXY_ONE_LINER = "1"
-            try { & (Join-Path $work "$platform\install.ps1") -Prefix $Prefix } finally { Remove-Item Env:AI_PROXY_ONE_LINER -ErrorAction SilentlyContinue }
+            try {
+                Invoke-Program { & $shell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $work "$platform\install.ps1") -Prefix $Prefix.TrimEnd("\") }
+            } finally { Remove-Item Env:AI_PROXY_ONE_LINER -ErrorAction SilentlyContinue }
+            if ($LASTEXITCODE -ne 0) { throw "The installer in the download didn't finish (exit code $LASTEXITCODE)." }
         }
     }
     $tray = $null
@@ -222,8 +230,16 @@ foreach ($component in $installed) {
 }
 Write-Output ""
 Write-Output "Done: AI Control Mesh $Version runs at $server"
+# Said again here: the first start printed it before the sign-ins scrolled it away.
+$passwordFile = Join-Path $home_ "private\first-user-password"
+if (Test-Path $passwordFile) {
+    Write-Output "Open $server and sign in as admin. The password is in $passwordFile"
+} else {
+    Write-Output "Open $server and sign in with your account."
+}
 if ($installed -contains "agent-machine") { Write-Output "Let the console start agents in a folder of yours: agent-machine roots add <folder>" }
 Write-Output "Stop it with agent-server local stop; start it again with agent-server local."
+Write-Output "Remove it with: irm $Base/uninstall-local.ps1 | iex"
 if ($tray) {
     # A windowed program: it stays when this PowerShell closes. One runs at a time; a second leaves.
     Start-Process -FilePath $tray

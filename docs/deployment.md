@@ -40,7 +40,7 @@ Everything the server keeps is in PostgreSQL ([below](#postgresql)), so its own 
 | `/app/logs` | The server's own log (`proxy/proxy.log`) and the capture CA's certificate files for agents. |
 | `/app/certs` | `first-user-password`, once. |
 | `/app/config`, `/app/auth-state` | Only for an install from before the database: read once, on the first start, to import its files. A new install doesn't need them. |
-| `/app/dist` | The builds to hand out (mount `dist/` read-only; `deploy/compose/server/compose.yaml` mounts the checkout's). |
+| `/app/dist` | The builds to hand out (`deploy/compose/server/compose.yaml` mounts the checkout's `dist/`). Fill it with `docker compose exec --user 0 agent-server agent-server downloads fetch`, or with your own build. |
 
 A new server starts with the hosted Anthropic API as its one provider. Local providers come from machines in the fleet: run `agent-machine` where the models are and add them from the console ([Machines](machines.md)).
 
@@ -83,7 +83,7 @@ Everything under `deploy/` uses these. Two variables choose them:
 | `AI_PROXY_IMAGE_TAG` | The tag to run (default `latest`, the newest build): `2.0.1`, `2.0`, `master` or `sha-<commit>`. |
 | `AI_PROXY_IMAGES` | Where the images are (default `ghcr.io/joeyenfield`): set it to your own registry or fork's owner, such as `ghcr.io/<you>`. |
 
-The server still hands out the agent and agent-machine builds from its `dist/` folder, which the image doesn't contain: mount it as before (`/app/dist`), built from the same commit as the image.
+The server still hands out the agent and agent-machine builds from its `dist/` folder, which the image doesn't contain: mount it as before (`/app/dist`), built from the same commit as the image or fetched from its release with `agent-server downloads fetch`.
 
 ## PostgreSQL
 
@@ -218,6 +218,7 @@ Set `proxy.public_url` to `https://console.<domain>`. The HTTPS script also conf
 Each server offers the builds of its own version, so the programs a machine installs from it always speak its protocol. They're public, like `/health`, because a machine needs them before it can sign in.
 
 - `devhelpers/scripts/build-dist.sh` (`.\devhelpers\scripts\build-dist.ps1`) puts a version's builds in `dist/<version>/`, with a `SHA256SUMS` over every file ([Development](development.md#distributions)).
+- `agent-server downloads fetch` fills `dist/<X.Y.Z>/` from a GitHub Release instead, with no Go and no checkout: every archive and the wheel, each checked against the release's `SHA256SUMS`, and the programs unpacked for `agent update`. `--version` names another release than the server's own, `--from <url>` another place that holds a release's files. In Compose: `docker compose exec --user 0 agent-server agent-server downloads fetch`.
 - The server serves `dist/<its version>/` (`AI_PROXY_DIST_DIR` moves `dist/`), or when that wasn't built, the newest folder with the same `X.Y.Z`. Only files `SHA256SUMS` lists are reachable.
 - `/downloads/index.json` lists them with their platform, component, kind, size and SHA-256; `/downloads/<version>/<path>` serves each one.
 - The console's **Downloads** page (`/get`) offers them per platform, your own computer's and the Android app first: the `agent` and `agent-machine` archives, native packages, the bare binaries, the Python wheel and the Android app, each with its size, SHA-256 and install commands. It's public: the sign-in page and the rail link to it.
@@ -361,7 +362,7 @@ agent-machine update    # agent-machine; restarts it if it runs in the backgroun
 
 Each takes the server's build for its platform from `artifact/`, checks its SHA-256, and replaces itself. A copy in a folder it can't write to, as a package installs, is left to the package manager: update it from the **Downloads** page. With `agent-machine updates on`, the console's **Update now** on a machine's page does the same from there (`POST /api/machines/{id}/update`).
 
-So to roll out a new version: build it on the server's computer (`devhelpers/scripts/build-dist.sh`), restart `agent-server` on the new code, then update each machine.
+So to roll out a new version: build it on the server's computer (`devhelpers/scripts/build-dist.sh`) or fetch its release (`agent-server downloads fetch`), restart `agent-server` on the new code, then update each machine.
 
 ## Ports
 
