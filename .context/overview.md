@@ -108,6 +108,8 @@ The agent gets URLs on its agent-proxy that carry the session id, rendered by th
 
 9999 server (a linked server reaches it there too: `/.well-known/mesh-link`, `/api/links/*`) · 9100 the server's internal port in Kubernetes (`AI_PROXY_INTERNAL_PORT`) · 10000 agent-auth (its default, loopback) · 8184 agent-proxy (loopback) · 8183 agent-proxy HTTPS proxy (loopback) · 5173 Vite · 11434 Ollama · 18500 Strata · 9931 llama.cpp's llama-server (loopback on its machine) · 12434 Docker Model Runner. Never test on 8183/8184/9999 on the dev machine.
 
+For development: 19999/20000 `agent-server local` (`local.py`), and the quickstart and basic stacks' server and issuer, so only one of those runs at a time · 49999/50000 the testdata stack's server and issuer · 8199 the screenshot demo (`demo.py`) · 55432 the PostgreSQL test database (`AI_PROXY_TEST_DATABASE_URL`).
+
 ## Cross-component changes
 
 - **API between client/machine and server**: change the server, Go, *and* `python/`, and cover it in `server/tests/test_client.py`.

@@ -34,7 +34,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 from joserfc import jwt as jose_jwt
 from joserfc.jwk import RSAKey
-from sqlalchemy import select, text
+from sqlalchemy import select
 
 from . import issuer_pages as pages
 from . import relay
@@ -108,8 +108,7 @@ class State:
                 yield
                 return
             with self.db.write() as connection:
-                if not self.db.sqlite:
-                    connection.execute(text("SELECT pg_advisory_xact_lock(:id)"), {"id": self.LOCK})
+                self.db.transaction_lock(connection, self.LOCK)
                 self.connection = connection
                 try:
                     now = time.time()

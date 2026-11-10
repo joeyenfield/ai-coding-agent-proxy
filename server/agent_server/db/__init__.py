@@ -117,6 +117,12 @@ class Database:
             return False, f"database: {type(exc).__name__}"
         return True, "sqlite" if self.sqlite else "postgresql"
 
+    def transaction_lock(self, connection: Connection, lock_id: int) -> None:
+        """Hold a PostgreSQL advisory lock until this write transaction ends, so processes take turns.
+        SQLite needs none: write() already took its write lock (BEGIN IMMEDIATE)."""
+        if not self.sqlite:
+            connection.execute(text("SELECT pg_advisory_xact_lock(:id)"), {"id": lock_id})
+
     def hold_lock(self, lock_id: int) -> bool:
         """Take a PostgreSQL advisory lock for as long as this process runs (True on SQLite, which is one file
         on one computer anyway). False when another process holds it."""

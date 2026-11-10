@@ -51,7 +51,13 @@ agent-server --reload --no-build   # Python auto-reload, skip the UI build
 ./devhelpers/scripts/dev.sh                   # agent-server --reload --no-build plus Vite on :5173, with hot reload
 ./devhelpers/scripts/agent.sh qwen . --model qwen3.6:35b   # build the client from this checkout and launch an agent
 agent proxy                        # this machine's agent-proxy in the foreground
+agent-server local [start|stop|status]   # a whole instance for one person on loopback 19999/20000
+agent-tray [--status] [--autostart on|off]   # the tray icon (pip install "./python[tray]")
+podman build --http-proxy=false -f devhelpers/allinone/Dockerfile --build-arg AGENTS= -t ai-control-mesh .   # the all-in-one image
+cd deploy/compose/peer && podman compose up -d && python3 setup.py   # two linked servers, bridged (docs/peering.md)
 ```
+
+`agent-server local`, the quickstart and the basic stack all bind 19999/20000, so run one at a time. The testdata stack (49999/50000) and the demo (8199) can run beside them.
 
 Vite on 5173 proxies `/api` (WebSockets included), `/health`, the OpenAPI pages, `/help-files`, `/downloads`, the installers and `/android` to the server on 9999 (`AI_PROXY_URL` names another), and forwards the browser's `Host`, so same-origin checks pass. Loopback grants nothing: sign in as usual.
 
@@ -77,6 +83,9 @@ Vite on 5173 proxies `/api` (WebSockets included), `/health`, the OpenAPI pages,
 | `cd tools && go test ./...` | tools/dist: package versions, every Linux format for every target, rpm headers. |
 | `cd ui && npm run typecheck` | `tsc`, strict, with `noUnusedLocals` and `noUnusedParameters`. |
 | `cd ui && npm run build` | Writes `ui/dist`. |
+| `helm lint --strict deploy/helm/agent-mesh -f deploy/helm/agent-mesh/ci/<file>.yaml` | The chart with each CI values file; then `helm template ... \| kubeconform -strict`. |
+
+Nothing in CI runs these: `.github/workflows/` only builds the images and the releases. Run them before you push, because a push to `master` publishes the `latest` images every `deploy/` stack pulls.
 
 The one pytest warning, Starlette's httpx deprecation in `TestClient`, is expected.
 
