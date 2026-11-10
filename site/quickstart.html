@@ -5,27 +5,27 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#101523">
   <title>Quickstart — AIControlMesh</title>
-  <meta name="description" content="Run AI Control Mesh on your own computer with Docker, Podman or Kubernetes: sign in, add a model provider, pull a model and start a coding agent, step by step with screenshots.">
+  <meta name="description" content="Run AI Control Mesh on your own computer as a Compose stack, in one container, with no containers or on Kubernetes: sign in, add a model provider, pull a model and start a coding agent, step by step with screenshots.">
   <link rel="canonical" href="https://aicontrolmesh.com/quickstart.html">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="AIControlMesh">
   <meta property="og:url" content="https://aicontrolmesh.com/quickstart.html">
   <meta property="og:title" content="Quickstart — AIControlMesh">
-  <meta property="og:description" content="Run AI Control Mesh on your own computer with Docker, Podman or Kubernetes: sign in, add a model provider, pull a model and start a coding agent, step by step with screenshots.">
+  <meta property="og:description" content="Run AI Control Mesh on your own computer as a Compose stack, in one container, with no containers or on Kubernetes: sign in, add a model provider, pull a model and start a coding agent, step by step with screenshots.">
   <meta property="og:image" content="https://aicontrolmesh.com/assets/social.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta property="og:image:alt" content="AIControlMesh: Your AI agents. Your infrastructure. One control plane. Open source. Self-hosted. MIT licensed.">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Quickstart — AIControlMesh">
-  <meta name="twitter:description" content="Run AI Control Mesh on your own computer with Docker, Podman or Kubernetes: sign in, add a model provider, pull a model and start a coding agent, step by step with screenshots.">
+  <meta name="twitter:description" content="Run AI Control Mesh on your own computer as a Compose stack, in one container, with no containers or on Kubernetes: sign in, add a model provider, pull a model and start a coding agent, step by step with screenshots.">
   <meta name="twitter:image" content="https://aicontrolmesh.com/assets/social.png">
   <meta name="twitter:image:alt" content="AIControlMesh: Your AI agents. Your infrastructure. One control plane.">
   <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
   <link rel="icon" href="/assets/icon-192.png" type="image/png" sizes="192x192">
   <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" sizes="180x180">
   <link rel="manifest" href="/site.webmanifest">
-  <link rel="stylesheet" href="/styles.css?v=5bcd7f248f">
+  <link rel="stylesheet" href="/styles.css?v=ee05808704">
   <script src="/site.js?v=68ef62e8cb" defer></script>
   <script type="application/ld+json">{"@context":"https://schema.org","@type":"WebPage","name":"Quickstart","url":"https://aicontrolmesh.com/quickstart.html","isPartOf":{"@type":"WebSite","name":"AIControlMesh","url":"https://aicontrolmesh.com/"}}</script>
 </head>
@@ -47,74 +47,93 @@
   </header>
 <main id="main" class="detail-page quickstart-page">
 
-  <section class="page-intro wrap"><p class="eyebrow">Quickstart / On your computer</p><h1>Your first mesh,<br><span>in ten minutes.</span></h1><p class="hero-lede">Start the server, its sign-in service, PostgreSQL, two fleet machines and Ollama on your own computer. Then add a provider, pull a model and start a coding agent on it. Every screenshot below is the real quickstart, started fresh.</p></section>
-  <nav class="page-nav wrap" aria-label="On this page"><a href="#quickstart">Start it</a><a href="#other-ways">Other ways</a><a href="#steps">Step by step</a><a href="#next">Then</a></nav>
+  <section class="page-intro wrap"><p class="eyebrow">Quickstart / On your computer</p><h1>Your first mesh,<br><span>in ten minutes.</span></h1><p class="hero-lede">Start the whole system on your own computer: as a Compose stack, in one container, with no containers at all, or on Kubernetes. Then add a provider, pull a model and start a coding agent on it. Every screenshot below is the real quickstart, started fresh.</p></section>
+  <nav class="page-nav wrap" aria-label="On this page"><a href="#quickstart">Start it</a><a href="#steps">Step by step</a><a href="#next">Then</a></nav>
 
   <section class="quickstart section wrap" id="quickstart" aria-labelledby="quickstart-title">
       <div class="quickstart-copy">
         <p class="eyebrow">1 / Start it</p>
         <h2 id="quickstart-title">One command.</h2>
-        <p>Pick how you run containers, and whether models run on the CPU or an NVIDIA GPU, then run the commands from any folder. The images are pulled from the project’s published container registry.</p>
-        <p class="prerequisites"><strong>Bring:</strong> Git, Docker with Compose or Podman with a Compose provider, several GB of disk, and free localhost ports 19999 and 20000. Allow at least 8 GB RAM for a small CPU-model trial; model size and context can need much more. On Windows/macOS, allocate that memory to the container VM. An NVIDIA GPU is optional and makes models much faster (choose <strong>NVIDIA GPU</strong> above the commands); on CPU, speed varies.</p>
-        <a class="text-link" href="https://github.com/joeyenfield/ai-control-mesh/blob/master/docs/quickstart.md">The full quickstart guide <span aria-hidden="true">→</span></a>
+        <p>Pick how you want to run it. Every way runs on your own computer, on localhost only, and ends at the same console on <a href="http://localhost:19999">localhost:19999</a>.</p>
+        <div class="qs-about qs-when when-compose">
+          <p><strong>Compose stack.</strong> The full demo, and the one the steps below follow: the server, its sign-in service, PostgreSQL, two fleet machines and Ollama, in six containers.</p>
+          <p class="prerequisites"><strong>Bring:</strong> Git, Docker with Compose or Podman with a Compose provider, several GB of disk, and free localhost ports 19999 and 20000. Allow at least 8 GB RAM for a small CPU-model trial; model size and context can need much more. On Windows and macOS, give that memory to the container VM. An NVIDIA GPU is optional and makes models much faster.</p>
+          <a class="text-link" href="https://github.com/joeyenfield/ai-control-mesh/blob/master/docs/quickstart.md">The full quickstart guide <span aria-hidden="true">→</span></a>
+        </div>
+        <div class="qs-about qs-when when-one">
+          <p><strong>One container.</strong> The whole system in a single container: the server, sign-in, the console and a fleet machine with the coding agents and Ollama.</p>
+          <p class="prerequisites"><strong>Bring:</strong> Docker or Podman, several GB of disk, and free localhost ports 19999 and 20000. No Git and no Compose.</p>
+          <a class="text-link" href="https://github.com/joeyenfield/ai-control-mesh/blob/master/docs/local.md#try-it-in-one-container">One container, in the guide <span aria-hidden="true">→</span></a>
+        </div>
+        <div class="qs-about qs-when when-local">
+          <p><strong>No containers.</strong> One command installs the server, <code>agent</code> and <code>agent-machine</code> for you alone and starts them, with an icon in the system tray.</p>
+          <p class="prerequisites"><strong>Bring:</strong> Python 3.11 or later, nothing else. Every download is checked against its SHA-256.</p>
+          <a class="text-link" href="https://github.com/joeyenfield/ai-control-mesh/blob/master/docs/local.md">Run it on your own computer <span aria-hidden="true">→</span></a>
+        </div>
+        <div class="qs-about qs-when when-helm">
+          <p><strong>Kubernetes.</strong> The Helm chart in its smallest form (one pod: the server and its sign-in service, SQLite on a volume) and a fleet machine with the coding agents and Ollama.</p>
+          <p class="prerequisites"><strong>Bring:</strong> Git, a cluster on your computer (kind, k3d, minikube, or the one in Docker, Rancher or Podman Desktop) with a default StorageClass, <code>kubectl</code> and Helm 3.</p>
+          <a class="text-link" href="https://github.com/joeyenfield/ai-control-mesh/blob/master/docs/quickstart-kubernetes.md">The Kubernetes quickstart <span aria-hidden="true">→</span></a>
+        </div>
       </div>
       <div class="quickstart-install">
         <div class="code-window">
           <div class="code-toolbar"><span class="mono">LOCAL DEMO / TERMINAL</span><button class="copy-button" type="button" data-copy-shown="qs-cmd" hidden>Copy commands</button></div>
           <div class="qs-toggles">
-            <fieldset class="seg"><legend>Engine</legend><input type="radio" name="qs-engine" id="qs-docker" value="docker" checked><label for="qs-docker">Docker</label><input type="radio" name="qs-engine" id="qs-podman" value="podman"><label for="qs-podman">Podman</label><input type="radio" name="qs-engine" id="qs-helm" value="helm"><label for="qs-helm">Kubernetes (Helm)</label></fieldset>
-            <fieldset class="seg"><legend>Models run on</legend><input type="radio" name="qs-hw" id="qs-cpu" value="cpu" checked><label for="qs-cpu">CPU</label><input type="radio" name="qs-hw" id="qs-gpu" value="gpu"><label for="qs-gpu">NVIDIA GPU</label></fieldset>
+            <fieldset class="seg seg-way"><legend>Run it as</legend><input type="radio" name="qs-way" id="qs-compose" value="compose" checked><label for="qs-compose">Compose stack</label><input type="radio" name="qs-way" id="qs-one" value="one"><label for="qs-one">One container</label><input type="radio" name="qs-way" id="qs-local" value="local"><label for="qs-local">No containers</label><input type="radio" name="qs-way" id="qs-helm" value="helm"><label for="qs-helm">Kubernetes</label></fieldset>
+            <fieldset class="seg qs-when when-compose when-one"><legend>Engine</legend><input type="radio" name="qs-engine" id="qs-docker" value="docker" checked><label for="qs-docker">Docker</label><input type="radio" name="qs-engine" id="qs-podman" value="podman"><label for="qs-podman">Podman</label></fieldset>
+            <fieldset class="seg qs-when when-compose when-helm"><legend>Models run on</legend><input type="radio" name="qs-hw" id="qs-cpu" value="cpu" checked><label for="qs-cpu">CPU</label><input type="radio" name="qs-hw" id="qs-gpu" value="gpu"><label for="qs-gpu">NVIDIA GPU</label></fieldset>
+            <fieldset class="seg qs-when when-local"><legend>Your system</legend><input type="radio" name="qs-os" id="qs-unix" value="unix" checked><label for="qs-unix">Linux, macOS, FreeBSD</label><input type="radio" name="qs-os" id="qs-windows" value="windows"><label for="qs-windows">Windows</label></fieldset>
           </div>
-          <pre class="qs-cmd" data-v="docker-cpu" tabindex="0" aria-label="Docker quickstart commands"><code id="quickstart-command">git clone https://github.com/joeyenfield/ai-control-mesh.git
+          <pre class="qs-cmd qs-when when-compose when-docker when-cpu" data-v="compose-docker-cpu" tabindex="0" aria-label="Docker Compose quickstart commands"><code id="quickstart-command">git clone https://github.com/joeyenfield/ai-control-mesh.git
 cd ai-control-mesh
 docker compose -f deploy/compose/quickstart/compose.yaml up -d</code></pre>
-          <pre class="qs-cmd" data-v="docker-gpu" tabindex="0" aria-label="Docker quickstart commands with an NVIDIA GPU"><code id="qs-docker-gpu">git clone https://github.com/joeyenfield/ai-control-mesh.git
+          <pre class="qs-cmd qs-when when-compose when-docker when-gpu" data-v="compose-docker-gpu" tabindex="0" aria-label="Docker Compose quickstart commands with an NVIDIA GPU"><code id="qs-docker-gpu">git clone https://github.com/joeyenfield/ai-control-mesh.git
 cd ai-control-mesh
 docker compose -f deploy/compose/quickstart/compose.yaml -f deploy/compose/quickstart/compose.gpu.yaml up -d</code></pre>
-          <pre class="qs-cmd" data-v="podman-cpu" tabindex="0" aria-label="Podman quickstart commands"><code id="qs-podman-cpu">git clone https://github.com/joeyenfield/ai-control-mesh.git
+          <pre class="qs-cmd qs-when when-compose when-podman when-cpu" data-v="compose-podman-cpu" tabindex="0" aria-label="Podman Compose quickstart commands"><code id="qs-podman-cpu">git clone https://github.com/joeyenfield/ai-control-mesh.git
 cd ai-control-mesh
 podman compose -f deploy/compose/quickstart/compose.yaml up -d</code></pre>
-          <pre class="qs-cmd" data-v="podman-gpu" tabindex="0" aria-label="Podman quickstart commands with an NVIDIA GPU"><code id="qs-podman-gpu">git clone https://github.com/joeyenfield/ai-control-mesh.git
+          <pre class="qs-cmd qs-when when-compose when-podman when-gpu" data-v="compose-podman-gpu" tabindex="0" aria-label="Podman Compose quickstart commands with an NVIDIA GPU"><code id="qs-podman-gpu">git clone https://github.com/joeyenfield/ai-control-mesh.git
 cd ai-control-mesh
 podman compose -f deploy/compose/quickstart/compose.yaml -f deploy/compose/quickstart/compose.gpu.yaml up -d</code></pre>
-          <pre class="qs-cmd" data-v="helm" tabindex="0" aria-label="Kubernetes quickstart commands with Helm"><code id="qs-helm-cmd">git clone https://github.com/joeyenfield/ai-control-mesh.git
-cd ai-control-mesh
-helm install mesh deploy/helm/agent-mesh -n mesh --create-namespace -f deploy/helm/quickstart/values.yaml
-kubectl -n mesh apply -f deploy/helm/quickstart/machine.yaml
-kubectl -n mesh get pods -w</code></pre>
-          <p class="qs-note qs-note-podman">Podman needs a Compose provider (<code>podman compose version</code>). On Windows and macOS, run <code>podman machine init</code> once, then <code>podman machine start</code>.</p>
-          <p class="qs-note qs-note-helm">For a cluster on your computer: kind, k3d, minikube, or the one in Docker, Rancher or Podman Desktop, with a default StorageClass, <code>kubectl</code> and Helm 3. Keep the release name <code>mesh</code>. It installs the chart in its smallest form (one pod: the server and its sign-in service, SQLite on a volume) and a fleet machine with the coding agents and Ollama. When both pods are running, forward the ports in a terminal you leave open:</p>
-          <pre class="qs-note qs-note-helm qs-note-cmd" tabindex="0" aria-label="Port-forward commands"><code>kubectl -n mesh port-forward svc/mesh-agent-mesh 19999:19999 &amp;
-kubectl -n mesh port-forward svc/mesh-agent-mesh-auth 20000:20000</code></pre>
-          <p class="qs-note qs-note-helm">Then open <a href="http://localhost:19999">localhost:19999</a>. The <code>admin</code> password is in the server’s log (<code>kubectl -n mesh logs deploy/mesh-agent-mesh -c agent-server | grep -i password</code>), and the machine signs in with two device codes from its log, approved on <strong>Machines › Approve a device</strong>. <a href="https://github.com/joeyenfield/ai-control-mesh/blob/master/docs/quickstart-kubernetes.md">Kubernetes quickstart →</a> For production (HTTPS host names, PostgreSQL, a Deployment per role): <a href="https://github.com/joeyenfield/ai-control-mesh/blob/master/deploy/helm/agent-mesh/README.md">the chart’s README →</a></p>
-          <p class="qs-note qs-note-helm-gpu">The Kubernetes quickstart runs Ollama on the CPU. To give it a GPU, add a <code>nvidia.com/gpu: 1</code> limit to the <code>ollama</code> container in <code>deploy/helm/quickstart/machine.yaml</code>; the cluster needs the NVIDIA device plugin.</p>
-          <p class="qs-note qs-note-gpu">The GPU file gives Ollama your NVIDIA GPUs, so models answer much faster. Use it every time you start the stack; without it, Ollama runs on the CPU. Docker needs the NVIDIA Container Toolkit with CDI on. With Podman, check it sees the GPU first: <code>podman run --rm --device nvidia.com/gpu=all docker.io/library/ubuntu:24.04 nvidia-smi</code>. <a href="https://github.com/joeyenfield/ai-control-mesh/blob/master/deploy/compose/quickstart/README.md#use-a-gpu">GPU setup →</a></p>
-        </div>
-        <p id="copy-status" class="copy-status" role="status" aria-live="polite"></p>
-        <p class="demo-notice"><strong>Local demo only.</strong> Uses known credentials and ports bound to 127.0.0.1. Keep it on your computer; changing the admin password alone does not make it a production install. For a real deployment, configure your own secrets, HTTPS, and sign-in service. <a href="/teams.html#deployment">Team deployment path →</a></p>
-      </div>
-  </section>
-
-  <section class="section wrap qs-steps-section" id="other-ways" aria-labelledby="other-title">
-    <div class="section-heading"><p class="eyebrow">Or / Without a checkout</p><h2 id="other-title">Two shorter ways in.</h2><p>Both run on your own computer, on localhost only, with the same console on <a href="http://localhost:19999">localhost:19999</a>. They make their own <code>admin</code> password and print it.</p></div>
-    <div class="route-grid other-ways">
-      <article><h3>One container</h3><p>The whole system in a single container: the server, sign-in, the console and a fleet machine with the coding agents and Ollama. Needs Docker or Podman, and no Git.</p>
-        <div class="code-window"><pre tabindex="0" aria-label="The command for one container"><code>docker run -d --name mesh \
+          <pre class="qs-cmd qs-when when-one when-docker" data-v="one-docker" tabindex="0" aria-label="The Docker command for one container"><code id="qs-one-docker">docker run -d --name mesh \
   -p 127.0.0.1:19999:19999 -p 127.0.0.1:20000:20000 \
   -v mesh-data:/data -v mesh-home:/home/agent \
   -v mesh-workspace:/workspace \
   ghcr.io/joeyenfield/ai-control-mesh
-docker logs mesh</code></pre></div>
-        <p><code>docker logs</code> prints the address and the password. With Podman, write <code>podman</code> for <code>docker</code>. <a href="https://github.com/joeyenfield/ai-control-mesh/blob/master/docs/local.md#try-it-in-one-container">One container, in the guide →</a></p></article>
-      <article><h3>No containers</h3><p>One command installs the server, <code>agent</code> and <code>agent-machine</code> for you alone and starts them, with an icon in the system tray. Needs Python 3.11 or later.</p>
-        <div class="code-window"><pre tabindex="0" aria-label="The install command for Linux, macOS and FreeBSD"><code>curl -fsSL https://github.com/joeyenfield/ai-control-mesh/releases/latest/download/install-local.sh | sh</code></pre>
-        <pre tabindex="0" aria-label="The install command for Windows PowerShell"><code>irm https://github.com/joeyenfield/ai-control-mesh/releases/latest/download/install-local.ps1 | iex</code></pre></div>
-        <p>The first is for Linux, macOS and FreeBSD, the second for Windows PowerShell. Every download is checked against its SHA-256, and <code>uninstall-local</code> from the same address removes it again. <a href="https://github.com/joeyenfield/ai-control-mesh/blob/master/docs/local.md">Run it on your own computer →</a></p></article>
-    </div>
+docker logs mesh</code></pre>
+          <pre class="qs-cmd qs-when when-one when-podman" data-v="one-podman" tabindex="0" aria-label="The Podman command for one container"><code id="qs-one-podman">podman run -d --name mesh \
+  -p 127.0.0.1:19999:19999 -p 127.0.0.1:20000:20000 \
+  -v mesh-data:/data -v mesh-home:/home/agent \
+  -v mesh-workspace:/workspace \
+  ghcr.io/joeyenfield/ai-control-mesh
+podman logs mesh</code></pre>
+          <pre class="qs-cmd qs-when when-local when-unix" data-v="local-unix" tabindex="0" aria-label="The install command for Linux, macOS and FreeBSD"><code id="qs-local-unix">curl -fsSL https://github.com/joeyenfield/ai-control-mesh/releases/latest/download/install-local.sh | sh</code></pre>
+          <pre class="qs-cmd qs-when when-local when-windows" data-v="local-windows" tabindex="0" aria-label="The install command for Windows PowerShell"><code id="qs-local-windows">irm https://github.com/joeyenfield/ai-control-mesh/releases/latest/download/install-local.ps1 | iex</code></pre>
+          <pre class="qs-cmd qs-when when-helm" data-v="helm" tabindex="0" aria-label="Kubernetes quickstart commands with Helm"><code id="qs-helm-cmd">git clone https://github.com/joeyenfield/ai-control-mesh.git
+cd ai-control-mesh
+helm install mesh deploy/helm/agent-mesh -n mesh --create-namespace -f deploy/helm/quickstart/values.yaml
+kubectl -n mesh apply -f deploy/helm/quickstart/machine.yaml
+kubectl -n mesh get pods -w</code></pre>
+          <p class="qs-note qs-note-podman qs-when when-compose when-one when-podman">On Windows and macOS, run <code>podman machine init</code> once, then <code>podman machine start</code>.<span class="qs-when when-compose"> Podman also needs a Compose provider (<code>podman compose version</code>).</span></p>
+          <p class="qs-note qs-note-gpu qs-when when-compose when-gpu">The GPU file gives Ollama your NVIDIA GPUs, so models answer much faster. Use it every time you start the stack; without it, Ollama runs on the CPU. Docker needs the NVIDIA Container Toolkit with CDI on. With Podman, check it sees the GPU first: <code>podman run --rm --device nvidia.com/gpu=all docker.io/library/ubuntu:24.04 nvidia-smi</code>. <a href="https://github.com/joeyenfield/ai-control-mesh/blob/master/deploy/compose/quickstart/README.md#use-a-gpu">GPU setup →</a></p>
+          <p class="qs-note qs-note-compose qs-when when-compose">The first start pulls about 1 GB of images and takes a few minutes. Then sign in as <code>admin</code> with the password <code>secret</code>.</p>
+          <p class="qs-note qs-note-one qs-when when-one">The last command prints the address and the <code>admin</code> password, which the container makes on its first start.</p>
+          <p class="qs-note qs-note-local qs-when when-local">The installer prints the address and the <code>admin</code> password it made. <code>uninstall-local</code> from the same address removes it again.</p>
+          <p class="qs-note qs-note-helm qs-when when-helm">Keep the release name <code>mesh</code>. When both pods are running, forward the ports in a terminal you leave open:</p>
+          <pre class="qs-note qs-note-helm qs-note-cmd qs-when when-helm" tabindex="0" aria-label="Port-forward commands"><code>kubectl -n mesh port-forward svc/mesh-agent-mesh 19999:19999 &amp;
+kubectl -n mesh port-forward svc/mesh-agent-mesh-auth 20000:20000</code></pre>
+          <p class="qs-note qs-note-helm qs-when when-helm">Then open <a href="http://localhost:19999">localhost:19999</a>. The <code>admin</code> password is in the server’s log (<code>kubectl -n mesh logs deploy/mesh-agent-mesh -c agent-server | grep -i password</code>), and the machine signs in with two device codes from its log, approved on <strong>Machines › Approve a device</strong>. For production (HTTPS host names, PostgreSQL, a Deployment per role): <a href="https://github.com/joeyenfield/ai-control-mesh/blob/master/deploy/helm/agent-mesh/README.md">the chart’s README →</a></p>
+          <p class="qs-note qs-note-helm-gpu qs-when when-helm when-gpu">The Kubernetes quickstart runs Ollama on the CPU. To give it a GPU, add a <code>nvidia.com/gpu: 1</code> limit to the <code>ollama</code> container in <code>deploy/helm/quickstart/machine.yaml</code>; the cluster needs the NVIDIA device plugin.</p>
+        </div>
+        <p id="copy-status" class="copy-status" role="status" aria-live="polite"></p>
+        <p class="demo-notice"><strong>Local demo only.</strong> Every way binds its ports to 127.0.0.1, and the Compose stack uses known credentials. Keep it on your computer; changing the admin password alone does not make it a production install. For a real deployment, configure your own secrets, HTTPS, and sign-in service. <a href="/teams.html#deployment">Team deployment path →</a></p>
+      </div>
   </section>
 
   <section class="section wrap qs-steps-section" id="steps" aria-labelledby="steps-title">
-    <div class="section-heading"><p class="eyebrow">2 / Step by step</p><h2 id="steps-title">From sign-in to an answer.</h2><p>When all six containers are healthy (<code>compose ps</code>), the first start takes a few minutes, follow these in the console.</p></div>
+    <div class="section-heading"><p class="eyebrow">2 / Step by step</p><h2 id="steps-title">From sign-in to an answer.</h2><p>The screenshots follow the Compose stack: when all six containers are healthy (<code>compose ps</code>), follow these in the console. The other ways open the same console with the password they printed, and start one machine, not two.</p></div>
     <ol class="qs-steps">
         <li class="qs-step" id="step-sign-in"><h3><span class="step-number">1</span>Sign in</h3>
           <p>Open <a href="http://localhost:19999">localhost:19999</a>. Type <code>localhost</code> exactly: sign-in only accepts that address. <strong>Continue to sign in</strong> takes you to the sign-in service on port 20000.</p>

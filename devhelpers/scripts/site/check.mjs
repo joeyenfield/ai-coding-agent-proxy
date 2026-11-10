@@ -170,26 +170,39 @@ try {
     await page.getByRole('button', { name: 'Copy commands' }).click();
     assert.equal(await page.evaluate(() => getSelection().toString().trim()), copied);
     assert.match(await page.locator('#copy-status').textContent(), /Clipboard unavailable/);
-    // The engine and GPU switches: each pair shows one block, its note, and copies just that block.
-    for (const [engine, hardware, last] of [
-      ['Podman', 'CPU', 'podman compose -f deploy/compose/quickstart/compose.yaml up -d'],
-      ['Podman', 'NVIDIA GPU', 'podman compose -f deploy/compose/quickstart/compose.yaml -f deploy/compose/quickstart/compose.gpu.yaml up -d'],
-      ['Docker', 'NVIDIA GPU', 'docker compose -f deploy/compose/quickstart/compose.yaml -f deploy/compose/quickstart/compose.gpu.yaml up -d'],
-      ['Kubernetes (Helm)', 'CPU', 'kubectl -n mesh get pods -w'],
-      ['Kubernetes (Helm)', 'NVIDIA GPU', 'kubectl -n mesh get pods -w'],
-      ['Docker', 'CPU', 'docker compose -f deploy/compose/quickstart/compose.yaml up -d'],
+    // The switches: the way to run it, then that way's own (engine, where models run, your system).
+    // Each choice shows one block, its notes and only its switches, and copies just that block.
+    for (const [way, choices, first, last] of [
+      ['Compose stack', ['Podman', 'CPU'], 'git clone ', 'podman compose -f deploy/compose/quickstart/compose.yaml up -d'],
+      ['Compose stack', ['Podman', 'NVIDIA GPU'], 'git clone ', 'podman compose -f deploy/compose/quickstart/compose.yaml -f deploy/compose/quickstart/compose.gpu.yaml up -d'],
+      ['Compose stack', ['Docker', 'NVIDIA GPU'], 'git clone ', 'docker compose -f deploy/compose/quickstart/compose.yaml -f deploy/compose/quickstart/compose.gpu.yaml up -d'],
+      ['One container', ['Podman'], 'podman run -d --name mesh ', 'podman logs mesh'],
+      ['One container', ['Docker'], 'docker run -d --name mesh ', 'docker logs mesh'],
+      ['No containers', ['Windows'], 'irm https://', 'install-local.ps1 | iex'],
+      ['No containers', ['Linux, macOS, FreeBSD'], 'curl -fsSL https://', 'install-local.sh | sh'],
+      ['Kubernetes', ['NVIDIA GPU'], 'git clone ', 'kubectl -n mesh get pods -w'],
+      ['Kubernetes', ['CPU'], 'git clone ', 'kubectl -n mesh get pods -w'],
+      ['Compose stack', ['Docker', 'CPU'], 'git clone ', 'docker compose -f deploy/compose/quickstart/compose.yaml up -d'],
     ]) {
-      const helm = engine.startsWith('Kubernetes');
-      await page.locator('.seg label', { hasText: new RegExp(`^${engine.replace(/[()]/g, '\\$&')}$`) }).click();
-      await page.locator('.seg label', { hasText: new RegExp(`^${hardware}$`) }).click();
-      assert.equal(await page.locator('.qs-cmd:visible').count(), 1, `${engine}/${hardware} shows one block`);
-      assert.equal(await page.locator('.qs-note-podman').isVisible(), engine === 'Podman');
-      assert.equal(await page.locator('.qs-note-gpu').isVisible(), hardware === 'NVIDIA GPU' && !helm);
+      const name = `${way}/${choices.join('/')}`;
+      const label = text => page.locator('.seg label', { hasText: new RegExp(`^${text}$`) });
+      await label(way).click();
+      for (const choice of choices) await label(choice).click();
+      const compose = way === 'Compose stack', helm = way === 'Kubernetes', gpu = choices.includes('NVIDIA GPU');
+      assert.equal(await page.locator('.qs-cmd:visible').count(), 1, `${name} shows one block`);
+      assert.equal(await page.locator('.qs-about:visible').count(), 1, `${name} says what it is once`);
+      assert.equal(await page.locator('.qs-toggles fieldset:visible').count(), compose ? 3 : 2, `${name} shows only its switches`);
+      assert.equal(await page.locator('.qs-note-podman').isVisible(), choices.includes('Podman'));
+      assert.equal(await page.locator('.qs-note-gpu').isVisible(), gpu && compose);
+      assert.equal(await page.locator('.qs-note-compose').isVisible(), compose);
+      assert.equal(await page.locator('.qs-note-one').isVisible(), way === 'One container');
+      assert.equal(await page.locator('.qs-note-local').isVisible(), way === 'No containers');
       assert.equal(await page.locator('.qs-note-helm').first().isVisible(), helm);
-      assert.equal(await page.locator('.qs-note-helm-gpu').isVisible(), hardware === 'NVIDIA GPU' && helm);
+      assert.equal(await page.locator('.qs-note-helm-gpu').isVisible(), gpu && helm);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${name}: no horizontal overflow at ${width}`);
       await page.getByRole('button', { name: 'Copy commands' }).click();
       const shown = await page.evaluate(() => getSelection().toString().trim());
-      assert.ok(shown.startsWith('git clone ') && shown.endsWith(last), `${engine}/${hardware}: ${shown}`);
+      assert.ok(shown.startsWith(first) && shown.endsWith(last), `${name}: ${shown}`);
     }
     await page.evaluate(() => { getSelection().removeAllRanges(); document.activeElement.blur(); document.querySelector('#copy-status').textContent = ''; window.scrollTo(0, 0); });
     }
@@ -232,6 +245,11 @@ try {
   assert.equal(await page.getByRole('button', { name: 'Copy commands' }).isVisible(), false);
   await page.locator('label[for="qs-podman"]').click();
   assert.equal(await page.locator('#qs-podman-cpu').isVisible(), true);
+  await page.locator('label[for="qs-one"]').click();
+  assert.equal(await page.locator('#qs-one-podman').isVisible(), true);
+  await page.locator('label[for="qs-local"]').click();
+  assert.equal(await page.locator('#qs-local-unix').isVisible(), true);
+  assert.equal(await page.locator('.qs-cmd:visible').count(), 1);
   await noJS.close();
   assert.deepEqual(errors, []);
   console.log('PASS no-JavaScript developer/team journeys, cross-page links, documentation files, quickstart inputs, SEO, no browser errors');

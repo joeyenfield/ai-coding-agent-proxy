@@ -87,9 +87,25 @@ strong { font-weight: 650; color: var(--text); }
 .copy-button:hover { border-color: var(--mint); }
 pre { overflow-x: auto; padding: 23px 20px; margin: 0; font-size: 13px; line-height: 2.1; color: var(--mint); }
 pre code { font-size: inherit; }
-/* Quickstart: two switches (engine, where models run) pick one of four command blocks. Radios and
-   :has() do it, so the choice works without JavaScript; only copying needs it. */
+/* Quickstart: the first switch picks a way to run it (a Compose stack, one container, no containers,
+   Kubernetes); the others (engine, where models run, your system) pick that way's command block.
+   Radios and :has() do it, so the choice works without JavaScript; only copying needs it.
+   Everything a choice covers carries .qs-when and a when-<choice> class per switch it depends on,
+   and a checked choice hides what belongs to its switch's other choices. */
 .qs-toggles { display: flex; flex-wrap: wrap; gap: 12px 24px; padding: 16px 18px 4px; }
+.seg.seg-way { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; flex: 1 1 100%; min-width: 0; }
+.seg.seg-way legend { float: none; margin: 0; padding: 0; line-height: 28px; }
+.seg.seg-way label[for] { justify-content: center; padding: 0 10px; border-radius: 6px; border-left: 1px solid #58647b; text-align: center; }
+.seg.seg-way input:checked + label { border-color: var(--mint); }
+.quickstart:has(#qs-compose:checked) .qs-when:not(.when-compose),
+.quickstart:has(#qs-one:checked) .qs-when:not(.when-one),
+.quickstart:has(#qs-local:checked) .qs-when:not(.when-local),
+.quickstart:has(#qs-helm:checked) .qs-when:not(.when-helm),
+.quickstart:has(#qs-docker:checked) .when-podman, .quickstart:has(#qs-podman:checked) .when-docker,
+.quickstart:has(#qs-cpu:checked) .when-gpu, .quickstart:has(#qs-gpu:checked) .when-cpu,
+.quickstart:has(#qs-unix:checked) .when-windows, .quickstart:has(#qs-windows:checked) .when-unix { display: none; }
+.qs-about > p { margin-top: 23px; }
+@media (max-width: 700px) { .seg.seg-way { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .seg { display: inline-flex; align-items: center; gap: 0; border: 0; margin: 0; padding: 0; }
 .seg legend { float: left; margin-right: 10px; font: 10px/44px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 .seg input { position: absolute; opacity: 0; width: 1px; height: 1px; }
@@ -98,15 +114,6 @@ pre code { font-size: inherit; }
 .seg label:last-of-type { border-radius: 0 6px 6px 0; border-left: 0; }
 .seg input:checked + label { background: var(--mint); border-color: var(--mint); color: #111d1b; }
 .seg input:focus-visible + label { outline: 2px solid var(--lavender); outline-offset: 2px; }
-.qs-cmd, .qs-note { display: none; }
-.code-window:has(#qs-docker:checked):has(#qs-cpu:checked) .qs-cmd[data-v="docker-cpu"],
-.code-window:has(#qs-docker:checked):has(#qs-gpu:checked) .qs-cmd[data-v="docker-gpu"],
-.code-window:has(#qs-podman:checked):has(#qs-cpu:checked) .qs-cmd[data-v="podman-cpu"],
-.code-window:has(#qs-podman:checked):has(#qs-gpu:checked) .qs-cmd[data-v="podman-gpu"] { display: block; }
-.code-window:has(#qs-helm:checked) .qs-cmd[data-v="helm"] { display: block; }
-/* Kubernetes has its own notes, and its own word on GPUs. */
-.code-window:has(#qs-podman:checked) .qs-note-podman, .code-window:has(#qs-helm:checked) .qs-note-helm,
-.code-window:has(#qs-gpu:checked):not(:has(#qs-helm:checked)) .qs-note-gpu, .code-window:has(#qs-gpu:checked):has(#qs-helm:checked) .qs-note-helm-gpu { display: block; }
 .qs-note { margin: 0; padding: 14px 20px; border-top: 1px solid var(--line); font-size: 12px; line-height: 1.8; }
 .qs-note a { color: var(--mint); }
 .qs-note code { overflow-wrap: anywhere; }
@@ -426,12 +433,6 @@ h1, h2 { letter-spacing: -.03em; }
 .closing { padding-top: 0; }
 .quickstart-teaser .teaser-other { margin-top: 18px; }
 .teaser-other a { color: var(--mint); display: inline-flex; align-items: center; min-height: 24px; }
-/* quickstart.html: the two ways in without a checkout, each with its command. */
-.other-ways article { min-width: 0; }
-.other-ways .code-window { margin: 16px 0; }
-.other-ways pre { line-height: 1.8; }
-.other-ways pre + pre { border-top: 1px solid var(--line); }
-.other-ways p { font-size: 14px; }
 @media (max-width: 1100px) {
   .pillars { grid-template-columns: 1fr 1fr; }
 }
