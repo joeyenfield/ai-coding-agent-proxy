@@ -30,7 +30,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"ai-coding-agent-proxy/machine/internal/settings"
+	"ai-control-mesh/machine/internal/settings"
 )
 
 // LlamaPort is where llama-server listens by default (and where agent-machine starts it).

@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"os"
 
-	"ai-coding-agent-proxy/client/internal/api"
-	"ai-coding-agent-proxy/client/internal/localproxy"
-	"ai-coding-agent-proxy/client/internal/settings"
+	"ai-control-mesh/client/internal/api"
+	"ai-control-mesh/client/internal/localproxy"
+	"ai-control-mesh/client/internal/settings"
 )
 
 // Programs are the client's binaries, replaced together: agent and agent-proxy.

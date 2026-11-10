@@ -13,7 +13,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"ai-coding-agent-proxy/machine/internal/settings"
+	"ai-control-mesh/machine/internal/settings"
 )
 
 // echoServer is a model server stand-in: it answers each line with "echo: <line>".

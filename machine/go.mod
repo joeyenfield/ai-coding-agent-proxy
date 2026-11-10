@@ -1,4 +1,4 @@
-module ai-coding-agent-proxy/machine
+module ai-control-mesh/machine
 
 go 1.24
 

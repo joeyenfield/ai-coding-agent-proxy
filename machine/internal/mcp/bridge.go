@@ -21,8 +21,8 @@ import (
 	"sync"
 	"time"
 
-	"ai-coding-agent-proxy/machine/internal/process"
-	"ai-coding-agent-proxy/machine/internal/settings"
+	"ai-control-mesh/machine/internal/process"
+	"ai-control-mesh/machine/internal/settings"
 )
 
 // KeyHeader carries the bridge's key on every request from the server; it never reaches an MCP server.

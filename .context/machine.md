@@ -1,6 +1,6 @@
 # Machine (`machine/`)
 
-`agent-machine`: the Go module `ai-coding-agent-proxy/machine`. It keeps a computer in a server's **fleet** and supplies every local LLM provider: the model servers it runs, and containers it runs for the server.
+`agent-machine`: the Go module `ai-control-mesh/machine`. It keeps a computer in a server's **fleet** and supplies every local LLM provider: the model servers it runs, and containers it runs for the server.
 
 ## Design in one paragraph
 

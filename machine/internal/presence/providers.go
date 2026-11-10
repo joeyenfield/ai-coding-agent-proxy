@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"ai-coding-agent-proxy/machine/internal/providers"
-	"ai-coding-agent-proxy/machine/internal/settings"
+	"ai-control-mesh/machine/internal/providers"
+	"ai-control-mesh/machine/internal/settings"
 )
 
 // Provider is a model server running on this machine, which the server can add as a backend.

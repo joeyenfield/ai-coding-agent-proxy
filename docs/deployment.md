@@ -280,7 +280,7 @@ powershell -ExecutionPolicy Bypass -File install.ps1 -Uninstall # runs uninstall
 |---|---|
 | Linux, as root | A systemd service, `/etc/systemd/system/agent-machine.service`, run as that user from boot |
 | Linux, as a user | A systemd user unit, `~/.config/systemd/user/agent-machine.service`, run while you're signed in (`sudo loginctl enable-linger <you>` runs it from boot) |
-| macOS | A launchd agent, `~/Library/LaunchAgents/com.ai-coding-agent-proxy.agent-machine.plist`, run when you log in |
+| macOS | A launchd agent, `~/Library/LaunchAgents/com.ai-control-mesh.agent-machine.plist`, run when you log in |
 | FreeBSD, as root | An rc.d service, `/usr/local/etc/rc.d/agent_machine`, enabled with `sysrc` |
 | Windows | A scheduled task, `agent-machine`, that runs `agent-machine start` when you sign in |
 

@@ -116,7 +116,7 @@ func Wheel(dir string, project *PyProject, version string) (string, []byte, erro
 		}
 	}
 	files[info+"/METADATA"] = metadata(project, version, bytes.ReplaceAll(readme, []byte("\r\n"), []byte("\n")))
-	files[info+"/WHEEL"] = []byte("Wheel-Version: 1.0\nGenerator: ai-coding-agent-proxy tools/dist\nRoot-Is-Purelib: true\nTag: py3-none-any\n")
+	files[info+"/WHEEL"] = []byte("Wheel-Version: 1.0\nGenerator: ai-control-mesh tools/dist\nRoot-Is-Purelib: true\nTag: py3-none-any\n")
 	files[info+"/entry_points.txt"] = entryPoints(project.Scripts, project.GUIScripts)
 	files[info+"/top_level.txt"] = []byte("agent_py\n")
 

@@ -7,12 +7,12 @@ import (
 	"fmt"
 	"os"
 
-	"ai-coding-agent-proxy/client/internal/accounts"
-	"ai-coding-agent-proxy/client/internal/launcher"
-	"ai-coding-agent-proxy/client/internal/localproxy"
-	"ai-coding-agent-proxy/client/internal/login"
-	"ai-coding-agent-proxy/client/internal/settings"
-	"ai-coding-agent-proxy/client/internal/update"
+	"ai-control-mesh/client/internal/accounts"
+	"ai-control-mesh/client/internal/launcher"
+	"ai-control-mesh/client/internal/localproxy"
+	"ai-control-mesh/client/internal/login"
+	"ai-control-mesh/client/internal/settings"
+	"ai-control-mesh/client/internal/update"
 )
 
 // version is set at build time: go build -ldflags "-X main.version=1.2.3".

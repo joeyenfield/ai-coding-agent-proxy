@@ -25,9 +25,9 @@ import (
 	"sync"
 	"time"
 
-	"ai-coding-agent-proxy/machine/internal/process"
-	"ai-coding-agent-proxy/machine/internal/providers"
-	"ai-coding-agent-proxy/machine/internal/settings"
+	"ai-control-mesh/machine/internal/process"
+	"ai-control-mesh/machine/internal/providers"
+	"ai-control-mesh/machine/internal/settings"
 )
 
 const (

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"ai-coding-agent-proxy/machine/internal/settings"
+	"ai-control-mesh/machine/internal/settings"
 )
 
 func TestSpecsAcceptOnlyKnownEnginesSettingsAndPlainImages(t *testing.T) {

@@ -1,6 +1,6 @@
 # Client (`client/`)
 
-The Go module `ai-coding-agent-proxy/client`. It builds `agent` (the launcher, `login`/`logout`, `proxy`, `update`, `version`) and a standalone `agent-proxy`. It runs on every computer that starts coding agents.
+The Go module `ai-control-mesh/client`. It builds `agent` (the launcher, `login`/`logout`, `proxy`, `update`, `version`) and a standalone `agent-proxy`. It runs on every computer that starts coding agents.
 
 ## Design in one paragraph
 

@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"ai-coding-agent-proxy/machine/internal/process"
-	"ai-coding-agent-proxy/machine/internal/settings"
+	"ai-control-mesh/machine/internal/process"
+	"ai-control-mesh/machine/internal/settings"
 )
 
 // The fakes live with the server's tests, which use them too.

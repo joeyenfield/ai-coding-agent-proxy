@@ -18,13 +18,13 @@ import (
 	"syscall"
 	"time"
 
-	"ai-coding-agent-proxy/machine/internal/containers"
-	"ai-coding-agent-proxy/machine/internal/login"
-	"ai-coding-agent-proxy/machine/internal/mcp"
-	"ai-coding-agent-proxy/machine/internal/presence"
-	"ai-coding-agent-proxy/machine/internal/process"
-	"ai-coding-agent-proxy/machine/internal/servers"
-	"ai-coding-agent-proxy/machine/internal/settings"
+	"ai-control-mesh/machine/internal/containers"
+	"ai-control-mesh/machine/internal/login"
+	"ai-control-mesh/machine/internal/mcp"
+	"ai-control-mesh/machine/internal/presence"
+	"ai-control-mesh/machine/internal/process"
+	"ai-control-mesh/machine/internal/servers"
+	"ai-control-mesh/machine/internal/settings"
 )
 
 const usage = `agent-machine puts this computer in an agent-server's fleet, so the server can use the

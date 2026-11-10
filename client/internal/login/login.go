@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"ai-coding-agent-proxy/client/internal/settings"
+	"ai-control-mesh/client/internal/settings"
 )
 
 func Login(args []string) int {

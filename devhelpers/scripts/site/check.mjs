@@ -48,7 +48,7 @@ try {
     }
   }
   // All repository documentation links must point at real files in this checkout.
-  for (const [, file] of html.matchAll(/https:\/\/github\.com\/joeyenfield\/ai-coding-agent-proxy\/blob\/master\/([^"#]+)/g)) {
+  for (const [, file] of html.matchAll(/https:\/\/github\.com\/joeyenfield\/ai-control-mesh\/blob\/master\/([^"#]+)/g)) {
     await readFile(path.join(root, file));
   }
   // Every first-party link (including cross-page fragments) resolves through the public allowlist.

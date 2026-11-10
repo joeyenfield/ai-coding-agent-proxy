@@ -14,7 +14,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"ai-coding-agent-proxy/client/internal/settings"
+	"ai-control-mesh/client/internal/settings"
 )
 
 // WebSocket close codes a peer may not send itself.

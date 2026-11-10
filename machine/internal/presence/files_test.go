@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"ai-coding-agent-proxy/machine/internal/settings"
+	"ai-control-mesh/machine/internal/settings"
 )
 
 func entryNames(answer map[string]any) []string {

@@ -15,7 +15,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"ai-coding-agent-proxy/client/internal/settings"
+	"ai-control-mesh/client/internal/settings"
 )
 
 // fakeServer plays the agent-server and records what reached it.

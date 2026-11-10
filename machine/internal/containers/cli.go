@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"ai-coding-agent-proxy/machine/internal/process"
+	"ai-control-mesh/machine/internal/process"
 )
 
 // CommandEnv names a JSON list of arguments run as the CLI instead of docker or podman

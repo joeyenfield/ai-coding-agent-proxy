@@ -26,8 +26,8 @@ AI Control Mesh is an open-source, self-hosted control plane for AI coding agent
 Install Git and Docker with Compose (or Podman with a Compose provider), then:
 
 ```bash
-git clone https://github.com/joeyenfield/ai-coding-agent-proxy.git
-cd ai-coding-agent-proxy
+git clone https://github.com/joeyenfield/ai-control-mesh.git
+cd ai-control-mesh
 docker compose -f deploy/compose/quickstart/compose.yaml up -d
 ```
 
@@ -45,8 +45,8 @@ docker logs mesh     # the admin password
 **No containers?** One command installs the server, `agent` and `agent-machine` from the latest release and runs them on your own computer with your own folders, for you alone, with an icon in the system tray to start, stop and open it. It needs only Python 3.11 or later:
 
 ```bash
-curl -fsSL https://github.com/joeyenfield/ai-coding-agent-proxy/releases/latest/download/install-local.sh | sh
-# Windows PowerShell: irm https://github.com/joeyenfield/ai-coding-agent-proxy/releases/latest/download/install-local.ps1 | iex
+curl -fsSL https://github.com/joeyenfield/ai-control-mesh/releases/latest/download/install-local.sh | sh
+# Windows PowerShell: irm https://github.com/joeyenfield/ai-control-mesh/releases/latest/download/install-local.ps1 | iex
 ```
 
 See [Run it on your own computer](docs/local.md), which covers both, and installing from a checkout (`./devhelpers/scripts/install-local.sh`).

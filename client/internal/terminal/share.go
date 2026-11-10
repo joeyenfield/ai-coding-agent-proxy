@@ -12,7 +12,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"ai-coding-agent-proxy/client/internal/settings"
+	"ai-control-mesh/client/internal/settings"
 )
 
 const (

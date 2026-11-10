@@ -1,4 +1,4 @@
-module ai-coding-agent-proxy/client
+module ai-control-mesh/client
 
 go 1.24
 

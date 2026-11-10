@@ -25,8 +25,8 @@ The server is `agent-server`, a Python program. It holds the API, the web consol
 You need Python 3.11 or later (3.13 recommended), and Node.js with npm to build the console.
 
 ```bash
-git clone <this repository> ai-coding-agent-proxy
-cd ai-coding-agent-proxy
+git clone <this repository> ai-control-mesh
+cd ai-control-mesh
 python -m venv .venv
 . .venv/bin/activate              # Windows: .venv\Scripts\activate
 pip install -e ./server           # or "./server[dev]" to run the tests too

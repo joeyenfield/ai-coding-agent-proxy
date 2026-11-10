@@ -5,9 +5,9 @@ package main
 import (
 	"os"
 
-	"ai-coding-agent-proxy/client/internal/localproxy"
-	"ai-coding-agent-proxy/client/internal/settings"
-	"ai-coding-agent-proxy/client/internal/update"
+	"ai-control-mesh/client/internal/localproxy"
+	"ai-control-mesh/client/internal/settings"
+	"ai-control-mesh/client/internal/update"
 )
 
 // version is set at build time: go build -ldflags "-X main.version=1.2.3".

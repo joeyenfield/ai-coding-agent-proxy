@@ -3,7 +3,7 @@ package command
 import (
 	"testing"
 
-	"ai-coding-agent-proxy/machine/internal/mcp"
+	"ai-control-mesh/machine/internal/mcp"
 )
 
 func TestMCPAddTakesACommandOrAURL(t *testing.T) {

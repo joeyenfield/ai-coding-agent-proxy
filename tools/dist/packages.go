@@ -28,8 +28,8 @@ import (
 )
 
 const (
-	maintainer = "ai-coding-agent-proxy <https://github.com/joeyenfield/ai-coding-agent-proxy>"
-	homepage   = "https://github.com/joeyenfield/ai-coding-agent-proxy"
+	maintainer = "ai-control-mesh <https://github.com/joeyenfield/ai-control-mesh>"
+	homepage   = "https://github.com/joeyenfield/ai-control-mesh"
 	license    = "Proprietary"
 )
 
@@ -395,7 +395,7 @@ func buildMSI(out, folder, version, goarch string, component Component, names []
 		files.WriteString("        </Component>\n")
 	}
 	source := fmt.Sprintf(`<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
-  <Package Name="%s" Manufacturer="ai-coding-agent-proxy" Version="%s" UpgradeCode="%s" Scope="perMachine" Compressed="yes">
+  <Package Name="%s" Manufacturer="ai-control-mesh" Version="%s" UpgradeCode="%s" Scope="perMachine" Compressed="yes">
     <SummaryInformation Description="%s (%s)" />
     <MajorUpgrade AllowSameVersionUpgrades="yes" DowngradeErrorMessage="A newer [ProductName] is already installed." />
     <MediaTemplate EmbedCab="yes" />
@@ -438,7 +438,7 @@ func buildMacPkg(out, folder, version string, component Component, names []strin
 		}
 	}
 	number, _ := PackageVersion(version)
-	cmd := exec.Command("pkgbuild", "--root", root, "--identifier", "com.ai-coding-agent-proxy."+component.Name,
+	cmd := exec.Command("pkgbuild", "--root", root, "--identifier", "com.ai-control-mesh."+component.Name,
 		"--version", number, "--install-location", "/", out)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	return cmd.Run()
@@ -446,7 +446,7 @@ func buildMacPkg(out, folder, version string, component Component, names []strin
 
 // guid is a stable GUID for a name, so every build of a component's MSI upgrades the last.
 func guid(name string) string {
-	sum := sha1.Sum([]byte("ai-coding-agent-proxy:" + name))
+	sum := sha1.Sum([]byte("ai-control-mesh:" + name))
 	sum[6] = sum[6]&0x0f | 0x50
 	sum[8] = sum[8]&0x3f | 0x80
 	return strings.ToUpper(fmt.Sprintf("{%x-%x-%x-%x-%x}", sum[0:4], sum[4:6], sum[6:8], sum[8:10], sum[10:16]))

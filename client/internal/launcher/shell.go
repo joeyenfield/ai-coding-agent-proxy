@@ -10,9 +10,9 @@ import (
 	"runtime"
 	"time"
 
-	"ai-coding-agent-proxy/client/internal/api"
-	"ai-coding-agent-proxy/client/internal/settings"
-	"ai-coding-agent-proxy/client/internal/terminal"
+	"ai-control-mesh/client/internal/api"
+	"ai-control-mesh/client/internal/settings"
+	"ai-control-mesh/client/internal/terminal"
 )
 
 // ShellClient is the client a shell's session names; the server keeps those sessions private.

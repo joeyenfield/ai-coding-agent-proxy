@@ -7,10 +7,10 @@ import (
 	"os"
 	"os/exec"
 
-	"ai-coding-agent-proxy/machine/internal/presence"
-	"ai-coding-agent-proxy/machine/internal/process"
-	"ai-coding-agent-proxy/machine/internal/settings"
-	"ai-coding-agent-proxy/machine/internal/update"
+	"ai-control-mesh/machine/internal/presence"
+	"ai-control-mesh/machine/internal/process"
+	"ai-control-mesh/machine/internal/settings"
+	"ai-control-mesh/machine/internal/update"
 )
 
 // Programs is agent-machine's binary, for update.

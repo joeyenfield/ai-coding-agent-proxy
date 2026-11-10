@@ -916,10 +916,10 @@ FLEET = [
 
 # build-box's folders inside its launch folders, for the folder picker (agent-machine lists them there).
 FOLDERS = {
-    "/home/joey/code": ["api", "ai-coding-agent-proxy", "dotfiles", "web"],
+    "/home/joey/code": ["api", "ai-control-mesh", "dotfiles", "web"],
     "/home/joey/code/api": ["cmd", "docs", "internal", "migrations"],
     "/home/joey/code/api/internal": ["auth", "billing", "store"],
-    "/home/joey/code/ai-coding-agent-proxy": ["client", "machine", "python", "server", "ui"],
+    "/home/joey/code/ai-control-mesh": ["client", "machine", "python", "server", "ui"],
     "/home/joey/code/web": ["public", "src"],
     "/srv/repos": ["infra", "mirror"],
 }

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"ai-coding-agent-proxy/client/internal/settings"
+	"ai-control-mesh/client/internal/settings"
 )
 
 func TestDeviceLoginAndRevocation(t *testing.T) {

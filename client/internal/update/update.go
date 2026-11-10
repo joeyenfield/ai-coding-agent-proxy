@@ -24,7 +24,7 @@ import (
 	"strings"
 	"time"
 
-	"ai-coding-agent-proxy/client/internal/settings"
+	"ai-control-mesh/client/internal/settings"
 )
 
 // Index is the part of the server's /downloads/index.json an update needs.

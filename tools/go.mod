@@ -1,3 +1,3 @@
-module ai-coding-agent-proxy/tools
+module ai-control-mesh/tools
 
 go 1.24

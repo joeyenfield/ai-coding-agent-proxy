@@ -44,7 +44,7 @@ mode = sys.argv[2] if len(sys.argv) > 2 else "seed"
 if mode == "seed":
     qwen = session("qwen", "qwen3.6:27b-coding", "desktop", "bmo-ai")
     opencode = session("opencode", "qwen3.8:latest", "desktop", "pygame-tetris")
-    claude = session("claude", "qwen3.5:4b", "laptop", "ai-coding-agent-proxy")
+    claude = session("claude", "qwen3.5:4b", "laptop", "ai-control-mesh")
     aider = session("aider", "qwen3.5:2b", "laptop", "dotfiles")
     jobs = [
         lambda: [openai(qwen, "qwen3.6:27b-coding", p, tools=True) for p in (

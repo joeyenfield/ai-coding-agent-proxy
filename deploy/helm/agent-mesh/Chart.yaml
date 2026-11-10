@@ -11,7 +11,7 @@ type: application
 version: 0.1.0
 appVersion: "2.1.48"
 kubeVersion: ">=1.25.0-0"
-home: https://github.com/joeyenfield/ai-coding-agent-proxy
+home: https://github.com/joeyenfield/ai-control-mesh
 sources:
-  - https://github.com/joeyenfield/ai-coding-agent-proxy
+  - https://github.com/joeyenfield/ai-control-mesh
 keywords: [ai, coding-agents, proxy, llm, gateway]

@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"ai-coding-agent-proxy/machine/internal/settings"
+	"ai-control-mesh/machine/internal/settings"
 )
 
 // detectFor is how long a detection stands: requests come every few seconds while the

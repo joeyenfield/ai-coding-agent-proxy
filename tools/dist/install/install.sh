@@ -15,7 +15,7 @@
 set -eu
 
 PROGRAMS="agent agent-proxy agent-machine"
-LABEL=com.ai-coding-agent-proxy.agent-machine
+LABEL=com.ai-control-mesh.agent-machine
 
 here=$(cd "$(dirname "$0")" && pwd)
 prefix=""

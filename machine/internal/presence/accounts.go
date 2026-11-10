@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"ai-coding-agent-proxy/machine/internal/process"
+	"ai-control-mesh/machine/internal/process"
 )
 
 // How often the provider CLIs here are looked at again, and how long one look may take.

@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"ai-coding-agent-proxy/machine/internal/process"
+	"ai-control-mesh/machine/internal/process"
 )
 
 // An Ollama installed as a systemd service (Ollama's own Linux installer sets up

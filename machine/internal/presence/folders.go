@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"ai-coding-agent-proxy/machine/internal/settings"
+	"ai-control-mesh/machine/internal/settings"
 )
 
 // FoldersLimit is the most folders one listing returns; a folder with more says it's truncated.

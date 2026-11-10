@@ -9,16 +9,16 @@ Use it to try the system with your own folders and agents. For a demo with sampl
 You need Python 3.11 or later, nothing else. On Linux, macOS or FreeBSD:
 
 ```bash
-curl -fsSL https://github.com/joeyenfield/ai-coding-agent-proxy/releases/latest/download/install-local.sh | sh
+curl -fsSL https://github.com/joeyenfield/ai-control-mesh/releases/latest/download/install-local.sh | sh
 ```
 
 On Windows, in PowerShell:
 
 ```powershell
-irm https://github.com/joeyenfield/ai-coding-agent-proxy/releases/latest/download/install-local.ps1 | iex
+irm https://github.com/joeyenfield/ai-control-mesh/releases/latest/download/install-local.ps1 | iex
 ```
 
-The installer comes with each [release](https://github.com/joeyenfield/ai-coding-agent-proxy/releases). It does all of this:
+The installer comes with each [release](https://github.com/joeyenfield/ai-control-mesh/releases). It does all of this:
 
 1. It downloads the server, with its console already built, and checks its SHA-256.
 2. It installs the server into a Python environment of its own (`venv` in the folder below) and starts it with `agent-server local start`.
@@ -68,8 +68,8 @@ It's for trying the system. For a server other people use, see [Getting started]
 To run the code in a checkout (your own changes, say), you need Python 3.11 or later. With Node.js (npm) the console is built for you; with Go, `agent` and `agent-machine` are built from the checkout, else the Python versions are installed.
 
 ```bash
-git clone <this repository> ai-coding-agent-proxy
-cd ai-coding-agent-proxy
+git clone <this repository> ai-control-mesh
+cd ai-control-mesh
 ./devhelpers/scripts/install-local.sh          # Windows: .\devhelpers\scripts\install-local.ps1
 ```
 

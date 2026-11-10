@@ -29,7 +29,7 @@ import (
 	"strconv"
 	"strings"
 
-	"ai-coding-agent-proxy/client/internal/settings"
+	"ai-control-mesh/client/internal/settings"
 )
 
 type route struct {

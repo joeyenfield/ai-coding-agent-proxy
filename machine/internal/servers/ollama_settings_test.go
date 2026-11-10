@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"ai-coding-agent-proxy/machine/internal/providers"
-	"ai-coding-agent-proxy/machine/internal/settings"
+	"ai-control-mesh/machine/internal/providers"
+	"ai-control-mesh/machine/internal/settings"
 )
 
 func TestOllamaSettingsAreCheckedAndSaved(t *testing.T) {

@@ -15,7 +15,7 @@ import (
 	"strconv"
 	"strings"
 
-	"ai-coding-agent-proxy/machine/internal/settings"
+	"ai-control-mesh/machine/internal/settings"
 )
 
 // Setting is one option of a model server, written to the environment variables in Env.

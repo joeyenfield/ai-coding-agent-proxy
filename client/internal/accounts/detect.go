@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"ai-coding-agent-proxy/client/internal/process"
+	"ai-control-mesh/client/internal/process"
 )
 
 // Providers are the kinds of subscription, in the server's order (provider_accounts.PROVIDERS).

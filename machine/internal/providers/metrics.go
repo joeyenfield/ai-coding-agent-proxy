@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"ai-coding-agent-proxy/machine/internal/process"
+	"ai-control-mesh/machine/internal/process"
 )
 
 const nvidiaQuery = "index,name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw"

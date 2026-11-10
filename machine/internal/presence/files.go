@@ -12,7 +12,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"ai-coding-agent-proxy/machine/internal/settings"
+	"ai-control-mesh/machine/internal/settings"
 )
 
 // FilesLimit is the most entries one listing returns; a folder with more says it's truncated.

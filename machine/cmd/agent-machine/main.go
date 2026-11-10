@@ -8,9 +8,9 @@ package main
 import (
 	"os"
 
-	"ai-coding-agent-proxy/machine/internal/command"
-	"ai-coding-agent-proxy/machine/internal/settings"
-	"ai-coding-agent-proxy/machine/internal/update"
+	"ai-control-mesh/machine/internal/command"
+	"ai-control-mesh/machine/internal/settings"
+	"ai-control-mesh/machine/internal/update"
 )
 
 // version is set at build time: go build -ldflags "-X main.version=1.2.3".

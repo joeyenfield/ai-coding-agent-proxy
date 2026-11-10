@@ -12,8 +12,8 @@ import (
 
 	"golang.org/x/term"
 
-	"ai-coding-agent-proxy/client/internal/api"
-	"ai-coding-agent-proxy/client/internal/launcher"
+	"ai-control-mesh/client/internal/api"
+	"ai-control-mesh/client/internal/launcher"
 )
 
 // Usage is `agent accounts --help`.

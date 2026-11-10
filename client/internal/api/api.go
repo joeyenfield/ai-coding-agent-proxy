@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"time"
 
-	"ai-coding-agent-proxy/client/internal/settings"
+	"ai-control-mesh/client/internal/settings"
 )
 
 // Error is an answer of 400 or more, with the server's own message.

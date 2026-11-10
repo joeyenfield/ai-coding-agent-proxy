@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"ai-coding-agent-proxy/machine/internal/mcp"
+	"ai-control-mesh/machine/internal/mcp"
 )
 
 // mcpCommand lists, adds and removes the MCP servers this machine shares (mcp.json).

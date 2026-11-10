@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"ai-coding-agent-proxy/machine/internal/settings"
+	"ai-control-mesh/machine/internal/settings"
 )
 
 func TestSettingsCommandsChangeMachineJSON(t *testing.T) {

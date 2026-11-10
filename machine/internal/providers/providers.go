@@ -24,7 +24,7 @@ import (
 	"strings"
 	"time"
 
-	"ai-coding-agent-proxy/machine/internal/settings"
+	"ai-control-mesh/machine/internal/settings"
 )
 
 // Request is the server's {"type": "provider", ...}.

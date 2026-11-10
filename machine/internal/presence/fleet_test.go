@@ -18,9 +18,9 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"ai-coding-agent-proxy/machine/internal/containers"
-	"ai-coding-agent-proxy/machine/internal/providers"
-	"ai-coding-agent-proxy/machine/internal/settings"
+	"ai-control-mesh/machine/internal/containers"
+	"ai-control-mesh/machine/internal/providers"
+	"ai-control-mesh/machine/internal/settings"
 )
 
 func TestTheMachineChecksEveryLaunchItself(t *testing.T) {

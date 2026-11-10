@@ -20,7 +20,7 @@
 # ones tools/dist/install/install.sh creates; keep them in step.
 set -eu
 
-LABEL=com.ai-coding-agent-proxy.agent-machine
+LABEL=com.ai-control-mesh.agent-machine
 
 prefix=""
 only=""

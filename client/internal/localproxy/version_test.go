@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"ai-coding-agent-proxy/client/internal/settings"
+	"ai-control-mesh/client/internal/settings"
 )
 
 func TestEverythingForwardedSaysWhichClientItIs(t *testing.T) {

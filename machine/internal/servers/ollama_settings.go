@@ -10,7 +10,7 @@ import (
 	"reflect"
 	"strings"
 
-	"ai-coding-agent-proxy/machine/internal/settings"
+	"ai-control-mesh/machine/internal/settings"
 )
 
 const (

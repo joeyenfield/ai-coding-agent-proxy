@@ -9,9 +9,9 @@ import (
 	"strconv"
 	"time"
 
-	"ai-coding-agent-proxy/client/internal/api"
-	"ai-coding-agent-proxy/client/internal/process"
-	"ai-coding-agent-proxy/client/internal/settings"
+	"ai-control-mesh/client/internal/api"
+	"ai-control-mesh/client/internal/process"
+	"ai-control-mesh/client/internal/settings"
 )
 
 // listening says whether anything accepts connections at the url's address: after the

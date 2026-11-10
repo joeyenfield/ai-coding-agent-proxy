@@ -8,8 +8,8 @@ import (
 	"os"
 	"strings"
 
-	"ai-coding-agent-proxy/machine/internal/presence"
-	"ai-coding-agent-proxy/machine/internal/settings"
+	"ai-control-mesh/machine/internal/presence"
+	"ai-control-mesh/machine/internal/settings"
 )
 
 // EnableEnvironment lists the toggles to switch on after a sign-in, as login --enable does: with

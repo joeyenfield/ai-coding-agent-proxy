@@ -14,8 +14,8 @@ import (
 	"strconv"
 	"time"
 
-	"ai-coding-agent-proxy/client/internal/api"
-	"ai-coding-agent-proxy/client/internal/settings"
+	"ai-control-mesh/client/internal/api"
+	"ai-control-mesh/client/internal/settings"
 )
 
 // LogPath is agent-proxy.log beside the credentials file.

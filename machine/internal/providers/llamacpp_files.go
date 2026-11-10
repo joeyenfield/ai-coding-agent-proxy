@@ -23,7 +23,7 @@ import (
 	"strings"
 	"time"
 
-	"ai-coding-agent-proxy/machine/internal/settings"
+	"ai-control-mesh/machine/internal/settings"
 )
 
 // HuggingFaceFilesURL is where Hugging Face serves a repo's files (<repo>/resolve/main/<path>).

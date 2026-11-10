@@ -26,10 +26,10 @@ import (
 	"strings"
 	"time"
 
-	"ai-coding-agent-proxy/client/internal/api"
-	"ai-coding-agent-proxy/client/internal/process"
-	"ai-coding-agent-proxy/client/internal/settings"
-	"ai-coding-agent-proxy/client/internal/terminal"
+	"ai-control-mesh/client/internal/api"
+	"ai-control-mesh/client/internal/process"
+	"ai-control-mesh/client/internal/settings"
+	"ai-control-mesh/client/internal/terminal"
 )
 
 // Agent is one of the server's agents, from GET /api/agents.

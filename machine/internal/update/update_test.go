@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"ai-coding-agent-proxy/machine/internal/settings"
+	"ai-control-mesh/machine/internal/settings"
 )
 
 var programs = []string{"agent-machine"}

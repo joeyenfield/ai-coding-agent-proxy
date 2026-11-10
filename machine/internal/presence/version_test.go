@@ -12,7 +12,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"ai-coding-agent-proxy/machine/internal/settings"
+	"ai-control-mesh/machine/internal/settings"
 )
 
 func TestTheMachineSaysItsVersionAndHearsTheServers(t *testing.T) {

@@ -14,7 +14,7 @@ import (
 	"sync"
 	"testing"
 
-	"ai-coding-agent-proxy/machine/internal/settings"
+	"ai-control-mesh/machine/internal/settings"
 )
 
 func on() *settings.Machine  { return &settings.Machine{Servers: true} }

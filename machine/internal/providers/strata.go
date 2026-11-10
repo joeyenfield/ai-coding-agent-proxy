@@ -30,7 +30,7 @@ import (
 	"sync"
 	"time"
 
-	"ai-coding-agent-proxy/machine/internal/process"
+	"ai-control-mesh/machine/internal/process"
 )
 
 // Instance is one saved Strata profile and, while it serves, its live instance.
