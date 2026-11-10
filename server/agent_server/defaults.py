@@ -373,6 +373,22 @@ agents:
       args_each: [--with-streamable-http-extension, "{mcp_url}"]
     # The extensions are options of goose session.
     args: [session, "{mcp_args}"]
+
+  hermes:
+    name: Hermes Agent
+    executable: hermes
+    protocol: openai-chat
+    description: Nous Research's self-improving agent, with memory, skills and many built-in tools.
+    install:
+      linux: curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
+      macos: curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
+      windows: iex (irm https://hermes-agent.nousresearch.com/install.ps1)
+    homepage: https://hermes-agent.nousresearch.com
+    recommended_for: [hermes, qwen]
+    # Flags rather than a config.yaml or HERMES_HOME, so ~/.hermes (its memory, skills and
+    # sessions) stays the person's own. --api-key is held for this run only, never saved.
+    args: [chat, --provider, custom, --base-url, "{openai_url}", --api-key, local-ollama, -m, "{model}"]
+    notes: Hermes needs a model with at least 64K context. MCP servers come from your own ~/.hermes/config.yaml (mcp_servers), not --mcp.
 """
 
 

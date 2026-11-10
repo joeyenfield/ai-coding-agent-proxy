@@ -69,7 +69,7 @@ agent opencode . --model qwen3.8:latest --mcp all             # every one you ma
 | `<machine>` | All of that machine's servers. |
 | `all` | Every server you may use, on machines that are connected now. |
 
-Separate several with commas, or repeat `--mcp`. A server or machine that doesn't exist, or that you may not use, stops the launch with an error. So does naming one server on a machine that isn't connected. `<machine>` and `all` leave out servers on machines that aren't connected. An agent without MCP support (Aider) refuses `--mcp`.
+Separate several with commas, or repeat `--mcp`. A server or machine that doesn't exist, or that you may not use, stops the launch with an error. So does naming one server on a machine that isn't connected. `<machine>` and `all` leave out servers on machines that aren't connected. An agent without MCP support (Aider, Hermes Agent) refuses `--mcp`.
 
 The launcher prints the servers the agent got, on the `MCP     :` line.
 
@@ -88,6 +88,7 @@ The server writes the chosen servers into the agent's own MCP settings for the s
 | `qwen` | Under `mcpServers` in its session settings file, each `{"httpUrl": ...}` |
 | `goose` | `--with-streamable-http-extension <url>` for each, after `session` |
 | `aider` | None: Aider has no MCP support |
+| `hermes` | None through `--mcp`: Hermes reads MCP servers only from its own `~/.hermes/config.yaml` (`mcp_servers`) |
 
 Each server is named by its own name in the agent's settings, or `<machine>-<name>` when two machines in one launch share a server of the same name. The files go in the session's files folder and are removed when the agent exits.
 
@@ -125,4 +126,4 @@ Errors on the relay: `404` for an ended session, a missing or invalid capability
 - **Changes reach the server within a minute.** A server added or removed on a machine shows in the console and in launches after the machine's next update. The bridge itself reads `mcp.json` on every request, so a removed server stops answering at once.
 - **Sessions opened from the console get no files.** **Start an agent** opens a session for running the agent by hand, and nothing writes the agent's settings files for it. It shows each server's URL instead, to add to the agent's settings yourself (Streamable HTTP). Launches with `agent`, and launches on a machine from the console, write the files.
 - **Restarting agent-machine ends its stdio sessions** and makes a new bridge key. The server learns the key from the machine's next hello; agents have to initialize their MCP sessions again.
-- **Aider** can't take MCP servers.
+- **Aider** and **Hermes Agent** can't take MCP servers through `--mcp`.

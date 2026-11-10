@@ -277,6 +277,11 @@ def test_agents_and_models_endpoints(tmp_path):
         launched = client.post("/api/agents/qwen/sessions", json={"model": "qwen3.6:35b", "backend": "test", "files_dir": "/home/me/.cache/s"}).json()
         assert launched["env"]["QWEN_CODE_SYSTEM_SETTINGS_PATH"] == "/home/me/.cache/s/qwen-settings.json"
         assert json.loads(launched["files"]["qwen-settings.json"]) == {"model": {"generationConfig": {"contextWindowSize": 65536, "streamIdleTimeoutMs": 0}}}
+        # Hermes takes the endpoint as flags, so the person's ~/.hermes config, memory and skills stay theirs.
+        hermes = client.post("/api/agents/hermes/sessions", json={"model": "hermes3", "backend": "test"}).json()
+        url = f"/session/{hermes['session']['session_id']}/v1"
+        assert hermes["command"][:5] == ["hermes", "chat", "--provider", "custom", "--base-url"] and hermes["command"][5].endswith(url)
+        assert hermes["command"][6:] == ["--api-key", "local-ollama", "-m", "hermes3"] and "HERMES_HOME" not in hermes["env"]
         assert client.post("/api/agents/missing/sessions", json={"model": "m"}).status_code == 404
         # A backend no machine runs isn't asked: the server doesn't manage model servers itself.
         models = client.get("/api/models").json()["backends"]["test"]

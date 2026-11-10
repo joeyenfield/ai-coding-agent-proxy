@@ -88,7 +88,7 @@ An agent takes one of three routes, set by its definition on the server:
 | Route | Agents | How the agent reaches the server | What the server does |
 | --- | --- | --- | --- |
 | Account | `intercept: true` (`claude-account`, `copilot-account`, `codex-account`) | `HTTPS_PROXY` to `agent-proxy` on `127.0.0.1:8183`, tunnelled to `WS /api/proxy/tunnel` | Decrypts with its own CA, records, forwards unchanged to the vendor. The session's backend is `direct`. |
-| Local models | `backend_type: ollama`, the default (`qwen`, `opencode`, `claude`, `copilot`, `codex`, `aider`, `goose`) | Base URLs on `agent-proxy` at `127.0.0.1:8184` | Sends the request to an `ollama`, `llamacpp`, `strata` or `docker` backend, or an `api` backend that speaks the agent's protocol |
+| Local models | `backend_type: ollama`, the default (`qwen`, `opencode`, `claude`, `copilot`, `codex`, `aider`, `goose`, `hermes`) | Base URLs on `agent-proxy` at `127.0.0.1:8184` | Sends the request to an `ollama`, `llamacpp`, `strata` or `docker` backend, or an `api` backend that speaks the agent's protocol |
 | Hosted | `backend_type: anthropic` (`claude-subscription`) | `ANTHROPIC_BASE_URL` on `agent-proxy` | Passes the request through to the hosted API |
 
 Account agents keep their own login, so the vendor sees the same client it always does; the server watches in transit. Local-model and hosted agents are pointed at the server's API endpoints instead, so the server can change the request on its way.

@@ -1,6 +1,6 @@
 # AI Control Mesh: documentation
 
-Run terminal coding agents — Claude Code, Codex, Copilot CLI, Qwen Code, OpenCode, Aider, Goose — through one server you host, and see everything they do. The server records every model call's tokens and timings (and, with tracing on, the full prompts and replies), routes agents to your own models or your own vendor plans, shares your machines' MCP servers, and shows you running agents' terminals, so you can watch and answer them from a browser or a phone. Agents on their own vendor accounts are recorded in transit too: sign-in, settings, MCP, telemetry and update checks, to public destinations only.
+Run terminal coding agents — Claude Code, Codex, Copilot CLI, Qwen Code, OpenCode, Aider, Goose, Hermes Agent — through one server you host, and see everything they do. The server records every model call's tokens and timings (and, with tracing on, the full prompts and replies), routes agents to your own models or your own vendor plans, shares your machines' MCP servers, and shows you running agents' terminals, so you can watch and answer them from a browser or a phone. Agents on their own vendor accounts are recorded in transit too: sign-in, settings, MCP, telemetry and update checks, to public destinations only.
 
 ![The console's Overview](screenshots/overview.png)
 

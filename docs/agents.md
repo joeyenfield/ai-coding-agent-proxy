@@ -10,7 +10,7 @@ Each agent takes one of three routes to a model. The console colours requests, s
 
 | | Your accounts | Local models | Hosted API |
 |---|---|---|---|
-| **Agents** | `claude-account`, `copilot-account`, `codex-account` | `qwen`, `opencode`, `copilot`, `claude`, `codex`, `aider`, `goose` | `claude-subscription` |
+| **Agents** | `claude-account`, `copilot-account`, `codex-account` | `qwen`, `opencode`, `copilot`, `claude`, `codex`, `aider`, `goose`, `hermes` | `claude-subscription` |
 | **Set in its definition by** | `intercept: true` | `backend_type: ollama` (the default) | `backend_type: anthropic` |
 | **Model** | The vendor's, on your plan | Ollama, llama.cpp, Strata or Docker Model Runner on your machines, an OpenAI-compatible server on a machine (LM Studio, vLLM, SGLang), or a hosted [API provider](providers.md#api-providers-openai-and-anthropic-compatible) named with `--backend` | Anthropic's, through an `anthropic` backend |
 | **How the agent reaches the proxy** | `HTTPS_PROXY` pointing at the `agent-proxy` (`127.0.0.1:8183`) | Its API base URL points at the `agent-proxy` (`127.0.0.1:8184`) | `ANTHROPIC_BASE_URL` points at the `agent-proxy` |
@@ -250,6 +250,7 @@ The server keeps every agent's definition in its database and renders it for eac
 | OpenAI Codex CLI (Ollama) | `agent codex` | Local models | OpenAI Responses | Yes |
 | Aider | `agent aider` | Local models | Native Ollama | No |
 | Goose | `agent goose` | Local models | Native Ollama | Yes |
+| Hermes Agent | `agent hermes` | Local models | OpenAI Chat | No |
 
 "MCP" says whether the agent can take the MCP servers your machines share (`--mcp`). How each one is given them (its settings file, or arguments) is in [MCP servers](mcp.md#what-each-agent-gets).
 
@@ -264,6 +265,7 @@ Install commands:
 | `codex`, `codex-account` | `npm install -g @openai/codex` |
 | `aider` | `python -m pip install aider-install && aider-install` |
 | `goose` | `curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh \| bash`. On Windows, run it in Git Bash (it needs bash, curl and unzip). |
+| `hermes` | Linux, macOS and WSL: `curl -fsSL https://hermes-agent.nousresearch.com/install.sh \| bash`. Windows: `iex (irm https://hermes-agent.nousresearch.com/install.ps1)`. |
 
 ### Local-model agents
 
@@ -276,6 +278,7 @@ Install commands:
 - **`codex`: OpenAI Codex CLI (Ollama).** OpenAI's agent in `--oss` mode. Sets `CODEX_OSS_BASE_URL` (`{openai_url}`). Runs `codex --oss -m <model>`. The Responses API is passed through to Ollama unchanged, so set `OLLAMA_CONTEXT_LENGTH` on the Ollama server for a larger context (Ollama's settings are on its machine's page, see [Machines](machines.md)).
 - **`aider`: Aider.** Pair-programming agent that talks to Ollama's native chat API. Sets `OLLAMA_API_BASE` (`{ollama_url}`). Runs `aider --model ollama_chat/<model>`. It speaks native Ollama, so it can use Ollama and Docker Model Runner backends, not llama.cpp or Strata. It has no MCP support.
 - **`goose`: Goose.** Block's extensible open-source agent. Sets `GOOSE_PROVIDER=ollama`, `OLLAMA_HOST` (`{ollama_url}`) and `GOOSE_MODEL`. Runs `goose session`. Like Aider, it can use Ollama and Docker Model Runner backends, not llama.cpp or Strata.
+- **`hermes`: Hermes Agent.** Nous Research's self-improving agent, with memory, skills and many built-in tools. Runs `hermes chat --provider custom --base-url <openai_url> --api-key local-ollama -m <model>`. It sets no environment and writes no files, so your own `~/.hermes` (its memory, skills, sessions and settings) is used as it is, and the key is held for that run only. Hermes needs a model with at least 64K context. It doesn't take `--mcp`: add MCP servers under `mcp_servers` in your `~/.hermes/config.yaml`.
 
 ### Account and hosted agents
 
