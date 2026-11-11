@@ -94,7 +94,7 @@ Only site admins:
 
 - read and save the server's settings (`GET`/`PUT /api/config`), which include every backend;
 - everything under `/api/config/...`, reading included: the stored agents, the Ollama model tuning, storage and retention, and settings export and import;
-- restart the server (`POST /api/server/restart`) and read its computer's stats (`GET /api/server/stats`) and its access log (`GET /api/server/access-log`);
+- restart the server (`POST /api/server/restart`) and read its computer's stats (`GET /api/server/stats`, and `GET /api/server/metrics` for Prometheus) and its access log (`GET /api/server/access-log`);
 - make and remove organizations (`POST /api/orgs`, `DELETE /api/orgs/{org}`).
 
 An organization's admins (and site admins, for the users and teams of any organization), within that organization only:

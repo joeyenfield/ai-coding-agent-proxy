@@ -1485,8 +1485,479 @@ def metrics() -> Dict[str, Any]:
             "cpu": {"percent": cpu_percent(), "count": cpu_count()},
             "memory": state, "gpus": gpus, "gpu_source": "nvidia-smi" if gpus else None, "gpu_error": gpu_error or None,
         }
+        # Each part answers None where this system can't tell, so one that fails never costs the sample.
+        swap_used, swap_total = _part(swap, (None, None))
+        value.update(
+            uptime_seconds=_part(uptime, None), load_average=_part(load_average, None),
+            swap={"used": swap_used, "total": swap_total}, network=_part(network, None), disks=_part(lambda: disks(folders()), []),
+            process={"pid": os.getpid(), "rss": _part(rss, None), "threads": threading.active_count(), "started_at": PROCESS_STARTED},
+            agent=activity.snapshot(),
+        )
         _last.update(at=time.monotonic(), value=value)
         return value
+
+
+def _part(read: Callable[[], Any], otherwise: Any) -> Any:
+    try:
+        return read()
+    except Exception:  # noqa: BLE001 - a part this system can't tell is left empty, never raised into the sample
+        return otherwise
+
+
+# Stands for when agent-machine started: this module loads with the program.
+PROCESS_STARTED = time.time()
+
+
+class Activity:
+    """Counts what this agent-machine has done since it started, for the sample's "agent" part.
+    presence, which holds the fleet connection and the tunnels, reports into it from its event loop
+    while samples are taken on worker threads, hence the lock."""
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.connected_since: Optional[float] = None
+        self.counts = {"connects": 0, "requests": 0, "tunnels_open": 0, "tunnels_total": 0, "tunnel_bytes_in": 0, "tunnel_bytes_out": 0}
+
+    def add(self, name: str, amount: int = 1) -> None:
+        with self.lock:
+            self.counts[name] += amount
+
+    def connected(self) -> None:
+        """The server welcomed a fleet connection."""
+        with self.lock:
+            self.connected_since = time.time()
+            self.counts["connects"] += 1
+
+    def disconnected(self) -> None:
+        with self.lock:
+            self.connected_since = None
+
+    def request(self) -> None:
+        self.add("requests")
+
+    def tunnel_opened(self) -> None:
+        """A tunnel reached its model server."""
+        with self.lock:
+            self.counts["tunnels_open"] += 1
+            self.counts["tunnels_total"] += 1
+
+    def tunnel_closed(self) -> None:
+        self.add("tunnels_open", -1)
+
+    def tunnel_in(self, amount: int) -> None:
+        """Bytes from the server into a model server."""
+        self.add("tunnel_bytes_in", amount)
+
+    def tunnel_out(self, amount: int) -> None:
+        self.add("tunnel_bytes_out", amount)
+
+    def snapshot(self) -> Dict[str, Any]:
+        with self.lock:
+            return {"connected_since": self.connected_since, **self.counts}
+
+
+activity = Activity()
+
+
+def _psutil(read: Callable[[Any], Any]) -> Any:
+    """What psutil tells, if it's installed: only asked where the Go agent-machine's own way
+    (/proc, the Windows API, the system's tools) has no answer."""
+    try:
+        import psutil
+    except ImportError:
+        return None
+    try:
+        return read(psutil)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _output(*command: str) -> Optional[str]:
+    """What a system tool prints, on the systems without /proc; one that hangs mustn't hold the sample."""
+    try:
+        output = subprocess.run(list(command), capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return output.stdout if output.returncode == 0 else None
+
+
+def _read(path: str) -> Optional[str]:
+    try:
+        with open(path) as file:
+            return file.read()
+    except OSError:
+        return None
+
+
+def uptime() -> Optional[float]:
+    """Seconds since the computer started."""
+    if sys.platform == "win32":
+        import ctypes
+
+        tick = ctypes.windll.kernel32.GetTickCount64
+        tick.restype = ctypes.c_ulonglong
+        return math.floor(tick() / 100) / 10
+    found: Optional[float] = None
+    if linux():
+        try:
+            found = float((_read("/proc/uptime") or "").split()[0])
+        except (IndexError, ValueError):
+            found = None
+    else:
+        boot = parse_boot_time(_output("sysctl", "-n", "kern.boottime") or "")
+        found = math.floor((time.time() - boot) * 10) / 10 if boot else None
+    if found is None:
+        found = _psutil(lambda psutil: math.floor((time.time() - psutil.boot_time()) * 10) / 10)
+    return found
+
+
+def parse_boot_time(text: str) -> Optional[float]:
+    """The second the system started, from sysctl's kern.boottime:
+    "{ sec = 1700000000, usec = 0 } Tue Nov 14 22:13:20 2023"."""
+    _, found, rest = text.partition("sec = ")
+    try:
+        value = float(rest.partition(",")[0].strip()) if found else 0.0
+    except ValueError:
+        return None
+    return value if value > 0 else None
+
+
+def load_average() -> Optional[List[float]]:
+    """The 1, 5 and 15 minute load averages; Windows keeps none."""
+    if sys.platform == "win32":
+        return None
+    text = _read("/proc/loadavg") if linux() else _output("sysctl", "-n", "vm.loadavg")
+    found = parse_load(text or "")
+    if found is None:
+        try:
+            found = [float(value) for value in os.getloadavg()]
+        except (AttributeError, OSError):
+            found = None
+    return found
+
+
+def parse_load(text: str) -> Optional[List[float]]:
+    """/proc/loadavg ("0.52 0.41 0.30 1/234 5678") or sysctl's vm.loadavg ("{ 2.10 1.95 1.80 }")."""
+    fields = text.strip().strip("{}").split()
+    try:
+        return [float(value) for value in fields[:3]] if len(fields) >= 3 else None
+    except ValueError:
+        return None
+
+
+def swap() -> Tuple[Optional[int], Optional[int]]:
+    """The swap in use and in all; both 0 on a system without any."""
+    found: Optional[Tuple[Optional[int], Optional[int]]] = None
+    if sys.platform == "win32":
+        found = windows_swap()
+    elif linux():
+        values = meminfo()
+        if values is not None:
+            total, free = values.get("SwapTotal", 0), values.get("SwapFree", 0)
+            found = (None, total) if free > total else (total - free, total)
+    elif sys.platform == "darwin":
+        text = _output("sysctl", "-n", "vm.swapusage")
+        found = parse_swap_usage(text) if text is not None else None
+    if found is None:
+        found = _psutil(lambda psutil: (int(psutil.swap_memory().used), int(psutil.swap_memory().total)))
+    return found or (None, None)
+
+
+def windows_swap() -> Optional[Tuple[int, int]]:
+    """The page files' use and size. GlobalMemoryStatusEx only has the commit limit, which counts
+    memory too, so the page files themselves are asked for: NtQuerySystemInformation's
+    SYSTEM_PAGEFILE_INFORMATION (class 18) has, for each, an offset to the next entry, then its size
+    and its use, in pages."""
+    import ctypes
+    import mmap
+    import struct
+
+    buffer = ctypes.create_string_buffer(16 * 1024)
+    length = ctypes.c_ulong(0)
+    if ctypes.windll.ntdll.NtQuerySystemInformation(18, buffer, len(buffer), ctypes.byref(length)) != 0:
+        return None
+    data, offset, in_use, size = buffer.raw[:length.value], 0, 0, 0
+    # No page file at all answers nothing: 0 of 0.
+    while offset + 12 <= len(data):
+        following, total, used = struct.unpack_from("<III", data, offset)
+        size, in_use = size + total, in_use + used
+        if not following:
+            break
+        offset += following
+    return in_use * mmap.PAGESIZE, size * mmap.PAGESIZE
+
+
+def parse_swap_usage(text: str) -> Tuple[Optional[int], Optional[int]]:
+    """macOS's vm.swapusage: "total = 2048.00M  used = 1073.25M  free = 974.75M  (encrypted)"."""
+    fields = text.split()
+
+    def amount(name: str) -> Optional[int]:
+        for index in range(len(fields) - 2):
+            if fields[index] == name and fields[index + 1] == "=":
+                value = fields[index + 2]
+                scale = {"K": 1 << 10, "M": 1 << 20, "G": 1 << 30}.get(value[-1:], 1)
+                try:
+                    return int(float(value.rstrip("KMG")) * scale)
+                except ValueError:
+                    return None
+        return None
+
+    return amount("used"), amount("total")
+
+
+NETWORK_KEYS = ("bytes_sent", "bytes_recv", "packets_sent", "packets_recv", "errors", "interfaces")
+
+
+def network() -> Optional[Dict[str, int]]:
+    """Traffic since boot, summed over the interfaces that aren't loopback."""
+    if sys.platform == "win32":
+        found = windows_network()
+    elif linux():
+        text = _read("/proc/net/dev")
+        found = parse_net_dev(text) if text is not None else None
+    else:
+        text = _output("netstat", "-ibn")
+        found = parse_netstat(text) if text is not None else None
+    return found if found is not None else _psutil(psutil_network)
+
+
+def psutil_network(psutil: Any) -> Dict[str, int]:
+    totals = dict.fromkeys(NETWORK_KEYS, 0)
+    for name, counters in psutil.net_io_counters(pernic=True).items():
+        if name == "lo" or name.startswith("lo0") or name.lower().startswith("loopback"):
+            continue
+        totals["bytes_sent"] += counters.bytes_sent
+        totals["bytes_recv"] += counters.bytes_recv
+        totals["packets_sent"] += counters.packets_sent
+        totals["packets_recv"] += counters.packets_recv
+        totals["errors"] += counters.errin + counters.errout
+        totals["interfaces"] += 1
+    return totals
+
+
+def parse_net_dev(text: str) -> Optional[Dict[str, int]]:
+    """Linux's /proc/net/dev: after two header lines, "name: " and sixteen counters, eight received
+    then eight sent (bytes, packets, errors, ...)."""
+    totals, found = dict.fromkeys(NETWORK_KEYS, 0), False
+    for line in text.split("\n"):
+        name, colon, rest = line.partition(":")
+        fields = rest.split()
+        if not colon or len(fields) < 11:
+            continue
+        found = True
+        if name.strip() == "lo":
+            continue
+        numbers = [_count(field) for field in fields]
+        totals["bytes_recv"] += numbers[0]
+        totals["packets_recv"] += numbers[1]
+        totals["errors"] += numbers[2] + numbers[10]
+        totals["bytes_sent"] += numbers[8]
+        totals["packets_sent"] += numbers[9]
+        totals["interfaces"] += 1
+    return totals if found else None
+
+
+def _count(text: str) -> int:
+    try:
+        return int(text)
+    except ValueError:
+        return 0
+
+
+def parse_netstat(text: str) -> Optional[Dict[str, int]]:
+    """`netstat -ib` on macOS and the BSDs. Each interface has a row per address; only its <Link#n>
+    row counts, or its traffic would be added once per address. A row without an address has one
+    field fewer, and FreeBSD has an Idrop column macOS doesn't, so columns are found by their
+    header's name, counted from the end."""
+    lines = text.strip().split("\n")
+    header = lines[0].split()
+    from_end = {name: len(header) - index for index, name in enumerate(header)}
+    if any(name not in from_end for name in ("Ipkts", "Ierrs", "Ibytes", "Opkts", "Oerrs", "Obytes")):
+        return None
+    totals, seen = dict.fromkeys(NETWORK_KEYS, 0), set()
+    for line in lines[1:]:
+        fields = line.split()
+        if len(fields) < len(header) - 1 or not fields[2].startswith("<Link#"):
+            continue
+        name = fields[0].rstrip("*")  # a trailing * marks an interface that's down
+        if name.startswith("lo") or name in seen:
+            continue
+        seen.add(name)
+
+        def number(column: str) -> int:
+            return _count(fields[len(fields) - from_end[column]])
+
+        totals["bytes_recv"] += number("Ibytes")
+        totals["packets_recv"] += number("Ipkts")
+        totals["bytes_sent"] += number("Obytes")
+        totals["packets_sent"] += number("Opkts")
+        totals["errors"] += number("Ierrs") + number("Oerrs")
+        totals["interfaces"] += 1
+    return totals
+
+
+# The layout of Windows' MIB_IF_TABLE2 (a count, then rows from byte 8) and MIB_IF_ROW2, read by
+# offset as the Go agent-machine does.
+IF_ROW_SIZE = 1352
+IF_ROW_TYPE, IF_ROW_FLAGS = 1128, 1152
+IF_ROW_IN_OCTETS, IF_ROW_IN_UCAST, IF_ROW_IN_NUCAST, IF_ROW_IN_ERRORS = 1208, 1216, 1224, 1240
+IF_ROW_OUT_OCTETS, IF_ROW_OUT_UCAST, IF_ROW_OUT_NUCAST, IF_ROW_OUT_ERRORS = 1280, 1288, 1296, 1312
+IF_TYPE_LOOPBACK = 24
+# InterfaceAndOperStatusFlags: a filter driver's layer over an adapter, and "has a connector".
+IF_FLAG_FILTER, IF_FLAG_CONNECTOR = 0x02, 0x04
+
+
+def sum_if_table(table: bytes) -> Optional[Dict[str, int]]:
+    """Adds up GetIfTable2's rows. Windows lists every adapter several times (once per filter driver
+    layered on it) and virtual adapters whose traffic also crosses a real one, so only interfaces
+    with a connector count: each real adapter once."""
+    import struct
+
+    if len(table) < 8:
+        return None
+    totals = dict.fromkeys(NETWORK_KEYS, 0)
+    for index in range(struct.unpack_from("<I", table)[0]):
+        start = 8 + index * IF_ROW_SIZE
+        if start + IF_ROW_SIZE > len(table):
+            return None
+
+        def number(offset: int) -> int:
+            return struct.unpack_from("<Q", table, start + offset)[0]
+
+        flags = table[start + IF_ROW_FLAGS]
+        if struct.unpack_from("<I", table, start + IF_ROW_TYPE)[0] == IF_TYPE_LOOPBACK or not flags & IF_FLAG_CONNECTOR or flags & IF_FLAG_FILTER:
+            continue
+        totals["bytes_recv"] += number(IF_ROW_IN_OCTETS)
+        totals["packets_recv"] += number(IF_ROW_IN_UCAST) + number(IF_ROW_IN_NUCAST)
+        totals["bytes_sent"] += number(IF_ROW_OUT_OCTETS)
+        totals["packets_sent"] += number(IF_ROW_OUT_UCAST) + number(IF_ROW_OUT_NUCAST)
+        totals["errors"] += number(IF_ROW_IN_ERRORS) + number(IF_ROW_OUT_ERRORS)
+        totals["interfaces"] += 1
+    return totals
+
+
+def windows_network() -> Optional[Dict[str, int]]:
+    import ctypes
+
+    iphlpapi = ctypes.WinDLL("iphlpapi")
+    iphlpapi.GetIfTable2.argtypes = [ctypes.POINTER(ctypes.c_void_p)]
+    iphlpapi.GetIfTable2.restype = ctypes.c_ulong
+    iphlpapi.FreeMibTable.argtypes = [ctypes.c_void_p]
+    iphlpapi.FreeMibTable.restype = None
+    table = ctypes.c_void_p()
+    if iphlpapi.GetIfTable2(ctypes.byref(table)) != 0 or not table.value:
+        return None
+    try:
+        count = ctypes.c_ulong.from_address(table.value).value
+        return sum_if_table(ctypes.string_at(table.value, 8 + count * IF_ROW_SIZE))
+    finally:
+        iphlpapi.FreeMibTable(table)
+
+
+def rss() -> Optional[int]:
+    """agent-machine's resident memory."""
+    found: Optional[int] = None
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+
+        class Counters(ctypes.Structure):
+            _fields_ = [("size", wintypes.DWORD), ("page_faults", wintypes.DWORD)] + [
+                (name, ctypes.c_size_t) for name in ("peak_working_set", "working_set", "quota_peak_paged", "quota_paged",
+                                                     "quota_peak_non_paged", "quota_non_paged", "pagefile", "peak_pagefile")]
+
+        kernel32 = ctypes.WinDLL("kernel32")
+        kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+        kernel32.K32GetProcessMemoryInfo.argtypes = [wintypes.HANDLE, ctypes.POINTER(Counters), wintypes.DWORD]
+        counters = Counters()
+        counters.size = ctypes.sizeof(Counters)
+        if kernel32.K32GetProcessMemoryInfo(kernel32.GetCurrentProcess(), ctypes.byref(counters), counters.size):
+            found = int(counters.working_set)
+    elif linux():
+        try:
+            # The second number of /proc/self/statm, in pages.
+            found = int((_read("/proc/self/statm") or "").split()[1]) * os.sysconf("SC_PAGE_SIZE")
+        except (IndexError, ValueError, OSError):
+            found = None
+    else:
+        try:
+            found = int((_output("ps", "-o", "rss=", "-p", str(os.getpid())) or "").strip()) * 1024  # ps prints KiB
+        except ValueError:
+            found = None
+    return found if found is not None else _psutil(lambda psutil: int(psutil.Process().memory_info().rss))
+
+
+def folders() -> List[Tuple[str, str]]:
+    """Where agent-machine keeps things, and what the console calls each: its settings, the large
+    files, and the launch folders. The roots are read straight from machine.json: Machine.load
+    writes the file when it's missing, which a sample never should."""
+    found = [("Settings", str(settings.home())), ("Data", str(settings.data()))]
+    try:
+        data = json.loads(settings.machine_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        data = None
+    roots = data.get("roots") if isinstance(data, dict) else None
+    for root in roots if isinstance(roots, list) else []:
+        if isinstance(root, str):
+            found.append(("Launch folder", root))
+    return found
+
+
+def disks(folders: List[Tuple[str, str]]) -> List[Dict[str, Any]]:
+    """The filesystem under each folder, each once, with what it holds."""
+    found: List[Dict[str, Any]] = []
+    for label, folder in folders:
+        path = existing(folder)
+        if not path:
+            continue
+        try:
+            mount = mountpoint(path)
+            usage = shutil.disk_usage(mount if sys.platform == "win32" else path)
+        except OSError:
+            continue
+        if not mount or usage.total <= 0:
+            continue
+        disk = next((other for other in found if other["mountpoint"] == mount), None)
+        if disk is None:
+            disk = {"mountpoint": mount, "total": usage.total, "used": usage.used, "free": usage.free,
+                    "percent": math.floor(usage.used * 1000 / usage.total) / 10, "holds": []}
+            found.append(disk)
+        if label not in disk["holds"]:
+            disk["holds"].append(label)
+    return found
+
+
+def existing(path: str) -> str:
+    """path, or the nearest folder above it that exists, with links resolved: a folder
+    agent-machine hasn't made yet still sits on a filesystem."""
+    path = os.path.abspath(path)
+    while True:
+        if os.path.exists(path):
+            return os.path.realpath(path)
+        parent = os.path.dirname(path)
+        if parent == path:
+            return ""
+        path = parent
+
+
+def mountpoint(path: str) -> str:
+    """Where path's filesystem is mounted: the volume on Windows, else the highest folder above it
+    on the same device."""
+    if sys.platform == "win32":
+        import ctypes
+
+        volume = ctypes.create_unicode_buffer(261)
+        if not ctypes.windll.kernel32.GetVolumePathNameW(ctypes.c_wchar_p(path), volume, len(volume)):
+            return ""
+        return volume.value
+    while True:
+        parent = os.path.dirname(path)
+        try:
+            if parent == path or os.stat(parent).st_dev != os.stat(path).st_dev:
+                return path
+        except OSError:
+            return path
+        path = parent
 
 
 def linux() -> bool:
@@ -1606,6 +2077,17 @@ def memory() -> Tuple[int, int]:
         # The installed memory only, as the Go agent-machine reads it.
         total = sysctl("hw.memsize" if sys.platform == "darwin" else "hw.physmem")
         return 0, total
+    values = meminfo()
+    if values is None:
+        return 0, 0
+    total, available = values.get("MemTotal", 0), values.get("MemAvailable", 0)
+    if not available or available > total:
+        return 0, total
+    return total - available, total
+
+
+def meminfo() -> Optional[Dict[str, int]]:
+    """/proc/meminfo's amounts, in bytes."""
     values: Dict[str, int] = {}
     try:
         with open("/proc/meminfo") as file:
@@ -1618,11 +2100,8 @@ def memory() -> Tuple[int, int]:
                     except ValueError:
                         values[name] = 0
     except OSError:
-        return 0, 0
-    total, available = values.get("MemTotal", 0), values.get("MemAvailable", 0)
-    if not available or available > total:
-        return 0, total
-    return total - available, total
+        return None
+    return values
 
 
 def sysctl(name: str) -> int:

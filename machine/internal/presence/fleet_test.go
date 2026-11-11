@@ -167,6 +167,11 @@ func TestPresenceSaysHelloAndAnswersLaunches(t *testing.T) {
 	if !strings.HasPrefix(presence.Status(), "connected to ") {
 		t.Fatalf("status %q", presence.Status())
 	}
+	// The load sample's "agent" part counts the connection and the three requests.
+	agent := providers.Activity.Snapshot()
+	if agent["connected_since"] == nil || agent["connects"].(int64) < 1 || agent["requests"].(int64) < 3 {
+		t.Fatalf("activity %v", agent)
+	}
 }
 
 func TestPresenceAnswersContainerRequests(t *testing.T) {

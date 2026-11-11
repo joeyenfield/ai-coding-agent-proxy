@@ -528,6 +528,8 @@ class Presence:
                         except Exception as error:  # noqa: BLE001
                             log.info("fleet: couldn't send an update: %s", error)
 
+            # For the load sample's "agent" part: when this connection began, and how many there have been.
+            providers.activity.connected()
             tasks = {asyncio.ensure_future(keep_up()), asyncio.ensure_future(send_updates()), asyncio.ensure_future(renew()), asyncio.ensure_future(report_accounts())}
             try:
                 async for raw in conn:
@@ -547,12 +549,15 @@ class Presence:
                     raise Renew("the server asked for a fresh access token") from closed
                 raise
             finally:
+                providers.activity.disconnected()
                 for task in tasks:
                     task.cancel()
             raise Refused(f"the agent-server closed the connection ({conn.close_code})")
 
     async def dispatch(self, message: Dict[str, Any], server: str, send, send_from_thread) -> None:
         kind = message.get("type")
+        if kind in ("provider", "server", "container", "folders", "files", "launch", "shell", "update"):
+            providers.activity.request()
         try:
             if kind == "provider":
                 # A pull streams its progress until the model is in, which can take an hour.
@@ -671,6 +676,7 @@ class Presence:
                     if isinstance(message, bytes):
                         writer.write(message)
                         await writer.drain()
+                        providers.activity.tunnel_in(len(message))
 
             async def to_server() -> None:
                 while True:
@@ -679,6 +685,7 @@ class Presence:
                         await conn.close()
                         return
                     await write(data)
+                    providers.activity.tunnel_out(len(data))
 
             async def renew() -> None:
                 # The server closes the tunnel once the token it was opened with expires, which a long reply
@@ -705,6 +712,7 @@ class Presence:
 
             tasks = [asyncio.ensure_future(to_model_server()), asyncio.ensure_future(to_server())]
             renewing = asyncio.ensure_future(renew())
+            providers.activity.tunnel_opened()
             try:
                 done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
                 for task in pending:
@@ -712,6 +720,7 @@ class Presence:
                 for task in done:
                     task.exception()
             finally:
+                providers.activity.tunnel_closed()
                 renewing.cancel()
                 writer.close()
 

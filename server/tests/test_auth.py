@@ -155,6 +155,28 @@ def test_only_admins_see_the_server_computers_stats(tmp_path):
         stats = dave.get("/api/server/stats").json()
         assert 0 <= stats["memory"]["percent"] <= 100 and stats["memory"]["total"] > 0 and stats["cpu"]["count"] > 0
         assert stats["process"]["rss"] > 0 and stats["disks"] and stats["disks"][0]["total"] > 0
+        # What the server is doing now: its own request counts, connections, sessions, fleet and processes.
+        live = stats["live"]
+        assert live["requests"]["in_flight"] == 0 and len(live["requests"]["per_minute"]) == 60
+        assert live["requests"]["totals"]["failed"] >= 2, "the two refusals above were counted"
+        assert sum(minute["failed"] for minute in live["requests"]["per_minute"]) == live["requests"]["totals"]["failed"]
+        assert live["connections"] == {"websockets": 0, "by_kind": {}, "live_streams": 0}
+        assert live["sessions"] == {"open": 0, "total": 0, "streaming": 0}
+        assert live["fleet"]["machines"] == len(app.state.runtime.fleet.machines)
+        assert (live["fleet"]["connected"], live["fleet"]["tunnels"], live["fleet"]["tunnel_listeners"]) == (0, 0, 0)
+        assert live["write_queue"] >= 0 and [node["this"] for node in live["nodes"]] == [True]
+        # The network's totals only grow; a computer with no interface but loopback has none.
+        assert stats["network"] is None or stats["network"]["bytes_recv"] >= 0 and stats["network"]["interfaces"] > 0
+        # The same numbers as Prometheus text, for a scraper signed in as a site admin.
+        assert alice.get("/api/server/metrics").status_code == 403
+        scraped = dave.get("/api/server/metrics")
+        assert scraped.status_code == 200 and scraped.headers["content-type"].startswith("text/plain; version=0.0.4")
+        pod = app.state.runtime.cluster.pod_id
+        assert f'agent_server_up{{pod="{pod}"}} 1' in scraped.text
+        assert f'agent_server_websockets_open{{pod="{pod}",kind="machines"}} 0' in scraped.text
+        assert "# TYPE agent_server_requests_total counter" in scraped.text
+        assert f'agent_server_requests_total{{pod="{pod}",outcome="failed"}} ' in scraped.text
+        assert all(line.startswith("#") or " " in line for line in scraped.text.splitlines())
         # Both folders are on the test's drive, which is listed once.
         assert len(stats["disks"]) == 1 and len(stats["disks"][0]["folders"]) == 2
         # Folder sizes are measured in the background; the first answer may not have them yet.

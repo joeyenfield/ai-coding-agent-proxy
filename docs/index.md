@@ -69,7 +69,7 @@ The documentation has two halves. The **guides** (from *Start here* to *Run a se
 | The audit log, its exports and checking it | `agent-server audit verify\|checkpoint\|key` | Audit log; Server settings › Audit | [The audit log](audit.md) |
 | Several server processes, Kubernetes and the Helm chart | `AI_PROXY_ROLES`, `AI_PROXY_REDIS_URL`, `helm install` | | [Running several server processes](scaling.md) |
 | Recordings in S3 (or compatible) storage | `AI_PROXY_BLOB_URL` | | [Running several server processes](scaling.md#blob-storage) |
-| The server computer's CPU, memory and disks | | Server stats | [Console](console.md#server-stats) |
+| What the server is doing now (requests, connections, sessions, network), and its computer's CPU, memory and disks | | Server stats | [Console](console.md#server-stats) |
 | Every request the server received, failed ones too, its stats and each machine's fleet connections (why a machine shows offline) | | Access log | [Console](console.md#access-log) |
 | Every request saved for days, searchable, with headers and bodies in debug mode | | API log | [Console](console.md#api-log) |
 | Downloads and installers | `/install.sh`, `/install.ps1` | Downloads | [Deployment](deployment.md) |

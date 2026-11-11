@@ -69,6 +69,11 @@ def test_a_fleet_machine_manages_its_ollama_for_the_console(tmp_path, agent_bina
         assert any(method == "POST" and path == "/api/generate" and body.get("keep_alive") == 0 for method, path, body in seen)
         metrics = httpx.get(f"{base}/metrics", headers=m.headers, timeout=30).json()
         assert metrics["memory"]["total"] > 0 and "cpu" in metrics
+        # More about the machine, each part there even where the system can't tell (null then).
+        assert {"uptime_seconds", "load_average", "swap", "network", "disks", "process", "agent"} <= set(metrics), metrics
+        assert set(metrics["swap"]) == {"used", "total"} and metrics["process"]["pid"] > 0 and metrics["disks"], metrics
+        # What agent-machine has done: this fleet connection, and the requests the console just made.
+        assert metrics["agent"]["connected_since"] and metrics["agent"]["connects"] >= 1 and metrics["agent"]["requests"] >= 3, metrics["agent"]
         # Its Ollama: installed, not running, then started and stopped from the console with the saved settings.
         assert fleet.box["servers"]["enabled"] and fleet.box["servers"]["ollama"]["found"], fleet.box["servers"]
         settings = httpx.get(f"{base}/servers/ollama", headers=m.headers, timeout=30).json()
@@ -112,3 +117,6 @@ def test_a_machine_the_server_cant_reach_serves_an_adopted_ollama_through_its_tu
         assert any(method == "GET" and path == "/api/tags" for method, path, _ in seen)
         # Keep-alive: the next request reuses the tunnel, and it still works.
         assert httpx.get(f"{m.server}/session/{session}/v1/models", headers=m.headers, timeout=30).status_code == 200
+        # The machine's load sample counts the tunnel and the bytes each way (presence: TestATunnelCarriesBytesToTheModelServerAndBack).
+        agent = httpx.get(f"{m.server}/api/machines/{fleet.box['id']}/metrics", headers=m.headers, timeout=30).json()["agent"]
+        assert agent["tunnels_total"] >= 1 and agent["tunnel_bytes_in"] > 0 and agent["tunnel_bytes_out"] > 0, agent

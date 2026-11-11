@@ -50,7 +50,7 @@ Reading is always allowed for those who can see the machine. Changing anything n
 
 The server only forwards the native Ollama calls agents make (`chat`, `generate`, `embed`, `embeddings`, `tags`, `show`, `ps`, `version`). `/api/pull` and the like can't reach a model server through the server.
 
-**Watching load.** A machine's **Load** tab charts its CPU, memory, GPU load and GPU memory over the last five minutes, and shows what each of its Ollama servers has loaded: size, GPU and CPU split, context length and when the model unloads. The console asks the machine every two seconds while the tab is open; the machine samples on request and stores nothing. GPU figures come from `nvidia-smi` (index, name, use, memory, temperature and power draw), so they need an NVIDIA GPU and its driver. The server never contacts a model server for this: a backend that isn't on a connected machine shows no models or load.
+**Watching load.** A machine's **Load** tab charts its CPU, memory, GPU load and GPU memory, its network traffic and the traffic through its tunnels over the last five minutes, and shows what each of its Ollama servers has loaded: size, GPU and CPU split, context length and when the model unloads. The console asks the machine every two seconds while the tab is open; the machine samples on request and stores nothing. GPU figures come from `nvidia-smi` (index, name, use, memory, temperature and power draw), so they need an NVIDIA GPU and its driver. The server never contacts a model server for this: a backend that isn't on a connected machine shows no models or load.
 
 ## Which agents can use which provider
 

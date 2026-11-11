@@ -675,6 +675,11 @@ def test_a_fleet_machine_manages_its_model_server_for_the_console(tmp_path, agen
         # The machine's load, sampled there.
         metrics = httpx.get(f"{base}/metrics", headers=m.headers, timeout=30).json()
         assert metrics["memory"]["total"] > 0 and "cpu" in metrics
+        # More about the machine, each part there even where the system can't tell (null then).
+        assert {"uptime_seconds", "load_average", "swap", "network", "disks", "process", "agent"} <= set(metrics), metrics
+        assert set(metrics["swap"]) == {"used", "total"} and metrics["process"]["pid"] > 0 and metrics["disks"], metrics
+        # What agent-machine has done: this fleet connection, and the requests the console just made.
+        assert metrics["agent"]["connected_since"] and metrics["agent"]["connects"] >= 1 and metrics["agent"]["requests"] >= 3, metrics["agent"]
         # Ollama's settings live on the machine, in agent-machine's folder.
         settings = httpx.get(f"{base}/servers/ollama", headers=m.headers, timeout=30).json()
         assert "host" not in {setting["key"] for setting in settings["schema"]["settings"]}

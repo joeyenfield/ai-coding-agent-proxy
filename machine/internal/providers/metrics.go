@@ -1,6 +1,7 @@
 package providers
 
-// This machine's load: CPU, memory and NVIDIA GPUs. Sampled when the server asks, never stored.
+// This machine's load: CPU, memory, NVIDIA GPUs, network totals, the disks agent-machine's folders
+// are on, and what agent-machine itself has done. Sampled when the server asks, never stored.
 
 import (
 	"bytes"
@@ -56,6 +57,17 @@ func Metrics() map[string]any {
 		"cpu":    map[string]any{"percent": cpuPercent(), "count": runtime.NumCPU()},
 		"memory": memoryState, "gpus": gpus, "gpu_source": source, "gpu_error": gpuError,
 	}
+	// Each part answers nil where this system can't tell, so one that fails never costs the sample.
+	swapUsed, swapTotal := swap()
+	value["uptime_seconds"], value["load_average"] = uptime(), loadAverage()
+	value["swap"] = map[string]any{"used": swapUsed, "total": swapTotal}
+	value["network"] = network()
+	value["disks"] = disks(folders())
+	value["process"] = map[string]any{
+		"pid": os.Getpid(), "rss": rss(), "threads": runtime.NumGoroutine(),
+		"started_at": float64(processStarted.UnixNano()) / 1e9,
+	}
+	value["agent"] = Activity.Snapshot()
 	metricsState.at, metricsState.last = time.Now(), value
 	return value
 }

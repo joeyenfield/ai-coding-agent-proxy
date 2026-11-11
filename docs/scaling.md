@@ -95,7 +95,8 @@ On agent-auth, set `AI_PROXY_REDIS_URL` too (its sign-in rate limits are then sh
 
 - `GET /health` says the process runs.
 - `GET /ready` says whether to send it traffic: its database, Redis and blob storage answer, and it isn't shutting down. `503` otherwise, with each check's detail.
-- `GET /metrics` on the internal port: Prometheus gauges per process (`pod` label).
+- `GET /metrics` on the internal port: Prometheus metrics per process (`pod` label). A server without an internal port serves the same text at `GET /api/server/metrics` on its public port, to a site admin: give Prometheus a site admin's [API credential](api-credentials.md) (OAuth client credentials) to scrape it.
+- `GET /api/machines/{id}/metrics?format=prometheus`: one machine's load, asked from its agent-machine when scraped, as `agent_machine_*` metrics labelled `machine` and `machine_name`: CPU, load average, memory, swap, uptime, GPUs, network bytes, packets and errors, disks, agent-machine's own memory, and its connection, requests and tunnels. Machines only dial out, so the server is where they're scraped; the credential needs to see the machine. A machine that isn't connected answers `409`.
 
 | Metric | What |
 | --- | --- |
@@ -108,6 +109,13 @@ On agent-auth, set `AI_PROXY_REDIS_URL` too (its sign-in rate limits are then sh
 | `agent_server_sessions_cached`, `agent_server_db_write_queue` | Sessions in memory, writes waiting for the database |
 | `agent_server_cluster_processes` | Processes of this server alive |
 | `agent_server_audit_backlog` | Audit events not yet sent to every export |
+| `agent_server_requests_total` | Requests and WebSockets answered here, by `outcome` (`ok`, `failed`, `dropped`) |
+| `agent_server_websockets_open` | WebSockets open here, by `kind` (`machines`, `model_tunnels`, `agent_tunnels`, `links`, `terminal_hosts`, `terminal_viewers`, `other`) |
+| `agent_server_sessions_open`, `agent_server_sessions_streaming` | Sessions that haven't ended, and those with a request in flight here |
+| `agent_server_fleet_connected`, `agent_server_links_connected`, `agent_server_intercept_tunnels` | Machines connected, linked servers connected, account agents' HTTPS tunnels open here |
+| `agent_server_process_resident_memory_bytes` | The server process's memory |
+| `agent_server_host_memory_used_bytes`, `agent_server_host_memory_total_bytes` | Memory on the server's computer |
+| `agent_server_host_network_receive_bytes_total`, `agent_server_host_network_transmit_bytes_total` | Bytes through the computer's network interfaces, loopback left out |
 | `agent_server_info` | `version` and `roles` labels |
 
 ## Routing

@@ -350,12 +350,144 @@ def test_strata_missing_key(tmp_path, monkeypatch, serve):
     assert state["online"] is False and "not as a Strata server" in state["error"], state
 
 
-def test_metrics():
+def test_metrics(tmp_path, monkeypatch):
+    """providers: TestMetrics and TestMetricsHasEveryPart. The sample always has every part, null
+    where this system can't tell: the console reads them all."""
+    home, root = tmp_path / "home", tmp_path / "root"
+    home.mkdir()
+    root.mkdir()
+    monkeypatch.setenv("AI_PROXY_MACHINE_HOME", str(home))
+    monkeypatch.delenv("AI_PROXY_MACHINE_DATA", raising=False)
+    (home / "machine.json").write_text(json.dumps({"id": "m1", "roots": [str(root), str(root / "not-made-yet")]}), encoding="utf-8")
+    monkeypatch.setitem(providers._last, "value", None)
+    monkeypatch.setattr(providers, "activity", providers.Activity())
     answer = handle(providers.Manager(off), op="metrics")
     metrics = answer["metrics"]
     assert answer["ok"] and metrics["cpu"]["count"] >= 1 and metrics["hostname"] and metrics["gpus"] is not None, answer
     assert metrics["memory"]["total"] > 0 and metrics["platform"]
     json.dumps(answer)
+    assert set(metrics) == {"hostname", "platform", "timestamp", "cpu", "memory", "gpus", "gpu_source", "gpu_error",
+                            "uptime_seconds", "load_average", "swap", "network", "disks", "process", "agent"}, metrics
+    assert set(metrics["swap"]) == {"used", "total"}
+    process = metrics["process"]
+    assert set(process) == {"pid", "rss", "threads", "started_at"} and process["pid"] == os.getpid(), process
+    assert process["threads"] >= 1 and process["started_at"] > 0
+    assert metrics["agent"] == {"connected_since": None, "connects": 0, "requests": 0, "tunnels_open": 0, "tunnels_total": 0,
+                                "tunnel_bytes_in": 0, "tunnel_bytes_out": 0}
+    # Every system the tests run on can tell these.
+    assert metrics["uptime_seconds"] > 0
+    assert metrics["load_average"] is None or len(metrics["load_average"]) == 3
+    assert metrics["network"] is None or set(metrics["network"]) == set(providers.NETWORK_KEYS)
+    # The temporary folders' filesystem, once, however many folders are on it.
+    disks = metrics["disks"]
+    assert disks and len({disk["mountpoint"] for disk in disks}) == len(disks), disks
+    assert all(set(disk) == {"mountpoint", "total", "used", "free", "percent", "holds"} and disk["total"] > 0 for disk in disks), disks
+    assert sorted(label for disk in disks for label in disk["holds"]) == ["Data", "Launch folder", "Settings"], disks
+    # The sample never writes machine.json, as loading the settings would.
+    (home / "machine.json").unlink()
+    monkeypatch.setitem(providers._last, "value", None)
+    assert handle(providers.Manager(off), op="metrics")["metrics"]["disks"] and not (home / "machine.json").exists()
+
+
+def test_activity_counts():
+    """providers: TestActivityCounts."""
+    counters = providers.Activity()
+    assert counters.snapshot()["connected_since"] is None
+    counters.connected()
+    counters.request()
+    counters.request()
+    counters.tunnel_opened()
+    counters.tunnel_opened()
+    counters.tunnel_closed()
+    counters.tunnel_in(10)
+    counters.tunnel_out(300)
+    got = counters.snapshot()
+    assert got.pop("connected_since") > 0
+    assert got == {"connects": 1, "requests": 2, "tunnels_open": 1, "tunnels_total": 2, "tunnel_bytes_in": 10, "tunnel_bytes_out": 300}
+    counters.disconnected()
+    assert counters.snapshot()["connected_since"] is None and counters.snapshot()["connects"] == 1
+
+
+def test_parse_net_dev():
+    """providers: TestParseNetDev."""
+    text = """Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+    lo: 9000      90    0    0    0     0          0         0     9000      90    0    0    0     0       0          0
+  eth0: 1000      10    1    0    0     0          0         0     2000      20    2    0    0     0       0          0
+wlan0:500 5 0 0 0 0 0 0 700 7 3 0 0 0 0 0
+"""
+    assert providers.parse_net_dev(text) == {"bytes_sent": 2700, "bytes_recv": 1500, "packets_sent": 27, "packets_recv": 15, "errors": 6, "interfaces": 2}
+    assert providers.parse_net_dev("not the file") is None
+
+
+def test_parse_netstat():
+    """providers: TestParseNetstat."""
+    # macOS: a row per address, some without an address, a * on an interface that's down.
+    mac = """Name       Mtu   Network       Address            Ipkts Ierrs     Ibytes    Opkts Oerrs     Obytes  Coll
+lo0        16384 <Link#1>                         900     0      90000      900     0      90000     0
+lo0        16384 127           127.0.0.1          900     -      90000      900     -      90000     -
+en0        1500  <Link#4>    a4:83:e7:00:00:01     100     1      10000      200     2      20000     0
+en0        1500  192.168.1     192.168.1.20        100     -      10000      200     -      20000     -
+utun0      1380  <Link#12>                          5     0        500        7     0        700     0
+en5*       1500  <Link#7>    ac:de:48:00:11:22       0     0          0        0     0          0     0
+"""
+    assert providers.parse_netstat(mac) == {"bytes_sent": 20700, "bytes_recv": 10500, "packets_sent": 207, "packets_recv": 105, "errors": 3, "interfaces": 3}
+    # FreeBSD has a column for dropped packets.
+    bsd = """Name    Mtu Network       Address              Ipkts Ierrs Idrop     Ibytes    Opkts Oerrs     Obytes  Coll
+em0    1500 <Link#1>      08:00:27:00:00:01       50     0     4       5000       60     1       6000     0
+em0       - 10.0.2.0/24   10.0.2.15               50     -     -       5000       60     -       6000     -
+lo0   16384 <Link#2>      lo0                     10     0     0       1000       10     0       1000     0
+"""
+    assert providers.parse_netstat(bsd) == {"bytes_sent": 6000, "bytes_recv": 5000, "packets_sent": 60, "packets_recv": 50, "errors": 1, "interfaces": 1}
+    assert providers.parse_netstat("netstat: unknown option") is None
+
+
+def test_sum_if_table():
+    """providers: TestSumIfTable."""
+    import struct
+
+    def row(kind: int, flags: int, received: int, packets_in: int, errors_in: int, sent: int, packets_out: int, errors_out: int) -> bytes:
+        data = bytearray(providers.IF_ROW_SIZE)
+        struct.pack_into("<I", data, providers.IF_ROW_TYPE, kind)
+        data[providers.IF_ROW_FLAGS] = flags
+        for offset, value in ((providers.IF_ROW_IN_OCTETS, received), (providers.IF_ROW_IN_UCAST, packets_in), (providers.IF_ROW_IN_NUCAST, 1),
+                              (providers.IF_ROW_IN_ERRORS, errors_in), (providers.IF_ROW_OUT_OCTETS, sent), (providers.IF_ROW_OUT_UCAST, packets_out),
+                              (providers.IF_ROW_OUT_NUCAST, 2), (providers.IF_ROW_OUT_ERRORS, errors_out)):
+            struct.pack_into("<Q", data, offset, value)
+        return bytes(data)
+
+    connector, filtered = providers.IF_FLAG_CONNECTOR, providers.IF_FLAG_FILTER
+    table = struct.pack("<II", 5, 0) + row(6, connector | 1, 1000, 10, 1, 2000, 20, 2)
+    # The same adapter again, as a filter driver's layer: not counted twice.
+    table += row(6, connector | filtered | 1, 1000, 10, 1, 2000, 20, 2)
+    # A virtual adapter (a VPN, a virtual switch) has no connector: its traffic crosses the real one.
+    table += row(53, 0, 400, 4, 0, 400, 4, 0)
+    table += row(providers.IF_TYPE_LOOPBACK, connector, 9000, 90, 0, 9000, 90, 0)
+    table += row(71, connector | 1, 500, 5, 0, 700, 7, 3)
+    assert providers.sum_if_table(table) == {"bytes_sent": 2700, "bytes_recv": 1500, "packets_sent": 31, "packets_recv": 17, "errors": 6, "interfaces": 2}
+    assert providers.sum_if_table(table[:-1]) is None
+
+
+def test_parse_load_boot_time_and_swap():
+    """providers: TestParseLoadBootTimeAndSwap."""
+    assert providers.parse_load("0.52 0.41 0.30 1/234 5678\n") == [0.52, 0.41, 0.30]
+    assert providers.parse_load("{ 2.10 1.95 1.80 }\n") == [2.10, 1.95, 1.80]
+    assert providers.parse_load("nothing") is None
+    assert providers.parse_boot_time("{ sec = 1700000000, usec = 123456 } Tue Nov 14 22:13:20 2023\n") == 1700000000
+    assert providers.parse_boot_time("sysctl: unknown oid") is None
+    assert providers.parse_swap_usage("total = 2048.00M  used = 1073.25M  free = 974.75M  (encrypted)\n") == (int(1073.25 * 1024 * 1024), 2048 * 1024 * 1024)
+    assert providers.parse_swap_usage("") == (None, None)
+
+
+def test_disks_list_each_filesystem_once(tmp_path):
+    """providers: TestDisksListEachFilesystemOnce."""
+    first, second = tmp_path / "one", tmp_path / "two"
+    first.mkdir()
+    second.mkdir()
+    [disk] = providers.disks([("Settings", str(first)), ("Data", str(first)), ("Launch folder", str(second)), ("Launch folder", str(second / "a" / "b"))])
+    assert disk["holds"] == ["Settings", "Data", "Launch folder"] and disk["mountpoint"], disk
+    assert 0 < disk["total"] >= disk["used"] and disk["free"] <= disk["total"] and 0 <= disk["percent"] <= 100, disk
+    assert providers.disks([]) == []
     [gpu] = providers.parse_nvidia("0, NVIDIA RTX 4090, 37, 1024, 24564, 51, [N/A]\nbad line\n")
     assert gpu["memory_used"] == 1024 ** 3 and gpu["power_watts"] is None and gpu["utilization"] == 37.0, gpu
 

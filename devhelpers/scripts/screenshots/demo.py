@@ -57,6 +57,8 @@ DEMO_USER, DEMO_PASSWORD = "demo", "demo-screenshot-password"
 DEMO_ORG = "demo-team"
 DEMO_ADMIN_PASSWORD = "demo-admin-screenshot-password"
 GB = 1024**3
+# When the demo started: its machines' agent-machines count their uptime and traffic from here.
+STARTED = time.time()
 PORTS = (PROXY_PORT, AUTH_PORT, INTERCEPT_PORT, LAPTOP, DESKTOP, ANTHROPIC, DOCKER)
 # Where a running demo says what it started, so --stop (from another shell, or an agent that lost the
 # process) can stop it: the demo's own process id, its server's and issuer's, and its folder.
@@ -1164,7 +1166,7 @@ class FakeProviders:
         }
 
     def metrics(self) -> dict:
-        machine, wave = HARDWARE[self.machine_id], (time.time() % 20) / 20
+        machine, wave, up = HARDWARE[self.machine_id], (time.time() % 20) / 20, time.time() - STARTED
         gpu_total = machine["gpu_gb"] * GB
         return {
             "hostname": self.machine_id, "platform": "Linux 6.14.0", "timestamp": time.time(),
@@ -1174,6 +1176,16 @@ class FakeProviders:
                       "memory_used": int(gpu_total * 0.93), "memory_total": int(gpu_total),
                       "temperature": 67 + int(6 * wave), "power_watts": round(280 + 60 * wave, 1)}],
             "gpu_source": "nvidia-smi", "gpu_error": None,
+            # Running totals, as a real agent-machine reports them: the console works out the rates.
+            "uptime_seconds": 3 * 86400 + up, "load_average": [round(1.2 + wave, 2), 1.4, 1.1],
+            "swap": {"used": int(0.3 * GB), "total": 8 * GB},
+            "network": {"bytes_recv": int(41 * GB + up * 2.4e6), "bytes_sent": int(9 * GB + up * 6e5),
+                        "packets_recv": int(3.1e7 + up * 2100), "packets_sent": int(1.2e7 + up * 900), "errors": 0, "interfaces": 2},
+            "disks": [{"mountpoint": "/", "total": 930 * GB, "used": 512 * GB, "free": 418 * GB, "percent": 55.1,
+                       "holds": ["Settings", "Data", "Launch folder"]}],
+            "process": {"pid": 2417, "rss": 38 * 1024 * 1024, "threads": 24, "started_at": STARTED},
+            "agent": {"connected_since": STARTED, "connects": 1, "requests": int(up / 2), "tunnels_open": 2, "tunnels_total": 14 + int(up / 30),
+                      "tunnel_bytes_in": int(up * 9e3), "tunnel_bytes_out": int(up * 1.4e5)},
         }
 
     def llama_settings(self, request: dict) -> dict:

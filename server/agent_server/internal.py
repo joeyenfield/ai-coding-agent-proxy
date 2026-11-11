@@ -317,6 +317,10 @@ def metrics(runtime: Any) -> str:
     lines = []
     for name, kind, text, value in values:
         lines += [f"# HELP {name} {text}", f"# TYPE {name} {kind}", f"{name}{{{labels}}} {value}"]
+    # The Server stats page's numbers: requests by outcome, WebSockets by kind, sessions, memory and network.
+    from . import stats
+
+    lines.append(stats.exposition(stats.server_metrics(runtime), {"pod": cluster.pod_id}).rstrip("\n"))
     lines.append(f'agent_server_info{{{labels},version="{_version()}",roles="{",".join(sorted(getattr(runtime, "roles", ())))}"}} 1')
     return "\n".join(lines) + "\n"
 

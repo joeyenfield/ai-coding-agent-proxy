@@ -278,6 +278,9 @@ func (p *Presence) session(ctx context.Context) error {
 		return errors.New("unexpected answer from the agent-server")
 	}
 	p.setStatus("connected to " + server)
+	// For the load sample's "agent" part: when this connection began, and how many there have been.
+	providers.Activity.Connected()
+	defer providers.Activity.Disconnected()
 	p.logf("fleet: connected to %s", server)
 	p.checkVersion(server)
 	sessionCtx, cancel := context.WithCancel(ctx)
@@ -339,6 +342,10 @@ func (p *Presence) session(ctx context.Context) error {
 		}
 		if json.Unmarshal(data, &kind) != nil {
 			continue
+		}
+		switch kind.Type {
+		case "provider", "server", "container", "folders", "files", "launch", "shell", "update":
+			providers.Activity.Request()
 		}
 		if kind.Type == "server" {
 			var request servers.Request

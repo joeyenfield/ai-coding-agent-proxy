@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type GpuSample, type MachineSample, type OllamaProviderModel, type OllamaState, type ProviderRef } from "../api";
 import { LineChart, type Sample } from "../components/LineChart";
+import { Meter } from "../components/Meter";
 import { formatBytes, formatNumber } from "../format";
 import { useToast } from "../hooks";
 import { useTicker } from "../live";
+import { ceiling, formatByteRate, span, useRates } from "../rates";
 
 const POLL_MS = 2000;
 const WINDOW_SECONDS = 300;
@@ -54,8 +56,21 @@ function useLoadHistory(sample: MachineSample | undefined) {
 export function MachineLoad({ machine, ollama }: { machine: string; ollama: { target: ProviderRef; label: string }[] }) {
   const metrics = useQuery({ queryKey: ["metrics", machine], queryFn: () => api.machineMetrics(machine), refetchInterval: POLL_MS, gcTime: 0 });
   const history = useLoadHistory(metrics.data);
-  useTicker(true, 1000);
   const sample = metrics.data;
+  // Running totals from the machine; an agent-machine from before they were added sends none.
+  const rates = useRates(
+    sample?.timestamp,
+    sample
+      ? {
+          received: sample.network?.bytes_recv,
+          sent: sample.network?.bytes_sent,
+          tunnelIn: sample.agent?.tunnel_bytes_in,
+          tunnelOut: sample.agent?.tunnel_bytes_out,
+        }
+      : null,
+    WINDOW_SECONDS,
+  );
+  useTicker(true, 1000);
   return (
     <div className="tab-stack">
       {metrics.isPending && <p className="empty">Asking the machine for its load…</p>}
@@ -86,8 +101,39 @@ export function MachineLoad({ machine, ollama }: { machine: string; ollama: { ta
             {sample.gpus.map((gpu, index) => (
               <GpuCharts key={gpu.index} gpu={gpu} util={history.gpuUtil[index] ?? []} memory={history.gpuMemory[index] ?? []} multiple={sample.gpus.length > 1} />
             ))}
+            {sample.network && (
+              <>
+                <LineChart
+                  label="Network received"
+                  samples={rates.received ?? []}
+                  max={ceiling(rates.received ?? [], 64 * 1024)}
+                  format={formatByteRate}
+                  windowSeconds={WINDOW_SECONDS}
+                  detail={`${formatBytes(sample.network.bytes_recv)} in total`}
+                />
+                <LineChart
+                  label="Network sent"
+                  samples={rates.sent ?? []}
+                  max={ceiling(rates.sent ?? [], 64 * 1024)}
+                  format={formatByteRate}
+                  windowSeconds={WINDOW_SECONDS}
+                  detail={`${formatBytes(sample.network.bytes_sent)} in total`}
+                />
+              </>
+            )}
+            {sample.agent && (
+              <LineChart
+                label="Tunnel traffic"
+                samples={(rates.tunnelIn ?? []).map((point, index) => ({ t: point.t, v: point.v == null ? null : point.v + ((rates.tunnelOut ?? [])[index]?.v ?? 0) }))}
+                max={ceiling([...(rates.tunnelIn ?? []), ...(rates.tunnelOut ?? [])], 16 * 1024) * 2}
+                format={formatByteRate}
+                windowSeconds={WINDOW_SECONDS}
+                detail={`agents to its model servers, ${sample.agent.tunnels_open} open`}
+              />
+            )}
           </div>
           {sample.gpu_error && <p className="subtle">{sample.gpu_error}</p>}
+          <MachineDetails sample={sample} />
         </>
       )}
       {ollama.map((item) => (
@@ -99,6 +145,73 @@ export function MachineLoad({ machine, ollama }: { machine: string; ollama: { ta
         </section>
       ))}
     </div>
+  );
+}
+
+/** Its disks, swap and the technical details: what the computer and its agent-machine report beyond the charts. */
+function MachineDetails({ sample }: { sample: MachineSample }) {
+  const now = Date.now() / 1000;
+  const { agent, network, process, swap } = sample;
+  const facts: [string, string][] = [];
+  if (sample.uptime_seconds != null) facts.push(["Computer up for", span(sample.uptime_seconds)]);
+  if (sample.load_average) facts.push(["Load average", sample.load_average.map((value) => value.toFixed(2)).join(", ")]);
+  if (network) {
+    facts.push(["Network", `${formatBytes(network.bytes_recv)} in, ${formatBytes(network.bytes_sent)} out`]);
+    facts.push(["Network packets", `${formatNumber(network.packets_recv)} in, ${formatNumber(network.packets_sent)} out`]);
+    facts.push(["Network errors", `${formatNumber(network.errors)} on ${network.interfaces} ${network.interfaces === 1 ? "interface" : "interfaces"}`]);
+  }
+  if (process) {
+    facts.push(["agent-machine running for", `${span(now - process.started_at)} (process ${process.pid})`]);
+    if (process.rss != null) facts.push(["agent-machine's memory", formatBytes(process.rss)]);
+    if (process.threads != null) facts.push(["agent-machine's threads", formatNumber(process.threads)]);
+  }
+  if (agent) {
+    facts.push(["Connected to the server for", agent.connected_since == null ? "Not connected" : span(now - agent.connected_since)]);
+    facts.push(["Connections made", formatNumber(agent.connects)]);
+    facts.push(["Requests from the server", formatNumber(agent.requests)]);
+    facts.push(["Tunnels", `${formatNumber(agent.tunnels_open)} open, ${formatNumber(agent.tunnels_total)} so far`]);
+    facts.push(["Through the tunnels", `${formatBytes(agent.tunnel_bytes_in)} in, ${formatBytes(agent.tunnel_bytes_out)} out`]);
+  }
+  const disks = sample.disks ?? [];
+  const hasSwap = swap?.total != null && swap.total > 0;
+  if (!facts.length && !disks.length && !hasSwap) {
+    return <p className="subtle">Update agent-machine there to see its network traffic, disks and connection details.</p>;
+  }
+  return (
+    <>
+      {(disks.length > 0 || hasSwap) && (
+        <div className="meter-grid">
+          {disks.map((disk) => (
+            <Meter
+              key={disk.mountpoint}
+              label={`Disk ${disk.mountpoint}`}
+              value={disk.used}
+              max={disk.total}
+              text={`${formatBytes(disk.used)} of ${formatBytes(disk.total)}`}
+              detail={`${formatBytes(disk.free)} free. Holds: ${disk.holds.join(", ").toLowerCase()}.`}
+            />
+          ))}
+          {hasSwap && swap?.total != null && (
+            <Meter label="Swap" value={swap.used ?? 0} max={swap.total} text={`${formatBytes(swap.used ?? 0)} of ${formatBytes(swap.total)}`} />
+          )}
+        </div>
+      )}
+      {facts.length > 0 && (
+        <section className="section">
+          <div className="section-head">
+            <h2>Technical details</h2>
+          </div>
+          <dl className="fact-list">
+            {facts.map(([label, value]) => (
+              <div key={label}>
+                <dt>{label}</dt>
+                <dd>{value}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+      )}
+    </>
   );
 }
 

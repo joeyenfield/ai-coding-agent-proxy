@@ -2943,7 +2943,12 @@ export interface ServerStats {
   cpu: { percent: number; count: number; load_average: number[] | null };
   memory: { total: number; used: number; available: number; percent: number };
   swap: { total: number; used: number; percent: number };
-  process: { pid: number; rss: number; cpu_percent: number; threads: number; started_at: number };
+  /** open_files: descriptors (handles on Windows); connections: its sockets. Null where the system won't say. */
+  process: { pid: number; rss: number; cpu_percent: number; threads: number; started_at: number; open_files: number | null; connections: number | null };
+  /** Running totals since the computer started, loopback left out; null when there's no other interface. */
+  network: NetworkTotals | null;
+  /** What this server process is doing now. */
+  live: ServerLive;
   /** Each filesystem holding one of the folders below, with their names. */
   disks: { mountpoint: string; total: number; used: number; free: number; percent: number; folders: string[] }[];
   /** bytes is null until first measured (in the background, every few minutes) or when the folder doesn't exist. */
@@ -2954,6 +2959,38 @@ export interface ServerStats {
   database: { kind: "sqlite" | "postgresql" | null; bytes: number | null };
 }
 
+/** Bytes and packets through a computer's network interfaces since it started: running totals, so rates come from two samples. */
+export interface NetworkTotals {
+  bytes_sent: number;
+  bytes_recv: number;
+  packets_sent: number;
+  packets_recv: number;
+  errors: number;
+  interfaces: number;
+}
+
+/** GET /api/server/stats `live`: counts from the server process that answered (stats.py `live`). */
+export interface ServerLive {
+  started_at: number;
+  requests: {
+    in_flight: number;
+    totals: { ok: number; failed: number; dropped: number };
+    /** The last hour, a minute each, oldest first; minute is its start in Unix seconds. */
+    per_minute: { minute: number; ok: number; failed: number; dropped: number }[];
+  };
+  /** by_kind: machines, model_tunnels, agent_tunnels, links, terminal_hosts, terminal_viewers, other. */
+  connections: { websockets: number; by_kind: Record<string, number>; live_streams: number };
+  sessions: { open: number; total: number; streaming: number };
+  fleet: { machines: number; connected: number; tunnels: number; tunnel_listeners: number };
+  terminals: { shared: number; viewers: number };
+  intercept_tunnels: number;
+  links: { total: number; connected: number };
+  write_queue: number;
+  /** Every server process alive, this one included. */
+  nodes: { id: string; this: boolean; seen_at: number | null; live_streams: number | null }[];
+}
+
+/** A machine's load, sampled by its agent-machine. The fields after gpu_error come from newer agent-machines only. */
 export interface MachineSample {
   hostname: string;
   platform: string;
@@ -2963,6 +3000,24 @@ export interface MachineSample {
   gpus: GpuSample[];
   gpu_source: string | null;
   gpu_error: string | null;
+  uptime_seconds?: number | null;
+  load_average?: number[] | null;
+  swap?: { used: number | null; total: number | null };
+  network?: NetworkTotals | null;
+  /** The filesystems holding agent-machine's folders, with what each holds. */
+  disks?: { mountpoint: string; total: number; used: number; free: number; percent: number; holds: string[] }[];
+  /** agent-machine itself. */
+  process?: { pid: number; rss: number | null; threads: number | null; started_at: number };
+  /** What this agent-machine has done since it started. */
+  agent?: {
+    connected_since: number | null;
+    connects: number;
+    requests: number;
+    tunnels_open: number;
+    tunnels_total: number;
+    tunnel_bytes_in: number;
+    tunnel_bytes_out: number;
+  };
 }
 
 const OUTCOMES: Record<string, string> = {

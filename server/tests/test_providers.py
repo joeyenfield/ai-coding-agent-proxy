@@ -163,6 +163,12 @@ def test_provider_status_model_actions_logs_metrics_and_search_go_to_the_machine
         assert client.post("/api/machines/desk/providers/strata-18500/models/pull", json={"name": "x"}).status_code == 404
         assert client.get("/api/machines/desk/providers/strata-18500/log?source=engine").text == "[strata] done\n"
         assert client.get("/api/machines/desk/metrics").json()["cpu"]["percent"] == 12.5
+        # The same sample as Prometheus text, labelled with the machine; what it doesn't report is left out.
+        scraped = client.get("/api/machines/desk/metrics?format=prometheus")
+        assert scraped.headers["content-type"].startswith("text/plain; version=0.0.4")
+        assert 'agent_machine_cpu_percent{machine="desk",machine_name="desk"} 12.5' in scraped.text
+        assert 'agent_machine_memory_total_bytes{machine="desk",machine_name="desk"} 2' in scraped.text
+        assert "agent_machine_network" not in scraped.text and "agent_machine_gpu" not in scraped.text
         assert client.get("/api/machines/desk/catalog/ollama?q=qwen").json()["models"] == [{"name": "qwen3"}]
         assert client.get("/api/machines/desk/catalog/elsewhere").status_code == 404
         assert client.get("/api/machines/desk/providers/vllm-1").status_code == 404

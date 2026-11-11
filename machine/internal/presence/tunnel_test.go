@@ -13,6 +13,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"ai-control-mesh/machine/internal/providers"
 	"ai-control-mesh/machine/internal/settings"
 )
 
@@ -81,6 +82,7 @@ func TestATunnelCarriesBytesToTheModelServerAndBack(t *testing.T) {
 	server := tunnelServer(t, got)
 	p := testPresence(t, server)
 	p.tunnels.set([]int{port})
+	before := providers.Activity.Snapshot()
 	done := make(chan error, 1)
 	go func() { done <- p.tunnel(server.URL, Tunnel{Type: "tunnel", ID: "t1", Port: port}, nil) }()
 	select {
@@ -95,6 +97,12 @@ func TestATunnelCarriesBytesToTheModelServerAndBack(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("the tunnel didn't end when the server closed it")
+	}
+	// The load sample's "agent" part counted it: one tunnel, closed again, and the bytes each way.
+	after := providers.Activity.Snapshot()
+	grew := func(name string) int64 { return after[name].(int64) - before[name].(int64) }
+	if grew("tunnels_total") != 1 || grew("tunnels_open") != 0 || grew("tunnel_bytes_in") != int64(len("hello model\n")) || grew("tunnel_bytes_out") != int64(len("echo: hello model\n")) {
+		t.Fatalf("activity before %v, after %v", before, after)
 	}
 }
 

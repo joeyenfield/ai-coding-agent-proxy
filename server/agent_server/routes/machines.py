@@ -27,7 +27,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
-from .. import auth, mcp, remote
+from .. import auth, mcp, remote, stats
 from ..fleet import (
     FEATURES, PROVIDER_TYPES, FleetError, allowed, can_manage, can_see, checked_access, parse_provider, provider_address,
     provider_request, within_roots,
@@ -378,11 +378,16 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         return kind, port, backend
 
     @app.get("/api/machines/{machine_id}/metrics")
-    async def metrics(machine_id: str, request: Request) -> dict[str, Any]:
-        """The machine's CPU, memory and GPU load, sampled there now."""
+    async def metrics(machine_id: str, request: Request, format: str = "") -> Any:
+        """The machine's load, sampled there now: CPU, memory, GPUs, network, disks and agent-machine's own counters.
+        format=prometheus answers Prometheus text instead of JSON, labelled with the machine, for a scraper."""
         require_trusted(request)
-        answer = await ask(visible(machine_id, request), "metrics", timeout=15)
-        return answer.get("metrics") or {}
+        target = visible(machine_id, request)
+        answer = await ask(target, "metrics", timeout=15)
+        sample = answer.get("metrics") or {}
+        if format == "prometheus":
+            return PlainTextResponse(stats.exposition(stats.machine_metrics(sample), {"machine": target.id, "machine_name": target.name}), media_type=stats.PROMETHEUS)
+        return sample
 
     @app.get("/api/machines/{machine_id}/catalog/{catalog}")
     async def catalog(machine_id: str, catalog: str, request: Request, q: str = "", repo: str = "") -> dict[str, Any]:

@@ -900,6 +900,7 @@ SITE_ADMIN_ONLY = [
     (re.compile(r"GET|POST|PUT|DELETE"), re.compile(r"/api/config/.+")),
     (re.compile(r"POST"), re.compile(r"/api/server/restart")),
     (re.compile(r"GET"), re.compile(r"/api/server/stats")),
+    (re.compile(r"GET"), re.compile(r"/api/server/metrics")),
     # Every request the server received, anyone's: addresses, users, what was refused.
     (re.compile(r"GET"), re.compile(r"/api/server/access-log(/.*)?")),
     # Every request saved, and in debug mode their payloads.

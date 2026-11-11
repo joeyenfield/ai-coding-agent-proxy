@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+
+	"ai-control-mesh/machine/internal/providers"
 )
 
 // Tunnel is the server's {"type": "tunnel"} message: carry one connection from the server to
@@ -65,6 +67,8 @@ func (p *Presence) tunnel(server string, request Tunnel, extra []int) error {
 		return err
 	}
 	defer local.Close()
+	providers.Activity.TunnelOpened()
+	defer providers.Activity.TunnelClosed()
 	done := make(chan struct{}, 2)
 	// One writer at a time on the WebSocket, as gorilla needs: the model server's bytes and the tokens.
 	var writeMu sync.Mutex
@@ -125,6 +129,7 @@ func (p *Presence) tunnel(server string, request Tunnel, extra []int) error {
 				if _, err := local.Write(data); err != nil {
 					return
 				}
+				providers.Activity.TunnelIn(len(data))
 			}
 		}
 	}()
@@ -138,6 +143,7 @@ func (p *Presence) tunnel(server string, request Tunnel, extra []int) error {
 				if werr := write(websocket.BinaryMessage, buffer[:n]); werr != nil {
 					return
 				}
+				providers.Activity.TunnelOut(n)
 			}
 			if err != nil {
 				if err == io.EOF {

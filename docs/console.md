@@ -263,9 +263,11 @@ Claude Code signed in to its account sends most calls with only what's new, nami
 
 ![Server stats](screenshots/server-stats.png)
 
-`/server-stats` (site admins only) shows how hard the server's computer is working and how full its disks are, asked every 2 seconds while open and kept for five minutes on the page only. A machine's own load is on its [Load tab](#load-mcp-servers-and-access).
+`/server-stats` (site admins only) is a live view of what the server is doing, how hard its computer is working and how full its disks are, asked every 2 seconds while open and kept for five minutes on the page only. A machine's own load is on its [Load tab](#load-mcp-servers-and-access).
 
-- **The computer**: its name, system, how long it's been up and how long the server has been running.
+- **The cards at the top**: requests in flight (and in how many sessions), open connections, open sessions, machines connected, shared terminals with their viewers, and the server's processes.
+- **Traffic**: charts of requests a second, requests in flight, open connections, requests a minute over the last hour (with how many failed or were dropped), and the computer's network traffic in and out. Requests count everything the server answered, the console's own calls included.
+- **Technical details**: how long the server and its computer have been up, what it answered (ok, failed, dropped), live streams, tunnels to model servers, account agents' HTTPS tunnels, linked servers, records waiting to be written to the database, the server's sockets and open files, and network packets and errors. A table counts the open WebSockets by kind (machines, tunnels, terminals, viewers, linked servers); who holds each is on the [Access log](#access-log). With several server processes, a second table lists them, and the counts are those of the process that answered. Prometheus can scrape the same numbers, and each machine's load: see [Scaling](scaling.md#health-readiness-and-metrics).
 - **CPU and memory**: charts of the computer's CPU (with the load average outside Windows) and memory, and of the server's own share of the CPU. Bars show the server's own memory and, when there is one, swap.
 - **Disks**: each disk the server keeps its files on, with how much is used and free and which of its folders are there.
 - **What the server keeps**: the size of its database (SQLite or PostgreSQL: settings, accounts, machines and every session's requests, payloads and terminals), its log folder (`logs/`, where the SQLite file is too) and the builds it hands out (`dist/`), measured every five minutes. Deleting sessions on the [Sessions](#sessions) page, or fewer days under **Storage** on [Server settings](#server-settings), removes recorded traffic; old build folders can be deleted by hand (the server hands out only its own version's).
@@ -480,7 +482,7 @@ When the machine doesn't report an Ollama, llama.cpp or Strata running, its tab 
 
 ![A machine's load](screenshots/hosts.png)
 
-**Load**: the machine's CPU, memory and GPU use over time, sampled there, and **Loaded on** each Ollama: which models are in memory.
+**Load**: the machine's CPU, memory and GPU use over time, sampled there, its network traffic in and out, and the traffic agents send through its tunnels to its model servers. Bars show the disks agent-machine's folders are on and swap. **Technical details** lists how long the computer has been up, its load average, network totals, packets and errors, agent-machine's own process (uptime, memory, threads), how long it has been connected to the server, the requests it has answered and its tunnels. A machine with an older agent-machine shows only the CPU, memory and GPU charts until it's updated. Then **Loaded on** each Ollama: which models are in memory.
 
 ![A machine's MCP servers](screenshots/machine-mcp.png)
 

@@ -22,7 +22,8 @@ from ..fleet import PROVIDER_TYPES, SHELL_CLIENT, FleetError, can_see, parse_pro
 from ..provider_accounts import AccountError
 from ..runtime import Runtime
 from ..sessions import Session
-from ..stats import ServerStats
+from .. import internal
+from ..stats import PROMETHEUS, ServerStats, live as live_stats
 
 
 LOGGER = logging.getLogger("agent-proxy")
@@ -95,8 +96,17 @@ def register(app: FastAPI, runtime: Runtime) -> None:
 
     @app.get("/api/server/stats")
     async def server_stats() -> dict[str, Any]:
-        """The server computer's CPU, memory and disk use (site admins only, auth.SITE_ADMIN_ONLY)."""
-        return await asyncio.to_thread(stats.sample)
+        """The server computer's CPU, memory, network and disk use, and under `live` what the server is doing now:
+        requests, connections, sessions, the fleet and the server's processes (site admins only, auth.SITE_ADMIN_ONLY)."""
+        sample = await asyncio.to_thread(stats.sample)
+        sample["live"] = live_stats(runtime)
+        return sample
+
+    @app.get("/api/server/metrics", response_class=PlainTextResponse)
+    async def server_metrics() -> PlainTextResponse:
+        """This server process's numbers as Prometheus text, for a scraper signed in as a site admin (auth.SITE_ADMIN_ONLY).
+        The same text the internal port serves at /metrics, for servers that don't open one."""
+        return PlainTextResponse(internal.metrics(runtime), media_type=PROMETHEUS)
 
     @app.get("/api/server/access-log")
     async def access_log(failed: bool = False, q: str = "", limit: int = 200, before: int | None = None) -> dict[str, Any]:
