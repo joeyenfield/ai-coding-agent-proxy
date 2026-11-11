@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { isFailure, outcomeLabel, type RequestRecord } from "../api";
+import { DetailBack, useDetailView } from "../components/DetailView";
 import { Inspector } from "../components/Inspector";
 import { LiveDetails } from "../components/LiveDetails";
 import { RouteBadge } from "../components/RouteBadge";
@@ -52,6 +53,7 @@ export function TrafficPage() {
     return grouped ? groupRepeats(filtered) : filtered;
   }, [scoped, category, grouped]);
   const selected = rows.find((row) => row.key === selectedKey);
+  const detail = useDetailView(Boolean(selected));
   const intercept = status.data?.intercept;
   const shown = matches.reduce((total, row) => total + 1 + (row.repeats?.length ?? 0), 0);
   const services = new Set(matches.map((row) => row.service)).size;
@@ -76,11 +78,11 @@ export function TrafficPage() {
     const next = new URLSearchParams(params);
     if (value) next.set(key, value);
     else next.delete(key);
-    setParams(next, { replace: key !== "request" });
+    setParams(next, { replace: true });
   };
 
   return (
-    <div className="page wide">
+    <div className={`page wide ${selected ? "detail-open" : ""}`}>
       <header className="page-head">
         <PartTag />
         <h1>Traffic</h1>
@@ -180,7 +182,7 @@ export function TrafficPage() {
             <>
               <ul className="traffic-list" aria-label="Requests">
                 {matches.slice(0, ROW_LIMIT).map((row) => (
-                  <TrafficRow key={row.key} row={row} selected={row.key === selectedKey} onSelect={() => setParam("request", row.key)} />
+                  <TrafficRow key={row.key} row={row} selected={row.key === selectedKey} onSelect={() => detail.select(row.key)} />
                 ))}
               </ul>
               {matches.length > ROW_LIMIT && <p className="subtle">Showing the newest {ROW_LIMIT} rows.</p>}
@@ -189,7 +191,10 @@ export function TrafficPage() {
         </div>
         <div className="split-side">
           {selected ? (
-            <Details key={selected.key} row={selected} />
+            <>
+              <DetailBack label="Back to traffic" onBack={detail.close} />
+              <Details key={selected.key} row={selected} />
+            </>
           ) : (
             <div className="inspector placeholder">
               <p>Select a request to see its headers, body and timing.</p>

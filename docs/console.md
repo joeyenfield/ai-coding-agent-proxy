@@ -13,7 +13,7 @@ The rail on the left groups the pages by what you're doing. Members see only the
 | Section | Pages | What it's for |
 | --- | --- | --- |
 | **Overview** | Overview | How a request flows (agents, the server, machines) and the server's numbers at a glance. |
-| **Agents** | Live agent view, Running agents, Start an agent, Ask a model | Start coding agents through the server, then watch them and type into them from any device, or ask a model a question yourself. |
+| **Agents** | Start an agent, Live agent view, Running agents, Ask a model | Start coding agents through the server, then watch them and type into them from any device, or ask a model a question yourself. |
 | **Models** | Providers, Subscriptions, Shared with you | Where agents' model calls go: machines' model servers, hosted APIs, your own AI plans, and what linked servers share with your organization. |
 | **Machines** | All machines, Add a machine, Approve a device | The fleet. Open **All machines** to search and open a computer; individual machines aren't listed in the rail. |
 | **Activity** | Live, Traffic, Requests, Sessions | What agents send through the server, as it happens and afterwards. |
@@ -95,7 +95,14 @@ A machine's own page has the same launch form (see [its Agents tab](#summary-age
 
 ![Running agents](screenshots/terminals.png)
 
-`/terminals` lists the agents whose terminals are shared with the server (`--control`, or started from a machine's page), with agent, project, machine, running time and state:
+`/terminals` lists the agents running now whose terminals are shared with the server (`--control`, or started from a machine's page). It's the active part of **Sessions**, one row per agent:
+
+- The cards at the top count the agents running, those that need you, those working, and their requests (with how many are in flight).
+- **Search** by agent, project, person, machine, model or session id. The chips under it filter by state, each with its count.
+- Each row shows the agent, its folder, who can see it and its state; one line on what it's doing (the question, when it asks one); then who started it, the machine, the model and provider, when it started, and its requests with how many are in flight and when the last one was.
+- Press a row to open its terminal. **Session** opens its session, with its requests and recordings.
+
+The states:
 
 | State | Meaning |
 | --- | --- |
@@ -106,13 +113,13 @@ A machine's own page has the same launch form (see [its Agents tab](#summary-age
 | **Connecting** | The viewer is joining. |
 | **Exited** | The agent ended, with its exit status when it wasn't 0. |
 
-Finished sessions collapse behind **Show … finished sessions** and stay readable until their session is deleted. **Remove … not connected** (shown when more than one launcher dropped) clears dead rows, and **Notify me when an agent is waiting** turns on system notifications.
+Finished sessions collapse behind **Show … finished sessions** and stay readable until their session is deleted; the search covers them too. **Remove … not connected** (shown when more than one launcher dropped) clears dead rows, and **Notify me when an agent is waiting** turns on system notifications.
 
 A terminal that isn't connected (launcher closed, or agent exited) has **Remove** for those who can control its session. It deletes the session with everything recorded for it: its terminal output, requests, traces and chats. A terminal still connected, or with a request in flight, can't be removed.
 
 ### Live agent view
 
-**Live agent view** (`/live-agents`) is where the console opens (`/` goes there) and the first page under Agents in the rail. It shows several terminals together. Old `/terminals-beta` links open it. The title and two dropdowns share one narrow bar, so the terminals take the rest of the screen.
+**Live agent view** (`/live-agents`) is where the console opens (`/` goes there). It shows several terminals together. Old `/terminals-beta` links open it. The title and two dropdowns share one narrow bar, so the terminals take the rest of the screen.
 
 - **Agents** (with the number in the grid) drops down a searchable list of shared sessions, each with its state, folder and machine. Tick up to 16. It opens by itself while the grid is empty; **Done**, Esc or a click elsewhere closes it.
 - The layout dropdown (**2 × 2**) sets **Rows** and **Columns** (1–4 each) and **Text size**. With more agents than fit, the arrows beside the page number (such as **1 / 2**) switch grid pages; only the visible page connects its terminals.
@@ -196,6 +203,7 @@ Account agents' other calls (sign-in, telemetry, MCP) aren't shown here; they're
 - **Failed only** and **Group repeats** are chips at the end of that row. Group repeats folds back-to-back identical requests (agents poll some endpoints) into one row, marked ×3.
 - Each row is three lines: the type, service and model with the status at the end; the method and path with how long it took; then the route, agent, request number and time, with its tokens in and out and what the prompt cache served (or its size, for a request without tokens). Counts marked `≈` were estimated. Requests in flight are marked **pending**, and a failed one has a red edge.
 - Selecting a row opens the inspector on the right: timings, tokens and sizes, and tabs for the **Conversation** (a readable view of the messages), the **Request**, the **Response**, what was **Sent to Ollama** (for translated calls), the request and response **Headers** (credentials redacted) for captured HTTPS, and **Metadata**. **Full screen** opens it alone; **Download full trace** saves the JSON.
+- On a phone or a narrow window (below 1100 px) the inspector takes the page instead of sitting under the list. **Back to traffic**, or the browser's or phone's Back, returns to the list where you left it, with the same filters.
 - **Still in memory**, in the inspector, marks a request whose session doesn't save payloads while the server still holds them live: read them now or they're gone when the request leaves memory.
 
 ![Traffic: the headers of a captured request, credentials redacted](screenshots/traffic-headers.png)
@@ -211,7 +219,7 @@ Account agents' other calls (sign-in, telemetry, MCP) aren't shown here; they're
 - **Search** by model, agent, endpoint or ID; filter by **session**, **route** (accounts, own provider, hosted) and **With payload**, **Without payload** or **Failed**.
 - **Include non-model requests from account agents** adds their sign-in, telemetry and MCP calls (hidden by default; Traffic shows them too).
 - It loads the newest 2,000 requests. **Load 2,000 older** fetches the next ones; search and filters cover the requests loaded so far.
-- Selecting a row shows the same inspector as Traffic. Each request also has its own page (`/requests/<session>/<request>`):
+- Selecting a row shows the same inspector as Traffic, which takes the page on a phone in the same way (**Back to requests**). Each request also has its own page (`/requests/<session>/<request>`):
 
 ![One request](screenshots/request.png)
 

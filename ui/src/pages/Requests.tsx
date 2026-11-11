@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, isFailure, isModelCall, outcomeLabel, requestKey, tokens, type RequestRecord } from "../api";
+import { DetailBack, useDetailView } from "../components/DetailView";
 import { Inspector } from "../components/Inspector";
 import { RouteBadge } from "../components/RouteBadge";
 import { endpointPath, formatDuration, formatNumber, formatRelative, shortId } from "../format";
@@ -50,17 +51,18 @@ export function RequestsPage() {
   const current = Math.min(page, pages - 1);
   const visible = matches.slice(current * PAGE_SIZE, (current + 1) * PAGE_SIZE);
   const selected = records.find((record) => requestKey(record) === selectedKey);
+  const detail = useDetailView(Boolean(selected));
 
   const setParam = (key: string, value: string | null) => {
     const next = new URLSearchParams(params);
     if (value) next.set(key, value);
     else next.delete(key);
-    setParams(next, { replace: key !== "request" });
-    if (key !== "request") setPage(0);
+    setParams(next, { replace: true });
+    setPage(0);
   };
 
   return (
-    <div className="page wide">
+    <div className={`page wide ${selected ? "detail-open" : ""}`}>
       <header className="page-head">
         <PartTag />
         <h1>Requests</h1>
@@ -135,7 +137,7 @@ export function RequestsPage() {
                       key={requestKey(record)}
                       record={record}
                       selected={requestKey(record) === selectedKey}
-                      onSelect={() => setParam("request", requestKey(record))}
+                      onSelect={() => detail.select(requestKey(record))}
                     />
                   ))}
                 </tbody>
@@ -170,11 +172,14 @@ export function RequestsPage() {
         </div>
         <div className="split-side">
           {selected ? (
-            <Inspector
-              key={requestKey(selected)}
-              record={selected}
-              session={sessions.data?.find((session) => session.session_id === selected.session_id)}
-            />
+            <>
+              <DetailBack label="Back to requests" onBack={detail.close} />
+              <Inspector
+                key={requestKey(selected)}
+                record={selected}
+                session={sessions.data?.find((session) => session.session_id === selected.session_id)}
+              />
+            </>
           ) : (
             <div className="inspector placeholder">Select a request to see its timing, tokens and payload.</div>
           )}

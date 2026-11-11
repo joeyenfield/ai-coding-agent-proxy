@@ -53,7 +53,7 @@ export interface NavSection {
 
 const PAGES = {
   liveAgents: { to: "/live-agents", label: "Live agent view", icon: "grid", hint: "Several agents' terminals at once" },
-  terminals: { to: "/terminals", label: "Running agents", icon: "terminal", hint: "Every shared terminal, to watch or type into" },
+  terminals: { to: "/terminals", label: "Running agents", icon: "terminal", hint: "Agents running now: who, what they're doing, their traffic" },
   agents: { to: "/agents", label: "Start an agent", icon: "play", hint: "On a machine, or the command to run it yourself" },
   ask: { to: "/ask", label: "Ask a model", icon: "chat", hint: "Chat with one model through the server" },
   providers: { to: "/providers", label: "Providers", icon: "cube", hint: "Where agents' calls go, your usage and limits" },
@@ -81,7 +81,7 @@ export const SECTIONS: NavSection[] = [
     id: "agents",
     label: "Agents",
     summary: "Start coding agents through the server, then watch them and type into them from any device.",
-    items: [PAGES.liveAgents, PAGES.terminals, PAGES.agents, PAGES.ask],
+    items: [PAGES.agents, PAGES.liveAgents, PAGES.terminals, PAGES.ask],
   },
   {
     id: "models",

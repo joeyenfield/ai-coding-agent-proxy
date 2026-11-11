@@ -7,7 +7,7 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { useToast } from "../hooks";
 import { PartTag } from "../components/PartTag";
 import { SharingBadge } from "../components/Sharing";
-import { formatRelative } from "../format";
+import { formatNumber, formatRelative } from "../format";
 
 /** Output within this long counts as the agent still drawing (a spinner, streamed text). */
 const BUSY_MS = 5000;
@@ -57,19 +57,31 @@ const removable = (terminal: TerminalSummary) => !terminal.connected && terminal
 const byRecent = (a: TerminalSummary, b: TerminalSummary) =>
   (b.last_output_at ?? b.started_at ?? "").localeCompare(a.last_output_at ?? a.started_at ?? "");
 
+/** The states a running agent can be filtered by, most urgent first; the key is the state's tone. */
+const FILTERS: { tone: TerminalState["tone"]; label: string }[] = [
+  { tone: "ask", label: "Needs you" },
+  { tone: "live", label: "Working" },
+  { tone: "good", label: "Waiting" },
+  { tone: "bad", label: "Not connected" },
+];
+
+/** Who started it: you, or the person the server names. Unknown without accounts on the session. */
+const startedBy = (terminal: TerminalSummary) => (terminal.you ? (terminal.you.owner ? "You" : terminal.you.sharing.owner ?? "") : "");
+
 export function TerminalsPage() {
   // While it fails (offline, or the server restarting), keep asking so the page recovers by itself.
   const remote = useQuery({ queryKey: ["remote"], queryFn: api.remote, refetchInterval: (query) => (query.state.status === "error" ? 10000 : false) });
   const trusted = remote.data?.trusted === true;
   const terminals = useQuery({ queryKey: ["terminals"], queryFn: () => api.terminals(), refetchInterval: 3000, enabled: trusted });
   const [showEnded, setShowEnded] = useState(false);
-  // The terminals to delete, with their sessions: one card's, or every disconnected one.
+  const [query, setQuery] = useState("");
+  const [show, setShow] = useState<TerminalState["tone"] | "">("");
+  // The terminals to delete, with their sessions: one row's, or every disconnected one.
   const [removing, setRemoving] = useState<TerminalSummary[] | null>(null);
   const client = useQueryClient();
   const notify = useToast();
   const all = terminals.data?.terminals ?? [];
   const running = all.filter((item) => !(item.ended_at ?? item.session_ended_at)).sort(byRecent);
-  const ended = all.filter((item) => item.ended_at ?? item.session_ended_at).sort(byRecent);
   const disconnected = all.filter(removable);
   const remove = useMutation({
     mutationFn: async (targets: TerminalSummary[]) => {
@@ -89,40 +101,100 @@ export function TerminalsPage() {
     setRemoving(targets);
   };
 
+  // The search narrows both lists; the state chips count within it.
+  const text = query.trim().toLowerCase();
+  const matches = (terminal: TerminalSummary) =>
+    !text ||
+    [terminal.agent_name, terminal.agent, terminal.project, terminal.project_path, startedBy(terminal), terminal.machine_name, terminal.model, terminal.backend, terminal.session_id].some(
+      (value) => (value ?? "").toLowerCase().includes(text),
+    );
+  const now = Date.now();
+  const found = running.filter(matches).map((terminal) => ({ terminal, state: terminalState(terminal, now) }));
+  const ended = all.filter((item) => item.ended_at ?? item.session_ended_at).filter(matches).sort(byRecent);
+  const counts = new Map<string, number>();
+  for (const { state } of found) counts.set(state.tone, (counts.get(state.tone) ?? 0) + 1);
+  const shown = show ? found.filter(({ state }) => state.tone === show) : found;
+  const tones = running.map((terminal) => terminalState(terminal, now).tone);
+
   return (
     <div className="page">
       <header className="page-head">
         <PartTag />
         <h1>Running agents</h1>
         <p className="lede">
-          Agents started with <code>agent … --control</code> run in a terminal this server can see, from any machine
-          signed in to it. Open one to read its screen and scrollback and to type into it, from any device.
+          The agents running now with a shared terminal: who started each, what it's doing and how much it has sent. Open one
+          to read its screen and type into it, from any device.
         </p>
       </header>
 
       {remote.isError && <p className="bad">{remote.error.message}</p>}
       {remote.data && !trusted && <PairPanel />}
 
-      {trusted && (
-        <section className="section" aria-labelledby="running-heading">
-          <div className="section-head">
-            <h2 id="running-heading">Running now</h2>
-            <div className="terminal-actions">
-              {disconnected.length > 1 && (
-                <button type="button" onClick={() => ask(disconnected)}>
-                  Remove {disconnected.length} not connected
-                </button>
-              )}
-              <NotifyToggle />
-            </div>
+      {trusted && running.length > 0 && (
+        <dl className="stat-cards" aria-label="Running agents">
+          <div>
+            <dt>Running</dt>
+            <dd>{formatNumber(running.length)}</dd>
           </div>
+          <div>
+            <dt>Need you</dt>
+            <dd>{formatNumber(tones.filter((tone) => tone === "ask").length)}</dd>
+          </div>
+          <div>
+            <dt>Working</dt>
+            <dd>{formatNumber(tones.filter((tone) => tone === "live").length)}</dd>
+          </div>
+          <div>
+            <dt>Requests</dt>
+            <dd>
+              {formatNumber(running.reduce((total, item) => total + item.request_count, 0))}{" "}
+              {running.some((item) => item.in_flight > 0) && <small>{running.reduce((total, item) => total + item.in_flight, 0)} in flight</small>}
+            </dd>
+          </div>
+        </dl>
+      )}
+
+      {trusted && (
+        <section className="section" aria-label="Running now">
           {terminals.isError && <p className="bad">{terminals.error.message}</p>}
-          {running.length ? (
-            <ul className="terminal-list">
-              {running.map((terminal) => (
-                <TerminalCard key={terminal.session_id} terminal={terminal} onRemove={() => ask([terminal])} />
+          {all.length > 0 && (
+            <>
+              <div className="filters">
+                <input
+                  type="search"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Search agent, project, person, machine or model"
+                  aria-label="Search running agents"
+                />
+              </div>
+              <div className="chip-bar" role="group" aria-label="Agent state">
+                <button type="button" aria-pressed={!show} onClick={() => setShow("")}>
+                  All <span className="count">{formatNumber(found.length)}</span>
+                </button>
+                {FILTERS.filter(({ tone }) => counts.get(tone)).map(({ tone, label }) => (
+                  <button key={tone} type="button" aria-pressed={show === tone} onClick={() => setShow(show === tone ? "" : tone)}>
+                    {label} <span className="count">{formatNumber(counts.get(tone))}</span>
+                  </button>
+                ))}
+                <span className="chip-gap" aria-hidden="true" />
+                {disconnected.length > 1 && (
+                  <button type="button" onClick={() => ask(disconnected)}>
+                    Remove {disconnected.length} not connected
+                  </button>
+                )}
+                <NotifyToggle />
+              </div>
+            </>
+          )}
+          {shown.length ? (
+            <ul className="agent-list" aria-label="Running agents">
+              {shown.map(({ terminal, state }) => (
+                <AgentRow key={terminal.session_id} terminal={terminal} state={state} onRemove={() => ask([terminal])} />
               ))}
             </ul>
+          ) : running.length ? (
+            <p className="empty">No running agent matches.</p>
           ) : (
             terminals.isSuccess && (
               <div className="empty panel">
@@ -141,9 +213,9 @@ export function TerminalsPage() {
                 {showEnded ? "Hide" : "Show"} {ended.length} finished {ended.length === 1 ? "session" : "sessions"}
               </button>
               {showEnded && (
-                <ul className="terminal-list">
+                <ul className="agent-list" aria-label="Finished sessions">
                   {ended.map((terminal) => (
-                    <TerminalCard key={terminal.session_id} terminal={terminal} onRemove={() => ask([terminal])} />
+                    <AgentRow key={terminal.session_id} terminal={terminal} state={terminalState(terminal, now)} onRemove={() => ask([terminal])} />
                   ))}
                 </ul>
               )}
@@ -173,28 +245,46 @@ export function TerminalsPage() {
   );
 }
 
-function TerminalCard({ terminal, onRemove }: { terminal: TerminalSummary; onRemove: () => void }) {
-  const state = terminalState(terminal);
-  const path = `/terminals/${encodeURIComponent(terminal.session_id)}`;
+/**
+ * One agent: what it is and its state, what it's doing, then who started it, where, with which
+ * model and how much it has sent. The row opens its terminal; its session is the link beside it.
+ */
+function AgentRow({ terminal, state, onRemove }: { terminal: TerminalSummary; state: TerminalState; onRemove: () => void }) {
+  const id = encodeURIComponent(terminal.session_id);
+  const who = startedBy(terminal);
+  const provider = terminal.backend !== "direct" ? terminal.backend : "own account";
   return (
-    <li className={`terminal-card tone-${state.tone}`}>
-      <div className="terminal-card-head">
-        <Link to={path} className="strong-link">
-          {terminal.agent_name}
-          {terminal.project && <span className="subtle"> · {terminal.project}</span>}
-        </Link>
-        <span className={`pill ${state.tone === "idle" ? "" : state.tone}`}>{state.label}</span>
-      </div>
-      <p className={state.tone === "ask" ? "terminal-question" : "subtle"}>{state.detail}</p>
-      <SharingBadge you={terminal.you} />
-      <p className="terminal-card-meta mono subtle">
-        {[terminal.machine_name, terminal.model, terminal.backend !== "direct" ? terminal.backend : "own account", `${terminal.request_count} requests`]
-          .filter(Boolean)
-          .join(" · ")}
-      </p>
-      <div className="terminal-actions">
-        <Link to={path} className="button">
-          Open terminal
+    <li className={`agent-row tone-${state.tone}`}>
+      <Link to={`/terminals/${id}`} className="agent-row-main" title="Open its terminal">
+        <span className="agent-row-line">
+          <span className={`state-dot ${state.tone}`} aria-hidden="true" />
+          <strong>{terminal.agent_name}</strong>
+          {terminal.project && (
+            <span className="subtle agent-row-project" title={terminal.project_path ?? undefined}>
+              in {terminal.project}
+            </span>
+          )}
+          <SharingBadge you={terminal.you} />
+          <span className="agent-row-end">
+            <span className={`pill ${state.tone === "idle" ? "" : state.tone}`}>{state.label}</span>
+          </span>
+        </span>
+        {state.detail && <span className={`agent-row-doing ${state.tone === "ask" ? "terminal-question" : "subtle"}`}>{state.detail}</span>}
+        <span className="agent-row-line agent-row-meta">
+          {who && <span>Started by {who === "You" ? "you" : who}</span>}
+          {terminal.machine_name && <span>on {terminal.machine_name}</span>}
+          <span className="mono">{[terminal.model, provider].filter(Boolean).join(" · ")}</span>
+          {terminal.started_at && <span title={new Date(terminal.started_at).toLocaleString()}>started {formatRelative(terminal.started_at)}</span>}
+          <span className="agent-row-end">
+            {formatNumber(terminal.request_count)} {terminal.request_count === 1 ? "request" : "requests"}
+            {terminal.in_flight > 0 && `, ${terminal.in_flight} in flight`}
+            {terminal.last_activity_at && ` · last ${formatRelative(terminal.last_activity_at)}`}
+          </span>
+        </span>
+      </Link>
+      <div className="agent-row-actions">
+        <Link to={`/sessions/${id}`} className="button">
+          Session
         </Link>
         {removable(terminal) && (
           <button type="button" className="danger" onClick={onRemove}>
