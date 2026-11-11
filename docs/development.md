@@ -88,6 +88,8 @@ Vite on 5173 proxies `/api` (WebSockets included), `/health`, the OpenAPI pages,
 
 Nothing in CI runs these: `.github/workflows/` only builds the images and the releases. Run them before you push, because a push to `master` publishes the `latest` images every `deploy/` stack pulls.
 
+Both workflows run on the self-hosted `mesh-runner-01`, selected by `[self-hosted, Linux, X64, docker, mesh]`. The runner needs Bash, Git, Docker with permission to run privileged containers (for QEMU), `jq` and the GitHub CLI (`gh`). The release workflow sets up Go, Node.js and Python. Images still target `linux/amd64` and `linux/arm64`; ARM64 builds use QEMU emulation on the x64 runner and can take longer than native builds.
+
 The one pytest warning, Starlette's httpx deprecation in `TestClient`, is expected.
 
 `server/tests/conftest.py` gives every test its own log, account-state and CA folders, so `Settings` (built in code or loaded) opens a SQLite file under the test's temporary folder. It fails any test that touches the real `logs/agent-server.sqlite3` or creates secrets in `certs/`. `Settings(...)` built in code writes its own values (backends, agents, model tuning) into that database; `agents=` passes definitions, or the shipped ones when left out. `test_db.py` covers the database itself: migrations, seeding, shipped-agent upgrades, export and import, the config routes' admin checks, request paging and retention, terminal chunks, the issuer's read-only accounts and the import of an older install.

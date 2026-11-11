@@ -26,7 +26,7 @@ concurrency:
 jobs:
   release:
     name: Release
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, docker, mesh]
     steps:
       - uses: actions/checkout@v4
         with:

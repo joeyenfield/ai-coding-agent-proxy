@@ -9,8 +9,8 @@
 # The standalone console (ui/Dockerfile) isn't here: it bakes its API's address in when it's
 # built (VITE_API_URL), so each deployment builds its own.
 #
-# Each image is built for linux/amd64 and linux/arm64 (the Raspberry Pi) on native runners, not
-# under emulation, pushed by digest, then joined into one multi-platform tag.
+# Each image is built for linux/amd64 and linux/arm64 (the Raspberry Pi) on the self-hosted
+# mesh runner, using QEMU for ARM64, pushed by digest, then joined into one multi-platform tag.
 #
 #   a tag v2.0.1     2.0.1, 2.0 and latest
 #   master           master, sha-<commit> and latest
@@ -37,7 +37,7 @@ env:
 jobs:
   version:
     name: Version
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, docker, mesh]
     outputs:
       version: ${{ steps.version.outputs.version }}
       owner: ${{ steps.version.outputs.owner }}
@@ -63,7 +63,7 @@ jobs:
   build:
     name: ${{ matrix.image.name }} (${{ matrix.platform }})
     needs: version
-    runs-on: ${{ matrix.platform == 'linux/arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    runs-on: [self-hosted, Linux, X64, docker, mesh]
     strategy:
       fail-fast: false
       matrix:
@@ -76,6 +76,10 @@ jobs:
         platform: [linux/amd64, linux/arm64]
     steps:
       - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+        if: matrix.platform == 'linux/arm64'
+        with:
+          platforms: arm64
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
@@ -124,7 +128,7 @@ jobs:
   merge:
     name: ${{ matrix.image }}
     needs: [version, build]
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, docker, mesh]
     strategy:
       fail-fast: false
       matrix:
