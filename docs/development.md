@@ -86,9 +86,7 @@ Vite on 5173 proxies `/api` (WebSockets included), `/health`, the OpenAPI pages,
 | `cd ui && npm run build` | Writes `ui/dist`. |
 | `helm lint --strict deploy/helm/agent-mesh -f deploy/helm/agent-mesh/ci/<file>.yaml` | The chart with each CI values file; then `helm template ... \| kubeconform -strict`. |
 
-Nothing in CI runs these: `.github/workflows/` only builds the images and the releases. Run them before you push, because a push to `master` publishes the `latest` images every `deploy/` stack pulls.
-
-Both workflows run on the self-hosted `mesh-runner-01`, selected by `[self-hosted, Linux, X64, docker, mesh]`. The runner needs Bash, Git, Docker with permission to run privileged containers (for QEMU), `jq` and the GitHub CLI (`gh`). The release workflow sets up Go, Node.js and Python. Images still target `linux/amd64` and `linux/arm64`; ARM64 builds use QEMU emulation on the x64 runner and can take longer than native builds.
+Builds and releases run locally; there are no GitHub Actions workflows. Pushes and tags do not publish anything. Run the checks before publishing. Use `devhelpers/scripts/release.ps1` or `.sh` with `website`, `services` or `installers` for independent snapshots. Add `--publish` to upload directly, and `--plan` to preview commands. See [Local releases and snapshots](releases.md) for prerequisites, offline archives, ARM64, stable releases and old queue cleanup.
 
 The one pytest warning, Starlette's httpx deprecation in `TestClient`, is expected.
 
@@ -149,7 +147,7 @@ Compatibility is `PROTOCOL`, an integer in `version.py` and in `settings.Protoco
 
 To release, change `VERSION`, commit, tag `vX.Y.Z`, and build the distributions.
 
-Pushing the tag also runs `.github/workflows/release.yml`, which makes the GitHub Release the web installer downloads from ([Run it on your own computer](local.md)). It builds the console and `tools/dist` without packages or the Android app. Then `devhelpers/scripts/release/release.py` writes the release's files:
+Pushing a tag does not start a build. Run `devhelpers/scripts/release.ps1 installers --stable --publish` (or `sh devhelpers/scripts/release.sh installers --stable --publish`) to build locally and create the GitHub Release the web installer downloads from ([Run it on your own computer](local.md)). This builds the console and `tools/dist` without packages or the Android app. Then `devhelpers/scripts/release/release.py` writes the release's files:
 
 - the server bundle `ai-control-mesh-X.Y.Z.zip`: `VERSION`, a `BUILD` file naming the version (it has no git), the server's sources, `ui/dist`, `docs/` and `benchmarks/tests`;
 - every `agent` and `agent-machine` archive, and the Python wheel (required: it's what the installers' `--python` and any system without a Go build use);
@@ -157,7 +155,7 @@ Pushing the tag also runs `.github/workflows/release.yml`, which makes the GitHu
 - `uninstall-local.sh` and `uninstall-local.ps1`, which remove such an install, copied as they are;
 - `SHA256SUMS`.
 
-The workflow refuses a tag that isn't `v` plus `VERSION`. Run by hand (Actions › Release), it keeps the files as a workflow artifact and makes no release. To try an installer before tagging, make the files with `--base-url http://127.0.0.1:<port>`, serve the folder, and run it with `AI_PROXY_LOCAL_HOME` and `--prefix` set to scratch folders.
+`--stable` requires a clean checkout at `v` plus `VERSION`. Omit `--stable` to build a uniquely tagged snapshot. Builds stay local unless `--publish` is supplied; snapshots are GitHub prereleases and never replace latest. Image builds are separate `website` and `services` commands; see [Local releases and snapshots](releases.md). To try an installer before tagging, make the files with `--base-url http://127.0.0.1:<port>`, serve the folder, and run it with `AI_PROXY_LOCAL_HOME` and `--prefix` set to scratch folders.
 
 ### Distributions
 

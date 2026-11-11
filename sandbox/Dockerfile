@@ -7,7 +7,7 @@
 # Python; PACKAGES below). On start it signs in to AI_PROXY_SERVER (see entrypoint.sh), turns
 # launches on for /workspace and stays in the fleet.
 #
-# Published as ghcr.io/joeyenfield/agent-sandbox (.github/workflows/images.yml), which
+# Published locally as ghcr.io/joeyenfield/agent-sandbox (docs/releases.md), which
 # deploy/compose/server's sandbox profile and the quickstart's machines run. To build it yourself,
 # from the repository root (it needs client/ and machine/):
 #   docker build -f sandbox/Dockerfile -t agent-sandbox .

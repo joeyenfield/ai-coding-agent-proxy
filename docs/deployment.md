@@ -14,7 +14,7 @@ The server and its console are one image, `ghcr.io/joeyenfield/agent-server`; ag
 
 ```bash
 cd deploy/compose/server
-docker compose up -d                                    # the newest build of master (latest)
+docker compose up -d                                    # the last promoted stable images (latest)
 AI_PROXY_IMAGE_TAG=2.0.1 docker compose up -d           # or a release of your choice
 docker compose pull && docker compose up -d             # move to the newest build
 ```
@@ -54,7 +54,7 @@ Authentication is always required. The first start on a new database creates an 
 
 ### Images on ghcr.io
 
-GitHub Actions (`.github/workflows/images.yml`) builds the images and pushes them to the GitHub Container Registry, for `linux/amd64` and `linux/arm64` (a Raspberry Pi), so a server can pull them instead of building:
+The [local release command](releases.md) builds the selected images on your computer and optionally pushes them directly to a registry. No GitHub Actions runner is used. The default platform is `linux/amd64`; add `--platform linux/arm64` for ARM64 (a Raspberry Pi). The available images are:
 
 | Image | Built from | What it is |
 |---|---|---|
@@ -64,24 +64,18 @@ GitHub Actions (`.github/workflows/images.yml`) builds the images and pushes the
 | `ghcr.io/joeyenfield/ai-control-mesh` | `devhelpers/allinone/Dockerfile` | The whole system in one container, to try it: the server, sign-in and console, and a machine with the coding agents ([Run it on your own computer](local.md#try-it-in-one-container)) |
 | `ghcr.io/joeyenfield/ai-control-mesh-gpu` | `devhelpers/allinone/Dockerfile` with `OLLAMA_GPU=cuda_v13` | The same, with the CUDA libraries for its model server, for a container that is given an NVIDIA GPU ([GPUs in containers](gpu.md)) |
 
-| Pushed | Tags |
-|---|---|
-| A tag `v2.0.1` | `2.0.1`, `2.0`, `latest` |
-| `master` | `master`, `sha-<commit>`, `latest` |
-
-`latest` is whichever was built last, a tag or `master`: the newest build. Pin a release or commit tag for a server you want to stay put.
-
-Each image's version (what `/health` reports) is the build's, `2.0.1` on its tag or `2.0.1+<commit>` otherwise, the same as a build on your computer. The standalone console (`ui/Dockerfile`) isn't published: it's built with its API's address (`VITE_API_URL`), so each deployment builds its own. **Run workflow** on the workflow's Actions page builds a branch or tag by hand.
+Snapshot builds get unique `snapshot-<timestamp>-g<commit>` tags and versions `X.Y.Z+snapshot.<timestamp>.g<commit>`. Stable builds get `X.Y.Z`. Only explicit stable promotion updates `latest`; pushes to `master` and Git tags do not publish anything. Existing older tags remain usable. The standalone console (`ui/Dockerfile`) is built with its deployment's API address (`VITE_API_URL`) on the deployment host.
 
 ```bash
 docker pull ghcr.io/joeyenfield/agent-server:2.0.1
 ```
 
-Everything under `deploy/` uses these. Two variables choose them:
+Everything under `deploy/` uses these. These variables choose them:
 
 | Variable | What it does |
 |---|---|
-| `AI_PROXY_IMAGE_TAG` | The tag to run (default `latest`, the newest build): `2.0.1`, `2.0`, `master` or `sha-<commit>`. |
+| `AI_PROXY_IMAGE_TAG` | The services tag to run (default `latest`, the last promoted build): `2.0.1` or a unique snapshot tag. |
+| `AI_PROXY_SITE_IMAGE_TAG` | The website tag in the server Compose stack, independent of services (default `latest`). |
 | `AI_PROXY_IMAGES` | Where the images are (default `ghcr.io/joeyenfield`): set it to your own registry or fork's owner, such as `ghcr.io/<you>`. |
 
 The server still hands out the agent and agent-machine builds from its `dist/` folder, which the image doesn't contain: mount it as before (`/app/dist`), built from the same commit as the image or fetched from its release with `agent-server downloads fetch`.

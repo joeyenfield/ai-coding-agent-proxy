@@ -1,7 +1,7 @@
 # The quickstart: podman compose up -d (or docker compose), from deploy/compose/quickstart. See README.md.
 #
-# It runs the published images from the GitHub Container Registry (.github/workflows/images.yml):
-# AI_PROXY_IMAGE_TAG picks the version (default latest, the newest build of master; 2.1.54 for a
+# It runs images built and published locally (docs/releases.md):
+# AI_PROXY_IMAGE_TAG picks the version (default latest, the last promoted build; 2.1.54 for a
 # release). To run this checkout's code instead, use devhelpers/basic, the same stack built from source.
 #
 # This file is all it needs: its helpers (start.py and machine.py beside it, and PostgreSQL's

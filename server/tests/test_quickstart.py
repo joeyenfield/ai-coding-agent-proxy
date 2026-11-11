@@ -280,7 +280,8 @@ def test_deploy_stacks_run_only_the_published_images():
                 assert (name, key, service.get("profiles")) == ("server", "console", ["console"]), (name, key)
                 continue
             if "joeyenfield" in image:
-                assert image.startswith(PUBLISHED) and image.endswith(":${AI_PROXY_IMAGE_TAG:-latest}"), (name, key)
+                tag = "AI_PROXY_SITE_IMAGE_TAG" if (name, key) == ("server", "marketing-site") else "AI_PROXY_IMAGE_TAG"
+                assert image.startswith(PUBLISHED) and image.endswith(f":${{{tag}:-latest}}"), (name, key)
             if name != "server":
                 assert all(str(port).startswith("127.0.0.1:") for port in service.get("ports", [])), (name, key)
             for volume in service.get("volumes", []):

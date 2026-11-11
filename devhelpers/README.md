@@ -17,7 +17,7 @@ From the folder:
 | Folder | Run | What it is |
 | --- | --- | --- |
 | [`basic/`](basic/compose.yaml) | `podman compose up -d --build` | The quickstart: PostgreSQL, the server, its issuer, two machines and Ollama, on http://localhost:19999 (admin / secret). Unlike the deploy quickstart, it also has static test data: Company A (`compa.admin` and `compa.user`) and Company B (`compb.admin` and `compb.user`), who sign in with `testdata` (`TESTDATA_PASSWORD`). [`basic/tests/test_e2e.py`](basic/tests/test_e2e.py) checks a running one. |
-| [`allinone/`](allinone/compose.yaml) | `podman compose up -d --build` | The `ai-control-mesh` image, from its [`Dockerfile`](allinone/Dockerfile) here (also what CI publishes). |
+| [`allinone/`](allinone/compose.yaml) | `podman compose up -d --build` | The `ai-control-mesh` image, from its [`Dockerfile`](allinone/Dockerfile) here (also what local releases publish). |
 | [`peer/`](peer/compose.yaml) | `podman compose up -d --build`, then `python3 ../../deploy/compose/peer/setup.py` | Two linked servers with a machine each ([Peering](../docs/peering.md)). |
 | [`testdata/`](testdata/compose.yaml) | `podman compose up -d --build` | Development only (no `deploy/` twin): a server full of test data on http://localhost:49999 (admin / secret). Three organizations (Acme Labs, Globex, Initech) with nine people in teams, who sign in with `testdata`, and a machine per organization signed in as its admin. Each machine has its own Ollama with a small model (`TESTDATA_MODEL`, default `qwen3:0.6b`; empty for none), shares the [toolbox MCP server](testdata/mcp_toolbox.py), and lets its whole organization see it, start agents there and use its MCP servers. Its ports differ from `basic/`'s, so both can run. The header of its `compose.yaml` lists who's who. |
 | [`server/`](server/compose.build.yaml) | From the root: `docker compose -f deploy/compose/server/compose.yaml -f devhelpers/server/compose.build.yaml up -d --build` | Builds `deploy/compose/server`'s images instead of pulling them. |
@@ -99,7 +99,8 @@ find the repository themselves):
 | `screenshots/demo.py` | A self-contained demo server with made-up data on http://127.0.0.1:8199 for checking the console: sign in as demo-admin / demo-admin-screenshot-password (a site admin) or demo / demo-screenshot-password. `--capture [names]` takes `docs/screenshots/` and stops; `--stop` stops one left running. |
 | `screenshots/` | Also `capture.mjs` (the console's screenshots), `quickstart-steps.mjs` (the quickstart guide's), `site-images.py` and `traffic.py`. |
 | `site/` | Checks (`check.mjs`), previews and fingerprints the brochure site. |
-| `release/release.py` | A GitHub Release's files and web installers; `release.yml` runs it on `v*` tags. |
+| `release.sh`, `release.ps1` | Local website, services or installer snapshots; explicit `--publish` uploads directly. No Actions runner. See [Local releases and snapshots](../docs/releases.md). |
+| `release/release.py` | Packages already-built archives and the console into installer files. Called by the local release command. |
 | `deploy.sh`, `deploy.ps1` | Deploys master (or a new version) to the project's server: pushes, waits for the images, and restarts its Compose stack (`deploy-remote.sh` runs there). |
 | `https/` | nginx with Let's Encrypt in front of a server (`setup-https.ps1`). |
 | `start-ollama.sh` | Starts Ollama listening on every address. |

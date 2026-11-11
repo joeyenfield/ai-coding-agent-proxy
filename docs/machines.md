@@ -429,7 +429,7 @@ docker run -d --name agent-sandbox --hostname agent-sandbox --restart unless-sto
   ghcr.io/joeyenfield/agent-sandbox:latest
 ```
 
-`latest` is the newest build of master or a release, and it's what the console's **Add a machine** (System: **Docker container**) shows. `docker pull` and a new container move a sandbox to a newer one. To pin it, use a release's tag (`2.0.1`) or a commit of master's (`sha-<commit>`) instead. A server that is too old for the sandbox's protocol refuses it, and the sandbox's log says so: use the tag of the server's own version then. To run changes of your own, build the image from a copy of this repository and run `agent-sandbox` instead:
+`latest` is the last explicitly promoted stable build, and it's what the console's **Add a machine** (System: **Docker container**) shows. `docker pull` and a new container move a sandbox to a newer one. To pin it, use a release's tag (`2.0.1`) or a locally published snapshot tag (`snapshot-<timestamp>-g<commit>`) instead. A server that is too old for the sandbox's protocol refuses it, and the sandbox's log says so: use the tag of the server's own version then. To run changes of your own, build the image from a copy of this repository and run `agent-sandbox` instead:
 
 ```bash
 docker build -f sandbox/Dockerfile -t agent-sandbox .     # from the repository root

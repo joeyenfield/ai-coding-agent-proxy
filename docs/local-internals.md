@@ -143,7 +143,7 @@ Keep the folder on a local disk. A backup is the whole folder copied while the i
 
 ## The web installer and the release
 
-The web installers are made for each GitHub Release by `devhelpers/scripts/release/release.py`, which `.github/workflows/release.yml` runs on `v*` tags. It reads what `tools/dist` built (`dist/<version>/` and its `SHA256SUMS`) and the console's build, and writes the release's files:
+The web installers are made locally by `devhelpers/scripts/release.ps1|.sh installers`, which calls `devhelpers/scripts/release/release.py`. Publishing is explicit and uses no Actions runner; see [Local releases and snapshots](releases.md). It reads what `tools/dist` built (`dist/<version>/` and its `SHA256SUMS`) and the console's build, and writes the release's files:
 
 | File | What |
 | --- | --- |

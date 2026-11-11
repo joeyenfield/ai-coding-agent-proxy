@@ -1,4 +1,4 @@
-"""Make a release's files, for a GitHub Release (.github/workflows/release.yml) or a test.
+"""Make a release's files for the local release command, a GitHub Release or a test.
 
     python devhelpers/scripts/release/release.py --version 2.1.49 --base-url https://github.com/<owner>/<repo>/releases/download/v2.1.49
 

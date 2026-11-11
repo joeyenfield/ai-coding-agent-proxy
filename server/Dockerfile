@@ -1,6 +1,6 @@
 # agent-server: the API and the console it serves, in one image.
 #
-# Published as ghcr.io/joeyenfield/agent-server (.github/workflows/images.yml), which
+# Published locally as ghcr.io/joeyenfield/agent-server (docs/releases.md), which
 # deploy/compose/ runs. To build it yourself, from the repository root (the
 # console's sources are in ui/):
 #   docker build -f server/Dockerfile -t agent-server .

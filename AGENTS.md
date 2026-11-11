@@ -53,7 +53,7 @@ The rules that shape everything (each explained in `.context/overview.md`):
 - **Every upstream call to a machine's model server uses `runtime.tunnels.base_url(backend)`**, never `backend.url`.
 - **The Python programs do everything the Go ones do.** A change to `client/` or `machine/` is made in `python/` in the same change, with mirroring tests. The Go code is the reference. Any API change between the client or machine and the server is made in Go and Python and covered by `server/tests/test_client.py`, which runs the Go programs; `python/tests/test_contract.py` runs the same tests against the Python ones, so both must pass. The one Python-only program is `agent-tray` (`python/agent_py/tray.py`), a desktop helper that only runs the other programs' commands.
 - **Authentication is mandatory** (OIDC, protocol 2): no loopback trust, no access key, no anonymous mode. **Tenants come first**: check the tenant before roles, sharing or grants. Every new route goes into `ADMIN_ONLY`/`SITE_ADMIN_ONLY` as needed and checks sharing or machine features (`.context/auth.md`).
-- **One version, one protocol.** `VERSION` is the one hand-written version; raise `PROTOCOL` for a change older programs can't follow (`.context/build-and-deploy.md`). To release: change `VERSION`, commit, and tag `vX.Y.Z`; the tag runs `release.yml`, which refuses a tag that isn't `v` plus `VERSION` (`docs/development.md`, Releases). A version commit and a pushed tag are hard to undo: only release when asked.
+- **One version, one protocol.** `VERSION` is the one hand-written version; raise `PROTOCOL` for a change older programs can't follow (`.context/build-and-deploy.md`). Build snapshots locally with `devhelpers/scripts/release.ps1|.sh website|services|installers`; no Actions runner is needed. To release a stable version: change `VERSION`, commit, tag `vX.Y.Z`, then build with `--stable` and publish explicitly (`docs/releases.md`). Tags do not start builds. A version commit and a pushed tag are hard to undo: only release when asked.
 
 ## Layout
 
@@ -90,6 +90,7 @@ cd server && pip install -e ".[dev]"     # once; installs agent-server, agent-au
 cd ui && npm install                     # once
 ./devhelpers/scripts/build-client.sh  | .\devhelpers\scripts\build-client.ps1    # the client into client/bin
 ./devhelpers/scripts/build-machine.sh | .\devhelpers\scripts\build-machine.ps1   # agent-machine into machine/bin
+./devhelpers/scripts/release.sh website  # or services / installers; --publish uploads directly, --plan previews (PowerShell: release.ps1)
 ./devhelpers/scripts/build-dist.sh    | .\devhelpers\scripts\build-dist.ps1      # every platform into dist/<version>/ (PACKAGES=1 / -Packages adds .deb/.rpm/.apk/Arch)
 
 cd server && python -m pytest -q         # server tests, a SQLite file per test; test_client.py builds the Go programs
@@ -108,7 +109,7 @@ agent-server                             # API + ui/dist on 0.0.0.0:9999; rebuil
 agent-server --reload --no-build         # Python auto-reload, skip the UI build
 agent-server downloads fetch             # a release's agent and agent-machine builds into dist/, for the server to hand out (no Go needed)
 agent-server local [start|stop|status]   # a whole instance for one person on loopback 19999/20000 (devhelpers/scripts/install-local.sh|.ps1 installs and starts it)
-python devhelpers/scripts/release/release.py --version X.Y.Z --base-url <url>   # a GitHub Release's files and web installers (release.yml runs it on v* tags)
+python devhelpers/scripts/release/release.py --version X.Y.Z --base-url <url>   # package already-built release files and web installers (no Actions)
 agent-tray [--status] [--autostart on|off]   # the tray icon (pip install "./python[tray]"); --status prints what it shows
 podman build --http-proxy=false -f devhelpers/allinone/Dockerfile --build-arg AGENTS= -t ai-control-mesh .   # the all-in-one image (AGENTS= skips the npm agents)
 agent-server config export|import        # every setting as one YAML document
@@ -151,7 +152,7 @@ agent-machine run [--server <url>]       # keep this computer in the fleet, in t
 - **Never test on ports 8183, 8184 or 9999 on the dev machine**: a coding agent working here may itself run through that agent-proxy and server. Set `AI_PROXY_LOCAL_PORT`, `AI_PROXY_LOCAL_INTERCEPT_PORT`, `AI_PROXY_URL` and `AI_PROXY_CREDENTIALS` for test runs. The full port list is in `.context/overview.md`. `agent-server local`, the quickstart and the basic stack all bind 19999/20000, so run one at a time; testdata (49999/50000) and the demo (8199) can run beside them.
 - **The WSL Ubuntu user runs a real agent-machine in the real fleet.** Test installers, packages and services as a throwaway user in another distro (`.context/build-and-deploy.md`).
 - Podman (`podman-machine-default`, normally stopped) is the container runtime here; Docker isn't installed, so use `podman compose` for the stacks and leave `deploy/compose/server` (Docker only) to another host. helm runs in the `FedoraLinux-44` WSL distro (`wsl -d FedoraLinux-44 -- sh -c 'cd /mnt/j/... && helm lint ...'`); kubeconform isn't installed anywhere here.
-- **Nothing in CI tests this repository.** `.github/workflows/` only builds images (`images.yml`) and releases (`release.yml`): you run the checks above yourself, on both databases. A push to `master` publishes the `latest` images, which every `deploy/` stack and the Helm chart pull by default, so push only tested changes.
+- **Builds and releases run locally.** There are no GitHub Actions workflows. Run the checks above yourself, on both databases. `devhelpers/scripts/release.ps1|.sh` separates website, services and installers; publishing requires `--publish`, and updating `latest` requires `--stable --publish --promote`. Pushes and tags do not build or publish anything. See `docs/releases.md`.
 - The end-to-end suite (`devhelpers/basic/tests`) signs in 7 times, and the issuer allows 10 password attempts per address per 10 minutes: a rerun within 10 minutes fails until `podman compose restart auth`.
 - **The running server doesn't pick up code changes.** A console restart reloads config, not code: restart `agent-server` itself unless it runs with `--reload`. A rebuilt client needs the running `agent-proxy` (8184) stopped; a rebuilt agent-machine needs `agent-machine stop` and `start`. UI changes show after `npm run build` and a page refresh.
 - Commit messages are a short one-line summary. Don't commit `ui/dist`, `logs/`, `certs/`, `dist/` or benchmark results.

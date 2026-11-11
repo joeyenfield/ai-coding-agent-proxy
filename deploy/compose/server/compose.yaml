@@ -12,9 +12,9 @@
 # Set AI_PROXY_POSTGRES_PASSWORD, AI_PROXY_DB_API_PASSWORD and AI_PROXY_DB_AUTH_PASSWORD
 # (letters and digits) in .env, beside this file, before the first start.
 #
-# The images come from the GitHub Container Registry, built by .github/workflows/images.yml:
-# AI_PROXY_IMAGE_TAG picks the version (default latest, the newest build of master or a
-# release; 2.1.20 for a release, or sha-<commit> for a commit of master), AI_PROXY_IMAGES another
+# The images come from a registry, built locally with devhelpers/scripts/release.ps1 or .sh:
+# AI_PROXY_IMAGE_TAG picks the services version (default latest, the last promoted stable
+# release); AI_PROXY_SITE_IMAGE_TAG selects the website independently. AI_PROXY_IMAGES picks another
 # registry or owner. Only the console profile builds here (it carries its API's address), from this
 # checkout. To build the other images from this checkout too, see devhelpers/server/compose.build.yaml.
 services:
@@ -86,7 +86,7 @@ services:
       - "127.0.0.1:8081:80"
 
   marketing-site:
-    image: ${AI_PROXY_IMAGES:-ghcr.io/joeyenfield}/ai-control-mesh-site:${AI_PROXY_IMAGE_TAG:-latest}
+    image: ${AI_PROXY_IMAGES:-ghcr.io/joeyenfield}/ai-control-mesh-site:${AI_PROXY_SITE_IMAGE_TAG:-latest}
     restart: unless-stopped
     ports:
       - "127.0.0.1:8080:80"

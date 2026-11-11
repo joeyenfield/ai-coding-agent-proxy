@@ -13,7 +13,7 @@ podman compose up -d
 
 The server and the machines run the published images from the GitHub Container Registry
 (`ghcr.io/joeyenfield/agent-server` and `agent-sandbox`, built by
-`.github/workflows/images.yml`), `latest` (the newest build of master) unless `AI_PROXY_IMAGE_TAG` names another
+`devhelpers/scripts/release.ps1|.sh services --image server --image sandbox --publish`), `latest` (the last promoted build) unless `AI_PROXY_IMAGE_TAG` names another
 (`2.1.20`, or `sha-<commit>` for a commit of master). To run this checkout's code instead, build
 them from source with [`devhelpers/basic`](../../../devhelpers/basic/compose.yaml), the same stack: `podman compose up -d --build` there.
 

@@ -661,8 +661,8 @@ function useRemembered<T extends string>(key: string, options: readonly { id: T 
   ];
 }
 
-// Where .github/workflows/images.yml publishes the images. latest is the newest build of master
-// or a release: sandboxes follow it rather than the server's own version.
+// Where local releases publish images. Sandboxes follow the last promoted stable build
+// rather than the server's own version.
 const SANDBOX_IMAGE = "ghcr.io/joeyenfield/agent-sandbox:latest";
 // What a sandbox's container and its two volumes start with; a name adds to it, so a computer
 // can run several, each with its own sign-ins and workspace.

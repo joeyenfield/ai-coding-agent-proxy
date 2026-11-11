@@ -51,7 +51,7 @@ kubectl -n mesh apply -f deploy/helm/quickstart/machine.yaml
 kubectl -n mesh get pods -w        # wait until both pods are Running (the first pull takes a few minutes)
 ```
 
-Keep the release name `mesh`: the machine's relays name its Services. The images are `latest`, the newest build of master, as in the Compose quickstart; `--set image.tag=<tag>` picks another (a release, `2.1.20`, or a commit, `sha-<commit>`), as `AI_PROXY_IMAGE_TAG` does there.
+Keep the release name `mesh`: the machine's relays name its Services. The images are `latest`, the last promoted build, as in the Compose quickstart; `--set image.tag=<tag>` picks another (a release, `2.1.20`, or a locally published snapshot built with both server and sandbox), as `AI_PROXY_IMAGE_TAG` does there.
 
 Then, in a terminal of its own that you leave open, forward the two ports:
 

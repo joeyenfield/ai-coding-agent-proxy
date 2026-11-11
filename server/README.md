@@ -19,5 +19,5 @@ python -m pytest -q         # tests; test_client.py also builds and runs ../clie
 ```
 
 In Docker, from the repository root: `docker compose up -d`, which runs the published image
-`ghcr.io/joeyenfield/agent-server` (built by `.github/workflows/images.yml`). To build it
+`ghcr.io/joeyenfield/agent-server` (built by the [local release command](../docs/releases.md)). To build it
 yourself: `docker build -f server/Dockerfile -t agent-server .`. See `Dockerfile` and `docker/`.

@@ -1,12 +1,13 @@
 # Deploy
 
 Everything here runs the **published images** from the GitHub Container Registry
-(`ghcr.io/joeyenfield/agent-server`, `agent-sandbox`, `ai-control-mesh` and the site), built by
-[`.github/workflows/images.yml`](../.github/workflows/images.yml). Nothing here builds this
+(`ghcr.io/joeyenfield/agent-server`, `agent-sandbox`, `ai-control-mesh` and the site), built locally with
+[`devhelpers/scripts/release.ps1|.sh`](../docs/releases.md) and published explicitly. Nothing here builds this
 checkout's code; for that, see [`devhelpers/`](../devhelpers/README.md).
 
-`AI_PROXY_IMAGE_TAG` picks the version: `latest` (the default, the newest build of master), a
-release such as `2.1.54`, or `sha-<commit>` for one commit of master. `AI_PROXY_IMAGES` points at
+`AI_PROXY_IMAGE_TAG` picks the services version: `latest` (the default, the last promoted stable build), a
+release such as `2.1.54`, or a unique `snapshot-<timestamp>-g<commit>` tag. The server stack
+uses `AI_PROXY_SITE_IMAGE_TAG` for the website independently (default `latest`). `AI_PROXY_IMAGES` points at
 another registry or owner, such as a fork's `ghcr.io/<you>`.
 
 ## Which one

@@ -10,7 +10,7 @@
 # start. See devhelpers/allinone/entrypoint.py and docs/local.md. The ports must stay 19999 and 20000 on the
 # host too: the browser and the server inside both sign in at http://localhost:20000.
 #
-# Published as ghcr.io/joeyenfield/ai-control-mesh (.github/workflows/images.yml). To build it
+# Published locally as ghcr.io/joeyenfield/ai-control-mesh (docs/releases.md). To build it
 # yourself, from the repository root:
 #   docker build -f devhelpers/allinone/Dockerfile -t ai-control-mesh .
 # or, with Compose, from devhelpers/allinone: podman compose up -d --build
