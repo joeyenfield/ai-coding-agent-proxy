@@ -66,7 +66,11 @@ ARG EXTRA_PACKAGES=""
 ARG AGENT_SUDO=1
 ARG AI_PROXY_VERSION=
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8
-RUN apt-get update \
+# The package index is tried again when a mirror doesn't answer, as in sandbox/Dockerfile.
+RUN for attempt in 1 2 3 4 5 6; do \
+         apt-get update -o APT::Update::Error-Mode=any && break; \
+         echo "apt-get update failed (attempt $attempt)"; sleep 20; \
+       done \
     && apt-get install -y --no-install-recommends $PACKAGES $EXTRA_PACKAGES \
     && rm -rf /var/lib/apt/lists/* \
     && ln -s /usr/bin/fdfind /usr/local/bin/fd
