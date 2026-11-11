@@ -247,6 +247,9 @@ agents:
       CLAUDE_CODE_SUBAGENT_MODEL: "{model}"
       # Official DeepSeek launches also receive effort and discovered context defaults on the server.
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+      # Auto mode's safety check normally runs on Anthropic's servers, which these requests never
+      # reach: Claude Code asks the session's own model instead (ANTHROPIC_DEFAULT_SONNET_MODEL).
+      CLAUDE_CODE_AUTO_MODE_SERVER: "0"
     mcp:
       entry: {type: http, url: "{mcp_url}"}
       files:

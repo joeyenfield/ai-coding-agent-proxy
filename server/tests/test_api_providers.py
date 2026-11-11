@@ -115,6 +115,8 @@ def test_deepseek_discovers_models_and_configures_claude_without_exposing_the_ke
         prepared = launch.json()
         env = prepared["env"]
         assert env["ANTHROPIC_MODEL"] == env["ANTHROPIC_DEFAULT_OPUS_MODEL"] == env["ANTHROPIC_DEFAULT_SONNET_MODEL"] == "coder[1m]"
+        # Auto mode's check can't run on Anthropic's servers from here: Claude Code is told to run it itself.
+        assert env["CLAUDE_CODE_AUTO_MODE_SERVER"] == "0"
         assert env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] == env["CLAUDE_CODE_SUBAGENT_MODEL"] == "coder"
         assert env["CLAUDE_CODE_EFFORT_LEVEL"] == "max"
         assert env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] == "786432"
