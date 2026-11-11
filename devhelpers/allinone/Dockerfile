@@ -35,10 +35,17 @@ RUN version="${AI_PROXY_VERSION:-$(cat VERSION)+unknown}" \
     && cd ../machine && go build -trimpath -ldflags "-s -w -X main.version=$version" -o /out/ ./cmd/agent-machine
 
 FROM docker.io/ollama/ollama:${OLLAMA_VERSION} AS ollama
+# Ollama's CPU backends are the files at the top of lib/ollama; each GPU backend is a folder, and
+# they are most of its 3 GB. OLLAMA_GPU names the folders to keep (cuda_v12, cuda_v13, vulkan),
+# for a container that is given a GPU. Empty is CPU only, as ai-control-mesh is published;
+# ai-control-mesh-gpu is this file built with OLLAMA_GPU=cuda_v13 (images.yml, compose.gpu.yaml here).
+ARG OLLAMA_GPU=
 RUN mkdir -p /out/bin /out/lib \
     && cp /usr/bin/ollama /out/bin/ \
     && cp -a /usr/lib/ollama /out/lib/ \
-    && find /out/lib/ollama -mindepth 1 -maxdepth 1 -type d -exec rm -rf {} +
+    && for folder in /out/lib/ollama/*/; do \
+         case " $OLLAMA_GPU " in *" $(basename "$folder") "*) ;; *) rm -rf "$folder" ;; esac; \
+       done
 
 # The console, built once here; the server only serves its files.
 FROM docker.io/library/node:22-alpine AS console

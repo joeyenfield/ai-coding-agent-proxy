@@ -1,0 +1,12 @@
+# Gives the one container the computer's NVIDIA GPUs, for the Ollama inside it. With compose.yaml:
+#   podman compose -f compose.yaml -f compose.gpu.yaml up -d
+#
+# It runs the published ai-control-mesh-gpu image: the same system with Ollama's CUDA libraries,
+# which the plain image leaves out. The device is the NVIDIA Container Toolkit's CDI name: Podman
+# needs the toolkit's CDI spec in its machine (nvidia-ctk cdi generate), Docker the toolkit with
+# CDI on. See docs/gpu.md.
+services:
+  mesh:
+    image: ${AI_PROXY_IMAGES:-ghcr.io/joeyenfield}/ai-control-mesh-gpu:${AI_PROXY_IMAGE_TAG:-latest}
+    devices:
+      - nvidia.com/gpu=all

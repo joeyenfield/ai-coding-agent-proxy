@@ -27,6 +27,7 @@ export const DOC_SECTIONS: { title: string; pages: { id: string; label: string }
       { id: "console", label: "The console" },
       { id: "machines", label: "Machines" },
       { id: "providers", label: "Providers" },
+      { id: "gpu", label: "GPUs in containers" },
       { id: "mcp", label: "MCP servers" },
       { id: "subscriptions", label: "Subscriptions" },
     ],

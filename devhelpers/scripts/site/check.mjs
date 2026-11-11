@@ -186,6 +186,9 @@ try {
     // terminal) show one command block, and Copy takes just that block.
     for (const [level, choices, first, last] of [
       ['basic', ['b-one', 'b-podman', 'b-windows'], 'podman run -d --name mesh `', 'podman logs mesh'],
+      ['basic', ['b-one', 'b-podman', 'b-gpu', 'b-unix'], 'podman run -d --name mesh --device nvidia.com/gpu=all \\', 'podman logs mesh'],
+      ['basic', ['b-one', 'b-docker', 'b-gpu', 'b-windows'], 'docker run -d --name mesh --gpus all `', 'docker logs mesh'],
+      ['basic', ['b-one', 'b-docker', 'b-cpu', 'b-windows'], 'docker run -d --name mesh `', 'docker logs mesh'],
       ['basic', ['b-local', 'b-windows'], 'irm https://', 'install-local.ps1 | iex'],
       ['basic', ['b-local', 'b-unix'], 'curl -fsSL https://', 'install-local.sh | sh'],
       ['intermediate', ['i-podman', 'i-cpu'], 'git clone ', 'podman compose -f deploy/compose/quickstart/compose.yaml up -d'],
@@ -218,6 +221,12 @@ try {
       await copy.click();
       const shown = await page.evaluate(() => getSelection().toString().trim());
       assert.ok(shown.startsWith(first) && shown.endsWith(last), `${name}: ${shown}`);
+      // One container with a GPU runs the image that has the GPU libraries.
+      if (level === 'basic' && choices.includes('b-one')) {
+        const gpu = await page.locator('#b-gpu').isChecked();
+        assert.equal(shown.includes('ghcr.io/joeyenfield/ai-control-mesh-gpu'), gpu, `${name}: ${shown}`);
+        assert.equal(await page.locator('.guide-basic .when-gpu.qs-note').isVisible(), gpu);
+      }
       if (width !== 768) await page.screenshot({ path: path.join(output, `quickstart-${level}-${choices.at(-1)}-${width}.png`), fullPage: true });
     }
     // A link to a level picks it (site.js), as the guides' "Then" cards do.

@@ -60,6 +60,7 @@ docker logs mesh
 - **`-e MESH_ADMIN_PASSWORD=...`** sets `admin`'s password yourself, from the environment, instead of a made-up one.
 - **The machine is called `my-machine`** on the **Machines** page. `-e MESH_MACHINE_NAME=...` (or `--hostname`) gives it another name.
 - **Tools:** it's Ubuntu with the sandbox's everyday tools (git, gh, ssh and sftp, ping, dig, build tools, Python; [the list](machines.md#a-sandbox-machine-in-docker)). `-e AGENT_APT_PACKAGES="nmap postgresql-client"` adds packages on start, and agents can `sudo apt-get install` more.
+- **An NVIDIA GPU.** This image runs models on the CPU: it leaves out Ollama's GPU libraries, which are most of their size. `ghcr.io/joeyenfield/ai-control-mesh-gpu` is the same system with the CUDA ones (about 4 GB). Run it instead, and give the container the GPU: `--gpus all` with Docker, `--device nvidia.com/gpu=all` with Podman, after `--name mesh`. [GPUs in containers](gpu.md) sets up either engine.
 - **Your own computer can join too.** `agent login http://localhost:19999` and `agent-machine login http://localhost:19999` sign it in like any machine.
 
 It's for trying the system. For a server other people use, see [Getting started](getting-started.md).

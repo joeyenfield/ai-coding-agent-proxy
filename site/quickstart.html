@@ -79,37 +79,63 @@
           <fieldset class="qs-tabs qs-tabs-2"><legend>Run it as</legend><input type="radio" name="b-way" id="b-one" class="opt-one" checked><label for="b-one">One container <small>Docker or Podman</small></label><input type="radio" name="b-way" id="b-local" class="opt-local"><label for="b-local">No containers <small>Python only</small></label></fieldset>
           <div class="qs-toggles">
             <fieldset class="seg when-one"><legend>Engine</legend><input type="radio" name="b-engine" id="b-docker" class="opt-docker" checked><label for="b-docker">Docker</label><input type="radio" name="b-engine" id="b-podman" class="opt-podman"><label for="b-podman">Podman</label></fieldset>
+            <fieldset class="seg when-one"><legend>Models run on</legend><input type="radio" name="b-hw" id="b-cpu" class="opt-cpu" checked><label for="b-cpu">CPU</label><input type="radio" name="b-hw" id="b-gpu" class="opt-gpu"><label for="b-gpu">NVIDIA GPU</label></fieldset>
             <fieldset class="seg"><legend>Your terminal</legend><input type="radio" name="b-os" id="b-unix" class="opt-unix" checked><label for="b-unix">Linux / macOS</label><input type="radio" name="b-os" id="b-windows" class="opt-windows"><label for="b-windows">Windows PowerShell</label></fieldset>
           </div>
           <div class="code-toolbar"><span class="mono">TERMINAL</span><button class="copy-button" type="button" data-copy-shown="qs-cmd" hidden>Copy commands</button></div>
-          <pre class="qs-cmd when-one when-docker when-unix" tabindex="0" aria-label="The Docker command for one container, for Linux and macOS"><code id="b-one-docker">docker run -d --name mesh \
+          <pre class="qs-cmd when-one when-cpu when-docker when-unix" tabindex="0" aria-label="The Docker command for one container, for Linux and macOS"><code id="b-one-docker">docker run -d --name mesh \
   -p 127.0.0.1:19999:19999 -p 127.0.0.1:20000:20000 \
   -v mesh-data:/data -v mesh-home:/home/agent \
   -v mesh-workspace:/workspace \
   ghcr.io/joeyenfield/ai-control-mesh
 docker logs mesh</code></pre>
-          <pre class="qs-cmd when-one when-docker when-windows" tabindex="0" aria-label="The Docker command for one container, for Windows PowerShell"><code id="b-one-docker-windows">docker run -d --name mesh `
+          <pre class="qs-cmd when-one when-cpu when-docker when-windows" tabindex="0" aria-label="The Docker command for one container, for Windows PowerShell"><code id="b-one-docker-windows">docker run -d --name mesh `
   -p 127.0.0.1:19999:19999 -p 127.0.0.1:20000:20000 `
   -v mesh-data:/data -v mesh-home:/home/agent `
   -v mesh-workspace:/workspace `
   ghcr.io/joeyenfield/ai-control-mesh
 docker logs mesh</code></pre>
-          <pre class="qs-cmd when-one when-podman when-unix" tabindex="0" aria-label="The Podman command for one container, for Linux and macOS"><code id="b-one-podman">podman run -d --name mesh \
+          <pre class="qs-cmd when-one when-cpu when-podman when-unix" tabindex="0" aria-label="The Podman command for one container, for Linux and macOS"><code id="b-one-podman">podman run -d --name mesh \
   -p 127.0.0.1:19999:19999 -p 127.0.0.1:20000:20000 \
   -v mesh-data:/data -v mesh-home:/home/agent \
   -v mesh-workspace:/workspace \
   ghcr.io/joeyenfield/ai-control-mesh
 podman logs mesh</code></pre>
-          <pre class="qs-cmd when-one when-podman when-windows" tabindex="0" aria-label="The Podman command for one container, for Windows PowerShell"><code id="b-one-podman-windows">podman run -d --name mesh `
+          <pre class="qs-cmd when-one when-cpu when-podman when-windows" tabindex="0" aria-label="The Podman command for one container, for Windows PowerShell"><code id="b-one-podman-windows">podman run -d --name mesh `
   -p 127.0.0.1:19999:19999 -p 127.0.0.1:20000:20000 `
   -v mesh-data:/data -v mesh-home:/home/agent `
   -v mesh-workspace:/workspace `
   ghcr.io/joeyenfield/ai-control-mesh
+podman logs mesh</code></pre>
+          <pre class="qs-cmd when-one when-gpu when-docker when-unix" tabindex="0" aria-label="The Docker command for one container with an NVIDIA GPU, for Linux and macOS"><code id="b-one-docker-gpu">docker run -d --name mesh --gpus all \
+  -p 127.0.0.1:19999:19999 -p 127.0.0.1:20000:20000 \
+  -v mesh-data:/data -v mesh-home:/home/agent \
+  -v mesh-workspace:/workspace \
+  ghcr.io/joeyenfield/ai-control-mesh-gpu
+docker logs mesh</code></pre>
+          <pre class="qs-cmd when-one when-gpu when-docker when-windows" tabindex="0" aria-label="The Docker command for one container with an NVIDIA GPU, for Windows PowerShell"><code id="b-one-docker-gpu-windows">docker run -d --name mesh --gpus all `
+  -p 127.0.0.1:19999:19999 -p 127.0.0.1:20000:20000 `
+  -v mesh-data:/data -v mesh-home:/home/agent `
+  -v mesh-workspace:/workspace `
+  ghcr.io/joeyenfield/ai-control-mesh-gpu
+docker logs mesh</code></pre>
+          <pre class="qs-cmd when-one when-gpu when-podman when-unix" tabindex="0" aria-label="The Podman command for one container with an NVIDIA GPU, for Linux and macOS"><code id="b-one-podman-gpu">podman run -d --name mesh --device nvidia.com/gpu=all \
+  -p 127.0.0.1:19999:19999 -p 127.0.0.1:20000:20000 \
+  -v mesh-data:/data -v mesh-home:/home/agent \
+  -v mesh-workspace:/workspace \
+  ghcr.io/joeyenfield/ai-control-mesh-gpu
+podman logs mesh</code></pre>
+          <pre class="qs-cmd when-one when-gpu when-podman when-windows" tabindex="0" aria-label="The Podman command for one container with an NVIDIA GPU, for Windows PowerShell"><code id="b-one-podman-gpu-windows">podman run -d --name mesh --device nvidia.com/gpu=all `
+  -p 127.0.0.1:19999:19999 -p 127.0.0.1:20000:20000 `
+  -v mesh-data:/data -v mesh-home:/home/agent `
+  -v mesh-workspace:/workspace `
+  ghcr.io/joeyenfield/ai-control-mesh-gpu
 podman logs mesh</code></pre>
           <pre class="qs-cmd when-local when-unix" tabindex="0" aria-label="The install command for Linux, macOS and FreeBSD"><code id="b-local-unix">curl -fsSL https://github.com/joeyenfield/ai-control-mesh/releases/latest/download/install-local.sh | sh</code></pre>
           <pre class="qs-cmd when-local when-windows" tabindex="0" aria-label="The install command for Windows PowerShell"><code id="b-local-windows">irm https://github.com/joeyenfield/ai-control-mesh/releases/latest/download/install-local.ps1 | iex</code></pre>
-          <p class="qs-note when-one">The last command prints the console's address and the <code>admin</code> password, which the container makes on its first start. Run it again if it printed nothing yet.</p>
+          <p class="qs-note when-one">The last command prints the console's address and the <code>admin</code> password, which the container makes on its first start. Run it again if it printed nothing yet. To choose the password yourself, add <code>-e MESH_ADMIN_PASSWORD=...</code> after <code>--name mesh</code>.</p>
           <p class="qs-note when-one when-podman">On Windows and macOS, run <code>podman machine init</code> once, then <code>podman machine start</code>.</p>
+          <p class="qs-note when-one when-gpu">The GPU image is the same system with the CUDA libraries for its model server, about 4 GB. Docker needs the NVIDIA Container Toolkit. With Podman, check it sees the GPU first: <code>podman run --rm --device nvidia.com/gpu=all docker.io/library/ubuntu:24.04 nvidia-smi</code>. <a href="https://github.com/joeyenfield/ai-control-mesh/blob/master/docs/gpu.md">GPU setup →</a></p>
           <p class="qs-note when-local">The installer prints the address and the <code>admin</code> password it made. <code>uninstall-local</code> from the same address removes it again.<span class="when-unix"> The same command works on FreeBSD.</span></p>
         </div>
         <p class="copy-status" role="status" aria-live="polite"></p>
@@ -204,7 +230,7 @@ cd ai-control-mesh
 podman compose -f deploy/compose/quickstart/compose.yaml -f deploy/compose/quickstart/compose.gpu.yaml up -d</code></pre>
           <p class="qs-note">The first start pulls about 1 GB of images and takes a few minutes. The commands are the same in every terminal, Windows PowerShell included.</p>
           <p class="qs-note when-podman">Podman needs a Compose provider (<code>podman compose version</code>). On Windows and macOS, run <code>podman machine init</code> once, then <code>podman machine start</code>.</p>
-          <p class="qs-note when-gpu">The GPU file gives the model server your NVIDIA GPUs, so models answer much faster. Use it every time you start the stack. Docker needs the NVIDIA Container Toolkit with CDI on. With Podman, check it sees the GPU first: <code>podman run --rm --device nvidia.com/gpu=all docker.io/library/ubuntu:24.04 nvidia-smi</code>. <a href="https://github.com/joeyenfield/ai-control-mesh/blob/master/deploy/compose/quickstart/README.md#use-a-gpu">GPU setup →</a></p>
+          <p class="qs-note when-gpu">The GPU file gives the model server your NVIDIA GPUs, so models answer much faster. Use it every time you start the stack. Docker needs the NVIDIA Container Toolkit with CDI on. With Podman, check it sees the GPU first: <code>podman run --rm --device nvidia.com/gpu=all docker.io/library/ubuntu:24.04 nvidia-smi</code>. <a href="https://github.com/joeyenfield/ai-control-mesh/blob/master/docs/gpu.md">GPU setup →</a></p>
         </div>
         <p class="copy-status" role="status" aria-live="polite"></p>
         <p class="demo-notice"><strong>Local demo only.</strong> Its ports are bound to 127.0.0.1. Keep it on your computer: for a real deployment you need your own secrets, HTTPS host names and sign-in. <a href="#professional">The Professional level →</a></p>

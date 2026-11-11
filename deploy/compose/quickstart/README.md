@@ -110,7 +110,8 @@ shows `library=CUDA` and the card's name, and `podman compose exec ollama ollama
 `100% GPU` for a loaded model.
 
 Docker needs the NVIDIA Container Toolkit with CDI turned on for the same file. This was
-tested with Podman only.
+tested with Podman only. [GPUs in containers](../../../docs/gpu.md) has the whole setup for
+both, on Linux and Windows, and what to do when it doesn't work.
 
 You can also open a terminal or run the launcher in either machine:
 

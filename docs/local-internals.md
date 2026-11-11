@@ -201,7 +201,7 @@ Running the web installer again is the upgrade. It stops the instance, replaces 
 
 ## The all-in-one image
 
-The `ai-control-mesh` image (`devhelpers/allinone/Dockerfile`) is the local instance with a machine of its own, in one container ([Try it in one container](local.md#try-it-in-one-container)). The server is laid out in `/opt/mesh` as the release bundle is, installed editable into `/opt/mesh/venv`. The machine side repeats the sandbox image's stages: the Go `agent` and `agent-machine`, Ollama's CPU build, and the coding agents from npm. `AI_PROXY_LOCAL_HOME` is `/data/server`.
+The `ai-control-mesh` image (`devhelpers/allinone/Dockerfile`) is the local instance with a machine of its own, in one container ([Try it in one container](local.md#try-it-in-one-container)). The server is laid out in `/opt/mesh` as the release bundle is, installed editable into `/opt/mesh/venv`. The machine side repeats the sandbox image's stages: the Go `agent` and `agent-machine`, Ollama's CPU build, and the coding agents from npm. `AI_PROXY_LOCAL_HOME` is `/data/server`. Ollama's GPU libraries are left out, as they are most of its size. The build argument `OLLAMA_GPU` names the ones to keep: the `ai-control-mesh-gpu` image is the same Dockerfile built with `OLLAMA_GPU=cuda_v13`, for a container that is given an NVIDIA GPU ([GPUs in containers](gpu.md)).
 
 Its first process, under `tini`, is `devhelpers/allinone/entrypoint.py`:
 

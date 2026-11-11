@@ -29,13 +29,38 @@ def test_its_machine_is_built_as_the_sandboxs_is():
         assert base in bases(ALLINONE)
 
 
+def test_a_gpu_is_only_in_the_image_and_the_files_that_ask_for_it():
+    import yaml
+
+    def mesh(tree: str, name: str) -> dict:
+        return yaml.safe_load((ROOT / tree / "allinone" / name).read_text(encoding="utf-8"))["services"]["mesh"]
+
+    # The plain image keeps no GPU backend (they are most of Ollama's size), and runs without a GPU.
+    assert argument(ALLINONE, "OLLAMA_GPU") == ""
+    for tree in ("devhelpers", "deploy/compose"):
+        assert "devices" not in mesh(tree, "compose.yaml")
+        # Podman ignores Compose's deploy.resources device reservations; a CDI device name is what it honours.
+        assert mesh(tree, "compose.gpu.yaml")["devices"] == ["nvidia.com/gpu=all"]
+    # The GPU image is the same Dockerfile with the CUDA libraries kept, under its own name, so
+    # neither build replaces the other: published by the workflow, built from the checkout here.
+    workflow = (ROOT / ".github" / "workflows" / "images.yml").read_text(encoding="utf-8")
+    assert "{ name: ai-control-mesh-gpu, dockerfile: devhelpers/allinone/Dockerfile, args: OLLAMA_GPU=cuda_v13 }" in workflow
+    assert "${{ matrix.image.args }}" in workflow
+    published = mesh("deploy/compose", "compose.gpu.yaml")
+    assert published == {"image": "${AI_PROXY_IMAGES:-ghcr.io/joeyenfield}/ai-control-mesh-gpu:${AI_PROXY_IMAGE_TAG:-latest}",
+                         "devices": ["nvidia.com/gpu=all"]}
+    built = mesh("devhelpers", "compose.gpu.yaml")
+    assert built["build"]["args"]["OLLAMA_GPU"] == "${OLLAMA_GPU:-cuda_v13}"
+    assert built["image"] == "localhost/ai-control-mesh-dev-gpu"
+
+
 def test_it_copies_only_what_exists_and_is_published_with_the_others():
     for line in re.findall(r"^COPY (?!--from)(.+)$", ALLINONE, re.MULTILINE):
         for source in line.split()[:-1]:
             assert (ROOT / source).exists(), source
     workflow = (ROOT / ".github" / "workflows" / "images.yml").read_text(encoding="utf-8")
     assert "{ name: ai-control-mesh, dockerfile: devhelpers/allinone/Dockerfile }" in workflow
-    assert "ai-control-mesh-site, ai-control-mesh]" in workflow
+    assert "ai-control-mesh-site, ai-control-mesh, ai-control-mesh-gpu]" in workflow
     # One image's name starts another's (ai-control-mesh, ai-control-mesh-site): the merge job must
     # take only its own platforms' digests, so their artifacts end the name with a character names lack.
     assert "name: digests_${{ matrix.image.name }}_" in workflow and "pattern: digests_${{ matrix.image }}_*" in workflow

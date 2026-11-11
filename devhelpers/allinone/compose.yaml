@@ -3,6 +3,8 @@
 #   podman compose logs mesh    the console's address and admin's password
 # The same as deploy/compose/allinone, which runs the published image; server/tests/test_quickstart.py
 # keeps the two in step. The ports must stay 19999 and 20000 on the host (see that file).
+# For an NVIDIA GPU, add compose.gpu.yaml (../README.md, "Use a GPU"):
+#   podman compose -f compose.yaml -f compose.gpu.yaml up -d --build
 #
 # Every image builds from this checkout (no published ones), under local names that devhelpers/basic,
 # peer and allinone share. `up -d --build` rebuilds after a change; their version says <VERSION>+unknown,

@@ -28,6 +28,62 @@ volumes.
 
 The basic stack provisions its vault encryption key automatically on first server start, at `/app/logs/private/vault-keys` in its persistent `server-logs` volume. It reuses that key on restart, so provider API keys entered in the console remain readable. You can supply `AI_PROXY_VAULT_KEYS` through the environment or a `.env` file instead. This is the encryption key, separate from a provider's API token. After updating an existing basic stack, run `podman compose up -d --force-recreate server` from `devhelpers/basic` to enable provisioning. Keep the key when backing up or restoring the database; removing the logs volume loses the generated key.
 
+## Use a GPU
+
+The stacks run their models on the CPU unless you add a GPU file. Both files hand over the
+computer's NVIDIA GPUs by their CDI name, `nvidia.com/gpu=all`. They are separate files because
+a container whose GPU isn't there won't start.
+
+Podman or Docker must know the GPU by that name first. Check:
+
+```bash
+podman run --rm --device nvidia.com/gpu=all docker.io/library/ubuntu:24.04 nvidia-smi
+```
+
+If that prints your GPU, you're set. If not, [GPUs in containers](../docs/gpu.md) sets it up,
+for Podman and Docker on Linux and Windows.
+
+### One container
+
+The all-in-one image leaves out Ollama's GPU libraries, as they are most of its size.
+[`allinone/compose.gpu.yaml`](allinone/compose.gpu.yaml) builds an image that keeps the CUDA
+ones and gives the container the GPUs. From `allinone/`:
+
+```bash
+podman compose -f compose.yaml -f compose.gpu.yaml up -d --build
+```
+
+- **Use both files every time**, for `logs`, `exec` and `down` too.
+- **The image is `localhost/ai-control-mesh-dev-gpu`**, 3.9 GB: the plain build's 2.8 GB plus
+  the CUDA libraries. The plain build keeps its own name, so the two don't replace each other.
+  Both use the same volumes.
+- **`OLLAMA_GPU` picks the libraries** (default `cuda_v13`, for a recent driver). If Ollama
+  still runs on the CPU, the driver is older: build with `OLLAMA_GPU=cuda_v12`, or
+  `OLLAMA_GPU="cuda_v12 cuda_v13"` to keep both.
+- **The published twin is `ghcr.io/joeyenfield/ai-control-mesh-gpu`**, which
+  `deploy/compose/allinone/compose.gpu.yaml` runs: the same Dockerfile with `OLLAMA_GPU=cuda_v13`.
+
+To check, start Ollama on the machine's page in the console, then:
+
+```bash
+podman compose -f compose.yaml -f compose.gpu.yaml exec mesh nvidia-smi -L
+podman compose -f compose.yaml -f compose.gpu.yaml exec mesh ollama ps
+```
+
+The first names your card. The second shows `100% GPU` for a loaded model.
+
+### The quickstart
+
+`basic/` takes the quickstart's GPU file, which gives its `ollama` container the GPUs
+([Use a GPU](../deploy/compose/quickstart/README.md#use-a-gpu)). From `basic/`:
+
+```bash
+podman compose -f compose.yaml -f ../../deploy/compose/quickstart/compose.gpu.yaml up -d --build
+```
+
+Docker needs the NVIDIA Container Toolkit with CDI turned on for the same files. This was
+tested with Podman only.
+
 ## Scripts
 
 [`scripts/`](scripts) holds the scripts, each as a `.sh` and `.ps1` pair (run from anywhere; they

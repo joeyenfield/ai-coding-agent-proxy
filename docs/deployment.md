@@ -62,6 +62,7 @@ GitHub Actions (`.github/workflows/images.yml`) builds the images and pushes the
 | `ghcr.io/joeyenfield/agent-sandbox` | `sandbox/Dockerfile` | A fleet machine in a container, with the coding agents ([Machines](machines.md)) |
 | `ghcr.io/joeyenfield/ai-control-mesh-site` | `site/Dockerfile` | The brochure website |
 | `ghcr.io/joeyenfield/ai-control-mesh` | `devhelpers/allinone/Dockerfile` | The whole system in one container, to try it: the server, sign-in and console, and a machine with the coding agents ([Run it on your own computer](local.md#try-it-in-one-container)) |
+| `ghcr.io/joeyenfield/ai-control-mesh-gpu` | `devhelpers/allinone/Dockerfile` with `OLLAMA_GPU=cuda_v13` | The same, with the CUDA libraries for its model server, for a container that is given an NVIDIA GPU ([GPUs in containers](gpu.md)) |
 
 | Pushed | Tags |
 |---|---|

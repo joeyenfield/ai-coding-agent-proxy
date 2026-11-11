@@ -1,0 +1,17 @@
+# Gives the one container the computer's NVIDIA GPUs, for the Ollama inside it. With compose.yaml:
+#   podman compose -f compose.yaml -f compose.gpu.yaml up -d --build
+#
+# The image is built with Ollama's CUDA libraries (the Dockerfile's OLLAMA_GPU), which the plain
+# build leaves out, under its own name so the two builds don't replace each other. It is
+# deploy/compose/allinone/compose.gpu.yaml's ai-control-mesh-gpu image, built from this checkout. OLLAMA_GPU picks the libraries: cuda_v13 (1.1 GB) is for a recent driver; an older
+# one needs OLLAMA_GPU=cuda_v12 (1.3 GB), and "cuda_v12 cuda_v13" keeps both.
+# The device is the NVIDIA Container Toolkit's CDI name: Podman needs the toolkit's CDI spec in
+# its machine (nvidia-ctk cdi generate). See ../README.md, "Use a GPU", and docs/gpu.md.
+services:
+  mesh:
+    image: localhost/ai-control-mesh-dev-gpu
+    build:
+      args:
+        OLLAMA_GPU: ${OLLAMA_GPU:-cuda_v13}
+    devices:
+      - nvidia.com/gpu=all
