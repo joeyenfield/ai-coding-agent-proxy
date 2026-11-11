@@ -636,10 +636,28 @@ dialog::backdrop { background: rgb(15 20 30 / 0.5); }
 .header-table th, .header-table td { text-align: left; vertical-align: top; padding: 4px 8px; border-bottom: 1px solid var(--line); word-break: break-all; }
 .header-table th { width: 32%; color: var(--steel); font-weight: 600; }
 /* Traffic categories */
-.category-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
-.category-bar button { font-size: 12.5px; padding: 4px 10px; border-radius: 999px; }
-.category-bar button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-ink); border-color: var(--accent); }
-.category-bar .count { color: var(--steel); font-variant-numeric: tabular-nums; margin-left: 2px; }
+/* A row of chips that filter a list or switch a view: pressed ones are lit. */
+.category-bar, .chip-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 12px; }
+.category-bar button, .chip-bar button { font-size: 12.5px; padding: 4px 10px; border-radius: 999px; }
+.category-bar button[aria-pressed="true"], .chip-bar button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-ink); border-color: var(--accent); }
+.category-bar .count, .chip-bar .count { color: var(--steel); font-variant-numeric: tabular-nums; margin-left: 2px; }
+.chip-bar .chip-gap { flex: 1 1 12px; }
+/* Traffic: each request is a three-line row (what, where, how it went) beside the inspector. */
+.traffic-split { grid-template-columns: minmax(340px, 0.9fr) minmax(0, 1.1fr); }
+.traffic-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.traffic-list li + li { border-top: 1px solid var(--line); }
+.traffic-item { width: 100%; display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 4px; padding: 11px 14px 11px 13px; border: 0; border-left: 3px solid transparent; border-radius: 0; background: none; box-shadow: none; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.traffic-item:hover:not(:disabled) { background: var(--ground); border-color: transparent; }
+.traffic-item.is-bad { border-left-color: var(--bad); }
+.traffic-item[aria-pressed="true"], .traffic-item[aria-pressed="true"]:hover:not(:disabled) { background: var(--accent-soft); border-left-color: var(--accent); }
+.traffic-item-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.traffic-item-line strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 650; }
+.traffic-item-line .pill { flex: none; }
+.traffic-item-line .traffic-path { flex: 1 1 auto; max-width: none; font-size: 12.5px; color: var(--steel); }
+.traffic-item-end { flex: none; margin-left: auto; padding-left: 8px; font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--steel); white-space: nowrap; }
+.traffic-item-meta { flex-wrap: wrap; gap: 2px 10px; font-size: 12px; color: var(--steel); }
+.inspector.placeholder { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.inspector.placeholder p { max-width: 52ch; }
 .traffic-path .method { font-weight: 700; color: var(--steel); }
 .pill.category-model { background: var(--accent-soft); color: var(--accent-ink); }
 .pill.category-mcp, .pill.category-tokens, .pill.category-models { background: var(--live-soft); color: var(--live-ink); }
@@ -715,6 +733,13 @@ dialog::backdrop { background: rgb(15 20 30 / 0.5); }
 .xrow-path { flex: 0 1 auto !important; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 12.5px; }
 .xrow-meta { flex: none; display: flex; align-items: center; gap: 12px; font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .xrow-actions { flex: none; display: flex; gap: 6px; }
+/* Sessions: the status, request count and last activity line up down the list. */
+.session-cols .session-state { width: 132px; }
+.session-cols .session-count { width: 96px; text-align: right; }
+.session-cols .session-when { width: 104px; text-align: right; }
+.session-state .pill { display: inline-flex; align-items: center; gap: 6px; }
+.pill.good { background: var(--good-soft); }
+@media (max-width: 900px) { .session-cols .session-state, .session-cols .session-count, .session-cols .session-when { width: auto; text-align: left; } }
 .xrow-actions .button { padding: 4px 10px; font-size: 13px; }
 .xrow-body { padding: 4px 14px 14px 34px; border-top: 1px solid var(--line); }
 .xrow-body .live-card, .xrow-body .inspector { margin-top: 10px; }
@@ -726,9 +751,6 @@ details.collapsible > summary::before { content: "▸"; color: var(--steel); tra
 details.collapsible[open] > summary::before { transform: rotate(90deg); }
 details.collapsible > summary h2 { margin: 0; }
 details.collapsible > summary::-webkit-details-marker { display: none; }
-.breadcrumbs { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12.5px; font-weight: 560; color: var(--faint); }
-.breadcrumbs a { color: var(--steel); text-decoration: none; }
-.breadcrumbs a:hover { color: var(--accent-ink); }
 /* Titles that are links (cards, headings) read as titles; the underline comes on hover. */
 h1 a, h2 a, h3 a, .terminal-card-head a, .provider-card-head a, .host-name a { text-decoration: none; }
 h1 a:hover, h2 a:hover, h3 a:hover, .terminal-card-head a:hover, .provider-card-head a:hover, .host-name a:hover { text-decoration: underline; text-decoration-color: currentColor; }
@@ -742,18 +764,9 @@ h1 a:hover, h2 a:hover, h3 a:hover, .terminal-card-head a:hover, .provider-card-
 .split-main .table td, .split-main .table th { overflow-wrap: break-word; }
 .split-main .table .mono { overflow-wrap: anywhere; }
 .split-main .table th.num { width: 104px; }
-.split-main .table:not(.traffic-table) th:nth-child(2) { width: 27%; }
-.traffic-table th:nth-child(2) { width: 92px; }
-.traffic-table td:nth-child(2) small { white-space: normal; }
+.split-main .table th:nth-child(2) { width: 27%; }
 /* Token columns: narrow, with little padding, so four fit beside the inspector. */
-.split-main .traffic-table th.num.tokens { width: 60px; padding-left: 4px; padding-right: 6px; line-height: 1.2; overflow-wrap: normal; }
-.traffic-table td.tokens { font-size: 13px; padding-left: 4px; padding-right: 6px; }
-.traffic-table td.num small { white-space: normal; }
-.traffic-table td.tokens { font-variant-numeric: tabular-nums; }
-.traffic-table tfoot th, .traffic-table tfoot td { border-top: 2px solid var(--line); font-weight: 700; text-align: right; }
-.traffic-table tfoot th { text-align: left; }
 /* The table scrolls sideways rather than squeezing the request column to nothing. */
-.traffic-table { min-width: 480px; }
 
 /* Page tabs (Ollama models and server) and the settings side menu */
 .tabbed { display: flex; flex-direction: column; gap: 22px; }
@@ -1241,10 +1254,11 @@ fieldset { border: 1px solid var(--line); border-radius: var(--radius-small); pa
 legend { padding: 0 6px; font-weight: 650; font-size: 13.5px; color: var(--ink); }
 
 /* The breadcrumb above a page title */
-.part-tag { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 560; color: var(--faint); }
-.part-tag a { color: var(--steel); text-decoration: none; }
-.part-tag a:hover { color: var(--accent-ink); }
+.part-tag, .breadcrumbs { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 12.5px; font-weight: 560; color: var(--faint); }
+.part-tag a, .breadcrumbs a { color: var(--steel); text-decoration: none; }
+.part-tag a:hover, .breadcrumbs a:hover { color: var(--accent-ink); }
 .part-sep { color: var(--faint); opacity: 0.7; }
+.part-crumb { display: inline-flex; align-items: center; gap: 6px; }
 .part-number { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 22px; height: 22px; border-radius: 7px; font-size: 11.5px; font-weight: 700; background: var(--accent-soft); color: var(--accent-ink); font-variant-numeric: tabular-nums; }
 :root[data-theme="dark"] .part-number { color: var(--accent-ink); }
 .map-caption circle { fill: var(--accent-soft); }

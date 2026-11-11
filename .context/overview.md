@@ -53,7 +53,7 @@ The server is one program. Small installs run it as one process, which keeps its
 | Route | Agents | Path |
 | --- | --- | --- |
 | Account | `intercept: true` (signed in to their own Claude, Copilot or ChatGPT) | `HTTPS_PROXY` → agent-proxy :8183 → `WS /api/proxy/tunnel` → decrypted with the server's CA → the vendor |
-| Local models | `backend_type: ollama` (default) | `/session/<id>/v1` etc. on agent-proxy :8184 → `routes/compat.py` → `ollama` (translated to `/api/chat`), `strata`, `docker` or `llamacpp` (passed through), via the machine's tunnel |
+| Own provider | `backend_type: ollama` (default) | `/session/<id>/v1` etc. on agent-proxy :8184 → `routes/compat.py` → `ollama` (translated to `/api/chat`), `strata`, `docker` or `llamacpp` (passed through), via the machine's tunnel |
 | Hosted | `backend_type: anthropic` | `ANTHROPIC_BASE_URL` → passed through unchanged |
 | API providers | `backend_type: ollama` agents, by protocol | the same URLs → `routes/compat.py` `_forward` → an `api` backend (`api_providers.py`): the server's key, model aliases, extra headers; on a machine through its tunnel, hosted ones through `runtime.api_clients` (public addresses only) |
 | Over a bridge | any agent whose backend is a provider another server's organization lets in (`provider:server/org/name`) | the same URLs → `_forward` → a `link` backend (`bridges.upstream`): signed, with an assertion, to that server's `/api/links/relay/provider/...` (directly, or over the link socket), which serves it with `compat.relay` into a bridge session and its own provider |

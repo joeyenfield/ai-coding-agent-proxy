@@ -155,7 +155,7 @@ await shot("agents-ollama", "/agents?on=build-box&agent=opencode", {
   height: 1480,
   prepare: async (page) => {
     await page.getByRole("button", { name: "Start on build-box" }).waitFor();
-    await page.getByLabel("Provider").selectOption("desktop");
+    await page.locator("label.field", { hasText: /^Own provider/ }).locator("select").first().selectOption("desktop");
     await page.waitForTimeout(600);
     // build-box shares MCP servers: give the agent one.
     await page.locator(".mcp-choice input").first().check();
@@ -172,7 +172,7 @@ await shot("traffic", "/traffic", {
   prepare: async (page) => {
     // One account agent's session shows the whole mix: sign-in, settings, MCP, model calls, telemetry.
     await page.goto(`${base}/traffic?session=${await sessionId(page, "claude-account")}`, { waitUntil: "networkidle", timeout: 10000 }).catch(() => {});
-    await page.locator("table.selectable tbody tr", { hasText: "/v1/messages" }).filter({ hasText: "claude-account" }).first().click();
+    await page.locator(".traffic-item", { hasText: "/v1/messages" }).filter({ hasText: "claude-account" }).first().click();
     await page.waitForTimeout(800);
   },
 });
@@ -180,7 +180,7 @@ await shot("traffic-headers", "/traffic", {
   scrollTop: true,
   prepare: async (page) => {
     await page.goto(`${base}/traffic?session=${await sessionId(page, "claude-account")}`, { waitUntil: "networkidle", timeout: 10000 }).catch(() => {});
-    await page.locator("table.selectable tbody tr", { hasText: "/v1/messages" }).filter({ hasText: "claude-account" }).first().click();
+    await page.locator(".traffic-item", { hasText: "/v1/messages" }).filter({ hasText: "claude-account" }).first().click();
     await page.waitForTimeout(600);
     await page.getByRole("tab", { name: "Headers" }).click();
     await page.waitForTimeout(400);
@@ -189,7 +189,7 @@ await shot("traffic-headers", "/traffic", {
 await shot("traffic-models", "/traffic?type=model", {
   scrollTop: true,
   prepare: async (page) => {
-    await page.locator("table.selectable tbody tr", { hasText: "ChatGPT" }).first().click();
+    await page.locator(".traffic-item", { hasText: "ChatGPT" }).first().click();
     await page.waitForTimeout(800);
   },
 });

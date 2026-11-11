@@ -3,7 +3,7 @@ import type { Backend, TrafficKind } from "./api";
 /**
  * The three ways traffic reaches a model through this proxy.
  *
- * ollama:  local models: Ollama machines (translated and tuned by the proxy), llama.cpp, Strata and Docker Model Runner (passed through).
+ * ollama:  your own providers (the console says "Own provider"): Ollama machines (translated and tuned by the proxy), llama.cpp, Strata and Docker Model Runner (passed through).
  * hosted:  a hosted API backend (Anthropic, or an OpenAI- or Anthropic-compatible API) reached through a proxy endpoint, passed through unchanged.
  * account: an agent signed in to its own service; its HTTPS is captured by the intercept listener.
  */
@@ -13,8 +13,8 @@ export const ROUTE_ORDER: RouteKind[] = ["account", "ollama", "hosted"];
 
 export const ROUTES: Record<RouteKind, { label: string; description: string }> = {
   ollama: {
-    label: "Local models",
-    description: "Your machines' Ollama, llama.cpp, Strata and Docker Model Runner. For Ollama the proxy translates each request and applies the model tuning from Server settings; the others take requests as they are.",
+    label: "Own provider",
+    description: "A provider of your own: a model server on one of your machines (Ollama, llama.cpp, Strata, Docker Model Runner or an OpenAI-compatible server) or an API provider you add. For Ollama the proxy translates each request and applies the model tuning from Server settings; the others take requests as they are.",
   },
   hosted: {
     label: "Hosted API",

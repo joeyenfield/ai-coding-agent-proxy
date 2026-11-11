@@ -63,7 +63,7 @@ Every agent takes one of three routes. Mix them as you like; all of them are rec
 | Route | Agents | Where requests go |
 | --- | --- | --- |
 | **Your accounts** | Claude Code, Codex, Copilot CLI | The vendor's service, on your own plan and sign-in. The server records the traffic in transit. Only public destinations are allowed: private and reserved addresses are refused. |
-| **Local models** | Qwen Code, OpenCode, Copilot CLI, Claude Code, Codex, Aider, Goose, Hermes Agent | Ollama, llama.cpp, Strata or Docker Model Runner on your machines, with Ollama requests translated and tuned per model. Also LM Studio, vLLM and SGLang, and any [API provider](docs/providers.md#api-providers-openai-and-anthropic-compatible): OpenAI, Anthropic, OpenRouter, LiteLLM Proxy and other OpenAI or Anthropic-compatible services, with a key the server keeps. |
+| **Own provider** | Qwen Code, OpenCode, Copilot CLI, Claude Code, Codex, Aider, Goose, Hermes Agent | Ollama, llama.cpp, Strata or Docker Model Runner on your machines, with Ollama requests translated and tuned per model. Also LM Studio, vLLM and SGLang, and any [API provider](docs/providers.md#api-providers-openai-and-anthropic-compatible): OpenAI, Anthropic, OpenRouter, LiteLLM Proxy and other OpenAI or Anthropic-compatible services, with a key the server keeps. |
 | **Hosted API** | Claude Code | The Anthropic API, passed through unchanged. |
 
 [Agents](docs/agents.md) lists every agent and its command. [Providers](docs/providers.md#compatibility) says which agent works with which model server.

@@ -39,6 +39,9 @@ class Shot:
 # each capture is about reads larger.
 NO_SIDEBAR = (0.175, 0.0, 1.0, 1.0)
 
+# What every level's guide shows once a machine is online.
+QUICKSTART_CONSOLE = ("model-servers", "add-provider", "search", "results", "pulled", "start-agent", "agent-ready", "answer", "requests")
+
 SHOTS = (
     # The hero: four agents side by side in the Live agent view, one asking a question.
     Shot("terminal-grid-dark", box=(0.18, 0.0, 1.0, 0.95)),
@@ -64,6 +67,11 @@ SHOTS = (
     *(Shot(f"quickstart-{name}") for name in (
         "03-machines", "04-model-servers", "05-add-provider", "06-search",
         "07-results", "08-pulled", "09-start-agent", "10-agent-ready", "11-answer", "12-requests")),
+    # The same walk at the page's other levels (QUICKSTART_LEVEL=basic and =helm): the one container,
+    # where Ollama is started from the console, and the Helm chart, where the machine is approved.
+    *(Shot(f"quickstart-{level}-{name}", box=(0.25, 0.15, 0.75, 0.85), widths=(540, 1080)) for level in ("basic", "helm") for name in ("sign-in", "issuer")),
+    *(Shot(f"quickstart-basic-{name}") for name in ("machines", "start-ollama", *QUICKSTART_CONSOLE)),
+    *(Shot(f"quickstart-helm-{name}") for name in ("approve-code", "approve", "machines", *QUICKSTART_CONSOLE)),
 )
 
 
@@ -83,7 +91,7 @@ def main() -> None:
                 image.resize((width, height), Image.LANCZOS).save(out, "WEBP", quality=82, method=6)
                 print(f"{out.relative_to(ROOT)}  {width}x{height}  {out.stat().st_size // 1024} KB")
     # The pages link to each copy by its content hash (devhelpers/scripts/site/fingerprint.py).
-    subprocess.run([sys.executable, str(ROOT / "scripts" / "site" / "fingerprint.py")], check=True)
+    subprocess.run([sys.executable, str(ROOT / "devhelpers" / "scripts" / "site" / "fingerprint.py")], check=True)
 
 
 

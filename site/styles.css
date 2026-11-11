@@ -87,33 +87,84 @@ strong { font-weight: 650; color: var(--text); }
 .copy-button:hover { border-color: var(--mint); }
 pre { overflow-x: auto; padding: 23px 20px; margin: 0; font-size: 13px; line-height: 2.1; color: var(--mint); }
 pre code { font-size: inherit; }
-/* Quickstart: the first switch picks a way to run it (a Compose stack, one container, no containers,
-   Kubernetes); the others (engine, where models run, your system) pick that way's command block.
-   Radios and :has() do it, so the choice works without JavaScript; only copying needs it.
-   Everything a choice covers carries .qs-when and a when-<choice> class per switch it depends on,
-   and a checked choice hides what belongs to its switch's other choices. */
-.qs-toggles { display: flex; flex-wrap: wrap; gap: 12px 24px; padding: 16px 18px 4px; }
-.seg.seg-way { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; flex: 1 1 100%; min-width: 0; }
-.seg.seg-way legend { float: none; margin: 0; padding: 0; line-height: 28px; }
-.seg.seg-way label[for] { justify-content: center; padding: 0 10px; border-radius: 6px; border-left: 1px solid #58647b; text-align: center; }
-.seg.seg-way input:checked + label { border-color: var(--mint); }
-.quickstart:has(#qs-compose:checked) .qs-when:not(.when-compose),
-.quickstart:has(#qs-one:checked) .qs-when:not(.when-one),
-.quickstart:has(#qs-local:checked) .qs-when:not(.when-local),
-.quickstart:has(#qs-helm:checked) .qs-when:not(.when-helm),
-.quickstart:has(#qs-docker:checked) .when-podman, .quickstart:has(#qs-podman:checked) .when-docker,
-.quickstart:has(#qs-cpu:checked) .when-gpu, .quickstart:has(#qs-gpu:checked) .when-cpu,
-.quickstart:has(#qs-unix:checked) .when-windows, .quickstart:has(#qs-windows:checked) .when-unix { display: none; }
-.qs-about > p { margin-top: 23px; }
-@media (max-width: 700px) { .seg.seg-way { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.seg { display: inline-flex; align-items: center; gap: 0; border: 0; margin: 0; padding: 0; }
-.seg legend { float: left; margin-right: 10px; font: 10px/44px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
-.seg input { position: absolute; opacity: 0; width: 1px; height: 1px; }
-.seg label { min-height: 44px; display: inline-flex; align-items: center; padding: 0 16px; border: 1px solid #58647b; font-size: 13px; font-weight: 650; color: var(--muted); cursor: pointer; background: #0b101b; }
+/* Quickstart: the level cards at the top pick one whole guide (Basic, Intermediate, Advanced,
+   Professional); inside a guide, tabs and switches (engine, where models run, your terminal) pick
+   its command block and the words that go with it. Radios and :has() do it all, so the choices
+   work without JavaScript; only copying needs it. A choice is a radio with an opt-<choice> class,
+   and what belongs to another choice of the same switch (when-<other>) is hidden while it is checked. */
+.quickstart-page:has(#lvl-basic:checked) .qs-guide:not(.guide-basic),
+.quickstart-page:has(#lvl-intermediate:checked) .qs-guide:not(.guide-intermediate),
+.quickstart-page:has(#lvl-advanced:checked) .qs-guide:not(.guide-advanced),
+.quickstart-page:has(#lvl-professional:checked) .qs-guide:not(.guide-professional),
+.qs-guide:has(.opt-one:checked) .when-local, .qs-guide:has(.opt-local:checked) .when-one,
+.qs-guide:has(.opt-docker:checked) .when-podman, .qs-guide:has(.opt-podman:checked) .when-docker,
+.qs-guide:has(.opt-cpu:checked) .when-gpu, .qs-guide:has(.opt-gpu:checked) .when-cpu,
+.qs-guide:has(.opt-unix:checked) .when-windows, .qs-guide:has(.opt-windows:checked) .when-unix,
+.qs-guide:has(.opt-single:checked) :is(.when-cloud, .when-onprem, .when-scaled),
+.qs-guide:has(.opt-cloud:checked) :is(.when-single, .when-onprem),
+.qs-guide:has(.opt-onprem:checked) :is(.when-single, .when-cloud) { display: none; }
+/* The levels: four cards, the chosen one lit. */
+.qs-levels { padding-bottom: 56px; }
+.qs-level-grid { position: relative; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; border: 0; margin: 0; padding: 0; min-width: 0; }
+.qs-level-grid legend, .qs-tabs legend { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.qs-level-grid input, .qs-tabs input, .seg input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.qs-level { position: relative; display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 22px 22px 20px; border: 1px solid #45506b; border-radius: 12px; background: var(--surface); cursor: pointer; transition: border-color .15s; }
+.qs-level:hover { border-color: #6b7896; }
+.qs-level-tag { font: 10px/1.6 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--lavender); }
+.qs-level strong { font-size: 21px; line-height: 1.25; }
+.qs-level-about { font-size: 14px; line-height: 1.6; color: var(--muted); }
+.qs-level small { font-size: 12px; line-height: 1.6; color: var(--muted); }
+.qs-level small:first-of-type { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--line); }
+.qs-level small b { color: var(--text); font-weight: 650; }
+.qs-level-grid input:checked + .qs-level { border-color: var(--mint); box-shadow: 0 0 0 1px var(--mint); background: linear-gradient(135deg, #1b2440, #14242a); }
+.qs-level-grid input:checked + .qs-level .qs-level-tag { color: var(--mint); }
+.qs-level-grid input:checked + .qs-level::after { content: "Your guide ↓"; position: absolute; top: 20px; right: 20px; font: 10px/1.6 var(--mono); letter-spacing: .06em; color: var(--mint); }
+.qs-level-grid input:focus-visible + .qs-level { outline: 2px solid var(--lavender); outline-offset: 3px; }
+.qs-guide > .quickstart { border-top: 1px solid var(--line); }
+/* A guide opens with the list of its steps, each a link to the step. */
+.qs-toc-section { padding-block: 8px 56px; }
+.qs-toc-section h2 { margin-bottom: 26px; }
+.qs-toc { list-style: none; display: flex; flex-wrap: wrap; gap: 10px; margin: 0; padding: 0; counter-reset: qs-step; }
+.qs-toc a { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 16px 0 8px; border: 1px solid #45506b; border-radius: 999px; color: var(--text); font-size: 13px; text-decoration: none; }
+.qs-toc a::before { counter-increment: qs-step; content: counter(qs-step); flex: none; width: 28px; height: 28px; display: inline-grid; place-items: center; border-radius: 50%; background: var(--mint); color: #111d1b; font: 700 12px var(--mono); }
+.qs-toc a:hover { border-color: var(--mint); }
+.quickstart-copy h2 { display: flex; align-items: center; gap: 14px; }
+/* A guide's command box: tabs across the top where a level has more than one way, then the
+   chosen way's options, each a labelled group, then the terminal with its command. */
+.qs-box { overflow: hidden; }
+.qs-tabs { position: relative; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 0; margin: 0; padding: 0; min-width: 0; background: #060a12; }
+.qs-tabs-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.qs-tabs label { display: flex; flex-direction: column; justify-content: center; gap: 3px; min-height: 70px; padding: 10px 18px; border-top: 3px solid transparent; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); color: var(--muted); font-size: 14px; font-weight: 650; line-height: 1.3; cursor: pointer; }
+.qs-tabs label:last-of-type { border-right: 0; }
+.qs-tabs label small { font: 400 10px/1.5 var(--mono); letter-spacing: .03em; color: var(--muted); }
+.qs-tabs label:hover { color: var(--text); }
+.qs-tabs input:checked + label { background: #0b101b; border-top-color: var(--mint); border-bottom-color: #0b101b; color: var(--text); }
+.qs-tabs input:focus-visible + label { outline: 2px solid var(--lavender); outline-offset: -4px; }
+.qs-toggles { display: flex; flex-wrap: wrap; gap: 16px 36px; padding: 20px 20px 22px; border-bottom: 1px solid var(--line); }
+.seg { display: flex; flex-wrap: wrap; border: 0; margin: 0; padding: 0; min-width: 0; }
+.seg legend { padding: 0 0 8px; font: 10px/1.4 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.seg label { min-height: 44px; display: inline-flex; align-items: center; padding: 0 18px; border: 1px solid #58647b; font-size: 13px; font-weight: 650; color: var(--muted); cursor: pointer; background: #0b101b; }
 .seg label:first-of-type { border-radius: 6px 0 0 6px; }
 .seg label:last-of-type { border-radius: 0 6px 6px 0; border-left: 0; }
+.seg label:hover { color: var(--text); }
 .seg input:checked + label { background: var(--mint); border-color: var(--mint); color: #111d1b; }
 .seg input:focus-visible + label { outline: 2px solid var(--lavender); outline-offset: 2px; }
+.qs-box .code-toolbar { min-height: 0; padding-block: 10px; border-bottom: 0; }
+.qs-box .qs-cmd { padding-top: 6px; }
+.quickstart-copy .text-link { display: flex; width: fit-content; }
+/* Commands inside a step, and the note that a provider is yours, whatever serves it. */
+.qs-step { min-width: 0; }
+.step-code { max-width: 760px; min-width: 0; margin: 0 0 16px 50px; }
+.step-code pre { padding: 16px 18px; line-height: 1.9; }
+.qs-step > p.own-provider { padding: 14px 18px; border-left: 2px solid var(--mint); background: #14242a; border-radius: 0 8px 8px 0; font-size: 14px; }
+@media (max-width: 1100px) { .qs-level-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 850px) { .step-code { margin-left: 0; } }
+@media (max-width: 700px) {
+  .qs-tabs-3 { grid-template-columns: minmax(0, 1fr); }
+  .qs-tabs-3 label { min-height: 56px; border-right: 0; }
+  .qs-tabs label { padding: 8px 14px; }
+}
+@media (max-width: 550px) { .qs-level-grid { grid-template-columns: minmax(0, 1fr); } }
 .qs-note { margin: 0; padding: 14px 20px; border-top: 1px solid var(--line); font-size: 12px; line-height: 1.8; }
 .qs-note a { color: var(--mint); }
 .qs-note code { overflow-wrap: anywhere; }

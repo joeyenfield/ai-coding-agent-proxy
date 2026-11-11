@@ -10,6 +10,7 @@ import { ShareChoice } from "../components/Sharing";
 import { StateDot } from "../components/ProviderState";
 import { pollEvery, useAgents, useAuth, useClipboard, useMachines, useModels, useSessions, useStatus, useToast } from "../hooks";
 import { providerLabel } from "../routes";
+import { PartTag } from "../components/PartTag";
 import { formatRelative } from "../format";
 import { OllamaProvider } from "./Models";
 import { StrataProvider } from "./Strata";
@@ -207,11 +208,7 @@ function MachineHeader({ machine }: { machine: FleetMachine }) {
   return (
     <>
       <header className="page-head machine-head">
-        <p className="part-tag part-machines">
-          <Link to="/machines">Machines</Link>
-          <span className="part-sep" aria-hidden="true">›</span>
-          {machine.name}
-        </p>
+        <PartTag trail={[{ label: machine.name }]} />
         <div className="machine-title">
           <span className="provider-icon" aria-hidden="true">
             <Icon name="monitor" size={22} />
@@ -1281,7 +1278,8 @@ export function LaunchForm({ machine, agents, onDone, initialAgent, fixedAgent }
   }, [agent, available, model, typing, chose]);
   const describe = (name: string) => {
     const info = status.data?.backends[name];
-    return `${name} (${providerLabel(info?.type, true)}${info?.machine_name ? ` on ${info.machine_name}` : ""})`;
+    // The provider by its own name: which model server it is (Ollama, llama.cpp, an API) is on its page, not here.
+    return info?.machine_name && info.machine_name !== name ? `${name} (on ${info.machine_name})` : name;
   };
   const launch = useMutation({
     mutationFn: () => {
@@ -1321,7 +1319,7 @@ export function LaunchForm({ machine, agents, onDone, initialAgent, fixedAgent }
         )}
         {agent && !agent.intercept && backends.length > 0 && (
           <label className="field">
-            Provider
+            Own provider
             <select
               value={backend}
               onChange={(event) => {

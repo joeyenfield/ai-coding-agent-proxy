@@ -76,10 +76,18 @@ try {
   assert.ok(quickstartPage.includes('docker compose -f deploy/compose/quickstart/compose.yaml up -d'));
   assert.ok(quickstartPage.includes('podman compose -f deploy/compose/quickstart/compose.yaml up -d'));
   assert.ok(pageSources[0].includes('href="/quickstart.html"'), 'The homepage links to the quickstart page');
-  // Every step's screenshot: the same quickstart-*.png the guide uses (devhelpers/scripts/screenshots/quickstart-steps.mjs).
+  // Every step's screenshot is a real capture (devhelpers/scripts/screenshots/quickstart-steps.mjs): 13 for the
+  // one container, 12 for the Compose stack (the ones docs/quickstart.md shows too), 14 for the Helm chart.
   const stepShots = [...quickstartPage.matchAll(/href="\/screenshots\/(quickstart-[0-9a-z-]+)\.png"/g)].map(match => match[1]);
-  assert.equal(stepShots.length, 12, 'The quickstart page shows the twelve step screenshots');
-  for (const name of stepShots) assert.ok(guide.includes(`screenshots/${name}.png`), `docs/quickstart.md shows ${name} too`);
+  const shotsOf = prefix => stepShots.filter(name => prefix.test(name));
+  assert.equal(shotsOf(/^quickstart-basic-/).length, 13, 'The Basic guide shows its thirteen screenshots');
+  assert.equal(shotsOf(/^quickstart-\d/).length, 12, 'The Intermediate guide shows its twelve screenshots');
+  assert.equal(shotsOf(/^quickstart-helm-/).length, 14, 'The Advanced guide shows its fourteen screenshots');
+  assert.equal(new Set(stepShots).size, 39, 'No screenshot is shown twice');
+  for (const name of stepShots) await readFile(path.join(root, 'docs/screenshots', `${name}.png`));
+  for (const name of shotsOf(/^quickstart-\d/)) assert.ok(guide.includes(`screenshots/${name}.png`), `docs/quickstart.md shows ${name} too`);
+  // A provider is the reader's own, whatever serves it: each guide says so where the provider is added.
+  assert.equal((quickstartPage.match(/class="own-provider"/g) || []).length, 4, 'Every level says a provider is your own');
   assert.ok((await readFile(path.join(root, 'deploy/compose/quickstart/compose.gpu.yaml'), 'utf8')).includes('nvidia.com/gpu=all'));
   // The Helm commands' chart and files, and the Services the port-forwards name (release mesh).
   for (const file of ['deploy/helm/agent-mesh/Chart.yaml', 'deploy/helm/quickstart/values.yaml', 'deploy/helm/quickstart/machine.yaml']) await readFile(path.join(root, file));
@@ -159,52 +167,65 @@ try {
       }
     }
     if (pagePath === '/quickstart.html') {
+    const pick = async (...ids) => { for (const id of ids) await page.locator(`label[for="${id}"]`).click(); };
+    const copy = page.locator('.copy-button:visible');
+    const status = page.locator('.copy-status:visible');
+    // The page opens on Basic, one container, Docker, Linux or macOS.
     // Verify both clipboard outcomes without depending on the OS clipboard.
     await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { window.copiedCommand = text; } } }));
-    await page.getByRole('button', { name: 'Copy commands' }).click();
+    await copy.click();
     const copied = await page.evaluate(() => window.copiedCommand);
-    assert.ok(copied.endsWith('docker compose -f deploy/compose/quickstart/compose.yaml up -d'));
-    assert.equal(copied.split('\n').length, 3);
-    assert.match(await page.locator('#copy-status').textContent(), /Commands copied/);
+    assert.ok(copied.startsWith('docker run -d --name mesh \\') && copied.endsWith('docker logs mesh'), copied);
+    assert.equal(copied.split('\n').length, 6);
+    assert.match(await status.textContent(), /Commands copied/);
     await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw Error('Denied'); } } }));
-    await page.getByRole('button', { name: 'Copy commands' }).click();
+    await copy.click();
     assert.equal(await page.evaluate(() => getSelection().toString().trim()), copied);
-    assert.match(await page.locator('#copy-status').textContent(), /Clipboard unavailable/);
-    // The switches: the way to run it, then that way's own (engine, where models run, your system).
-    // Each choice shows one block, its notes and only its switches, and copies just that block.
-    for (const [way, choices, first, last] of [
-      ['Compose stack', ['Podman', 'CPU'], 'git clone ', 'podman compose -f deploy/compose/quickstart/compose.yaml up -d'],
-      ['Compose stack', ['Podman', 'NVIDIA GPU'], 'git clone ', 'podman compose -f deploy/compose/quickstart/compose.yaml -f deploy/compose/quickstart/compose.gpu.yaml up -d'],
-      ['Compose stack', ['Docker', 'NVIDIA GPU'], 'git clone ', 'docker compose -f deploy/compose/quickstart/compose.yaml -f deploy/compose/quickstart/compose.gpu.yaml up -d'],
-      ['One container', ['Podman'], 'podman run -d --name mesh ', 'podman logs mesh'],
-      ['One container', ['Docker'], 'docker run -d --name mesh ', 'docker logs mesh'],
-      ['No containers', ['Windows'], 'irm https://', 'install-local.ps1 | iex'],
-      ['No containers', ['Linux, macOS, FreeBSD'], 'curl -fsSL https://', 'install-local.sh | sh'],
-      ['Kubernetes', ['NVIDIA GPU'], 'git clone ', 'kubectl -n mesh get pods -w'],
-      ['Kubernetes', ['CPU'], 'git clone ', 'kubectl -n mesh get pods -w'],
-      ['Compose stack', ['Docker', 'CPU'], 'git clone ', 'docker compose -f deploy/compose/quickstart/compose.yaml up -d'],
+    assert.match(await status.textContent(), /Clipboard unavailable/);
+    // A level shows one whole guide. In it, the tabs and switches (engine, where models run, your
+    // terminal) show one command block, and Copy takes just that block.
+    for (const [level, choices, first, last] of [
+      ['basic', ['b-one', 'b-podman', 'b-windows'], 'podman run -d --name mesh `', 'podman logs mesh'],
+      ['basic', ['b-local', 'b-windows'], 'irm https://', 'install-local.ps1 | iex'],
+      ['basic', ['b-local', 'b-unix'], 'curl -fsSL https://', 'install-local.sh | sh'],
+      ['intermediate', ['i-podman', 'i-cpu'], 'git clone ', 'podman compose -f deploy/compose/quickstart/compose.yaml up -d'],
+      ['intermediate', ['i-podman', 'i-gpu'], 'git clone ', 'podman compose -f deploy/compose/quickstart/compose.yaml -f deploy/compose/quickstart/compose.gpu.yaml up -d'],
+      ['intermediate', ['i-docker', 'i-cpu'], 'git clone ', 'docker compose -f deploy/compose/quickstart/compose.yaml up -d'],
+      ['advanced', ['a-gpu', 'a-windows'], 'git clone ', 'kubectl -n mesh get pods -w'],
+      ['advanced', ['a-cpu', 'a-unix'], 'git clone ', 'kubectl -n mesh get pods -w'],
+      ['professional', ['p-cloud'], 'helm install mesh ', 'values-cloud.yaml'],
+      ['professional', ['p-onprem'], 'helm install mesh ', 'values-onprem.yaml'],
+      ['professional', ['p-single'], 'helm install mesh ', '--set auth.host=auth.example.com'],
+      ['basic', ['b-one', 'b-docker', 'b-unix'], 'docker run -d --name mesh \\', 'docker logs mesh'],
     ]) {
-      const name = `${way}/${choices.join('/')}`;
-      const label = text => page.locator('.seg label', { hasText: new RegExp(`^${text}$`) });
-      await label(way).click();
-      for (const choice of choices) await label(choice).click();
-      const compose = way === 'Compose stack', helm = way === 'Kubernetes', gpu = choices.includes('NVIDIA GPU');
+      const name = `${level}/${choices.join('/')}`;
+      await pick(`lvl-${level}`, ...choices);
+      assert.equal(await page.locator('.qs-guide:visible').count(), 1, `${name} shows one guide`);
+      assert.equal(await page.locator(`.guide-${level}`).isVisible(), true, `${name} shows its own guide`);
       assert.equal(await page.locator('.qs-cmd:visible').count(), 1, `${name} shows one block`);
-      assert.equal(await page.locator('.qs-about:visible').count(), 1, `${name} says what it is once`);
-      assert.equal(await page.locator('.qs-toggles fieldset:visible').count(), compose ? 3 : 2, `${name} shows only its switches`);
-      assert.equal(await page.locator('.qs-note-podman').isVisible(), choices.includes('Podman'));
-      assert.equal(await page.locator('.qs-note-gpu').isVisible(), gpu && compose);
-      assert.equal(await page.locator('.qs-note-compose').isVisible(), compose);
-      assert.equal(await page.locator('.qs-note-one').isVisible(), way === 'One container');
-      assert.equal(await page.locator('.qs-note-local').isVisible(), way === 'No containers');
-      assert.equal(await page.locator('.qs-note-helm').first().isVisible(), helm);
-      assert.equal(await page.locator('.qs-note-helm-gpu').isVisible(), gpu && helm);
+      assert.equal(await page.locator('.quickstart-copy .text-link:visible').count(), 1, `${name} links one guide`);
+      if (level === 'advanced') assert.equal(await page.locator('.qs-forward:visible').count(), 1, `${name} shows one pair of port-forwards`);
+      // One numbered sequence: the list at the top names every step, in order, and links to it.
+      const listed = await page.locator('.qs-guide:visible .qs-toc a').evaluateAll(links => links.map(link => link.hash));
+      const numbers = await page.locator('.qs-guide:visible .step-number').allTextContents();
+      assert.deepEqual(numbers, listed.map((hash, index) => String(index + 1)), `${name} numbers its steps from 1`);
+      for (const hash of listed) assert.equal(await page.locator(hash).isVisible(), true, `${name} lists ${hash}`);
+      assert.equal(await page.locator('.guide-basic .when-podman.qs-note').isVisible(), level === 'basic' && choices.includes('b-podman'));
+      assert.equal(await page.locator('.guide-intermediate .when-gpu.qs-note').isVisible(), choices.includes('i-gpu'));
+      assert.equal(await page.locator('.guide-advanced .when-gpu.qs-note').isVisible(), choices.includes('a-gpu'));
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${name}: no horizontal overflow at ${width}`);
-      await page.getByRole('button', { name: 'Copy commands' }).click();
+      assert.equal(await page.locator('.qs-guide:visible img:not([alt])').count(), 0);
+      await copy.click();
       const shown = await page.evaluate(() => getSelection().toString().trim());
       assert.ok(shown.startsWith(first) && shown.endsWith(last), `${name}: ${shown}`);
+      if (width !== 768) await page.screenshot({ path: path.join(output, `quickstart-${level}-${choices.at(-1)}-${width}.png`), fullPage: true });
     }
-    await page.evaluate(() => { getSelection().removeAllRanges(); document.activeElement.blur(); document.querySelector('#copy-status').textContent = ''; window.scrollTo(0, 0); });
+    // A link to a level picks it (site.js), as the guides' "Then" cards do.
+    await page.locator('.guide-basic a[href="#intermediate"]').click();
+    await page.waitForFunction(() => document.getElementById('lvl-intermediate').checked, null, { timeout: 5000 });
+    assert.equal(await page.locator('.guide-intermediate').isVisible(), true, 'A link to #intermediate opens that guide');
+    await pick('lvl-basic');
+    await page.evaluate(() => { history.replaceState(null, '', location.pathname); getSelection().removeAllRanges(); document.activeElement.blur(); document.querySelectorAll('.copy-status').forEach(status => { status.textContent = ''; }); window.scrollTo(0, 0); });
     }
     if (pagePath === '/') {
     await page.locator('#compatibility summary').focus();
@@ -240,16 +261,18 @@ try {
   await page.locator('#main-nav a[href="/security.html"]').click();
   assert.equal(await page.locator('#recording').count(), 1);
   await page.locator('#main-nav a[href="/quickstart.html"]', { hasText: /^Quickstart$/ }).click();
-  // Without JavaScript the commands still show and the switches still work; only copying needs it.
+  // Without JavaScript the levels, the commands and the switches still work; only copying needs it.
+  assert.equal(await page.locator('#b-one-docker').isVisible(), true);
+  assert.equal(await page.locator('.copy-button:visible').count(), 0);
+  await page.locator('label[for="lvl-intermediate"]').click();
   assert.equal(await page.locator('#quickstart-command').isVisible(), true);
-  assert.equal(await page.getByRole('button', { name: 'Copy commands' }).isVisible(), false);
-  await page.locator('label[for="qs-podman"]').click();
-  assert.equal(await page.locator('#qs-podman-cpu').isVisible(), true);
-  await page.locator('label[for="qs-one"]').click();
-  assert.equal(await page.locator('#qs-one-podman').isVisible(), true);
-  await page.locator('label[for="qs-local"]').click();
-  assert.equal(await page.locator('#qs-local-unix').isVisible(), true);
+  await page.locator('label[for="i-podman"]').click();
+  assert.equal(await page.locator('#i-podman-cpu').isVisible(), true);
+  await page.locator('label[for="lvl-basic"]').click();
+  await page.locator('label[for="b-local"]').click();
+  assert.equal(await page.locator('#b-local-unix').isVisible(), true);
   assert.equal(await page.locator('.qs-cmd:visible').count(), 1);
+  assert.equal(await page.locator('.qs-guide:visible').count(), 1);
   await noJS.close();
   assert.deepEqual(errors, []);
   console.log('PASS no-JavaScript developer/team journeys, cross-page links, documentation files, quickstart inputs, SEO, no browser errors');

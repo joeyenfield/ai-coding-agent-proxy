@@ -53,3 +53,23 @@ def test_the_entrypoint_signs_in_with_the_quickstarts_device_flow_at_the_local_p
     assert f'ISSUER = os.getenv("QUICKSTART_ISSUER") or "http://localhost:{local.DEFAULT_AUTH_PORT}"' in machine
     assert "def sign_in(path, password):" in machine
     assert f"EXPOSE {local.DEFAULT_PORT} {local.DEFAULT_AUTH_PORT}" in ALLINONE
+
+
+def test_the_containers_machine_gets_a_name_people_can_read(monkeypatch):
+    import os
+    import re
+    import socket
+
+    # The entrypoint imports modules that only exist in the image, so take the one function.
+    tree = ast.parse((ROOT / "devhelpers" / "allinone" / "entrypoint.py").read_text(encoding="utf-8"))
+    function = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "machine_name")
+    scope = {"os": os, "re": re, "socket": socket}
+    exec(compile(ast.Module(body=[function], type_ignores=[]), "entrypoint.py", "exec"), scope)
+    name = scope["machine_name"]
+    monkeypatch.delenv("MESH_MACHINE_NAME", raising=False)
+    monkeypatch.setattr(socket, "gethostname", lambda: "3f9a1c0b7d2e")
+    assert name() == "my-machine"  # a container id says nothing
+    monkeypatch.setattr(socket, "gethostname", lambda: "build-box")
+    assert name() == "build-box"  # docker run --hostname
+    monkeypatch.setenv("MESH_MACHINE_NAME", "demo")
+    assert name() == "demo"

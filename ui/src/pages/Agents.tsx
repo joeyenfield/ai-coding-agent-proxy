@@ -13,7 +13,7 @@ import { LaunchForm } from "./Machine";
 /** One line on each route, under the agent's name. */
 const ROUTE_LINES: Record<RouteKind, string> = {
   account: "Uses its own sign-in and plan. The server records everything it sends.",
-  ollama: "Runs on a model from your machines: Ollama, llama.cpp, Strata or Docker Model Runner.",
+  ollama: "Runs on a provider of your own: a model server on one of your machines, or an API provider you add.",
   hosted: "Uses a hosted API, such as Anthropic, through the server.",
 };
 
@@ -329,9 +329,8 @@ function ProxyCommand({ agent }: { agent: Agent }) {
   const models = useModels();
   const copy = useClipboard();
   const route = routeOfAgent(agent);
-  // The proxy lists the backends this agent's protocol can use: Ollama, and Docker or Strata for local-model agents.
+  // The proxy lists the backends this agent's protocol can use: for an own-provider agent, your machines' model servers and API providers.
   const backends = (agent.backends ?? []).filter((name) => status.data?.backends[name]);
-  const offersPassThrough = backends.some((name) => status.data?.backends[name]?.type !== "ollama");
   // The one the server picks when a launch names none.
   const preferredBackend = backends.includes(agent.default_backend ?? "") ? agent.default_backend! : backends[0] ?? "";
   const [backend, setBackend] = useState("");
@@ -362,11 +361,11 @@ function ProxyCommand({ agent }: { agent: Agent }) {
     <>
       {!backends.length ? (
         <p className="bad">
-          No {route === "ollama" ? "local-model provider (Ollama, Docker or Strata)" : `${providerLabel(agent.backend_type ?? undefined)} provider`} that this
+          No {route === "ollama" ? "provider of your own" : `${providerLabel(agent.backend_type ?? undefined)} provider`} that this
           agent can use is set up.{" "}
           {route === "ollama" ? (
             <>
-              Local providers come from your machines: add one on <Link to="/machines">Machines</Link>.
+              Your own providers come from your machines: add one on <Link to="/machines">Machines</Link>.
             </>
           ) : (
             <>
@@ -377,12 +376,14 @@ function ProxyCommand({ agent }: { agent: Agent }) {
       ) : (
         <div className="form-grid two">
           <label className="field">
-            {route !== "ollama" ? "Hosted API" : offersPassThrough ? "Local provider" : "Ollama provider"}
+            {route !== "ollama" ? "Hosted API" : "Own provider"}
             <select value={backend} onChange={(event) => setBackend(event.target.value)}>
               {backends.map((name) => (
                 <option key={name} value={name}>
-                  {name} ({providerLabel(status.data?.backends[name]?.type, true)}
-                  {status.data?.backends[name]?.machine_name ? ` on ${status.data.backends[name].machine_name}` : `, ${hostOf(status.data?.backends[name]?.url ?? "")}`})
+                  {name}
+                  {status.data?.backends[name]?.machine_name
+                    ? status.data.backends[name].machine_name === name ? "" : ` (on ${status.data.backends[name].machine_name})`
+                    : ` (${route === "ollama" ? "" : `${providerLabel(status.data?.backends[name]?.type, true)}, `}${hostOf(status.data?.backends[name]?.url ?? "")})`}
                 </option>
               ))}
             </select>

@@ -5,7 +5,7 @@ This page takes you from nothing to a first recorded agent session. You install 
 You need whichever of these you want to try:
 
 - a Claude, GitHub Copilot or ChatGPT subscription, for the account route;
-- an Ollama install on some computer, for the local-model route;
+- a model server on some computer (Ollama here; llama.cpp, Strata, Docker Model Runner, LM Studio or vLLM work the same way), for the own-provider route;
 - a Claude login that works with the Anthropic API, for the hosted route.
 
 For how the pieces fit together, see [Architecture](architecture.md).
@@ -187,9 +187,9 @@ agent claude-account . --trace -- --model sonnet    # save bodies; pass a model 
 
 The launcher gives only the agent's own processes the server's CA, so nothing is added to your system's trust store.
 
-### Local models on Ollama
+### Your own provider, on Ollama
 
-Local models come from **machines**: computers in the server's fleet, running `agent-machine`. On the computer that runs Ollama (it can be the server's, or the one you work on):
+A provider of your own is a model server on one of your **machines** (or a hosted API you add with its key; see [Providers](providers.md)). This walk uses Ollama, but any model server a machine runs is added the same way. They come from **machines**: computers in the server's fleet, running `agent-machine`. On the computer that runs Ollama (it can be the server's, or the one you work on):
 
 ```bash
 agent-machine login https://your-server.example.com   # approve its separate device code

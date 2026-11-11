@@ -5,28 +5,28 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#101523">
   <title>Quickstart — AIControlMesh</title>
-  <meta name="description" content="Run AI Control Mesh on your own computer as a Compose stack, in one container, with no containers or on Kubernetes: sign in, add a model provider, pull a model and start a coding agent, step by step with screenshots.">
+  <meta name="description" content="Run AI Control Mesh on your own computer at your level, from one container to the production Helm chart: sign in, add a provider of your own, pull a model and start a coding agent, step by step with screenshots.">
   <link rel="canonical" href="https://aicontrolmesh.com/quickstart.html">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="AIControlMesh">
   <meta property="og:url" content="https://aicontrolmesh.com/quickstart.html">
   <meta property="og:title" content="Quickstart — AIControlMesh">
-  <meta property="og:description" content="Run AI Control Mesh on your own computer as a Compose stack, in one container, with no containers or on Kubernetes: sign in, add a model provider, pull a model and start a coding agent, step by step with screenshots.">
+  <meta property="og:description" content="Run AI Control Mesh on your own computer at your level, from one container to the production Helm chart: sign in, add a provider of your own, pull a model and start a coding agent, step by step with screenshots.">
   <meta property="og:image" content="https://aicontrolmesh.com/assets/social.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta property="og:image:alt" content="AIControlMesh: Your AI agents. Your infrastructure. One control plane. Open source. Self-hosted. MIT licensed.">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Quickstart — AIControlMesh">
-  <meta name="twitter:description" content="Run AI Control Mesh on your own computer as a Compose stack, in one container, with no containers or on Kubernetes: sign in, add a model provider, pull a model and start a coding agent, step by step with screenshots.">
+  <meta name="twitter:description" content="Run AI Control Mesh on your own computer at your level, from one container to the production Helm chart: sign in, add a provider of your own, pull a model and start a coding agent, step by step with screenshots.">
   <meta name="twitter:image" content="https://aicontrolmesh.com/assets/social.png">
   <meta name="twitter:image:alt" content="AIControlMesh: Your AI agents. Your infrastructure. One control plane.">
   <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
   <link rel="icon" href="/assets/icon-192.png" type="image/png" sizes="192x192">
   <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" sizes="180x180">
   <link rel="manifest" href="/site.webmanifest">
-  <link rel="stylesheet" href="/styles.css?v=ee05808704">
-  <script src="/site.js?v=68ef62e8cb" defer></script>
+  <link rel="stylesheet" href="/styles.css?v=5d9ce369d6">
+  <script src="/site.js?v=35d7912c1a" defer></script>
   <script type="application/ld+json">{"@context":"https://schema.org","@type":"WebPage","name":"Quickstart","url":"https://aicontrolmesh.com/quickstart.html","isPartOf":{"@type":"WebSite","name":"AIControlMesh","url":"https://aicontrolmesh.com/"}}</script>
 </head>
 <body>
@@ -47,143 +47,398 @@
   </header>
 <main id="main" class="detail-page quickstart-page">
 
-  <section class="page-intro wrap"><p class="eyebrow">Quickstart / On your computer</p><h1>Your first mesh,<br><span>in ten minutes.</span></h1><p class="hero-lede">Start the whole system on your own computer: as a Compose stack, in one container, with no containers at all, or on Kubernetes. Then add a provider, pull a model and start a coding agent on it. Every screenshot below is the real quickstart, started fresh.</p></section>
-  <nav class="page-nav wrap" aria-label="On this page"><a href="#quickstart">Start it</a><a href="#steps">Step by step</a><a href="#next">Then</a></nav>
+  <section class="page-intro wrap"><p class="eyebrow">Quickstart / On your computer</p><h1>Your first mesh,<br><span>at your level.</span></h1><p class="hero-lede">Pick how far you want to go. Each level has a guide of its own below, with its own commands, passwords and screenshots. Every one ends the same way: a coding agent answering on a provider of your own, with every request recorded.</p></section>
+  <nav class="page-nav wrap" aria-label="On this page"><a href="#quickstart">Pick a level</a><a href="#steps">Your guide</a></nav>
 
-  <section class="quickstart section wrap" id="quickstart" aria-labelledby="quickstart-title">
+  <section class="section wrap qs-levels" id="quickstart" aria-labelledby="levels-title">
+    <div class="section-heading"><p class="eyebrow">Start here</p><h2 id="levels-title">Pick your level.</h2><p>The guide below changes with your choice. Each one is numbered steps from the first command to an agent's answer.</p></div>
+    <fieldset class="qs-level-grid"><legend>Level</legend>
+      <input type="radio" name="qs-level" id="lvl-basic" value="basic" checked><label class="qs-level" for="lvl-basic"><span class="qs-level-tag">Basic</span><strong>One machine</strong><span class="qs-level-about">The whole system in a single container, or installed with no containers at all.</span><small><b>Bring:</b> Docker or Podman, or only Python</small><small>About 10 minutes</small></label>
+      <input type="radio" name="qs-level" id="lvl-intermediate" value="intermediate"><label class="qs-level" for="lvl-intermediate"><span class="qs-level-tag">Intermediate</span><strong>A small fleet</strong><span class="qs-level-about">A Compose stack: the server, sign-in, PostgreSQL and two machines sharing a provider.</span><small><b>Bring:</b> Git, and Docker or Podman with Compose</small><small>About 10 minutes</small></label>
+      <input type="radio" name="qs-level" id="lvl-advanced" value="advanced"><label class="qs-level" for="lvl-advanced"><span class="qs-level-tag">Advanced</span><strong>Kubernetes</strong><span class="qs-level-about">The Helm chart on a local cluster, with a password you read from a log and a machine you approve.</span><small><b>Bring:</b> A local cluster, kubectl and Helm</small><small>About 20 minutes</small></label>
+      <input type="radio" name="qs-level" id="lvl-professional" value="professional"><label class="qs-level" for="lvl-professional"><span class="qs-level-tag">Professional</span><strong>Production</strong><span class="qs-level-about">The Helm chart for a team: your host names, HTTPS, PostgreSQL and your own secrets.</span><small><b>Bring:</b> A cluster, DNS and TLS</small><small>An afternoon</small></label>
+    </fieldset>
+  </section>
+
+  <div class="qs-guides" id="steps">
+<div class="qs-guide guide-basic" id="basic">
+  <section class="wrap qs-toc-section" aria-labelledby="basic-toc-title"><p class="eyebrow">Basic / 9 steps</p><h2 id="basic-toc-title">Step by step.</h2><ol class="qs-toc"><li><a href="#basic-step-1">Run one command</a></li><li><a href="#quickstart-basic-step-2">Sign in</a></li><li><a href="#quickstart-basic-step-3">Check your machine</a></li><li><a href="#quickstart-basic-step-4">Start a model server</a></li><li><a href="#quickstart-basic-step-5">Add my-machine's model server as your own provider</a></li><li><a href="#quickstart-basic-step-6">Find a model and pull it</a></li><li><a href="#quickstart-basic-step-7">Start Qwen Code on my-machine</a></li><li><a href="#quickstart-basic-step-8">Ask it something</a></li><li><a href="#quickstart-basic-step-9">See what it sent</a></li></ol></section>
+  <section class="quickstart section wrap" id="basic-step-1" aria-labelledby="basic-start-title">
       <div class="quickstart-copy">
-        <p class="eyebrow">1 / Start it</p>
-        <h2 id="quickstart-title">One command.</h2>
-        <p>Pick how you want to run it. Every way runs on your own computer, on localhost only, and ends at the same console on <a href="http://localhost:19999">localhost:19999</a>.</p>
-        <div class="qs-about qs-when when-compose">
-          <p><strong>Compose stack.</strong> The full demo, and the one the steps below follow: the server, its sign-in service, PostgreSQL, two fleet machines and Ollama, in six containers.</p>
-          <p class="prerequisites"><strong>Bring:</strong> Git, Docker with Compose or Podman with a Compose provider, several GB of disk, and free localhost ports 19999 and 20000. Allow at least 8 GB RAM for a small CPU-model trial; model size and context can need much more. On Windows and macOS, give that memory to the container VM. An NVIDIA GPU is optional and makes models much faster.</p>
-          <a class="text-link" href="https://github.com/joeyenfield/ai-control-mesh/blob/master/docs/quickstart.md">The full quickstart guide <span aria-hidden="true">→</span></a>
-        </div>
-        <div class="qs-about qs-when when-one">
-          <p><strong>One container.</strong> The whole system in a single container: the server, sign-in, the console and a fleet machine with the coding agents and Ollama.</p>
-          <p class="prerequisites"><strong>Bring:</strong> Docker or Podman, several GB of disk, and free localhost ports 19999 and 20000. No Git and no Compose.</p>
-          <a class="text-link" href="https://github.com/joeyenfield/ai-control-mesh/blob/master/docs/local.md#try-it-in-one-container">One container, in the guide <span aria-hidden="true">→</span></a>
-        </div>
-        <div class="qs-about qs-when when-local">
-          <p><strong>No containers.</strong> One command installs the server, <code>agent</code> and <code>agent-machine</code> for you alone and starts them, with an icon in the system tray.</p>
-          <p class="prerequisites"><strong>Bring:</strong> Python 3.11 or later, nothing else. Every download is checked against its SHA-256.</p>
-          <a class="text-link" href="https://github.com/joeyenfield/ai-control-mesh/blob/master/docs/local.md">Run it on your own computer <span aria-hidden="true">→</span></a>
-        </div>
-        <div class="qs-about qs-when when-helm">
-          <p><strong>Kubernetes.</strong> The Helm chart in its smallest form (one pod: the server and its sign-in service, SQLite on a volume) and a fleet machine with the coding agents and Ollama.</p>
-          <p class="prerequisites"><strong>Bring:</strong> Git, a cluster on your computer (kind, k3d, minikube, or the one in Docker, Rancher or Podman Desktop) with a default StorageClass, <code>kubectl</code> and Helm 3.</p>
-          <a class="text-link" href="https://github.com/joeyenfield/ai-control-mesh/blob/master/docs/quickstart-kubernetes.md">The Kubernetes quickstart <span aria-hidden="true">→</span></a>
-        </div>
+        <p class="eyebrow">Step 1</p>
+        <h2 id="basic-start-title"><span class="step-number">1</span>Run one command</h2>
+        <p class="when-one"><strong>One container</strong> holds the whole system: the server, sign-in, the console and one fleet machine, <code>my-machine</code>, with the coding agents and a model server installed.</p>
+        <p class="prerequisites when-one"><strong>Bring:</strong> Docker or Podman, several GB of disk, 8 GB of RAM for a small model, and free localhost ports 19999 and 20000. No Git and no Compose.</p>
+        <a class="text-link when-one" href="https://github.com/joeyenfield/ai-control-mesh/blob/master/docs/local.md#try-it-in-one-container">One container, in the guide <span aria-hidden="true">→</span></a>
+        <p class="when-local"><strong>No containers.</strong> One command installs the server, <code>agent</code> and <code>agent-machine</code> for you alone and starts them, with an icon in the system tray. Your computer is the fleet machine.</p>
+        <p class="prerequisites when-local"><strong>Bring:</strong> Python 3.11 or later, nothing else. Every download is checked against its SHA-256.</p>
+        <a class="text-link when-local" href="https://github.com/joeyenfield/ai-control-mesh/blob/master/docs/local.md">Run it on your own computer <span aria-hidden="true">→</span></a>
       </div>
       <div class="quickstart-install">
-        <div class="code-window">
-          <div class="code-toolbar"><span class="mono">LOCAL DEMO / TERMINAL</span><button class="copy-button" type="button" data-copy-shown="qs-cmd" hidden>Copy commands</button></div>
+        <div class="code-window qs-box">
+          <fieldset class="qs-tabs qs-tabs-2"><legend>Run it as</legend><input type="radio" name="b-way" id="b-one" class="opt-one" checked><label for="b-one">One container <small>Docker or Podman</small></label><input type="radio" name="b-way" id="b-local" class="opt-local"><label for="b-local">No containers <small>Python only</small></label></fieldset>
           <div class="qs-toggles">
-            <fieldset class="seg seg-way"><legend>Run it as</legend><input type="radio" name="qs-way" id="qs-compose" value="compose" checked><label for="qs-compose">Compose stack</label><input type="radio" name="qs-way" id="qs-one" value="one"><label for="qs-one">One container</label><input type="radio" name="qs-way" id="qs-local" value="local"><label for="qs-local">No containers</label><input type="radio" name="qs-way" id="qs-helm" value="helm"><label for="qs-helm">Kubernetes</label></fieldset>
-            <fieldset class="seg qs-when when-compose when-one"><legend>Engine</legend><input type="radio" name="qs-engine" id="qs-docker" value="docker" checked><label for="qs-docker">Docker</label><input type="radio" name="qs-engine" id="qs-podman" value="podman"><label for="qs-podman">Podman</label></fieldset>
-            <fieldset class="seg qs-when when-compose when-helm"><legend>Models run on</legend><input type="radio" name="qs-hw" id="qs-cpu" value="cpu" checked><label for="qs-cpu">CPU</label><input type="radio" name="qs-hw" id="qs-gpu" value="gpu"><label for="qs-gpu">NVIDIA GPU</label></fieldset>
-            <fieldset class="seg qs-when when-local"><legend>Your system</legend><input type="radio" name="qs-os" id="qs-unix" value="unix" checked><label for="qs-unix">Linux, macOS, FreeBSD</label><input type="radio" name="qs-os" id="qs-windows" value="windows"><label for="qs-windows">Windows</label></fieldset>
+            <fieldset class="seg when-one"><legend>Engine</legend><input type="radio" name="b-engine" id="b-docker" class="opt-docker" checked><label for="b-docker">Docker</label><input type="radio" name="b-engine" id="b-podman" class="opt-podman"><label for="b-podman">Podman</label></fieldset>
+            <fieldset class="seg"><legend>Your terminal</legend><input type="radio" name="b-os" id="b-unix" class="opt-unix" checked><label for="b-unix">Linux / macOS</label><input type="radio" name="b-os" id="b-windows" class="opt-windows"><label for="b-windows">Windows PowerShell</label></fieldset>
           </div>
-          <pre class="qs-cmd qs-when when-compose when-docker when-cpu" data-v="compose-docker-cpu" tabindex="0" aria-label="Docker Compose quickstart commands"><code id="quickstart-command">git clone https://github.com/joeyenfield/ai-control-mesh.git
-cd ai-control-mesh
-docker compose -f deploy/compose/quickstart/compose.yaml up -d</code></pre>
-          <pre class="qs-cmd qs-when when-compose when-docker when-gpu" data-v="compose-docker-gpu" tabindex="0" aria-label="Docker Compose quickstart commands with an NVIDIA GPU"><code id="qs-docker-gpu">git clone https://github.com/joeyenfield/ai-control-mesh.git
-cd ai-control-mesh
-docker compose -f deploy/compose/quickstart/compose.yaml -f deploy/compose/quickstart/compose.gpu.yaml up -d</code></pre>
-          <pre class="qs-cmd qs-when when-compose when-podman when-cpu" data-v="compose-podman-cpu" tabindex="0" aria-label="Podman Compose quickstart commands"><code id="qs-podman-cpu">git clone https://github.com/joeyenfield/ai-control-mesh.git
-cd ai-control-mesh
-podman compose -f deploy/compose/quickstart/compose.yaml up -d</code></pre>
-          <pre class="qs-cmd qs-when when-compose when-podman when-gpu" data-v="compose-podman-gpu" tabindex="0" aria-label="Podman Compose quickstart commands with an NVIDIA GPU"><code id="qs-podman-gpu">git clone https://github.com/joeyenfield/ai-control-mesh.git
-cd ai-control-mesh
-podman compose -f deploy/compose/quickstart/compose.yaml -f deploy/compose/quickstart/compose.gpu.yaml up -d</code></pre>
-          <pre class="qs-cmd qs-when when-one when-docker" data-v="one-docker" tabindex="0" aria-label="The Docker command for one container"><code id="qs-one-docker">docker run -d --name mesh \
+          <div class="code-toolbar"><span class="mono">TERMINAL</span><button class="copy-button" type="button" data-copy-shown="qs-cmd" hidden>Copy commands</button></div>
+          <pre class="qs-cmd when-one when-docker when-unix" tabindex="0" aria-label="The Docker command for one container, for Linux and macOS"><code id="b-one-docker">docker run -d --name mesh \
   -p 127.0.0.1:19999:19999 -p 127.0.0.1:20000:20000 \
   -v mesh-data:/data -v mesh-home:/home/agent \
   -v mesh-workspace:/workspace \
   ghcr.io/joeyenfield/ai-control-mesh
 docker logs mesh</code></pre>
-          <pre class="qs-cmd qs-when when-one when-podman" data-v="one-podman" tabindex="0" aria-label="The Podman command for one container"><code id="qs-one-podman">podman run -d --name mesh \
+          <pre class="qs-cmd when-one when-docker when-windows" tabindex="0" aria-label="The Docker command for one container, for Windows PowerShell"><code id="b-one-docker-windows">docker run -d --name mesh `
+  -p 127.0.0.1:19999:19999 -p 127.0.0.1:20000:20000 `
+  -v mesh-data:/data -v mesh-home:/home/agent `
+  -v mesh-workspace:/workspace `
+  ghcr.io/joeyenfield/ai-control-mesh
+docker logs mesh</code></pre>
+          <pre class="qs-cmd when-one when-podman when-unix" tabindex="0" aria-label="The Podman command for one container, for Linux and macOS"><code id="b-one-podman">podman run -d --name mesh \
   -p 127.0.0.1:19999:19999 -p 127.0.0.1:20000:20000 \
   -v mesh-data:/data -v mesh-home:/home/agent \
   -v mesh-workspace:/workspace \
   ghcr.io/joeyenfield/ai-control-mesh
 podman logs mesh</code></pre>
-          <pre class="qs-cmd qs-when when-local when-unix" data-v="local-unix" tabindex="0" aria-label="The install command for Linux, macOS and FreeBSD"><code id="qs-local-unix">curl -fsSL https://github.com/joeyenfield/ai-control-mesh/releases/latest/download/install-local.sh | sh</code></pre>
-          <pre class="qs-cmd qs-when when-local when-windows" data-v="local-windows" tabindex="0" aria-label="The install command for Windows PowerShell"><code id="qs-local-windows">irm https://github.com/joeyenfield/ai-control-mesh/releases/latest/download/install-local.ps1 | iex</code></pre>
-          <pre class="qs-cmd qs-when when-helm" data-v="helm" tabindex="0" aria-label="Kubernetes quickstart commands with Helm"><code id="qs-helm-cmd">git clone https://github.com/joeyenfield/ai-control-mesh.git
+          <pre class="qs-cmd when-one when-podman when-windows" tabindex="0" aria-label="The Podman command for one container, for Windows PowerShell"><code id="b-one-podman-windows">podman run -d --name mesh `
+  -p 127.0.0.1:19999:19999 -p 127.0.0.1:20000:20000 `
+  -v mesh-data:/data -v mesh-home:/home/agent `
+  -v mesh-workspace:/workspace `
+  ghcr.io/joeyenfield/ai-control-mesh
+podman logs mesh</code></pre>
+          <pre class="qs-cmd when-local when-unix" tabindex="0" aria-label="The install command for Linux, macOS and FreeBSD"><code id="b-local-unix">curl -fsSL https://github.com/joeyenfield/ai-control-mesh/releases/latest/download/install-local.sh | sh</code></pre>
+          <pre class="qs-cmd when-local when-windows" tabindex="0" aria-label="The install command for Windows PowerShell"><code id="b-local-windows">irm https://github.com/joeyenfield/ai-control-mesh/releases/latest/download/install-local.ps1 | iex</code></pre>
+          <p class="qs-note when-one">The last command prints the console's address and the <code>admin</code> password, which the container makes on its first start. Run it again if it printed nothing yet.</p>
+          <p class="qs-note when-one when-podman">On Windows and macOS, run <code>podman machine init</code> once, then <code>podman machine start</code>.</p>
+          <p class="qs-note when-local">The installer prints the address and the <code>admin</code> password it made. <code>uninstall-local</code> from the same address removes it again.<span class="when-unix"> The same command works on FreeBSD.</span></p>
+        </div>
+        <p class="copy-status" role="status" aria-live="polite"></p>
+        <p class="demo-notice"><strong>Local demo only.</strong> Its ports are bound to 127.0.0.1. Keep it on your computer: for a real deployment you need your own secrets, HTTPS host names and sign-in. <a href="#professional">The Professional level →</a></p>
+      </div>
+  </section>
+  <section class="section wrap qs-steps-section" aria-labelledby="basic-steps-title">
+    <div class="section-heading"><p class="eyebrow">Steps 2 to 9</p><h2 id="basic-steps-title">From sign-in to an answer.</h2><p>The rest happens in the console, on one machine. Every screenshot is the real one-container quickstart, started fresh.</p></div>
+    <ol class="qs-steps" start="2">
+        <li class="qs-step" id="quickstart-basic-step-2"><h3><span class="step-number">2</span>Sign in</h3>
+          <p>Open <a href="http://localhost:19999">localhost:19999</a>. Type <code>localhost</code> exactly: sign-in only accepts that address. <strong>Continue to sign in</strong> takes you to the sign-in service on port 20000.</p>
+          <figure><a class="step-shot step-shot-card" href="/screenshots/quickstart-basic-sign-in.png" aria-label="Open the full screenshot: The console's sign-in page"><img src="/assets/screens/quickstart-basic-sign-in-1080.webp?v=c741bcb549" srcset="/assets/screens/quickstart-basic-sign-in-540.webp?v=b3a075be62 540w, /assets/screens/quickstart-basic-sign-in-1080.webp?v=c741bcb549 1080w" sizes="(max-width: 850px) calc(100vw - 40px), 540px" width="1080" height="946" loading="lazy" decoding="async" alt="The console's sign-in page"></a></figure>
+          <p>Sign in as <strong>admin</strong> with the password <span class="when-one">the container printed (<code>docker logs mesh</code>)</span><span class="when-local">the installer printed</span>. It was made for this install alone, and you can change it under your name in the console.</p>
+          <figure><a class="step-shot step-shot-card" href="/screenshots/quickstart-basic-issuer.png" aria-label="Open the full screenshot: The sign-in form, filled in as admin"><img src="/assets/screens/quickstart-basic-issuer-1080.webp?v=5a7123d708" srcset="/assets/screens/quickstart-basic-issuer-540.webp?v=943a05f74c 540w, /assets/screens/quickstart-basic-issuer-1080.webp?v=5a7123d708 1080w" sizes="(max-width: 850px) calc(100vw - 40px), 540px" width="1080" height="946" loading="lazy" decoding="async" alt="The sign-in form, filled in as admin"></a></figure>
+        </li>
+        <li class="qs-step" id="quickstart-basic-step-3"><h3><span class="step-number">3</span>Check your machine</h3>
+          <p>Open <strong>All machines</strong>. <span class="when-one"><strong>my-machine</strong> is the container itself, already <strong>Online</strong>: it signed itself in when it started.</span><span class="when-local">Your computer is there under its own name, already <strong>Online</strong>. The screenshots below are from the one-container version, where it is called <strong>my-machine</strong>.</span></p>
+          <figure><a class="step-shot" href="/screenshots/quickstart-basic-machines.png" aria-label="Open the full screenshot: Machines: my-machine, online"><img src="/assets/screens/quickstart-basic-machines-1440.webp?v=757bfdc98a" srcset="/assets/screens/quickstart-basic-machines-800.webp?v=7ab507c77d 800w, /assets/screens/quickstart-basic-machines-1440.webp?v=757bfdc98a 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="Machines: my-machine, online"></a></figure>
+        </li>
+        <li class="qs-step" id="quickstart-basic-step-4"><h3><span class="step-number">4</span>Start a model server</h3>
+          <p>Open the machine, then <strong>Providers</strong>. <span class="when-one">Ollama is installed in the container but not running: choose <strong>Start</strong>.</span><span class="when-local">It lists the model servers on your computer. Start the one you have, or install one (Ollama from ollama.com; llama.cpp installs from this page).</span> Within a minute it is found on the machine.</p>
+          <figure><a class="step-shot" href="/screenshots/quickstart-basic-start-ollama.png" aria-label="Open the full screenshot: my-machine's Providers tab: Ollama installed, with Start"><img src="/assets/screens/quickstart-basic-start-ollama-1440.webp?v=f7d0570637" srcset="/assets/screens/quickstart-basic-start-ollama-800.webp?v=2dea6e43b4 800w, /assets/screens/quickstart-basic-start-ollama-1440.webp?v=f7d0570637 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="my-machine's Providers tab: Ollama installed, with Start"></a></figure>
+        </li>
+        <li class="qs-step" id="quickstart-basic-step-5"><h3><span class="step-number">5</span>Add my-machine's model server as your own provider</h3>
+          <p>Model servers belong to the machines that run them, and an admin adds each one once. On <strong>my-machine</strong>, open <strong>Providers</strong>: it found one on port 11434, <strong>Not a provider yet</strong>.</p>
+          <figure><a class="step-shot" href="/screenshots/quickstart-basic-model-servers.png" aria-label="Open the full screenshot: my-machine's Providers tab: a model server, not a provider yet"><img src="/assets/screens/quickstart-basic-model-servers-1440.webp?v=be4dac759c" srcset="/assets/screens/quickstart-basic-model-servers-800.webp?v=47ed5767c4 800w, /assets/screens/quickstart-basic-model-servers-1440.webp?v=be4dac759c 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="my-machine's Providers tab: a model server, not a provider yet"></a></figure>
+          <p>Open it and choose <strong>Add as a provider</strong>. It is now a provider of your own: agents reach it through the server and my-machine's own connection, with no port to publish.</p>
+          <figure><a class="step-shot" href="/screenshots/quickstart-basic-add-provider.png" aria-label="Open the full screenshot: The model server on my-machine, with Add as a provider"><img src="/assets/screens/quickstart-basic-add-provider-1440.webp?v=ef6703f3f3" srcset="/assets/screens/quickstart-basic-add-provider-800.webp?v=0d166e8e9b 800w, /assets/screens/quickstart-basic-add-provider-1440.webp?v=ef6703f3f3 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="The model server on my-machine, with Add as a provider"></a></figure>
+          <p class="own-provider"><strong>Your provider, not ours.</strong> Ollama is only the model server this quickstart happens to run. A provider is whatever <em>you</em> bring: llama.cpp, Strata, Docker Model Runner, LM Studio, vLLM or SGLang on a machine show up on this tab the same way, and a hosted API (OpenAI, Anthropic, DeepSeek, OpenRouter) is added with its key on <strong>Providers</strong>. <a href="https://github.com/joeyenfield/ai-control-mesh/blob/master/docs/providers.md">Providers, in the docs →</a></p>
+        </li>
+        <li class="qs-step" id="quickstart-basic-step-6"><h3><span class="step-number">6</span>Find a model and pull it</h3>
+          <p>The model server starts empty, and nothing downloads by itself. Open <strong>Find and pull</strong>, keep <strong>Ollama library</strong>, search for <code>qwen3</code>.</p>
+          <figure><a class="step-shot" href="/screenshots/quickstart-basic-search.png" aria-label="Open the full screenshot: Find and pull: searching the library for qwen3"><img src="/assets/screens/quickstart-basic-search-1440.webp?v=50699c906d" srcset="/assets/screens/quickstart-basic-search-800.webp?v=da27d54dc2 800w, /assets/screens/quickstart-basic-search-1440.webp?v=50699c906d 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="Find and pull: searching the library for qwen3"></a></figure>
+          <p>Each family lists its sizes; <strong>tools</strong> is what coding agents need. On a CPU, pick something small: <strong>Pull 1.7b</strong> downloads 1.3 GB and answers in seconds.</p>
+          <figure><a class="step-shot" href="/screenshots/quickstart-basic-results.png" aria-label="Open the full screenshot: The qwen3 family, with a Pull button per size"><img src="/assets/screens/quickstart-basic-results-1440.webp?v=22cce4ebe4" srcset="/assets/screens/quickstart-basic-results-800.webp?v=ab02d5efc1 800w, /assets/screens/quickstart-basic-results-1440.webp?v=22cce4ebe4 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="The qwen3 family, with a Pull button per size"></a></figure>
+          <p>When it's done, it's on the <strong>Models</strong> tab, with the settings the server uses for it.</p>
+          <figure><a class="step-shot" href="/screenshots/quickstart-basic-pulled.png" aria-label="Open the full screenshot: Models: qwen3:1.7b on my-machine"><img src="/assets/screens/quickstart-basic-pulled-1440.webp?v=d71daca3e5" srcset="/assets/screens/quickstart-basic-pulled-800.webp?v=289d7399ca 800w, /assets/screens/quickstart-basic-pulled-1440.webp?v=d71daca3e5 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="Models: qwen3:1.7b on my-machine"></a></figure>
+        </li>
+        <li class="qs-step" id="quickstart-basic-step-7"><h3><span class="step-number">7</span>Start Qwen Code on my-machine</h3>
+          <p>Choose <strong>Start an agent</strong>. Pick <strong>my-machine</strong> and <strong>Qwen Code</strong>. <strong>Own provider</strong> is already the one you added, the folder is <code>/workspace</code> and the model is the one you pulled. Choose <strong>Start on my-machine</strong>.</p>
+          <figure><a class="step-shot" href="/screenshots/quickstart-basic-start-agent.png" aria-label="Open the full screenshot: Start an agent: my-machine, Qwen Code, your own provider, qwen3:1.7b"><img src="/assets/screens/quickstart-basic-start-agent-1440.webp?v=d49dbee52a" srcset="/assets/screens/quickstart-basic-start-agent-800.webp?v=83af07af54 800w, /assets/screens/quickstart-basic-start-agent-1440.webp?v=d49dbee52a 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="1171" loading="lazy" decoding="async" alt="Start an agent: my-machine, Qwen Code, your own provider, qwen3:1.7b"></a></figure>
+          <p>It starts in a terminal shared with the server, and the console opens it: watch it and type into it from any device.</p>
+          <figure><a class="step-shot" href="/screenshots/quickstart-basic-agent-ready.png" aria-label="Open the full screenshot: Qwen Code's terminal in the console, ready"><img src="/assets/screens/quickstart-basic-agent-ready-1440.webp?v=09ac57476a" srcset="/assets/screens/quickstart-basic-agent-ready-800.webp?v=6e2b1f77ee 800w, /assets/screens/quickstart-basic-agent-ready-1440.webp?v=09ac57476a 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="Qwen Code's terminal in the console, ready"></a></figure>
+        </li>
+        <li class="qs-step" id="quickstart-basic-step-8"><h3><span class="step-number">8</span>Ask it something</h3>
+          <p>Type <em>What model are you?</em> in <strong>Message for the agent</strong> and choose <strong>Send</strong>. The first answer is the slowest: the model loads on the first request, a minute or two on a CPU.</p>
+          <figure><a class="step-shot" href="/screenshots/quickstart-basic-answer.png" aria-label="Open the full screenshot: Qwen Code's answer, on qwen3:1.7b"><img src="/assets/screens/quickstart-basic-answer-1440.webp?v=8e39e95577" srcset="/assets/screens/quickstart-basic-answer-800.webp?v=83667e06dc 800w, /assets/screens/quickstart-basic-answer-1440.webp?v=8e39e95577 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="Qwen Code's answer, on qwen3:1.7b"></a></figure>
+        </li>
+        <li class="qs-step" id="quickstart-basic-step-9"><h3><span class="step-number">9</span>See what it sent</h3>
+          <p><strong>Requests</strong> has every request the agent made: model, provider, time and tokens. Select one for the full request, the reply and the payload sent to your provider.</p>
+          <figure><a class="step-shot" href="/screenshots/quickstart-basic-requests.png" aria-label="Open the full screenshot: Request history: Qwen Code's requests on my-machine"><img src="/assets/screens/quickstart-basic-requests-1440.webp?v=03e3115dad" srcset="/assets/screens/quickstart-basic-requests-800.webp?v=c977832db7 800w, /assets/screens/quickstart-basic-requests-1440.webp?v=03e3115dad 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="Request history: Qwen Code's requests on my-machine"></a></figure>
+        </li>
+    </ol>
+  </section>
+  <section class="section wrap qs-steps-section" aria-labelledby="basic-next-title"><div class="section-heading"><p class="eyebrow">When you are done</p><h2 id="basic-next-title">Keep going.</h2></div>
+    <div class="detail-grid">
+      <article><h3>Give it a task</h3><p>Send <em>write a Python script that prints the first ten primes</em> and watch it work. <strong>Live</strong> shows each model request as it streams; <strong>Running agents</strong> shows which agents are working or waiting for you.</p></article>
+      <article><h3>Bring your own provider</h3><p>Nothing here is tied to Ollama. Add llama.cpp, Strata, Docker Model Runner or an OpenAI-compatible server on any machine, or a hosted API with a key the server keeps, and start the same agents on it.</p><a href="https://github.com/joeyenfield/ai-control-mesh/blob/master/docs/providers.md">Providers →</a></article>
+      <article><h3>Stop or remove it</h3><p><span class="when-one"><code>docker rm -f mesh</code> removes the container and keeps your data in its three volumes; <code>docker volume rm mesh-data mesh-home mesh-workspace</code> deletes that too.</span><span class="when-local"><code>agent-server local stop</code> stops it. <code>uninstall-local</code>, from the same address as the installer, removes it; with <code>--purge</code> your data goes too.</span></p><a href="https://github.com/joeyenfield/ai-control-mesh/blob/master/docs/local.md">Run it on your own computer →</a></article>
+      <article><h3>Add a second machine</h3><p>One machine is a start. The Intermediate level runs a small fleet: two machines, PostgreSQL and a provider one machine shares with the other.</p><a href="#intermediate">The Intermediate level →</a></article>
+    </div>
+  </section>
+</div>
+<div class="qs-guide guide-intermediate" id="intermediate">
+  <section class="wrap qs-toc-section" aria-labelledby="intermediate-toc-title"><p class="eyebrow">Intermediate / 8 steps</p><h2 id="intermediate-toc-title">Step by step.</h2><ol class="qs-toc"><li><a href="#intermediate-step-1">Start the stack</a></li><li><a href="#quickstart-step-2">Sign in</a></li><li><a href="#quickstart-step-3">Check the machines</a></li><li><a href="#quickstart-step-4">Add machine-1's model server as your own provider</a></li><li><a href="#quickstart-step-5">Find a model and pull it</a></li><li><a href="#quickstart-step-6">Start Qwen Code on machine-1</a></li><li><a href="#quickstart-step-7">Ask it something</a></li><li><a href="#quickstart-step-8">See what it sent</a></li></ol></section>
+  <section class="quickstart section wrap" id="intermediate-step-1" aria-labelledby="intermediate-start-title">
+      <div class="quickstart-copy">
+        <p class="eyebrow">Step 1</p>
+        <h2 id="intermediate-start-title"><span class="step-number">1</span>Start the stack</h2>
+        <p><strong>A small fleet</strong> in six containers: the server, its sign-in service, PostgreSQL, two fleet machines (<code>machine-1</code> and <code>machine-2</code>) and a model server that machine-1 shares.</p>
+        <p class="prerequisites"><strong>Bring:</strong> Git, Docker with Compose or Podman with a Compose provider, several GB of disk, and free localhost ports 19999 and 20000. Allow at least 8 GB RAM for a small CPU-model trial; on Windows and macOS, give that memory to the container VM. An NVIDIA GPU is optional and makes models much faster.</p>
+        <a class="text-link" href="https://github.com/joeyenfield/ai-control-mesh/blob/master/docs/quickstart.md">The full quickstart guide <span aria-hidden="true">→</span></a>
+      </div>
+      <div class="quickstart-install">
+        <div class="code-window qs-box">
+          <div class="qs-toggles">
+            <fieldset class="seg"><legend>Engine</legend><input type="radio" name="i-engine" id="i-docker" class="opt-docker" checked><label for="i-docker">Docker</label><input type="radio" name="i-engine" id="i-podman" class="opt-podman"><label for="i-podman">Podman</label></fieldset>
+            <fieldset class="seg"><legend>Models run on</legend><input type="radio" name="i-hw" id="i-cpu" class="opt-cpu" checked><label for="i-cpu">CPU</label><input type="radio" name="i-hw" id="i-gpu" class="opt-gpu"><label for="i-gpu">NVIDIA GPU</label></fieldset>
+          </div>
+          <div class="code-toolbar"><span class="mono">TERMINAL</span><button class="copy-button" type="button" data-copy-shown="qs-cmd" hidden>Copy commands</button></div>
+          <pre class="qs-cmd when-docker when-cpu" tabindex="0" aria-label="Docker Compose quickstart commands"><code id="quickstart-command">git clone https://github.com/joeyenfield/ai-control-mesh.git
+cd ai-control-mesh
+docker compose -f deploy/compose/quickstart/compose.yaml up -d</code></pre>
+          <pre class="qs-cmd when-docker when-gpu" tabindex="0" aria-label="Docker Compose quickstart commands with an NVIDIA GPU"><code id="i-docker-gpu">git clone https://github.com/joeyenfield/ai-control-mesh.git
+cd ai-control-mesh
+docker compose -f deploy/compose/quickstart/compose.yaml -f deploy/compose/quickstart/compose.gpu.yaml up -d</code></pre>
+          <pre class="qs-cmd when-podman when-cpu" tabindex="0" aria-label="Podman Compose quickstart commands"><code id="i-podman-cpu">git clone https://github.com/joeyenfield/ai-control-mesh.git
+cd ai-control-mesh
+podman compose -f deploy/compose/quickstart/compose.yaml up -d</code></pre>
+          <pre class="qs-cmd when-podman when-gpu" tabindex="0" aria-label="Podman Compose quickstart commands with an NVIDIA GPU"><code id="i-podman-gpu">git clone https://github.com/joeyenfield/ai-control-mesh.git
+cd ai-control-mesh
+podman compose -f deploy/compose/quickstart/compose.yaml -f deploy/compose/quickstart/compose.gpu.yaml up -d</code></pre>
+          <p class="qs-note">The first start pulls about 1 GB of images and takes a few minutes. The commands are the same in every terminal, Windows PowerShell included.</p>
+          <p class="qs-note when-podman">Podman needs a Compose provider (<code>podman compose version</code>). On Windows and macOS, run <code>podman machine init</code> once, then <code>podman machine start</code>.</p>
+          <p class="qs-note when-gpu">The GPU file gives the model server your NVIDIA GPUs, so models answer much faster. Use it every time you start the stack. Docker needs the NVIDIA Container Toolkit with CDI on. With Podman, check it sees the GPU first: <code>podman run --rm --device nvidia.com/gpu=all docker.io/library/ubuntu:24.04 nvidia-smi</code>. <a href="https://github.com/joeyenfield/ai-control-mesh/blob/master/deploy/compose/quickstart/README.md#use-a-gpu">GPU setup →</a></p>
+        </div>
+        <p class="copy-status" role="status" aria-live="polite"></p>
+        <p class="demo-notice"><strong>Local demo only.</strong> Its ports are bound to 127.0.0.1. Keep it on your computer: for a real deployment you need your own secrets, HTTPS host names and sign-in. <a href="#professional">The Professional level →</a></p>
+      </div>
+  </section>
+  <section class="section wrap qs-steps-section" aria-labelledby="intermediate-steps-title">
+    <div class="section-heading"><p class="eyebrow">Steps 2 to 8</p><h2 id="intermediate-steps-title">From sign-in to an answer.</h2><p>The rest happens in the console, across two machines. Every screenshot is the real Compose quickstart, started fresh.</p></div>
+    <ol class="qs-steps" start="2">
+        <li class="qs-step" id="quickstart-step-2"><h3><span class="step-number">2</span>Sign in</h3>
+          <p>When all six containers are healthy (<code>compose ps</code>), open <a href="http://localhost:19999">localhost:19999</a>. Type <code>localhost</code> exactly: sign-in only accepts that address. <strong>Continue to sign in</strong> takes you to the sign-in service on port 20000.</p>
+          <figure><a class="step-shot step-shot-card" href="/screenshots/quickstart-01-sign-in.png" aria-label="Open the full screenshot: The console's sign-in page"><img src="/assets/screens/quickstart-01-sign-in-1080.webp?v=c741bcb549" srcset="/assets/screens/quickstart-01-sign-in-540.webp?v=b3a075be62 540w, /assets/screens/quickstart-01-sign-in-1080.webp?v=c741bcb549 1080w" sizes="(max-width: 850px) calc(100vw - 40px), 540px" width="1080" height="946" loading="lazy" decoding="async" alt="The console's sign-in page"></a></figure>
+          <p>Sign in as <strong>admin</strong> with the password <strong>secret</strong>: this stack uses known credentials, which is why it stays on your computer. You come straight back to the console, which never sees your password.</p>
+          <figure><a class="step-shot step-shot-card" href="/screenshots/quickstart-02-issuer.png" aria-label="Open the full screenshot: The sign-in form, filled in as admin"><img src="/assets/screens/quickstart-02-issuer-1080.webp?v=2c199e9609" srcset="/assets/screens/quickstart-02-issuer-540.webp?v=b4d20f2e38 540w, /assets/screens/quickstart-02-issuer-1080.webp?v=2c199e9609 1080w" sizes="(max-width: 850px) calc(100vw - 40px), 540px" width="1080" height="946" loading="lazy" decoding="async" alt="The sign-in form, filled in as admin"></a></figure>
+        </li>
+        <li class="qs-step" id="quickstart-step-3"><h3><span class="step-number">3</span>Check the machines</h3>
+          <p>Open <strong>All machines</strong>. machine-1 and machine-2 are already <strong>Online</strong>: they signed themselves in when they started, so there's nothing to approve. Both take agents and terminals; machine-1 also runs the model server.</p>
+          <figure><a class="step-shot" href="/screenshots/quickstart-03-machines.png" aria-label="Open the full screenshot: Machines: machine-1 and machine-2, both online"><img src="/assets/screens/quickstart-03-machines-1440.webp?v=83e5e0e3d4" srcset="/assets/screens/quickstart-03-machines-800.webp?v=1816b0b456 800w, /assets/screens/quickstart-03-machines-1440.webp?v=83e5e0e3d4 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="Machines: machine-1 and machine-2, both online"></a></figure>
+        </li>
+        <li class="qs-step" id="quickstart-step-4"><h3><span class="step-number">4</span>Add machine-1's model server as your own provider</h3>
+          <p>Model servers belong to the machines that run them, and an admin adds each one once. On <strong>machine-1</strong>, open <strong>Providers</strong>: it found one on port 11434, <strong>Not a provider yet</strong>.</p>
+          <figure><a class="step-shot" href="/screenshots/quickstart-04-model-servers.png" aria-label="Open the full screenshot: machine-1's Providers tab: a model server, not a provider yet"><img src="/assets/screens/quickstart-04-model-servers-1440.webp?v=0be90cd619" srcset="/assets/screens/quickstart-04-model-servers-800.webp?v=14b14b372f 800w, /assets/screens/quickstart-04-model-servers-1440.webp?v=0be90cd619 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="machine-1's Providers tab: a model server, not a provider yet"></a></figure>
+          <p>Open it and choose <strong>Add as a provider</strong>. It is now a provider of your own: agents reach it through the server and machine-1's own connection, with no port to publish.</p>
+          <figure><a class="step-shot" href="/screenshots/quickstart-05-add-provider.png" aria-label="Open the full screenshot: The model server on machine-1, with Add as a provider"><img src="/assets/screens/quickstart-05-add-provider-1440.webp?v=c0a4fea240" srcset="/assets/screens/quickstart-05-add-provider-800.webp?v=6064b07b07 800w, /assets/screens/quickstart-05-add-provider-1440.webp?v=c0a4fea240 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="The model server on machine-1, with Add as a provider"></a></figure>
+          <p class="own-provider"><strong>Your provider, not ours.</strong> Ollama is only the model server this quickstart happens to run. A provider is whatever <em>you</em> bring: llama.cpp, Strata, Docker Model Runner, LM Studio, vLLM or SGLang on a machine show up on this tab the same way, and a hosted API (OpenAI, Anthropic, DeepSeek, OpenRouter) is added with its key on <strong>Providers</strong>. <a href="https://github.com/joeyenfield/ai-control-mesh/blob/master/docs/providers.md">Providers, in the docs →</a></p>
+        </li>
+        <li class="qs-step" id="quickstart-step-5"><h3><span class="step-number">5</span>Find a model and pull it</h3>
+          <p>The model server starts empty, and nothing downloads by itself. Open <strong>Find and pull</strong>, keep <strong>Ollama library</strong>, search for <code>qwen3</code>.</p>
+          <figure><a class="step-shot" href="/screenshots/quickstart-06-search.png" aria-label="Open the full screenshot: Find and pull: searching the library for qwen3"><img src="/assets/screens/quickstart-06-search-1440.webp?v=b56ef342b4" srcset="/assets/screens/quickstart-06-search-800.webp?v=ebc81c1e3e 800w, /assets/screens/quickstart-06-search-1440.webp?v=b56ef342b4 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="Find and pull: searching the library for qwen3"></a></figure>
+          <p>Each family lists its sizes; <strong>tools</strong> is what coding agents need. On a CPU, pick something small: <strong>Pull 1.7b</strong> downloads 1.3 GB and answers in seconds.</p>
+          <figure><a class="step-shot" href="/screenshots/quickstart-07-results.png" aria-label="Open the full screenshot: The qwen3 family, with a Pull button per size"><img src="/assets/screens/quickstart-07-results-1440.webp?v=eabf413a4b" srcset="/assets/screens/quickstart-07-results-800.webp?v=a78a0ae8be 800w, /assets/screens/quickstart-07-results-1440.webp?v=eabf413a4b 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="The qwen3 family, with a Pull button per size"></a></figure>
+          <p>When it's done, it's on the <strong>Models</strong> tab, with the settings the server uses for it.</p>
+          <figure><a class="step-shot" href="/screenshots/quickstart-08-pulled.png" aria-label="Open the full screenshot: Models: qwen3:1.7b on machine-1"><img src="/assets/screens/quickstart-08-pulled-1440.webp?v=53449ce669" srcset="/assets/screens/quickstart-08-pulled-800.webp?v=a7347b42b3 800w, /assets/screens/quickstart-08-pulled-1440.webp?v=53449ce669 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="Models: qwen3:1.7b on machine-1"></a></figure>
+        </li>
+        <li class="qs-step" id="quickstart-step-6"><h3><span class="step-number">6</span>Start Qwen Code on machine-1</h3>
+          <p>Choose <strong>Start an agent</strong>. Pick <strong>machine-1</strong> and <strong>Qwen Code</strong>. <strong>Own provider</strong> is already the one you added, the folder is <code>/workspace</code> and the model is the one you pulled. Choose <strong>Start on machine-1</strong>.</p>
+          <figure><a class="step-shot" href="/screenshots/quickstart-09-start-agent.png" aria-label="Open the full screenshot: Start an agent: machine-1, Qwen Code, your own provider, qwen3:1.7b"><img src="/assets/screens/quickstart-09-start-agent-1440.webp?v=e65aee3722" srcset="/assets/screens/quickstart-09-start-agent-800.webp?v=f59719dfa9 800w, /assets/screens/quickstart-09-start-agent-1440.webp?v=e65aee3722 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="1171" loading="lazy" decoding="async" alt="Start an agent: machine-1, Qwen Code, your own provider, qwen3:1.7b"></a></figure>
+          <p>It starts in a terminal shared with the server, and the console opens it: watch it and type into it from any device.</p>
+          <figure><a class="step-shot" href="/screenshots/quickstart-10-agent-ready.png" aria-label="Open the full screenshot: Qwen Code's terminal in the console, ready"><img src="/assets/screens/quickstart-10-agent-ready-1440.webp?v=2b992fe7a7" srcset="/assets/screens/quickstart-10-agent-ready-800.webp?v=c19857b97c 800w, /assets/screens/quickstart-10-agent-ready-1440.webp?v=2b992fe7a7 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="Qwen Code's terminal in the console, ready"></a></figure>
+        </li>
+        <li class="qs-step" id="quickstart-step-7"><h3><span class="step-number">7</span>Ask it something</h3>
+          <p>Type <em>What model are you?</em> in <strong>Message for the agent</strong> and choose <strong>Send</strong>. The first answer is the slowest: the model loads on the first request, a minute or two on a CPU.</p>
+          <figure><a class="step-shot" href="/screenshots/quickstart-11-answer.png" aria-label="Open the full screenshot: Qwen Code's answer, on qwen3:1.7b"><img src="/assets/screens/quickstart-11-answer-1440.webp?v=48510a0e70" srcset="/assets/screens/quickstart-11-answer-800.webp?v=8fc180c85f 800w, /assets/screens/quickstart-11-answer-1440.webp?v=48510a0e70 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="Qwen Code's answer, on qwen3:1.7b"></a></figure>
+        </li>
+        <li class="qs-step" id="quickstart-step-8"><h3><span class="step-number">8</span>See what it sent</h3>
+          <p><strong>Requests</strong> has every request the agent made: model, provider, time and tokens. Select one for the full request, the reply and the payload sent to your provider.</p>
+          <figure><a class="step-shot" href="/screenshots/quickstart-12-requests.png" aria-label="Open the full screenshot: Request history: Qwen Code's requests on machine-1"><img src="/assets/screens/quickstart-12-requests-1440.webp?v=e3cb7aa0bd" srcset="/assets/screens/quickstart-12-requests-800.webp?v=418ae946ec 800w, /assets/screens/quickstart-12-requests-1440.webp?v=e3cb7aa0bd 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="Request history: Qwen Code's requests on machine-1"></a></figure>
+        </li>
+    </ol>
+  </section>
+  <section class="section wrap qs-steps-section" aria-labelledby="intermediate-next-title"><div class="section-heading"><p class="eyebrow">When you are done</p><h2 id="intermediate-next-title">Keep going.</h2></div>
+    <div class="detail-grid">
+      <article><h3>Give it a task</h3><p>Send <em>write a Python script that prints the first ten primes</em> and watch it work. <strong>Live</strong> shows each model request as it streams; <strong>Running agents</strong> shows which agents are working or waiting for you.</p></article>
+      <article><h3>Read it back</h3><p><strong>Sessions</strong> has one row per agent run, with a <strong>Chat</strong> view when capture is on. <strong>Traffic</strong> groups requests by what they were for.</p></article>
+      <article><h3>Bring your own provider</h3><p>Nothing here is tied to Ollama. Add llama.cpp, Strata, Docker Model Runner or an OpenAI-compatible server on any machine, or a hosted API with a key the server keeps, and start the same agents on it.</p><a href="https://github.com/joeyenfield/ai-control-mesh/blob/master/docs/providers.md">Providers →</a></article>
+      <article><h3>Use machine-2</h3><p>Start an agent on <strong>machine-2</strong> with the same provider: it has no model server of its own, and reaches machine-1's through the server.</p></article>
+      <article><h3>Stop, reset or troubleshoot</h3><p><code>compose down</code> stops it and keeps your data; <code>down -v</code> deletes it too. The guide lists what to check when something doesn't start.</p><a href="https://github.com/joeyenfield/ai-control-mesh/blob/master/docs/quickstart.md#stop-reset-and-troubleshoot">Stop, reset and troubleshoot →</a></article>
+      <article><h3>On a cluster</h3><p>The Advanced level runs the same system from its Helm chart on a local Kubernetes cluster, with a machine you approve yourself.</p><a href="#advanced">The Advanced level →</a></article>
+    </div>
+  </section>
+</div>
+<div class="qs-guide guide-advanced" id="advanced">
+  <section class="wrap qs-toc-section" aria-labelledby="advanced-toc-title"><p class="eyebrow">Advanced / 9 steps</p><h2 id="advanced-toc-title">Step by step.</h2><ol class="qs-toc"><li><a href="#advanced-step-1">Install the chart</a></li><li><a href="#quickstart-helm-step-2">Forward the two ports</a></li><li><a href="#quickstart-helm-step-3">Read the password and sign in</a></li><li><a href="#quickstart-helm-step-4">Let the machine in</a></li><li><a href="#quickstart-helm-step-5">Add k8s-machine's model server as your own provider</a></li><li><a href="#quickstart-helm-step-6">Find a model and pull it</a></li><li><a href="#quickstart-helm-step-7">Start Qwen Code on k8s-machine</a></li><li><a href="#quickstart-helm-step-8">Ask it something</a></li><li><a href="#quickstart-helm-step-9">See what it sent</a></li></ol></section>
+  <section class="quickstart section wrap" id="advanced-step-1" aria-labelledby="advanced-start-title">
+      <div class="quickstart-copy">
+        <p class="eyebrow">Step 1</p>
+        <h2 id="advanced-start-title"><span class="step-number">1</span>Install the chart</h2>
+        <p><strong>The Helm chart</strong> in its smallest form: one pod with the server and its sign-in service (SQLite on a volume), and a second pod that is a fleet machine, <code>k8s-machine</code>, with the coding agents and a model server.</p>
+        <p class="prerequisites"><strong>Bring:</strong> Git, a cluster on your computer (kind, k3d, minikube, or the one in Docker, Rancher or Podman Desktop) with a default StorageClass, <code>kubectl</code> and Helm, about 4 GB of memory for the cluster plus what your model needs, and free localhost ports 19999 and 20000.</p>
+        <a class="text-link" href="https://github.com/joeyenfield/ai-control-mesh/blob/master/docs/quickstart-kubernetes.md">The Kubernetes quickstart <span aria-hidden="true">→</span></a>
+      </div>
+      <div class="quickstart-install">
+        <div class="code-window qs-box">
+          <div class="qs-toggles">
+            <fieldset class="seg"><legend>Models run on</legend><input type="radio" name="a-hw" id="a-cpu" class="opt-cpu" checked><label for="a-cpu">CPU</label><input type="radio" name="a-hw" id="a-gpu" class="opt-gpu"><label for="a-gpu">NVIDIA GPU</label></fieldset>
+            <fieldset class="seg"><legend>Your terminal</legend><input type="radio" name="a-os" id="a-unix" class="opt-unix" checked><label for="a-unix">Linux / macOS</label><input type="radio" name="a-os" id="a-windows" class="opt-windows"><label for="a-windows">Windows PowerShell</label></fieldset>
+          </div>
+          <div class="code-toolbar"><span class="mono">TERMINAL</span><button class="copy-button" type="button" data-copy-shown="qs-cmd" hidden>Copy commands</button></div>
+          <pre class="qs-cmd " tabindex="0" aria-label="Kubernetes quickstart commands with Helm"><code id="a-helm-cmd">git clone https://github.com/joeyenfield/ai-control-mesh.git
 cd ai-control-mesh
 helm install mesh deploy/helm/agent-mesh -n mesh --create-namespace -f deploy/helm/quickstart/values.yaml
 kubectl -n mesh apply -f deploy/helm/quickstart/machine.yaml
 kubectl -n mesh get pods -w</code></pre>
-          <p class="qs-note qs-note-podman qs-when when-compose when-one when-podman">On Windows and macOS, run <code>podman machine init</code> once, then <code>podman machine start</code>.<span class="qs-when when-compose"> Podman also needs a Compose provider (<code>podman compose version</code>).</span></p>
-          <p class="qs-note qs-note-gpu qs-when when-compose when-gpu">The GPU file gives Ollama your NVIDIA GPUs, so models answer much faster. Use it every time you start the stack; without it, Ollama runs on the CPU. Docker needs the NVIDIA Container Toolkit with CDI on. With Podman, check it sees the GPU first: <code>podman run --rm --device nvidia.com/gpu=all docker.io/library/ubuntu:24.04 nvidia-smi</code>. <a href="https://github.com/joeyenfield/ai-control-mesh/blob/master/deploy/compose/quickstart/README.md#use-a-gpu">GPU setup →</a></p>
-          <p class="qs-note qs-note-compose qs-when when-compose">The first start pulls about 1 GB of images and takes a few minutes. Then sign in as <code>admin</code> with the password <code>secret</code>.</p>
-          <p class="qs-note qs-note-one qs-when when-one">The last command prints the address and the <code>admin</code> password, which the container makes on its first start.</p>
-          <p class="qs-note qs-note-local qs-when when-local">The installer prints the address and the <code>admin</code> password it made. <code>uninstall-local</code> from the same address removes it again.</p>
-          <p class="qs-note qs-note-helm qs-when when-helm">Keep the release name <code>mesh</code>. When both pods are running, forward the ports in a terminal you leave open:</p>
-          <pre class="qs-note qs-note-helm qs-note-cmd qs-when when-helm" tabindex="0" aria-label="Port-forward commands"><code>kubectl -n mesh port-forward svc/mesh-agent-mesh 19999:19999 &amp;
-kubectl -n mesh port-forward svc/mesh-agent-mesh-auth 20000:20000</code></pre>
-          <p class="qs-note qs-note-helm qs-when when-helm">Then open <a href="http://localhost:19999">localhost:19999</a>. The <code>admin</code> password is in the server’s log (<code>kubectl -n mesh logs deploy/mesh-agent-mesh -c agent-server | grep -i password</code>), and the machine signs in with two device codes from its log, approved on <strong>Machines › Approve a device</strong>. For production (HTTPS host names, PostgreSQL, a Deployment per role): <a href="https://github.com/joeyenfield/ai-control-mesh/blob/master/deploy/helm/agent-mesh/README.md">the chart’s README →</a></p>
-          <p class="qs-note qs-note-helm-gpu qs-when when-helm when-gpu">The Kubernetes quickstart runs Ollama on the CPU. To give it a GPU, add a <code>nvidia.com/gpu: 1</code> limit to the <code>ollama</code> container in <code>deploy/helm/quickstart/machine.yaml</code>; the cluster needs the NVIDIA device plugin.</p>
+          <p class="qs-note">Keep the release name <code>mesh</code>: the machine's relays name its Services. The last command watches the pods: go on when both are <code>Running</code> (the first pull takes a few minutes), and stop it with Ctrl+C.</p>
+          <p class="qs-note when-gpu">This quickstart runs its model server on the CPU. To give it a GPU, add a <code>nvidia.com/gpu: 1</code> limit to the <code>ollama</code> container in <code>deploy/helm/quickstart/machine.yaml</code>; the cluster needs the NVIDIA device plugin.</p>
         </div>
-        <p id="copy-status" class="copy-status" role="status" aria-live="polite"></p>
-        <p class="demo-notice"><strong>Local demo only.</strong> Every way binds its ports to 127.0.0.1, and the Compose stack uses known credentials. Keep it on your computer; changing the admin password alone does not make it a production install. For a real deployment, configure your own secrets, HTTPS, and sign-in service. <a href="/teams.html#deployment">Team deployment path →</a></p>
+        <p class="copy-status" role="status" aria-live="polite"></p>
+        <p class="demo-notice"><strong>Local demo only.</strong> Its ports are bound to 127.0.0.1. Keep it on your computer: for a real deployment you need your own secrets, HTTPS host names and sign-in. <a href="#professional">The Professional level →</a></p>
       </div>
   </section>
-
-  <section class="section wrap qs-steps-section" id="steps" aria-labelledby="steps-title">
-    <div class="section-heading"><p class="eyebrow">2 / Step by step</p><h2 id="steps-title">From sign-in to an answer.</h2><p>The screenshots follow the Compose stack: when all six containers are healthy (<code>compose ps</code>), follow these in the console. The other ways open the same console with the password they printed, and start one machine, not two.</p></div>
-    <ol class="qs-steps">
-        <li class="qs-step" id="step-sign-in"><h3><span class="step-number">1</span>Sign in</h3>
-          <p>Open <a href="http://localhost:19999">localhost:19999</a>. Type <code>localhost</code> exactly: sign-in only accepts that address. <strong>Continue to sign in</strong> takes you to the sign-in service on port 20000.</p>
-          <figure><a class="step-shot step-shot-card" href="/screenshots/quickstart-01-sign-in.png" aria-label="Open the full screenshot: The console's sign-in page"><img src="/assets/screens/quickstart-01-sign-in-1080.webp?v=16ff359602" srcset="/assets/screens/quickstart-01-sign-in-540.webp?v=970bb4489c 540w, /assets/screens/quickstart-01-sign-in-1080.webp?v=16ff359602 1080w" sizes="(max-width: 850px) calc(100vw - 40px), 540px" width="1080" height="946" loading="lazy" decoding="async" alt="The console's sign-in page"></a></figure>
-          <p>Sign in as <strong>admin</strong> with the password <strong>secret</strong>. You come straight back to the console, which never sees your password.</p>
-          <figure><a class="step-shot step-shot-card" href="/screenshots/quickstart-02-issuer.png" aria-label="Open the full screenshot: The sign-in form, filled in as admin"><img src="/assets/screens/quickstart-02-issuer-1080.webp?v=aebd83871c" srcset="/assets/screens/quickstart-02-issuer-540.webp?v=860e30fca2 540w, /assets/screens/quickstart-02-issuer-1080.webp?v=aebd83871c 1080w" sizes="(max-width: 850px) calc(100vw - 40px), 540px" width="1080" height="946" loading="lazy" decoding="async" alt="The sign-in form, filled in as admin"></a></figure>
+  <section class="section wrap qs-steps-section" aria-labelledby="advanced-steps-title">
+    <div class="section-heading"><p class="eyebrow">Steps 2 to 9</p><h2 id="advanced-steps-title">From a password in a log to an answer.</h2><p>This level has no known password and no machine that lets itself in: you read one from a log and approve the other, as on a real server. Every screenshot is the real Helm quickstart on a local cluster.</p></div>
+    <ol class="qs-steps" start="2">
+        <li class="qs-step" id="quickstart-helm-step-2"><h3><span class="step-number">2</span>Forward the two ports</h3>
+          <p>Nothing in the cluster is published. Forward the console and the sign-in service to your computer<span class="when-unix">, in a terminal you leave open:</span><span class="when-windows">, each in a PowerShell window of its own that you leave open:</span></p>
+          <div class="code-window step-code when-unix qs-forward"><pre tabindex="0" aria-label="Port-forward commands for Linux and macOS"><code>kubectl -n mesh port-forward svc/mesh-agent-mesh 19999:19999 &amp;
+kubectl -n mesh port-forward svc/mesh-agent-mesh-auth 20000:20000</code></pre></div>
+          <div class="code-window step-code when-windows qs-forward"><pre tabindex="0" aria-label="Port-forward commands for Windows PowerShell"><code>kubectl -n mesh port-forward svc/mesh-agent-mesh 19999:19999
+kubectl -n mesh port-forward svc/mesh-agent-mesh-auth 20000:20000</code></pre></div>
+          <p>A port-forward ends when its pod restarts: run it again if <code>localhost:19999</code> stops answering.</p>
         </li>
-        <li class="qs-step" id="step-machines"><h3><span class="step-number">2</span>Check the machines</h3>
-          <p>Open <strong>All machines</strong>. machine-1 and machine-2 are already <strong>Online</strong>: they signed themselves in when they started, so there's nothing to approve. Both take agents and terminals; machine-1 also shares its Ollama.</p>
-          <figure><a class="step-shot" href="/screenshots/quickstart-03-machines.png" aria-label="Open the full screenshot: Machines: machine-1 and machine-2, both online"><img src="/assets/screens/quickstart-03-machines-1440.webp?v=ed544e868e" srcset="/assets/screens/quickstart-03-machines-800.webp?v=b2c885b31b 800w, /assets/screens/quickstart-03-machines-1440.webp?v=ed544e868e 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="Machines: machine-1 and machine-2, both online"></a></figure>
+        <li class="qs-step" id="quickstart-helm-step-3"><h3><span class="step-number">3</span>Read the password and sign in</h3>
+          <p>Nothing here has a known password. The server made an <code>admin</code> account on its first start and printed the password in its log, that one time only:</p>
+          <div class="code-window step-code when-unix"><pre tabindex="0" aria-label="The command that shows the admin password, for Linux and macOS"><code>kubectl -n mesh logs deploy/mesh-agent-mesh -c agent-server | grep -i password</code></pre></div>
+          <div class="code-window step-code when-windows"><pre tabindex="0" aria-label="The command that shows the admin password, for Windows PowerShell"><code>kubectl -n mesh logs deploy/mesh-agent-mesh -c agent-server | Select-String password</code></pre></div>
+          <p>Open <a href="http://localhost:19999">localhost:19999</a> (type <code>localhost</code> exactly), choose <strong>Continue to sign in</strong>, and sign in as <strong>admin</strong> with that password.</p>
+          <figure><a class="step-shot step-shot-card" href="/screenshots/quickstart-helm-sign-in.png" aria-label="Open the full screenshot: The console's sign-in page"><img src="/assets/screens/quickstart-helm-sign-in-1080.webp?v=c741bcb549" srcset="/assets/screens/quickstart-helm-sign-in-540.webp?v=b3a075be62 540w, /assets/screens/quickstart-helm-sign-in-1080.webp?v=c741bcb549 1080w" sizes="(max-width: 850px) calc(100vw - 40px), 540px" width="1080" height="946" loading="lazy" decoding="async" alt="The console's sign-in page"></a></figure>
+          <figure><a class="step-shot step-shot-card" href="/screenshots/quickstart-helm-issuer.png" aria-label="Open the full screenshot: The sign-in form, filled in as admin"><img src="/assets/screens/quickstart-helm-issuer-1080.webp?v=5a7123d708" srcset="/assets/screens/quickstart-helm-issuer-540.webp?v=943a05f74c 540w, /assets/screens/quickstart-helm-issuer-1080.webp?v=5a7123d708 1080w" sizes="(max-width: 850px) calc(100vw - 40px), 540px" width="1080" height="946" loading="lazy" decoding="async" alt="The sign-in form, filled in as admin"></a></figure>
         </li>
-        <li class="qs-step" id="step-provider"><h3><span class="step-number">3</span>Add machine-1's Ollama as a provider</h3>
-          <p>Model servers belong to the machines that run them, and an admin adds each one once. On <strong>machine-1</strong>, open <strong>Providers</strong>: it found Ollama on port 11434, <strong>Not a provider yet</strong>.</p>
-          <figure><a class="step-shot" href="/screenshots/quickstart-04-model-servers.png" aria-label="Open the full screenshot: machine-1's Providers tab: Ollama, not a provider yet"><img src="/assets/screens/quickstart-04-model-servers-1440.webp?v=7b08bd7f04" srcset="/assets/screens/quickstart-04-model-servers-800.webp?v=b1d2ce88cb 800w, /assets/screens/quickstart-04-model-servers-1440.webp?v=7b08bd7f04 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="machine-1's Providers tab: Ollama, not a provider yet"></a></figure>
-          <p>Open it and choose <strong>Add as a provider</strong>. Agents on either machine can now use it, through the server and machine-1's own connection: no port to publish.</p>
-          <figure><a class="step-shot" href="/screenshots/quickstart-05-add-provider.png" aria-label="Open the full screenshot: Ollama on machine-1, with Add as a provider"><img src="/assets/screens/quickstart-05-add-provider-1440.webp?v=d6bd38a5af" srcset="/assets/screens/quickstart-05-add-provider-800.webp?v=5b695aae89 800w, /assets/screens/quickstart-05-add-provider-1440.webp?v=d6bd38a5af 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="Ollama on machine-1, with Add as a provider"></a></figure>
+        <li class="qs-step" id="quickstart-helm-step-4"><h3><span class="step-number">4</span>Let the machine in</h3>
+          <p>The machine signs in the way any computer does: with two device codes, one for <code>agent-machine</code> and then one for <code>agent</code>. Its log shows one at a time, and a new one when a code runs out after ten minutes:</p>
+          <div class="code-window step-code"><pre tabindex="0" aria-label="The command that shows the machine's device codes"><code>kubectl -n mesh logs deploy/quickstart-machine -c machine</code></pre></div>
+          <p>Open <strong>Machines › Approve a device</strong>, type the newest code and choose <strong>Continue</strong>.</p>
+          <figure><a class="step-shot" href="/screenshots/quickstart-helm-approve-code.png" aria-label="Open the full screenshot: Approve a device: a code typed in"><img src="/assets/screens/quickstart-helm-approve-code-1440.webp?v=4a0ed892d4" srcset="/assets/screens/quickstart-helm-approve-code-800.webp?v=f9c895a0d7 800w, /assets/screens/quickstart-helm-approve-code-1440.webp?v=4a0ed892d4 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="Approve a device: a code typed in"></a></figure>
+          <p>The console shows what asked before you decide. Choose <strong>Approve</strong>. The log then shows the second code: approve it the same way.</p>
+          <figure><a class="step-shot" href="/screenshots/quickstart-helm-approve.png" aria-label="Open the full screenshot: Approve a device: what asked, with Approve"><img src="/assets/screens/quickstart-helm-approve-1440.webp?v=e5a177b1db" srcset="/assets/screens/quickstart-helm-approve-800.webp?v=655a5f687c 800w, /assets/screens/quickstart-helm-approve-1440.webp?v=e5a177b1db 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="Approve a device: what asked, with Approve"></a></figure>
+          <p>Within a minute <strong>k8s-machine</strong> is <strong>Online</strong> on <strong>All machines</strong>. It belongs to whoever approved it.</p>
+          <figure><a class="step-shot" href="/screenshots/quickstart-helm-machines.png" aria-label="Open the full screenshot: Machines: k8s-machine, online"><img src="/assets/screens/quickstart-helm-machines-1440.webp?v=454aa530b3" srcset="/assets/screens/quickstart-helm-machines-800.webp?v=86d2a57e02 800w, /assets/screens/quickstart-helm-machines-1440.webp?v=454aa530b3 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="Machines: k8s-machine, online"></a></figure>
         </li>
-        <li class="qs-step" id="step-model"><h3><span class="step-number">4</span>Find a model and pull it</h3>
-          <p>Ollama starts empty, and nothing downloads by itself. Open <strong>Find and pull</strong>, keep <strong>Ollama library</strong>, search for <code>qwen3</code>.</p>
-          <figure><a class="step-shot" href="/screenshots/quickstart-06-search.png" aria-label="Open the full screenshot: Find and pull: searching the Ollama library for qwen3"><img src="/assets/screens/quickstart-06-search-1440.webp?v=c372eb4e5b" srcset="/assets/screens/quickstart-06-search-800.webp?v=bc30794201 800w, /assets/screens/quickstart-06-search-1440.webp?v=c372eb4e5b 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="Find and pull: searching the Ollama library for qwen3"></a></figure>
+        <li class="qs-step" id="quickstart-helm-step-5"><h3><span class="step-number">5</span>Add k8s-machine's model server as your own provider</h3>
+          <p>Model servers belong to the machines that run them, and an admin adds each one once. On <strong>k8s-machine</strong>, open <strong>Providers</strong>: it found one on port 11434, <strong>Not a provider yet</strong>.</p>
+          <figure><a class="step-shot" href="/screenshots/quickstart-helm-model-servers.png" aria-label="Open the full screenshot: k8s-machine's Providers tab: a model server, not a provider yet"><img src="/assets/screens/quickstart-helm-model-servers-1440.webp?v=ae5919fdef" srcset="/assets/screens/quickstart-helm-model-servers-800.webp?v=fb985f33c5 800w, /assets/screens/quickstart-helm-model-servers-1440.webp?v=ae5919fdef 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="k8s-machine's Providers tab: a model server, not a provider yet"></a></figure>
+          <p>Open it and choose <strong>Add as a provider</strong>. It is now a provider of your own: agents reach it through the server and k8s-machine's own connection, with no port to publish.</p>
+          <figure><a class="step-shot" href="/screenshots/quickstart-helm-add-provider.png" aria-label="Open the full screenshot: The model server on k8s-machine, with Add as a provider"><img src="/assets/screens/quickstart-helm-add-provider-1440.webp?v=5188015827" srcset="/assets/screens/quickstart-helm-add-provider-800.webp?v=c0eb264cdc 800w, /assets/screens/quickstart-helm-add-provider-1440.webp?v=5188015827 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="The model server on k8s-machine, with Add as a provider"></a></figure>
+          <p class="own-provider"><strong>Your provider, not ours.</strong> Ollama is only the model server this quickstart happens to run. A provider is whatever <em>you</em> bring: llama.cpp, Strata, Docker Model Runner, LM Studio, vLLM or SGLang on a machine show up on this tab the same way, and a hosted API (OpenAI, Anthropic, DeepSeek, OpenRouter) is added with its key on <strong>Providers</strong>. <a href="https://github.com/joeyenfield/ai-control-mesh/blob/master/docs/providers.md">Providers, in the docs →</a></p>
+        </li>
+        <li class="qs-step" id="quickstart-helm-step-6"><h3><span class="step-number">6</span>Find a model and pull it</h3>
+          <p>The model server starts empty, and nothing downloads by itself. Open <strong>Find and pull</strong>, keep <strong>Ollama library</strong>, search for <code>qwen3</code>.</p>
+          <figure><a class="step-shot" href="/screenshots/quickstart-helm-search.png" aria-label="Open the full screenshot: Find and pull: searching the library for qwen3"><img src="/assets/screens/quickstart-helm-search-1440.webp?v=4ec667ebfe" srcset="/assets/screens/quickstart-helm-search-800.webp?v=f3eb6403f0 800w, /assets/screens/quickstart-helm-search-1440.webp?v=4ec667ebfe 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="Find and pull: searching the library for qwen3"></a></figure>
           <p>Each family lists its sizes; <strong>tools</strong> is what coding agents need. On a CPU, pick something small: <strong>Pull 1.7b</strong> downloads 1.3 GB and answers in seconds.</p>
-          <figure><a class="step-shot" href="/screenshots/quickstart-07-results.png" aria-label="Open the full screenshot: The qwen3 family, with a Pull button per size"><img src="/assets/screens/quickstart-07-results-1440.webp?v=010ced4409" srcset="/assets/screens/quickstart-07-results-800.webp?v=a50fbd95df 800w, /assets/screens/quickstart-07-results-1440.webp?v=010ced4409 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="The qwen3 family, with a Pull button per size"></a></figure>
+          <figure><a class="step-shot" href="/screenshots/quickstart-helm-results.png" aria-label="Open the full screenshot: The qwen3 family, with a Pull button per size"><img src="/assets/screens/quickstart-helm-results-1440.webp?v=b57972e94b" srcset="/assets/screens/quickstart-helm-results-800.webp?v=b139370052 800w, /assets/screens/quickstart-helm-results-1440.webp?v=b57972e94b 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="The qwen3 family, with a Pull button per size"></a></figure>
           <p>When it's done, it's on the <strong>Models</strong> tab, with the settings the server uses for it.</p>
-          <figure><a class="step-shot" href="/screenshots/quickstart-08-pulled.png" aria-label="Open the full screenshot: Models: qwen3:1.7b on machine-1"><img src="/assets/screens/quickstart-08-pulled-1440.webp?v=4b9161dec6" srcset="/assets/screens/quickstart-08-pulled-800.webp?v=052bd332f2 800w, /assets/screens/quickstart-08-pulled-1440.webp?v=4b9161dec6 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="Models: qwen3:1.7b on machine-1"></a></figure>
+          <figure><a class="step-shot" href="/screenshots/quickstart-helm-pulled.png" aria-label="Open the full screenshot: Models: qwen3:1.7b on k8s-machine"><img src="/assets/screens/quickstart-helm-pulled-1440.webp?v=bc842378d6" srcset="/assets/screens/quickstart-helm-pulled-800.webp?v=4d82384616 800w, /assets/screens/quickstart-helm-pulled-1440.webp?v=bc842378d6 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="Models: qwen3:1.7b on k8s-machine"></a></figure>
         </li>
-        <li class="qs-step" id="step-agent"><h3><span class="step-number">5</span>Start Qwen Code on machine-1</h3>
-          <p>Choose <strong>Start an agent</strong>. Pick <strong>machine-1</strong> and <strong>Qwen Code</strong>; the provider, the <code>/workspace</code> folder and your model are filled in. Choose <strong>Start on machine-1</strong>.</p>
-          <figure><a class="step-shot" href="/screenshots/quickstart-09-start-agent.png" aria-label="Open the full screenshot: Start an agent: machine-1, Qwen Code, qwen3:1.7b"><img src="/assets/screens/quickstart-09-start-agent-1440.webp?v=612a7b05d5" srcset="/assets/screens/quickstart-09-start-agent-800.webp?v=2dd4cec767 800w, /assets/screens/quickstart-09-start-agent-1440.webp?v=612a7b05d5 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="1190" loading="lazy" decoding="async" alt="Start an agent: machine-1, Qwen Code, qwen3:1.7b"></a></figure>
+        <li class="qs-step" id="quickstart-helm-step-7"><h3><span class="step-number">7</span>Start Qwen Code on k8s-machine</h3>
+          <p>Choose <strong>Start an agent</strong>. Pick <strong>k8s-machine</strong> and <strong>Qwen Code</strong>. <strong>Own provider</strong> is already the one you added, the folder is <code>/workspace</code> and the model is the one you pulled. Choose <strong>Start on k8s-machine</strong>.</p>
+          <figure><a class="step-shot" href="/screenshots/quickstart-helm-start-agent.png" aria-label="Open the full screenshot: Start an agent: k8s-machine, Qwen Code, your own provider, qwen3:1.7b"><img src="/assets/screens/quickstart-helm-start-agent-1440.webp?v=096ceb95e1" srcset="/assets/screens/quickstart-helm-start-agent-800.webp?v=52a22e5ca9 800w, /assets/screens/quickstart-helm-start-agent-1440.webp?v=096ceb95e1 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="1171" loading="lazy" decoding="async" alt="Start an agent: k8s-machine, Qwen Code, your own provider, qwen3:1.7b"></a></figure>
           <p>It starts in a terminal shared with the server, and the console opens it: watch it and type into it from any device.</p>
-          <figure><a class="step-shot" href="/screenshots/quickstart-10-agent-ready.png" aria-label="Open the full screenshot: Qwen Code's terminal in the console, ready"><img src="/assets/screens/quickstart-10-agent-ready-1440.webp?v=c9806cd6da" srcset="/assets/screens/quickstart-10-agent-ready-800.webp?v=8d40c7b0fa 800w, /assets/screens/quickstart-10-agent-ready-1440.webp?v=c9806cd6da 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="Qwen Code's terminal in the console, ready"></a></figure>
+          <figure><a class="step-shot" href="/screenshots/quickstart-helm-agent-ready.png" aria-label="Open the full screenshot: Qwen Code's terminal in the console, ready"><img src="/assets/screens/quickstart-helm-agent-ready-1440.webp?v=ee918e9475" srcset="/assets/screens/quickstart-helm-agent-ready-800.webp?v=4ecc6887fa 800w, /assets/screens/quickstart-helm-agent-ready-1440.webp?v=ee918e9475 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="Qwen Code's terminal in the console, ready"></a></figure>
         </li>
-        <li class="qs-step" id="step-ask"><h3><span class="step-number">6</span>Ask it something</h3>
-          <p>Type <em>What model are you?</em> in <strong>Message for the agent</strong> and choose <strong>Send</strong>. The first answer is the slowest: Ollama loads the model on the first request, a minute or two on a CPU.</p>
-          <figure><a class="step-shot" href="/screenshots/quickstart-11-answer.png" aria-label="Open the full screenshot: Qwen Code's answer, on qwen3:1.7b"><img src="/assets/screens/quickstart-11-answer-1440.webp?v=48822f8a64" srcset="/assets/screens/quickstart-11-answer-800.webp?v=f162f5617a 800w, /assets/screens/quickstart-11-answer-1440.webp?v=48822f8a64 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="Qwen Code's answer, on qwen3:1.7b"></a></figure>
+        <li class="qs-step" id="quickstart-helm-step-8"><h3><span class="step-number">8</span>Ask it something</h3>
+          <p>Type <em>What model are you?</em> in <strong>Message for the agent</strong> and choose <strong>Send</strong>. The first answer is the slowest: the model loads on the first request, a minute or two on a CPU.</p>
+          <figure><a class="step-shot" href="/screenshots/quickstart-helm-answer.png" aria-label="Open the full screenshot: Qwen Code's answer, on qwen3:1.7b"><img src="/assets/screens/quickstart-helm-answer-1440.webp?v=c5bb3d0c7d" srcset="/assets/screens/quickstart-helm-answer-800.webp?v=6e5f1e89f6 800w, /assets/screens/quickstart-helm-answer-1440.webp?v=c5bb3d0c7d 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="Qwen Code's answer, on qwen3:1.7b"></a></figure>
         </li>
-        <li class="qs-step" id="step-requests"><h3><span class="step-number">7</span>See what it sent</h3>
-          <p><strong>Requests</strong> has every request the agent made: model, provider, time and tokens. Select one for the full request, the reply and the payload sent to Ollama. The first one here timed out while the model loaded, and Qwen Code asked again.</p>
-          <figure><a class="step-shot" href="/screenshots/quickstart-12-requests.png" aria-label="Open the full screenshot: Request history: Qwen Code's requests on machine-1"><img src="/assets/screens/quickstart-12-requests-1440.webp?v=3dc47f5b62" srcset="/assets/screens/quickstart-12-requests-800.webp?v=807e534b60 800w, /assets/screens/quickstart-12-requests-1440.webp?v=3dc47f5b62 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="Request history: Qwen Code's requests on machine-1"></a></figure>
+        <li class="qs-step" id="quickstart-helm-step-9"><h3><span class="step-number">9</span>See what it sent</h3>
+          <p><strong>Requests</strong> has every request the agent made: model, provider, time and tokens. Select one for the full request, the reply and the payload sent to your provider.</p>
+          <figure><a class="step-shot" href="/screenshots/quickstart-helm-requests.png" aria-label="Open the full screenshot: Request history: Qwen Code's requests on k8s-machine"><img src="/assets/screens/quickstart-helm-requests-1440.webp?v=0393e2b9fa" srcset="/assets/screens/quickstart-helm-requests-800.webp?v=666f93708a 800w, /assets/screens/quickstart-helm-requests-1440.webp?v=0393e2b9fa 1440w" sizes="(max-width: 850px) calc(100vw - 40px), 860px" width="1440" height="900" loading="lazy" decoding="async" alt="Request history: Qwen Code's requests on k8s-machine"></a></figure>
         </li>
     </ol>
   </section>
-
-  <section class="section wrap" id="next" aria-labelledby="next-title"><div class="section-heading"><p class="eyebrow">3 / Then</p><h2 id="next-title">Keep going.</h2></div>
+  <section class="section wrap qs-steps-section" aria-labelledby="advanced-next-title"><div class="section-heading"><p class="eyebrow">When you are done</p><h2 id="advanced-next-title">Keep going.</h2></div>
     <div class="detail-grid">
       <article><h3>Give it a task</h3><p>Send <em>write a Python script that prints the first ten primes</em> and watch it work. <strong>Live</strong> shows each model request as it streams; <strong>Running agents</strong> shows which agents are working or waiting for you.</p></article>
-      <article><h3>Read it back</h3><p><strong>Sessions</strong> has one row per agent run, with a <strong>Chat</strong> view when capture is on. <strong>Traffic</strong> groups requests by what they were for.</p></article>
-      <article><h3>Stop, reset or troubleshoot</h3><p><code>compose down</code> stops it and keeps your data; <code>down -v</code> deletes it too. The guide lists what to check when something doesn’t start.</p><a href="https://github.com/joeyenfield/ai-control-mesh/blob/master/docs/quickstart.md#stop-reset-and-troubleshoot">Stop, reset and troubleshoot →</a></article>
-      <article><h3>A real install</h3><p>The quickstart uses known passwords on <code>localhost</code>. For your team, run the server with your own secrets, HTTPS and sign-in.</p><a href="/teams.html#deployment">Team deployment →</a></article>
+      <article><h3>Bring your own provider</h3><p>Nothing here is tied to Ollama. Add llama.cpp, Strata, Docker Model Runner or an OpenAI-compatible server on any machine, or a hosted API with a key the server keeps, and start the same agents on it.</p><a href="https://github.com/joeyenfield/ai-control-mesh/blob/master/docs/providers.md">Providers →</a></article>
+      <article><h3>Stop and clean up</h3><p><code>kubectl -n mesh scale deploy/mesh-agent-mesh deploy/quickstart-machine --replicas=0</code> stops it and keeps everything; <code>kubectl delete namespace mesh</code> deletes all of it.</p><a href="https://github.com/joeyenfield/ai-control-mesh/blob/master/docs/quickstart-kubernetes.md#stop-and-clean-up">Stop, clean up and troubleshoot →</a></article>
+      <article><h3>A real cluster</h3><p>A real install changes the same things as any other: HTTPS host names, PostgreSQL, your own secrets, and machines signed in from wherever they are.</p><a href="#professional">The Professional level →</a></article>
     </div>
   </section>
+</div>
+<div class="qs-guide guide-professional" id="professional">
+  <section class="wrap qs-toc-section" aria-labelledby="professional-toc-title"><p class="eyebrow">Professional / 7 steps</p><h2 id="professional-toc-title">Step by step.</h2><ol class="qs-toc"><li><a href="#professional-step-1">Choose a size</a></li><li><a href="#pro-step-2">Host names, TLS and routing</a></li><li><a href="#pro-step-3">Your own secrets</a></li><li><a href="#pro-step-4">The database</a></li><li><a href="#pro-step-5">Install the chart</a></li><li><a href="#pro-step-6">Sign in and add your people</a></li><li><a href="#pro-step-7">Bring your machines and your providers</a></li></ol></section>
+  <section class="quickstart section wrap" id="professional-step-1" aria-labelledby="professional-start-title">
+      <div class="quickstart-copy">
+        <p class="eyebrow">Step 1</p>
+        <h2 id="professional-start-title"><span class="step-number">1</span>Choose a size</h2>
+        <p>Three values files ship with the chart. <strong>Small team</strong> is one pod with SQLite, enough for a team trying it in earnest. The two <strong>scaled</strong> forms run a Deployment per role on PostgreSQL and Redis, on managed cloud services or on your own hardware. Pick one in the box.</p>
+        <p><strong>The production chart</strong> is for a team: HTTPS host names of your own, PostgreSQL, your own secrets, and machines that sign in from wherever they are. Nothing here is a demo, so nothing has a known password.</p>
+        <p class="prerequisites"><strong>Bring:</strong> a Kubernetes cluster, DNS and TLS for two host names (the API and the sign-in service), a Gateway API implementation or an Ingress controller, and for the scaled forms PostgreSQL and Redis.</p>
+        <a class="text-link" href="https://github.com/joeyenfield/ai-control-mesh/blob/master/deploy/helm/agent-mesh/README.md">The chart's README <span aria-hidden="true">→</span></a>
+      </div>
+      <div class="quickstart-install">
+        <div class="code-window qs-box">
+          <fieldset class="qs-tabs qs-tabs-3"><legend>Size</legend><input type="radio" name="p-size" id="p-single" class="opt-single" checked><label for="p-single">Small team <small>One pod</small></label><input type="radio" name="p-size" id="p-cloud" class="opt-cloud"><label for="p-cloud">Scaled, cloud <small>Managed services</small></label><input type="radio" name="p-size" id="p-onprem" class="opt-onprem"><label for="p-onprem">Scaled, on-prem <small>CloudNativePG</small></label></fieldset>
+          <div class="code-toolbar"><span class="mono">THE INSTALL, FOR STEP 5</span><button class="copy-button" type="button" data-copy-shown="qs-cmd" hidden>Copy commands</button></div>
+          <pre class="qs-cmd when-single" tabindex="0" aria-label="The Helm install for a small team"><code id="p-single-cmd">helm install mesh deploy/helm/agent-mesh -n mesh --create-namespace \
+  -f deploy/helm/agent-mesh/values-single.yaml \
+  --set server.host=api.example.com --set auth.host=auth.example.com</code></pre>
+          <pre class="qs-cmd when-cloud" tabindex="0" aria-label="The Helm install for a scaled deployment on managed cloud services"><code id="p-cloud-cmd">helm install mesh deploy/helm/agent-mesh -n mesh --create-namespace \
+  -f deploy/helm/agent-mesh/values-cloud.yaml</code></pre>
+          <pre class="qs-cmd when-onprem" tabindex="0" aria-label="The Helm install for a scaled deployment on your own hardware"><code id="p-onprem-cmd">helm install mesh deploy/helm/agent-mesh -n mesh --create-namespace \
+  -f deploy/helm/agent-mesh/values-onprem.yaml</code></pre>
+          <p class="qs-note when-single">One pod runs every role, with SQLite on a volume and the sign-in service beside it. The server migrates its own database and makes <code>admin</code> on its first start.</p>
+          <p class="qs-note when-cloud">A Deployment per role, each with its own Service and autoscaling, on your managed PostgreSQL, Redis and object storage. Edit the values file for your host names and Secrets first.</p>
+          <p class="qs-note when-onprem">A Deployment per role, with PostgreSQL from the CloudNativePG operator, a bundled Valkey and your S3-compatible bucket. Install the operator and Gateway API or ingress-nginx first.</p>
+          <p class="qs-note">This is the command you run in step 5, from a checkout of the repository. Steps 2 to 4 come first.</p>
+        </div>
+        <p class="copy-status" role="status" aria-live="polite"></p>
+      </div>
+  </section>
+  <section class="section wrap qs-steps-section" aria-labelledby="professional-steps-title">
+    <div class="section-heading"><p class="eyebrow">Steps 2 to 7</p><h2 id="professional-steps-title">From DNS to a fleet.</h2><p>Most of the work comes before the install command. There are no screenshots here: the console is the one the other levels show, at your own address.</p></div>
+    <ol class="qs-steps" start="2">
+        <li class="qs-step" id="pro-step-2"><h3><span class="step-number">2</span>Host names, TLS and routing</h3>
+          <p>Point two HTTPS host names at the cluster: <code>server.host</code> for the API (say <code>api.example.com</code>) and <code>auth.host</code> for the sign-in service (<code>auth.example.com</code>). Keep them subdomains of one site: the sign-in cookie depends on it.</p>
+          <p>Route them with a Gateway API <code>Gateway</code> that has listeners for those hosts (<code>routing.gatewayAPI.gatewayRef</code>), or an Ingress controller (<code>routing.ingress</code>).</p>
+        </li>
+        <li class="qs-step" id="pro-step-3"><h3><span class="step-number">3</span>Your own secrets</h3>
+          <p>The chart never takes database or Redis URLs in its values: they come from Secrets you make. The app Secret holds the token pods use with each other, the secret the server and the sign-in service share, and the keys that encrypt stored tokens:</p>
+          <div class="code-window step-code"><pre tabindex="0" aria-label="Commands that create the app Secret"><code>kubectl create namespace mesh
+kubectl -n mesh create secret generic mesh-app \
+  --from-literal=internal-token="$(openssl rand -hex 32)" \
+  --from-literal=oidc-introspection-secret="$(openssl rand -hex 32)" \
+  --from-literal=vault-keys="$(agent-server vault key)"</code></pre></div>
+          <p>Leave the app Secret out and the chart generates the first two once and keeps them across upgrades. For the scaled forms, add Secrets with your PostgreSQL and Redis URLs; the README lists their keys.</p>
+        </li>
+        <li class="qs-step" id="pro-step-4"><h3><span class="step-number">4</span>The database</h3>
+          <p><span class="when-single">Small team needs nothing here: SQLite lives on the chart's volume. To use PostgreSQL instead, follow the scaled steps.</span><span class="when-scaled">Create two roles and two schemas in your PostgreSQL, one each for the server and the sign-in service, as <code>server/docker/postgres-init.sh</code> does. With CloudNativePG the chart creates them for you. A migration Job runs before each upgrade.</span></p>
+        </li>
+        <li class="qs-step" id="pro-step-5"><h3><span class="step-number">5</span>Install the chart</h3>
+          <p>From a checkout of the repository, run the command for the size you chose in <a href="#professional-step-1">step 1</a>, with your own host names. The chart migrates the database first, then starts each role.</p>
+          <p>When it finishes, <code>kubectl -n mesh get pods</code> shows every pod <code>Running</code>, and the chart's notes say what to do next.</p>
+        </li>
+        <li class="qs-step" id="pro-step-6"><h3><span class="step-number">6</span>Sign in and add your people</h3>
+          <p>The chart's notes print how to read the first <code>admin</code> password from the server's log. Open your API host name, sign in, change that password, and add your people under <strong>Organizations</strong>, or connect your own sign-in.</p>
+          <p><a href="https://github.com/joeyenfield/ai-control-mesh/blob/master/docs/accounts.md">Accounts, organizations and teams →</a></p>
+        </li>
+        <li class="qs-step" id="pro-step-7"><h3><span class="step-number">7</span>Bring your machines and your providers</h3>
+          <p>On each computer that should run agents or serve models, install <code>agent-machine</code> from the console's <strong>Downloads</strong> page and sign it in:</p>
+          <div class="code-window step-code"><pre tabindex="0" aria-label="Commands that sign a computer in to the fleet"><code>agent-machine login https://api.example.com
+agent-machine start</code></pre></div>
+          <p>Approve its code on <strong>Machines › Approve a device</strong>, or hand out a setup code. Then add each machine's model server as a provider of your own, and any hosted API with its key, exactly as in the other levels.</p>
+          <p class="own-provider"><strong>Your providers, on your machines.</strong> Ollama is only the model server this quickstart happens to run. A provider is whatever <em>you</em> bring: llama.cpp, Strata, Docker Model Runner, LM Studio, vLLM or SGLang on a machine show up on this tab the same way, and a hosted API (OpenAI, Anthropic, DeepSeek, OpenRouter) is added with its key on <strong>Providers</strong>. <a href="https://github.com/joeyenfield/ai-control-mesh/blob/master/docs/providers.md">Providers, in the docs →</a></p>
+        </li>
+    </ol>
+  </section>
+  <section class="section wrap qs-steps-section" aria-labelledby="professional-next-title"><div class="section-heading"><p class="eyebrow">When you are done</p><h2 id="professional-next-title">Keep going.</h2></div>
+    <div class="detail-grid">
+      <article><h3>Evaluate it with your team</h3><p>What to check before a team relies on it: accounts, retention, usage limits and the audit trail.</p><a href="/teams.html#evaluation">For teams →</a></article>
+      <article><h3>Security and data</h3><p>Where recordings live, what is redacted, and what leaves your network.</p><a href="/security.html">Security →</a></article>
+      <article><h3>Without Kubernetes</h3><p>The same real install runs from Docker Compose: PostgreSQL, the sign-in service and the server behind your own HTTPS.</p><a href="https://github.com/joeyenfield/ai-control-mesh/blob/master/docs/deployment.md">Deployment →</a></article>
+      <article><h3>Try it first</h3><p>Not ready for DNS and secrets? The Advanced level runs this chart in its smallest form on a local cluster.</p><a href="#advanced">The Advanced level →</a></article>
+    </div>
+  </section>
+</div>
+  </div>
 
 </main>
   <footer class="site-footer wrap">

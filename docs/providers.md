@@ -54,12 +54,12 @@ The server only forwards the native Ollama calls agents make (`chat`, `generate`
 
 ## Which agents can use which provider
 
-Each agent is declared for a backend type (`backend_type`, default `ollama`) and speaks one protocol. An agent declared for Ollama is a local-model agent, and Strata, Docker Model Runner and llama.cpp serve it too when they speak its protocol (`serves()` and `NATIVE_PROTOCOLS` in `config.py`):
+Each agent is declared for a backend type (`backend_type`, default `ollama`) and speaks one protocol. An agent declared for Ollama is an own-provider agent (the console's **Own provider** route), and Strata, Docker Model Runner and llama.cpp serve it too when they speak its protocol (`serves()` and `NATIVE_PROTOCOLS` in `config.py`):
 
 | Protocol | Agents | `ollama` | `strata` | `docker` | `llamacpp` | `anthropic` | `api` |
 |---|---|---|---|---|---|---|---|
 | `openai-chat` | Qwen Code, OpenCode, Copilot CLI (BYOK) | Yes | Yes | Yes | Yes | | If it speaks `openai-chat` |
-| `anthropic` | Claude Code (Ollama) | Yes | Yes | Yes | Yes | | If it speaks `anthropic` |
+| `anthropic` | Claude Code (own provider) | Yes | Yes | Yes | Yes | | If it speaks `anthropic` |
 | `openai-responses` | Codex (Ollama) | Yes | Yes | Yes | Yes | | If it speaks `openai-responses` |
 | `ollama` (native) | Aider, Goose | Yes | No | Yes | No | | No |
 | `anthropic` | Claude Code (Anthropic API pass-through) | | | | | Yes | |

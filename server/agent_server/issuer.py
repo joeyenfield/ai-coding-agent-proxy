@@ -168,7 +168,12 @@ def state_database(settings: Settings) -> Database:
     if not url:
         directory = state_directory(settings)
         directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-        os.chmod(directory, 0o700)
+        try:
+            os.chmod(directory, 0o700)
+        except PermissionError:
+            # A mounted folder can be someone else's: Kubernetes' local-path volumes (kind, k3d) are
+            # root's and open to all, and only its owner may change that. The file is still ours alone.
+            pass
         path = directory / "issuer-state.sqlite3"
         fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
         os.close(fd)

@@ -100,7 +100,7 @@ export function ProvidersPage() {
         const manage = group.kind === "hosted" && identity?.role === "admin";
         if (!items.length && group.kind !== "local" && !manage) return null;
         return (
-          <section className="stack" key={group.kind}>
+          <section className="section" key={group.kind}>
             <h2>{group.title}</h2>
             <p className="subtle">
               {group.summary}

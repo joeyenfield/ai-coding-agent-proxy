@@ -22,7 +22,7 @@ The rail on the left groups the pages by what you're doing. Members see only the
 
 - The foot of the rail links to **Downloads** and **Documentation**, and holds your account, the number of open sessions, a System/Light/Dark theme switch and the server's version.
 - **Go to…** at the top of the rail (or Ctrl K, ⌘K on a Mac, on any page) opens a search over every page you can use and every machine you can see. Type part of a name, move with the arrow keys and press Enter.
-- The small label above each page's title is its breadcrumb ("Activity › Sessions", "Machines › build-box").
+- The small label above each page's title is its breadcrumb ("Activity › Sessions", "Machines › All machines › build-box", "Activity › Requests › qwen › Request 000020"). Every page has the same head: the breadcrumb, the title, one or two sentences on what the page is, and its actions beside the title.
 - Press a heading to fold its pages away, and again to show them. A folded heading still shows the page you're on. The button beside the name at the top collapses the whole rail to icons, with each page's name as its tooltip. The browser remembers both.
 - A badge on **Running agents** counts agents waiting for you (or, when none wait, the connected terminals). A badge on **Live** counts requests in flight. A badge on **All machines** counts connected machines; a machine running an older agent-machine shows **Update available** on its row.
 - When an agent asks a question (a permission prompt, say), a slim bar at the top of every page shows it. **Answer** opens its terminal; **Later** hides it until the agent asks something new.
@@ -41,7 +41,7 @@ The rail on the left groups the pages by what you're doing. Members see only the
 
 - **The map**: agents on the left, the server in the middle, and each provider (with its machine) on the right. Lines light up while requests flow.
 - **Agents, Server, Machines** cards: open sessions and installed agents; requests, tokens read and written and requests in flight; machines online. Each card links to its pages.
-- **Traffic by route**: requests, tokens and last use for each of the three routes (your accounts, local models, hosted API).
+- **Traffic by route**: requests, tokens and last use for each of the three routes (your accounts, own provider, hosted API).
 - **Generation speed**: tokens per second for each recent request.
 - **Streaming now** and **Latest model calls**: requests in flight and the most recent ones, each linking to its details.
 
@@ -70,7 +70,7 @@ In the Android app, a server that can't be reached, or that answers with a serve
 `/agents` starts a coding agent. Pick two things, and the page shows only what that choice needs:
 
 1. **Where should it run?** **Give me the command** (the first choice), or one of the machines you may start agents on. A machine that can't start agents says why (offline, launches off, no launch folders, or no `agent` command there). The choice is remembered.
-2. **Which agent?** Every agent the server knows (its stored agent definitions, which site admins change on [Server settings](#server-settings)). With **Give me the command** they're grouped by route: **Your accounts**, **Local models** and **Hosted API**. With a machine they're grouped by whether they're installed there.
+2. **Which agent?** Every agent the server knows (its stored agent definitions, which site admins change on [Server settings](#server-settings)). With **Give me the command** they're grouped by route: **Your accounts**, **Own provider** and **Hosted API**. With a machine they're grouped by whether they're installed there.
 
 The agent's card then shows its route and description, and:
 
@@ -190,11 +190,11 @@ Account agents' other calls (sign-in, telemetry, MCP) aren't shown here; they're
 
 `/traffic` lists recorded requests: model calls, account agents' permitted requests to public services (private and reserved destinations are refused), and calls to shared MCP servers.
 
-- **Search** by service, host, path, agent or model, pick a **session**, and tick **Failed only**.
+- The cards at the top count what the filters match: requests (and how many are in flight), services, tokens in and out, and tokens read from the prompt cache. Folded repeats are counted too.
+- **Search** by service, host, path, agent or model, and pick a **session**.
 - **Request types** filter the list: Model call, Token count, Model list, MCP, Account, Sign-in, Settings & flags, Telemetry, Updates, Connection and Other, each with its count. What each type covers is in [What the requests are](agents.md#what-the-requests-are).
-- **Group repeats** folds back-to-back identical requests (agents poll some endpoints) into one row.
-- Each row shows the type, service, method and path, the session, its status, timing and size, and its tokens in columns of their own: **In**, **Out**, **Cache read** (prompt tokens the provider served from its cache) and **Cache write** (prompt tokens it wrote to its cache). Counts marked `≈` were estimated. Requests in flight are marked **pending**.
-- The last row totals the tokens of every request the filters match, folded repeats included.
+- **Failed only** and **Group repeats** are chips at the end of that row. Group repeats folds back-to-back identical requests (agents poll some endpoints) into one row, marked ×3.
+- Each row is three lines: the type, service and model with the status at the end; the method and path with how long it took; then the route, agent, request number and time, with its tokens in and out and what the prompt cache served (or its size, for a request without tokens). Counts marked `≈` were estimated. Requests in flight are marked **pending**, and a failed one has a red edge.
 - Selecting a row opens the inspector on the right: timings, tokens and sizes, and tabs for the **Conversation** (a readable view of the messages), the **Request**, the **Response**, what was **Sent to Ollama** (for translated calls), the request and response **Headers** (credentials redacted) for captured HTTPS, and **Metadata**. **Full screen** opens it alone; **Download full trace** saves the JSON.
 - **Still in memory**, in the inspector, marks a request whose session doesn't save payloads while the server still holds them live: read them now or they're gone when the request leaves memory.
 
@@ -208,7 +208,7 @@ Account agents' other calls (sign-in, telemetry, MCP) aren't shown here; they're
 
 `/requests` is the model-call history across all sessions: model, agent, provider, duration, output tokens and speed.
 
-- **Search** by model, agent, endpoint or ID; filter by **session**, **route** (accounts, local models, hosted) and **With payload**, **Without payload** or **Failed**.
+- **Search** by model, agent, endpoint or ID; filter by **session**, **route** (accounts, own provider, hosted) and **With payload**, **Without payload** or **Failed**.
 - **Include non-model requests from account agents** adds their sign-in, telemetry and MCP calls (hidden by default; Traffic shows them too).
 - It loads the newest 2,000 requests. **Load 2,000 older** fetches the next ones; search and filters cover the requests loaded so far.
 - Selecting a row shows the same inspector as Traffic. Each request also has its own page (`/requests/<session>/<request>`):
@@ -219,7 +219,7 @@ Account agents' other calls (sign-in, telemetry, MCP) aren't shown here; they're
 
 ![Sessions](screenshots/sessions.png)
 
-`/sessions` lists every session: agent, model, provider, when it started, requests and tokens, and whether payloads are saved. Selecting one shows its **Latest requests** and its actions:
+`/sessions` lists every session, the most recently active first: agent, project, provider, model, who can see it, its state (**Streaming**, **Open** or **Ended**), its requests and when it last had traffic. The cards at the top count the sessions, the ones streaming now, the open ones and all their requests. **Search** by agent, project, model or session id, and filter by state with the chips. Expanding one shows its **Latest requests** and its actions:
 
 - **Capture full request and response payloads**: turn saving payloads on or off for the rest of the session.
 - **Review requests**, **Traffic**: open its requests on those pages.

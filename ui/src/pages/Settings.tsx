@@ -22,7 +22,7 @@ const URL_PLACEHOLDERS: Record<string, string> = {
 
 /** What each backend type is, in a line under its card. */
 const TYPE_HINTS: Record<string, string> = {
-  ollama: "Local models; the proxy translates requests and applies the model tuning below.",
+  ollama: "Ollama; the proxy translates requests and applies the model tuning below.",
   docker: "Docker Model Runner; requests pass through unchanged.",
   strata: "A Strata server; requests pass through with Strata's API key added.",
   llamacpp: "llama.cpp's llama-server; requests pass through unchanged (a container's with the key the server gave it).",
@@ -137,9 +137,9 @@ function ServerSettings() {
         <PartTag />
         <h1>Server settings</h1>
         <p className="lede">
-          The hub's address, which provider agents use by default, the agents themselves and how long recordings are kept. All
-          of it is kept in the server's database; changes apply right away. To script the server, see its{" "}
-          <a href={apiUrl("/docs")} target="_blank" rel="noreferrer">API reference</a> (<code>/openapi.json</code>).
+          The server's address, the default provider, the agents and how long recordings are kept. Changes apply right away. To
+          script the server, see its{" "}
+          <a href={apiUrl("/docs")} target="_blank" rel="noreferrer">API reference</a>.
         </p>
       </header>
       <TabBar

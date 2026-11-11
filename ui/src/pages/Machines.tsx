@@ -34,9 +34,8 @@ export function MachinesPage() {
         <PartTag />
         <h1>Machines</h1>
         <p className="lede">
-          Computers signed in to this server. They run every local model server agents use (Ollama, Strata, Docker Model Runner
-          and containers), and you manage each one, its models and its load from its machine's page. You can start agents on
-          them too.
+          Computers signed in to this server. They run the agents you start and the model servers you add as providers of your
+          own. Open one to manage its models, load and access.
         </p>
       </header>
 
@@ -77,7 +76,7 @@ export function MachinesPage() {
           <span className="subtle" role="status">{shown.length} of {list.length} machines</span>
         </div>
       )}
-      {machines.data && list.length > 0 && shown.length === 0 && <p className="subtle">No machines match your search.</p>}
+      {machines.data && list.length > 0 && shown.length === 0 && <p className="empty">No machines match your search.</p>}
       {shown.length > 0 && (
         <div className="table-scroll">
           <table className="table fleet-table">

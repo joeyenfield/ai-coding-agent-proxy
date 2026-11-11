@@ -41,11 +41,11 @@ nav.addEventListener('click', (event) => {
 for (const button of document.querySelectorAll('[data-copy], [data-copy-shown]')) {
   button.hidden = false;
   button.addEventListener('click', async () => {
-    // data-copy-shown: the one block of that class the switches show (the quickstart's engine and GPU).
+    // data-copy-shown: the one block of that class the quickstart's level and switches show.
     const code = button.dataset.copyShown
       ? [...document.querySelectorAll(`.${button.dataset.copyShown}`)].find((block) => block.offsetParent)?.querySelector('code')
       : document.getElementById(button.dataset.copy);
-    const status = document.getElementById('copy-status');
+    const status = button.closest('.quickstart-install')?.querySelector('.copy-status') ?? document.getElementById('copy-status');
     try {
       await navigator.clipboard.writeText(code.textContent.trim());
       status.textContent = 'Commands copied. Paste them into your terminal.';
@@ -59,3 +59,14 @@ for (const button of document.querySelectorAll('[data-copy], [data-copy-shown]')
     }
   });
 }
+
+// The quickstart's levels: a link to #intermediate (from a guide's "Then", or another page) picks
+// that level, whose guide is hidden until its radio is checked. Without JS the level cards still do it.
+function pickLevel() {
+  const level = document.getElementById(`lvl-${location.hash.slice(1)}`);
+  if (!level) return;
+  level.checked = true;
+  document.getElementById(location.hash.slice(1))?.scrollIntoView();
+}
+window.addEventListener('hashchange', pickLevel);
+pickLevel();

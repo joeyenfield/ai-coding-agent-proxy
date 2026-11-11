@@ -60,8 +60,11 @@ export function SubscriptionsPage() {
         <PartTag />
         <h1>Subscriptions</h1>
         <p className="lede">
-          Your own AI plans: Claude, ChatGPT (through Codex) and GitHub Copilot. Agents started on a machine you assign a subscription to run
-          with it, and its limits stay the provider's. This isn't your sign-in to this server: that's on <Link to="/organization?tab=account">Your account</Link>.
+          Your own AI plans: Claude, ChatGPT (through Codex) and GitHub Copilot. Agents started on a machine you assign one to run with it, and
+          its limits stay the provider's.
+        </p>
+        <p className="subtle">
+          This isn't your sign-in to this server: that's on <Link to="/organization?tab=account">Your account</Link>.
         </p>
       </header>
       {accounts.isError && <p className="bad">{(accounts.error as Error).message}</p>}

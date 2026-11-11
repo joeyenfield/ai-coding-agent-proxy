@@ -181,10 +181,10 @@ export function AskPage() {
           it's recorded as a session of its own.
         </p>
       </header>
-      {models.isError && <p className="notice bad">{models.error.message}</p>}
+      {models.isError && <p className="bad">{models.error.message}</p>}
       {models.isSuccess && !choices.length && (
         <p className="empty">
-          No model is available. Local models come from your machines: add a model server on a machine's page, then pull a model
+          No model is available. Your own providers come from your machines: add a model server on a machine's page, then pull a model
           there. <Link to="/machines">All machines</Link>
         </p>
       )}

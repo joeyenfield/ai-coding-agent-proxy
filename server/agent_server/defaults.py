@@ -193,7 +193,7 @@ agents:
         provider:
           agent-proxy:
             npm: "@ai-sdk/openai-compatible"
-            name: AI Control Mesh (Ollama)
+            name: AI Control Mesh
             options:
               baseURL: "{openai_url}"
               apiKey: local-ollama
@@ -207,7 +207,7 @@ agents:
     args: [--model, "agent-proxy/{model}"]
 
   copilot:
-    name: GitHub Copilot CLI (Ollama, BYOK)
+    name: GitHub Copilot CLI (own provider)
     executable: copilot
     protocol: openai-chat
     description: GitHub's terminal agent, using bring-your-own-model mode.
@@ -227,7 +227,7 @@ agents:
     notes: COPILOT_OFFLINE stops the CLI from contacting GitHub. Remove it to keep GitHub sign-in features.
 
   claude:
-    name: Claude Code (Ollama)
+    name: Claude Code (own provider)
     executable: claude
     protocol: anthropic
     description: Claude Code with local models or an Anthropic-compatible API provider, including DeepSeek.
@@ -330,7 +330,7 @@ agents:
     notes: Sign in with codex login (ChatGPT) first, and unset OPENAI_API_KEY and OPENAI_BASE_URL so the ChatGPT login is used. Pass a model with -- -m <model>.
 
   codex:
-    name: OpenAI Codex CLI (Ollama)
+    name: OpenAI Codex CLI (own provider)
     executable: codex
     protocol: openai-responses
     description: OpenAI's agent in --oss mode. Uses the Responses API, passed through to Ollama.

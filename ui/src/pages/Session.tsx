@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { PartTag } from "../components/PartTag";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, isFailure } from "../api";
 import { formatCompact, formatDate, formatNumber, formatRelative, lastTraffic } from "../format";
@@ -70,11 +71,7 @@ export function SessionPage() {
   return (
     <div className="page wide">
       <header className="page-head">
-        <p className="breadcrumbs">
-          <Link to="/live">Activity</Link>
-          <span aria-hidden="true">›</span>
-          <Link to="/sessions">Sessions</Link>
-        </p>
+        <PartTag />
         <h1>
           {data.client}
           {data.project && <span className="subtle"> in {data.project}</span>}

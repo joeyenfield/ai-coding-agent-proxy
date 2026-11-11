@@ -68,7 +68,7 @@ export function ServerStatsPage() {
         <h1>Server stats</h1>
         <p className="lede">
           How hard the computer running the server is working, and how full its disks are. Sampled every {POLL_MS / 1000} seconds while
-          this page is open; nothing is saved. Each machine's own load is on its page.
+          this page is open; nothing is saved.
         </p>
       </header>
       {stats.isPending && <p className="empty">Asking the server…</p>}

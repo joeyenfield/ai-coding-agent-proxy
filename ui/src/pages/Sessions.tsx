@@ -14,6 +14,10 @@ import { SharingBadge, SharingControl } from "../components/Sharing";
 
 type Cleanup = { session: Session; remove: boolean } | null;
 
+/** What a session is doing: a request in flight, open and idle, or ended. */
+type SessionState = "streaming" | "open" | "ended";
+const STATE_LABELS: Record<SessionState, string> = { streaming: "Streaming", open: "Open", ended: "Ended" };
+
 /** Most recently active first; sessions without traffic fall back to their start time. */
 const byLastActivity = (a: Session, b: Session) =>
   (b.last_activity_at ?? b.started_at).localeCompare(a.last_activity_at ?? a.started_at);
@@ -26,6 +30,8 @@ export function SessionsPage() {
   const [cleanup, setCleanup] = useState<Cleanup>(null);
   const [confirmAll, setConfirmAll] = useState(false);
   const [open, setOpen] = useState<Set<string>>(() => new Set());
+  const [query, setQuery] = useState("");
+  const [show, setShow] = useState<SessionState | "">("");
   const busy = new Set(status.data?.current_requests.map((item) => item.session_id));
   const refresh = () => client.invalidateQueries();
 
@@ -70,6 +76,18 @@ export function SessionsPage() {
   });
 
   const ordered = [...(sessions.data ?? [])].sort(byLastActivity);
+  const stateOf = (session: Session): SessionState => (busy.has(session.session_id) ? "streaming" : session.ended_at ? "ended" : "open");
+  const text = query.trim().toLowerCase();
+  // The search narrows the list; the status chips count within it.
+  const found = ordered.filter(
+    (session) =>
+      !text ||
+      [session.client, session.project ?? "", session.model ?? "", session.backend, session.session_id].some((value) => value.toLowerCase().includes(text)),
+  );
+  const counts = { streaming: 0, open: 0, ended: 0 };
+  for (const session of found) counts[stateOf(session)] += 1;
+  const shown = show ? found.filter((session) => stateOf(session) === show) : found;
+  const totalRequests = ordered.reduce((total, item) => total + item.request_count, 0);
   const toggle = (id: string) =>
     setOpen((current) => {
       const next = new Set(current);
@@ -82,7 +100,7 @@ export function SessionsPage() {
     <div className="page">
       <header className="page-head">
         <PartTag />
-        <div className="section-head">
+        <div className="page-title">
           <h1>Sessions</h1>
           {ordered.length > 0 && (
             <button
@@ -97,73 +115,122 @@ export function SessionsPage() {
             </button>
           )}
         </div>
-        <p className="lede">
-          A session is one agent run. The launcher opens one for you; requests without a session get their own. Expand a
-          session to see its requests and settings, or open it on its own page.
-        </p>
+        <p className="lede">A session is one agent run. Expand one for its settings and latest requests, or open it on its own page.</p>
       </header>
+      {ordered.length > 0 && (
+        <dl className="stat-cards" aria-label="Sessions">
+          <div>
+            <dt>Sessions</dt>
+            <dd>{formatNumber(ordered.length)}</dd>
+          </div>
+          <div>
+            <dt>Streaming now</dt>
+            <dd>{formatNumber(ordered.filter((session) => busy.has(session.session_id)).length)}</dd>
+          </div>
+          <div>
+            <dt>Open</dt>
+            <dd>{formatNumber(ordered.filter((session) => !session.ended_at).length)}</dd>
+          </div>
+          <div>
+            <dt>Requests</dt>
+            <dd>{formatNumber(totalRequests)}</dd>
+          </div>
+        </dl>
+      )}
       {ordered.length ? (
-        <ul className="xlist" aria-label="Sessions">
-          {ordered.map((session) => {
-            const inFlight = busy.has(session.session_id);
-            const path = `/sessions/${encodeURIComponent(session.session_id)}`;
-            return (
-              <ExpandRow
-                key={session.session_id}
-                expanded={open.has(session.session_id)}
-                onToggle={() => toggle(session.session_id)}
-                tone={inFlight ? "live" : undefined}
-                summary={
-                  <>
-                    <span className="xrow-main">
-                      <strong>{session.client}</strong>
-                      {session.project && <span className="subtle">in {session.project}</span>}
-                      <RouteBadge item={session} />
-                      {session.model && <span className="pill accent">{session.model}</span>}
-                      <SharingBadge you={session.you} />
-                    </span>
-                    <span className="xrow-meta">
-                      {inFlight ? (
-                        <span className="pill live">
-                          <span className="live-mark" aria-hidden="true" /> streaming
+        <section className="session-list">
+          <div className="filters">
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search agent, project, model or session id"
+              aria-label="Search sessions"
+            />
+          </div>
+          <div className="chip-bar" role="group" aria-label="Session status">
+            <button type="button" aria-pressed={!show} onClick={() => setShow("")}>
+              All <span className="count">{formatNumber(found.length)}</span>
+            </button>
+            {(Object.keys(STATE_LABELS) as SessionState[])
+              .filter((name) => counts[name])
+              .map((name) => (
+                <button key={name} type="button" aria-pressed={show === name} onClick={() => setShow(show === name ? "" : name)}>
+                  {STATE_LABELS[name]} <span className="count">{formatNumber(counts[name])}</span>
+                </button>
+              ))}
+          </div>
+          {shown.length ? (
+            <ul className="xlist" aria-label="Sessions">
+              {shown.map((session) => {
+                const state = stateOf(session);
+                const inFlight = state === "streaming";
+                const path = `/sessions/${encodeURIComponent(session.session_id)}`;
+                return (
+                  <ExpandRow
+                    key={session.session_id}
+                    expanded={open.has(session.session_id)}
+                    onToggle={() => toggle(session.session_id)}
+                    tone={inFlight ? "live" : undefined}
+                    summary={
+                      <>
+                        <span className="xrow-main">
+                          <strong>{session.client}</strong>
+                          {session.project && <span className="subtle">in {session.project}</span>}
+                          <RouteBadge item={session} />
+                          {session.model && <span className="pill accent">{session.model}</span>}
+                          <SharingBadge you={session.you} />
                         </span>
-                      ) : session.ended_at ? (
-                        <span className="subtle">{session.exit_status == null ? "Ended" : `Ended, exit ${session.exit_status}`}</span>
-                      ) : (
-                        <span className="good">Open</span>
-                      )}
-                      <span>
-                        {formatNumber(session.request_count)} {session.request_count === 1 ? "request" : "requests"}
-                      </span>
-                      <span className="subtle" title={session.last_activity_at ? formatDate(session.last_activity_at) : undefined}>
-                        {lastTraffic(session)}
-                      </span>
-                    </span>
-                  </>
-                }
-                actions={
-                  <Link className="button" to={path}>
-                    Open
-                  </Link>
-                }
-              >
-                <SessionBody
-                  session={session}
-                  inFlight={inFlight}
-                  onTrace={(enabled) => trace.mutate({ id: session.session_id, enabled })}
-                  traceBusy={trace.isPending}
-                  onEnd={() => end.mutate(session.session_id)}
-                  onCleanup={(removeSession) => {
-                    remove.reset();
-                    setCleanup({ session, remove: removeSession });
-                  }}
-                />
-              </ExpandRow>
-            );
-          })}
-        </ul>
+                        <span className="xrow-meta session-cols">
+                          <span className="session-state">
+                            {inFlight ? (
+                              <span className="pill live">
+                                <span className="live-mark" aria-hidden="true" /> Streaming
+                              </span>
+                            ) : state === "ended" ? (
+                              <span className="pill" title={session.exit_status == null ? undefined : `Exit status ${session.exit_status}`}>
+                                {session.exit_status ? `Ended, exit ${session.exit_status}` : "Ended"}
+                              </span>
+                            ) : (
+                              <span className="pill good">Open</span>
+                            )}
+                          </span>
+                          <span className="session-count">
+                            {formatNumber(session.request_count)} {session.request_count === 1 ? "request" : "requests"}
+                          </span>
+                          <span className="session-when subtle" title={session.last_activity_at ? formatDate(session.last_activity_at) : undefined}>
+                            {lastTraffic(session)}
+                          </span>
+                        </span>
+                      </>
+                    }
+                    actions={
+                      <Link className="button" to={path}>
+                        Open
+                      </Link>
+                    }
+                  >
+                    <SessionBody
+                      session={session}
+                      inFlight={inFlight}
+                      onTrace={(enabled) => trace.mutate({ id: session.session_id, enabled })}
+                      traceBusy={trace.isPending}
+                      onEnd={() => end.mutate(session.session_id)}
+                      onCleanup={(removeSession) => {
+                        remove.reset();
+                        setCleanup({ session, remove: removeSession });
+                      }}
+                    />
+                  </ExpandRow>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="empty">No session matches.</p>
+          )}
+        </section>
       ) : (
-        <p className="empty">No sessions yet.</p>
+        <p className="empty">No sessions yet. Start an agent and its session shows here.</p>
       )}
 
       <NewSession />
@@ -183,7 +250,7 @@ export function SessionsPage() {
           in flight are skipped. It can't be undone.
         </p>
         <p className="subtle">
-          {formatNumber(ordered.length)} sessions, {formatNumber(ordered.reduce((total, item) => total + item.request_count, 0))} requests.
+          {formatNumber(ordered.length)} sessions, {formatNumber(totalRequests)} requests.
         </p>
       </ConfirmDialog>
 

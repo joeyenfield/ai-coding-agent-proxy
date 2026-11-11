@@ -8,7 +8,7 @@ Day to day you need the first half of this page: [the three routes](#the-three-r
 
 Each agent takes one of three routes to a model. The console colours requests, sessions and agents by route.
 
-| | Your accounts | Local models | Hosted API |
+| | Your accounts | Own provider | Hosted API |
 |---|---|---|---|
 | **Agents** | `claude-account`, `copilot-account`, `codex-account` | `qwen`, `opencode`, `copilot`, `claude`, `codex`, `aider`, `goose`, `hermes` | `claude-subscription` |
 | **Set in its definition by** | `intercept: true` | `backend_type: ollama` (the default) | `backend_type: anthropic` |
@@ -18,7 +18,7 @@ Each agent takes one of three routes to a model. The console colours requests, s
 | **What you see** | Requests to public hosts: model calls plus sign-in, settings, MCP, telemetry | Model calls, with the exact payload sent to Ollama | Model calls and other Anthropic API calls Claude Code makes |
 | **Credentials** | The agent's own login | None needed (an API provider's key stays on the server) | The agent's own login |
 
-**Local models.** Local-model agents get API base URLs on the `agent-proxy` that contain the session id. The server sends each request to the session's backend. For an Ollama backend it translates OpenAI Chat and Anthropic Messages requests to Ollama's native `/api/chat` and applies the server's Ollama model tuning. llama.cpp, Strata and Docker Model Runner speak the agents' APIs themselves and get requests unchanged. See [Providers](providers.md).
+**Own provider.** Agents on a provider of your own (a model server on one of your machines, or an API provider you add) get API base URLs on the `agent-proxy` that contain the session id. The server sends each request to the session's backend. For an Ollama backend it translates OpenAI Chat and Anthropic Messages requests to Ollama's native `/api/chat` and applies the server's Ollama model tuning. llama.cpp, Strata and Docker Model Runner speak the agents' APIs themselves and get requests unchanged. See [Providers](providers.md).
 
 ```bash
 agent qwen . --model qwen3.6:35b                          # the server's default backend for the agent
@@ -239,18 +239,18 @@ The server keeps every agent's definition in its database and renders it for eac
 
 | Agent | Command | Route | Protocol | MCP |
 |---|---|---|---|---|
-| Qwen Code | `agent qwen` | Local models | OpenAI Chat | Yes |
-| OpenCode | `agent opencode` | Local models | OpenAI Chat | Yes |
-| GitHub Copilot CLI (Ollama, BYOK) | `agent copilot` | Local models | OpenAI Chat | Yes |
-| Claude Code (Ollama) | `agent claude` | Local models | Anthropic Messages | Yes |
+| Qwen Code | `agent qwen` | Own provider | OpenAI Chat | Yes |
+| OpenCode | `agent opencode` | Own provider | OpenAI Chat | Yes |
+| GitHub Copilot CLI (own provider) | `agent copilot` | Own provider | OpenAI Chat | Yes |
+| Claude Code (own provider) | `agent claude` | Own provider | Anthropic Messages | Yes |
 | Claude Code (Anthropic API pass-through) | `agent claude-subscription` | Hosted API | Anthropic Messages | Yes |
 | Claude Code (claude.ai account) | `agent claude-account` | Your accounts | Anthropic Messages | Yes |
 | GitHub Copilot CLI (GitHub account) | `agent copilot-account` | Your accounts | OpenAI Chat | Yes |
 | OpenAI Codex CLI (ChatGPT account) | `agent codex-account` | Your accounts | OpenAI Responses | Yes |
-| OpenAI Codex CLI (Ollama) | `agent codex` | Local models | OpenAI Responses | Yes |
-| Aider | `agent aider` | Local models | Native Ollama | No |
-| Goose | `agent goose` | Local models | Native Ollama | Yes |
-| Hermes Agent | `agent hermes` | Local models | OpenAI Chat | No |
+| OpenAI Codex CLI (own provider) | `agent codex` | Own provider | OpenAI Responses | Yes |
+| Aider | `agent aider` | Own provider | Native Ollama | No |
+| Goose | `agent goose` | Own provider | Native Ollama | Yes |
+| Hermes Agent | `agent hermes` | Own provider | OpenAI Chat | No |
 
 "MCP" says whether the agent can take the MCP servers your machines share (`--mcp`). How each one is given them (its settings file, or arguments) is in [MCP servers](mcp.md#what-each-agent-gets).
 
@@ -273,9 +273,9 @@ Install commands:
   - it guesses the context size from the model's name (any `qwen3.x` counts as 1M), so the file gives it the real one (`model.generationConfig.contextWindowSize`, from `{context_window}`);
   - its stream idle check drops a reply after 240 s without a chunk, so the file turns it off (`streamIdleTimeoutMs: 0`) — a local model reading a long prompt, or queued behind the agent's own sub-agents, is quiet for longer, and the server's keep-alives don't count. The server still ends a reply after 600 s without any data.
 - **`opencode`: OpenCode.** Open-source terminal agent with first-class support for local providers. Sets `OPENCODE_CONFIG_CONTENT`, a JSON config with a provider `agent-proxy` (`@ai-sdk/openai-compatible`, base URL `{openai_url}`) and the model with tool calls on. Runs `opencode --model agent-proxy/<model>`.
-- **`copilot`: GitHub Copilot CLI (Ollama, BYOK).** GitHub's terminal agent in bring-your-own-model mode. Sets `COPILOT_PROVIDER_TYPE=openai`, `COPILOT_PROVIDER_BASE_URL` (`{openai_url}`), `COPILOT_PROVIDER_API_KEY=local-ollama`, `COPILOT_MODEL` and `COPILOT_OFFLINE=true`. `COPILOT_OFFLINE` stops the CLI from contacting GitHub; remove it to keep GitHub sign-in features.
-- **`claude`: Claude Code (Ollama).** Anthropic's agent, translated from the Messages API to Ollama by the server. Sets `ANTHROPIC_BASE_URL` (`{anthropic_url}`), `ANTHROPIC_AUTH_TOKEN=local-ollama`, an empty `ANTHROPIC_API_KEY`, the model for `ANTHROPIC_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL` and `CLAUDE_CODE_SUBAGENT_MODEL`, and `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`. Runs `claude --model <model>`.
-- **`codex`: OpenAI Codex CLI (Ollama).** OpenAI's agent in `--oss` mode. Sets `CODEX_OSS_BASE_URL` (`{openai_url}`). Runs `codex --oss -m <model>`. The Responses API is passed through to Ollama unchanged, so set `OLLAMA_CONTEXT_LENGTH` on the Ollama server for a larger context (Ollama's settings are on its machine's page, see [Machines](machines.md)).
+- **`copilot`: GitHub Copilot CLI (own provider).** GitHub's terminal agent in bring-your-own-model mode. Sets `COPILOT_PROVIDER_TYPE=openai`, `COPILOT_PROVIDER_BASE_URL` (`{openai_url}`), `COPILOT_PROVIDER_API_KEY=local-ollama`, `COPILOT_MODEL` and `COPILOT_OFFLINE=true`. `COPILOT_OFFLINE` stops the CLI from contacting GitHub; remove it to keep GitHub sign-in features.
+- **`claude`: Claude Code (own provider).** Anthropic's agent, translated from the Messages API to Ollama by the server. Sets `ANTHROPIC_BASE_URL` (`{anthropic_url}`), `ANTHROPIC_AUTH_TOKEN=local-ollama`, an empty `ANTHROPIC_API_KEY`, the model for `ANTHROPIC_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL` and `CLAUDE_CODE_SUBAGENT_MODEL`, and `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`. Runs `claude --model <model>`.
+- **`codex`: OpenAI Codex CLI (own provider).** OpenAI's agent in `--oss` mode. Sets `CODEX_OSS_BASE_URL` (`{openai_url}`). Runs `codex --oss -m <model>`. The Responses API is passed through to Ollama unchanged, so set `OLLAMA_CONTEXT_LENGTH` on the Ollama server for a larger context (Ollama's settings are on its machine's page, see [Machines](machines.md)).
 - **`aider`: Aider.** Pair-programming agent that talks to Ollama's native chat API. Sets `OLLAMA_API_BASE` (`{ollama_url}`). Runs `aider --model ollama_chat/<model>`. It speaks native Ollama, so it can use Ollama and Docker Model Runner backends, not llama.cpp or Strata. It has no MCP support.
 - **`goose`: Goose.** Block's extensible open-source agent. Sets `GOOSE_PROVIDER=ollama`, `OLLAMA_HOST` (`{ollama_url}`) and `GOOSE_MODEL`. Runs `goose session`. Like Aider, it can use Ollama and Docker Model Runner backends, not llama.cpp or Strata.
 - **`hermes`: Hermes Agent.** Nous Research's self-improving agent, with memory, skills and many built-in tools. Runs `hermes chat --provider custom --base-url <openai_url> --api-key local-ollama -m <model>`. It sets no environment and writes no files, so your own `~/.hermes` (its memory, skills, sessions and settings) is used as it is, and the key is held for that run only. Hermes needs a model with at least 64K context. It doesn't take `--mcp`: add MCP servers under `mcp_servers` in your `~/.hermes/config.yaml`.

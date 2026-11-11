@@ -8,12 +8,18 @@ const root = fileURLToPath(new URL('../../../', import.meta.url));
 const pages = ['index.html', 'quickstart.html', 'teams.html', 'security.html', 'styles.css', 'site.js', 'robots.txt', 'sitemap.xml', 'site.webmanifest'];
 // The quickstart page's steps (devhelpers/scripts/screenshots/quickstart-steps.mjs).
 const quickstart = ['01-sign-in', '02-issuer', '03-machines', '04-model-servers', '05-add-provider', '06-search', '07-results', '08-pulled', '09-start-agent', '10-agent-ready', '11-answer', '12-requests'].map(name => `quickstart-${name}`);
-const captures = [...quickstart, 'terminal-grid-dark', 'real-opencode', 'real-copilot', 'real-qwen', 'live-dark', 'terminal-phone', 'overview-dark', 'agents', 'machines', 'session-chat', 'machine-mcp', 'terminal'];
+// Its other levels' walks: the one container (basic) and the Helm chart (helm).
+const walk = ['model-servers', 'add-provider', 'search', 'results', 'pulled', 'start-agent', 'agent-ready', 'answer', 'requests'];
+const levels = [
+  ...['sign-in', 'issuer', 'machines', 'start-ollama', ...walk].map(name => `quickstart-basic-${name}`),
+  ...['sign-in', 'issuer', 'approve-code', 'approve', 'machines', ...walk].map(name => `quickstart-helm-${name}`),
+];
+const captures = [...quickstart, ...levels, 'terminal-grid-dark', 'real-opencode', 'real-copilot', 'real-qwen', 'live-dark', 'terminal-phone', 'overview-dark', 'agents', 'machines', 'session-chat', 'machine-mcp', 'terminal'];
 // The web-sized copies the homepage shows (devhelpers/scripts/screenshots/site-images.py).
 const screens = [
   ...['terminal-grid-dark', 'live-dark', 'overview-dark', 'agents', 'machines', 'session-chat', 'machine-mcp', 'terminal'].flatMap(name => [800, 1440].map(width => `screens/${name}-${width}.webp`)),
   ...[400, 618].map(width => `screens/terminal-phone-${width}.webp`),
-  ...quickstart.flatMap(name => (/0[12]-/.test(name) ? [540, 1080] : [800, 1440]).map(width => `screens/${name}-${width}.webp`)),
+  ...[...quickstart, ...levels].flatMap(name => (/0[12]-|-(sign-in|issuer)$/.test(name) ? [540, 1080] : [800, 1440]).map(width => `screens/${name}-${width}.webp`)),
   ...['real-opencode', 'real-copilot', 'real-qwen'].flatMap(name => [666, 1333].map(width => `screens/${name}-${width}.webp`)),
 ];
 const assets = ['icon.svg', 'social.svg', 'social.png', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png', ...screens];

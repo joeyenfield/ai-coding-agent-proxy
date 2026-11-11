@@ -86,13 +86,13 @@ Open **All machines**. machine-1 and machine-2 are already there and **Online**:
 
 ![Machines: machine-1 and machine-2, both online](screenshots/quickstart-03-machines.png)
 
-### 3. Add machine-1's Ollama as a provider
+### 3. Add machine-1's model server as your own provider
 
-Local model servers belong to the machines that run them, and an admin adds each one once. Open **machine-1**, then its **Providers** tab. machine-1 found Ollama on its own `127.0.0.1:11434`, but it's **Not a provider yet**.
+Model servers belong to the machines that run them, and an admin adds each one once. This quickstart runs Ollama, but a provider is whatever you bring: llama.cpp, Strata, Docker Model Runner, LM Studio, vLLM or SGLang on a machine show up on this tab the same way, and a hosted API is added with its key on **Providers** ([Providers](providers.md)). Open **machine-1**, then its **Providers** tab. machine-1 found Ollama on its own `127.0.0.1:11434`, but it's **Not a provider yet**.
 
 ![machine-1's Providers tab: Ollama on port 11434, not a provider yet](screenshots/quickstart-04-model-servers.png)
 
-Open it and choose **Add as a provider**. The server adds a provider called `machine-1`, the quickstart's default. Agents on either machine can now use it: their requests go through the server and machine-1's own connection to it, so nothing needs a published port.
+Open it and choose **Add as a provider**. The server adds a provider of your own called `machine-1`, the quickstart's default. Agents on either machine can now use it: their requests go through the server and machine-1's own connection to it, so nothing needs a published port.
 
 ![Ollama on machine-1, with Add as a provider](screenshots/quickstart-05-add-provider.png)
 
@@ -112,7 +112,7 @@ The download shows its progress at the top of the tab. When it's done, the model
 
 ### 5. Start Qwen Code on machine-1
 
-Choose **Start an agent** (at the top of machine-1's page, or in the menu). Pick **machine-1** under **Where should it run?** and **Qwen Code** under **Which agent?**. The provider is already **machine-1**, the folder is `/workspace`, and the model is the one you pulled. Choose **Start on machine-1**. (**Capture full request and response payloads** keeps the whole conversation; tick it to read it back afterwards.)
+Choose **Start an agent** (at the top of machine-1's page, or in the menu). Pick **machine-1** under **Where should it run?** and **Qwen Code** under **Which agent?**. **Own provider** is already **machine-1**, the folder is `/workspace`, and the model is the one you pulled. Choose **Start on machine-1**. (**Capture full request and response payloads** keeps the whole conversation; tick it to read it back afterwards.)
 
 ![Start an agent: machine-1, Qwen Code, provider machine-1, model qwen3:1.7b](screenshots/quickstart-09-start-agent.png)
 

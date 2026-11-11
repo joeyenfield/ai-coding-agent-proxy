@@ -61,9 +61,8 @@ export function AccessLogPage() {
         <PartTag />
         <h1>Access log</h1>
         <p className="lede">
-          Every HTTP request and WebSocket the server received, and how each ended: the console's calls, sign-ins, machines' fleet
-          connections and tunnels, and the ones refused before they got anywhere. Everything since the server started is kept in memory;
-          failures, dropped connections and every fleet connection are also saved, so they outlast a restart.
+          Every HTTP request and WebSocket the server received, and how each ended, including the ones refused before they got
+          anywhere. Failures, dropped connections and fleet connections are saved; the rest is kept in memory since the server started.
         </p>
       </header>
       {forbidden ? (
@@ -71,6 +70,7 @@ export function AccessLogPage() {
       ) : (
         <>
           <TabBar
+            className="page-tabs"
             label="Access log"
             idPrefix="access-"
             active={tab}

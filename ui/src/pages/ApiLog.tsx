@@ -39,8 +39,8 @@ export function ApiLogPage() {
         <PartTag />
         <h1>API log</h1>
         <p className="lede">
-          Every request the server received and saved, from anyone: the console, agents, machines and their tunnels, sign-ins, and the
-          ones refused. Kept for as many days as you choose. In debug mode the headers and bodies are kept too, for a shorter time.
+          Every request the server received and saved, from anyone, for as many days as you choose. In debug mode the headers and
+          bodies are kept too, for a shorter time.
         </p>
       </header>
       {forbidden ? (

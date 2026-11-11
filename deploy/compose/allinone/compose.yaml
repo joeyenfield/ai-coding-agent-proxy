@@ -16,6 +16,8 @@ services:
     restart: unless-stopped
     environment:
       MESH_ADMIN_PASSWORD: ${MESH_ADMIN_PASSWORD:-}
+      # What the console calls this container's machine (default my-machine).
+      MESH_MACHINE_NAME: ${MESH_MACHINE_NAME:-}
       # Extra Debian packages for the agents (installed with the image's sudo), such as "ripgrep jq".
       AGENT_APT_PACKAGES: ${AGENT_APT_PACKAGES:-}
     ports:

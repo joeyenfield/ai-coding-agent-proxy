@@ -71,20 +71,20 @@ On Windows PowerShell, run the two `port-forward` commands in two windows instea
    ```
 
    Open **http://localhost:19999** (type `localhost` exactly), choose **Sign in** and sign in as **admin** with that password.
-2. **Let the machine in.** The machine signs in the way any computer does, with two device codes (one for `agent-machine`, one for `agent`). Read them from its log:
+2. **Let the machine in.** The machine signs in the way any computer does, with two device codes (one for `agent-machine`, then one for `agent`). Its log shows one at a time, the second once the first is approved, and a new one when a code runs out after ten minutes:
 
    ```bash
    kubectl -n mesh logs deploy/quickstart-machine -c machine -f
    ```
 
-   For each code, open **Machines › Approve a device** in the console, type the code and approve it. Within a minute **k8s-machine** shows as **Online** on **Machines**.
+   For each code, open **Machines › Approve a device** in the console, type the newest code and approve it. Within a minute **k8s-machine** shows as **Online** on **Machines**.
 3. **Check the console can manage its Ollama.** `machine.yaml` sets `AGENT_SERVERS=on`, so the machine lets the console pull models. A sandbox image pulled before that setting existed ignores it: `kubectl -n mesh rollout restart deploy/quickstart-machine` pulls the newest, or turn it on there once by hand:
 
    ```bash
    kubectl -n mesh exec deploy/quickstart-machine -c machine -- agent-machine servers on
    ```
 
-4. **Add its Ollama as a provider.** Open **k8s-machine**, then its **Providers** tab: it found Ollama on its own `127.0.0.1:11434`. Choose **Add as a provider**.
+4. **Add its model server as your own provider.** Open **k8s-machine**, then its **Providers** tab: it found Ollama on its own `127.0.0.1:11434`. Choose **Add as a provider**. Ollama is only what this quickstart runs: any model server on a machine, or a hosted API with a key, is a provider the same way ([Providers](providers.md)).
 5. **Pull a model.** On the new provider's tab, open **Find and pull** and pull something small (a 1 to 4 billion parameter model): it runs on the cluster's CPU.
 6. **Start an agent.** On the machine's **Agents** tab, choose **Start an agent**, pick **OpenCode** or **Qwen Code**, your provider and model, the folder `/workspace`, tick **Capture full request and response payloads**, and start it. Its terminal opens in the console: type a task, choose **Send**, and watch **Live**, **Requests** and **Sessions** fill in.
 

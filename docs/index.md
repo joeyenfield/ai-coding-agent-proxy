@@ -36,7 +36,7 @@ The documentation has two halves. The **guides** (from *Start here* to *Run a se
 | Your AI subscriptions | `agent accounts list\|detect\|status\|enroll`, `--account` | Subscriptions; a machine's Agent accounts | [Subscriptions](subscriptions.md) |
 | The vault for managed tokens | `agent-server vault key\|status\|rotate`, `AI_PROXY_VAULT_KEYS` | | [Subscriptions](subscriptions.md#the-vault) |
 | Record account agents' HTTPS | `agent claude-account` and the other `-account` agents | Traffic | [Agents](agents.md#your-accounts-https-capture) |
-| Local models on Ollama, llama.cpp, Strata, Docker | `--model`, `--backend` | Start an agent, a machine's model server tabs | [Providers](providers.md) |
+| A provider of your own: Ollama, llama.cpp, Strata, Docker Model Runner, or an API | `--model`, `--backend` | Start an agent, a machine's model server tabs | [Providers](providers.md) |
 | Tune Ollama per model | `agent-server config import` | Server settings › Model tuning, a model server's Aliases tab | [Providers](providers.md#model-tuning) |
 | Add or change an agent | `PUT /api/config/agents/<id>` | Server settings › Agents | [Agents](agents.md#adding-a-new-agent) |
 | Hosted API pass-through | `agent claude-subscription` | Server settings › Add hosted API | [Providers](providers.md#backend-types) |
@@ -97,7 +97,7 @@ The documentation has two halves. The **guides** (from *Start here* to *Run a se
 | **agent-machine** | The program that keeps a computer in the server's fleet. |
 | **backend**, **provider** | Where model requests go: an Ollama, llama.cpp, Strata or Docker Model Runner server on a machine, a container a machine runs, or a hosted API. Listed on Server settings › Providers. |
 | **session** | One run of one agent, and everything recorded for it. |
-| **route** | How an agent reaches a model: your accounts, local models or hosted API. |
+| **route** | How an agent reaches a model: your accounts, own provider or hosted API. |
 | **fleet** | The machines signed in to the server. |
 | **tunnel** | A connection the server asks a machine to open back to it, to reach a model server or MCP bridge on that machine's loopback. |
 | **MCP bridge** | agent-machine's loopback HTTP server for the MCP servers it shares. |

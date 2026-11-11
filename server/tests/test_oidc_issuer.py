@@ -631,3 +631,27 @@ def test_service_client_recreation_and_changed_audience_never_reactivate_tokens(
     service.settings.oidc_audience = "https://another-api.example"
     assert introspect(client, service, tokens["access_token"]).json() == {"active": False}
     assert refresh(client, service, tokens["refresh_token"]).status_code == 400
+
+
+def test_the_issuer_starts_in_a_state_folder_it_doesnt_own(tmp_path, monkeypatch):
+    # Kubernetes' local-path volumes (kind, k3d) mount a folder that is root's and open to all:
+    # the issuer can write there but may not change its mode.
+    import os
+
+    from agent_server.issuer import state_database
+
+    monkeypatch.delenv("AI_PROXY_AUTH_DATABASE_URL", raising=False)
+    real = os.chmod
+
+    def chmod(path, mode, *args, **kwargs):
+        if os.path.isdir(path):
+            raise PermissionError(1, "Operation not permitted", str(path))
+        return real(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(os, "chmod", chmod)
+    settings = Settings(log_dir=tmp_path / "logs", oidc_state_dir=tmp_path / "issuer", oidc_introspection_secret="s")
+    database = state_database(settings)
+    try:
+        assert (tmp_path / "issuer" / "issuer-state.sqlite3").is_file()
+    finally:
+        database.close()

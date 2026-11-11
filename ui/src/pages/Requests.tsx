@@ -63,7 +63,7 @@ export function RequestsPage() {
     <div className="page wide">
       <header className="page-head">
         <PartTag />
-        <h1>Request history</h1>
+        <h1>Requests</h1>
         <p className="lede">
           {mayHaveMore ? `The newest ${formatNumber(records.length)}` : formatNumber(records.length)} saved requests across{" "}
           {formatNumber(sessions.data?.length ?? 0)} sessions.

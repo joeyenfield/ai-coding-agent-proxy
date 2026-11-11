@@ -58,7 +58,7 @@ One computer can be all three. A laptop that runs the server, has Ollama, and ru
 | Route | When | What the server does |
 | --- | --- | --- |
 | **Your accounts** | Claude Code, Copilot CLI and Codex signed in to your own Claude, GitHub Copilot or ChatGPT plan | The agent keeps its own sign-in. The server records its traffic on the way to the vendor and changes nothing. |
-| **Local models** | Any supported agent against a model on your machines | The server sends the request to the machine's model server, translating it for Ollama when needed. |
+| **Own provider** | Any supported agent against a model on your machines | The server sends the request to the machine's model server, translating it for Ollama when needed. |
 | **Hosted APIs** | An agent using a provider's API, such as OpenAI, Anthropic, OpenRouter or a LiteLLM gateway | The server adds the provider's key, which never leaves the server, and passes the request on. |
 
 [Agents](agents.md#the-three-routes) has each route in full, and [Providers](providers.md) every kind of provider.

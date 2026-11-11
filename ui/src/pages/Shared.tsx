@@ -1,3 +1,4 @@
+import { PartTag } from "../components/PartTag";
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
@@ -18,14 +19,15 @@ export function SharedPage() {
   return (
     <div className="page">
       <header className="page-head">
+        <PartTag />
         <h1>Shared with you</h1>
-        <p className="subtle">
-          Providers, MCP servers, agent definitions and machines organizations on linked servers share with yours. Requests go
+        <p className="lede">
+          Providers, MCP servers, agent definitions and machines that organizations on linked servers share with yours. Requests go
           through both servers, which both record them; their keys never leave their server.
         </p>
       </header>
       {resources.isError && <p className="bad">{resources.error.message}</p>}
-      {!data && !resources.isError && <p className="subtle">Loading…</p>}
+      {!data && !resources.isError && <p className="empty">Loading…</p>}
       {data && !data.providers.length && !data.mcp.length && !data.agents.length && !data.machines.length && (
         <p className="empty">Nothing is shared with you yet. Your organization's admins open bridges with other servers' organizations (Organizations → Sharing).</p>
       )}

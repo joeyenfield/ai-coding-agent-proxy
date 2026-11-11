@@ -32,9 +32,8 @@ export function OverviewPage() {
           </span>
         </div>
         <p className="lede">
-          You start an agent, its traffic passes through this server, the hub, and a machine answers it: the Ollama, Strata or
-          Docker server one of your machines runs, or a container it runs for you. Hosted APIs and agents' own accounts are the
-          only answers that don't come from a machine.
+          You start an agent, its traffic passes through this server, and a provider of your own answers it: a model server on
+          one of your machines, a hosted API you added, or the agent's own account.
         </p>
       </header>
 

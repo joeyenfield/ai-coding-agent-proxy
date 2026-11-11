@@ -1,4 +1,5 @@
 import { Link, useParams } from "react-router-dom";
+import { PartTag } from "../components/PartTag";
 import { requestKey } from "../api";
 import { Inspector } from "../components/Inspector";
 import { useRequests, useSessions } from "../hooks";
@@ -25,13 +26,7 @@ export function RequestPage() {
   return (
     <div className="page">
       <header className="page-head">
-        <p className="breadcrumbs">
-          <Link to="/sessions">Sessions</Link>
-          <span aria-hidden="true"> › </span>
-          <Link to={`/sessions/${encodeURIComponent(sessionId)}`}>{session?.client ?? "Session"}</Link>
-          <span aria-hidden="true"> › </span>
-          <span>Request {requestId}</span>
-        </p>
+        <PartTag trail={[{ label: session?.client ?? "Session", to: `/sessions/${encodeURIComponent(sessionId)}` }, { label: `Request ${requestId}` }]} />
         <h1>{subject?.model || (label ? `${CATEGORY_LABELS[label.category]}: ${label.service}` : `Request ${requestId}`)}</h1>
       </header>
       {active ? (

@@ -1032,7 +1032,7 @@ class ProviderAccounts:
                 continue
             for machine in launchable:
                 if agent.id in machine.agents:
-                    fallbacks.append({"kind": "fallback", "agent": agent.id, "machine_id": machine.id, "machine_name": machine.name, "account_id": None, "state": "available", "reason": "Local models", "_rank": (order,)})
+                    fallbacks.append({"kind": "fallback", "agent": agent.id, "machine_id": machine.id, "machine_name": machine.name, "account_id": None, "state": "available", "reason": "Own provider", "_rank": (order,)})
         ordered = [{key: value for key, value in item.items() if key != "_rank"} for item in candidates + fallbacks]
         return {"choice": ordered[0] if ordered else None, "candidates": ordered, "skipped": skipped}
 

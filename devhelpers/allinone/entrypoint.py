@@ -8,7 +8,8 @@
    (deploy/compose/quickstart/machine.py's sign_in, as a browser would), with the first password: the one the
    server made (printed below) or MESH_ADMIN_PASSWORD. Later starts reuse those sign-ins.
 3. This container becomes a machine of its own fleet: launches, files, terminals and model servers
-   on, for /workspace. Then agent-machine runs in the foreground.
+   on, for /workspace, under a name people can read (machine_name). Then agent-machine runs in the
+   foreground.
 
 It stays up while all three run; when one stops, or the container is stopped, it stops the others.
 """
@@ -17,6 +18,7 @@ from __future__ import annotations
 
 import io
 import os
+import re
 import signal
 import socket
 import subprocess
@@ -35,6 +37,15 @@ WORKSPACE = "/workspace"
 
 def say(text: str) -> None:
     print(text, flush=True)
+
+
+def machine_name() -> str:
+    """What the console calls this container's machine: MESH_MACHINE_NAME, else a host name someone
+    chose (docker run --hostname), else my-machine. A container's own host name is its id, twelve
+    hex digits that tell nobody anything."""
+    chosen = os.environ.get("MESH_MACHINE_NAME", "").strip()
+    host = socket.gethostname()
+    return chosen or (host if host and not re.fullmatch(r"[0-9a-f]{12}", host) else "my-machine")
 
 
 def first_password(instance: local.Instance, chosen: str) -> str:
@@ -87,7 +98,7 @@ def main() -> int:
         sign_in(CONFIG / "agent-proxy" / "credentials.json", password)
     except Exception as error:  # a changed password, say: the server stays up to fix it from the console
         say(f"Couldn't sign this machine in as admin ({error}). Set MESH_ADMIN_PASSWORD to admin's password and restart.")
-    name = socket.gethostname()
+    name = machine_name()
     for arguments in (
         ["name", name], ["launches", "on"], ["files", "on"], ["commands", "on"], ["servers", "on"],
         ["containers", "off"], ["roots", "add", WORKSPACE],

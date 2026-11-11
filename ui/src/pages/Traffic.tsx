@@ -85,26 +85,47 @@ export function TrafficPage() {
         <PartTag />
         <h1>Traffic</h1>
         <p className="lede">
-          Every request that passes through the proxy: model calls on proxy endpoints, and everything account agents send
-          to their own services through their machine's agent-proxy, including sign-in, telemetry and MCP calls.
-          {!live.connected && <span className="bad"> Reconnecting to the proxy…</span>}
+          Every request that passes through the server: model calls, and everything account agents send to their own
+          services, including sign-in, telemetry and MCP calls.
+          {!live.connected && <span className="bad"> Reconnecting to the server…</span>}
         </p>
-        {intercept && (
-          <p className={`subtle ${intercept.running ? "" : "bad"}`}>
-            {intercept.running ? (
+        {intercept && !intercept.running && <p className="bad">HTTPS capture is off on this server: {intercept.error}</p>}
+      </header>
+      <dl className="stat-cards" aria-label="Traffic shown">
+        <div>
+          <dt>Requests</dt>
+          <dd>
+            {formatNumber(shown)} {live.active.length > 0 && <small>{live.active.length} in flight</small>}
+          </dd>
+        </div>
+        <div>
+          <dt>Services</dt>
+          <dd>{formatNumber(services)}</dd>
+        </div>
+        <div>
+          <dt>Tokens in</dt>
+          <dd title={totals.estimated ? "Partly estimated: a stream ended before the provider reported counts" : undefined}>
+            {anyTokens ? `${totals.estimated ? "≈ " : ""}${formatNumber(totals.input)}` : "–"}
+          </dd>
+        </div>
+        <div>
+          <dt>Tokens out</dt>
+          <dd>{anyTokens ? `${totals.estimated ? "≈ " : ""}${formatNumber(totals.output)}` : "–"}</dd>
+        </div>
+        <div>
+          <dt>Prompt cache</dt>
+          <dd title={`${formatNumber(totals.cacheRead)} tokens read from the prompt cache, ${formatNumber(totals.cacheWrite)} written to it`}>
+            {totals.cacheRead || totals.cacheWrite ? (
               <>
-                Account agents use the agent-proxy's HTTPS proxy, <span className="mono">{intercept.url}</span> on their
-                machine. Start one from the{" "}
-                <Link to="/agents">Agents</Link> page, for example <code>agent claude-account .</code>,{" "}
-                <code>agent copilot-account .</code> or <code>agent codex-account .</code>
+                {formatNumber(totals.cacheRead)} <small>read</small>
               </>
             ) : (
-              <>HTTPS capture is off on this server: {intercept.error}</>
+              "–"
             )}
-          </p>
-        )}
-      </header>
-      <div className="split">
+          </dd>
+        </div>
+      </dl>
+      <div className="split traffic-split">
         <div className="split-main">
           <div className="filters">
             <input
@@ -122,16 +143,8 @@ export function TrafficPage() {
                 </option>
               ))}
             </select>
-            <label className="check">
-              <input type="checkbox" checked={failedOnly} onChange={(event) => setParam("failed", event.target.checked ? "1" : null)} />
-              Failed only
-            </label>
-            <label className="check">
-              <input type="checkbox" checked={grouped} onChange={(event) => setParam("group", event.target.checked ? null : "0")} />
-              Group repeats
-            </label>
           </div>
-          <div className="category-bar" role="group" aria-label="Request type">
+          <div className="chip-bar" role="group" aria-label="Request type">
             <button type="button" aria-pressed={!category} onClick={() => setParam("type", null)}>
               All <span className="count">{formatNumber(scoped.length)}</span>
             </button>
@@ -146,56 +159,48 @@ export function TrafficPage() {
                 {CATEGORY_LABELS[name]} <span className="count">{formatNumber(counts.get(name))}</span>
               </button>
             ))}
+            <span className="chip-gap" aria-hidden="true" />
+            <button type="button" aria-pressed={failedOnly} onClick={() => setParam("failed", failedOnly ? null : "1")}>
+              Failed only
+            </button>
+            <button
+              type="button"
+              aria-pressed={grouped}
+              title="Fold identical requests in a row into one"
+              onClick={() => setParam("group", grouped ? "0" : null)}
+            >
+              Group repeats
+            </button>
           </div>
-          <p className="subtle">
-            {formatNumber(shown)} requests to {formatNumber(services)} {services === 1 ? "service" : "services"}
-            {live.active.length ? `, ${live.active.length} in flight` : ""}
-            {matches.length > ROW_LIMIT ? `. Showing the newest ${ROW_LIMIT} rows.` : "."}
-          </p>
           {requests.isError ? (
             <p className="empty bad">{requests.error.message}</p>
           ) : !matches.length ? (
             <p className="empty">{rows.length ? "No traffic matches these filters." : "No traffic has been recorded yet."}</p>
           ) : (
-            <div className="table-scroll">
-              <table className="table selectable compact traffic-table">
-                <thead>
-                  <tr>
-                    <th scope="col">Request</th>
-                    <th scope="col">Status and time</th>
-                    <th scope="col" className="num tokens" title="Input tokens the provider reported (not counting cache reads on Anthropic)">In</th>
-                    <th scope="col" className="num tokens" title="Output tokens">Out</th>
-                    <th scope="col" className="num tokens" title="Prompt tokens served from the provider's cache">Cache<br />read</th>
-                    <th scope="col" className="num tokens" title="Prompt tokens written to the provider's cache">Cache<br />write</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {matches.slice(0, ROW_LIMIT).map((row) => (
-                    <TrafficRow key={row.key} row={row} selected={row.key === selectedKey} onSelect={() => setParam("request", row.key)} />
-                  ))}
-                </tbody>
-                {anyTokens && (
-                  <tfoot>
-                    <tr className="traffic-totals">
-                      <th scope="row" colSpan={2}>
-                        Total of {formatNumber(shown)} {shown === 1 ? "request" : "requests"}
-                      </th>
-                      <TokenCell value={totals.input} estimated={totals.estimated} />
-                      <TokenCell value={totals.output} estimated={totals.estimated} />
-                      <TokenCell value={totals.cacheRead} />
-                      <TokenCell value={totals.cacheWrite} />
-                    </tr>
-                  </tfoot>
-                )}
-              </table>
-            </div>
+            <>
+              <ul className="traffic-list" aria-label="Requests">
+                {matches.slice(0, ROW_LIMIT).map((row) => (
+                  <TrafficRow key={row.key} row={row} selected={row.key === selectedKey} onSelect={() => setParam("request", row.key)} />
+                ))}
+              </ul>
+              {matches.length > ROW_LIMIT && <p className="subtle">Showing the newest {ROW_LIMIT} rows.</p>}
+            </>
           )}
         </div>
         <div className="split-side">
           {selected ? (
             <Details key={selected.key} row={selected} />
           ) : (
-            <div className="inspector placeholder">Select a request to see its headers, body and timing.</div>
+            <div className="inspector placeholder">
+              <p>Select a request to see its headers, body and timing.</p>
+              {intercept?.running && (
+                <p className="subtle">
+                  Account agents (<code>agent claude-account .</code>, <code>copilot-account</code>, <code>codex-account</code>) are
+                  captured through the agent-proxy on their machine, <span className="mono">{intercept.url}</span>. Start one from{" "}
+                  <Link to="/agents">Start an agent</Link>.
+                </p>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -236,74 +241,65 @@ function Details({ row }: { row: Row }) {
   );
 }
 
-/** One token count; blank for requests that carry none (sign-in, telemetry, in flight). */
-function TokenCell({ value, estimated }: { value?: number | null; estimated?: boolean }) {
-  return (
-    <td className="num nowrap tokens" title={estimated ? "Estimated: the stream ended before the provider reported counts" : undefined}>
-      {value ? `${estimated ? "≈ " : ""}${formatNumber(value)}` : <span className="subtle">–</span>}
-    </td>
-  );
-}
-
+/** One request: what it was and where it went, then how it ended, how long it took and what it cost. */
 function TrafficRow({ row, selected, onSelect }: { row: Row; selected: boolean; onSelect: () => void }) {
   const record = row.record;
   const failed = record ? isFailure(record) : false;
   const elapsed = record ? record.total_ms : row.live ? Date.now() - row.live.started_at * 1000 : null;
+  const estimated = record?.tokens_estimated ? "≈ " : "";
+  const cached = (record?.cache_read_tokens ?? 0) + (record?.cache_creation_tokens ?? 0);
   return (
-    <tr className={selected ? "selected" : undefined} onClick={onSelect}>
-      <td>
-        <span className="title-line">
+    <li>
+      <button type="button" className={`traffic-item ${failed ? "is-bad" : ""}`} aria-pressed={selected} onClick={onSelect}>
+        <span className="traffic-item-line">
           <span className={`pill category category-${row.category}`}>{CATEGORY_LABELS[row.category]}</span>
-          <button
-            type="button"
-            className="link"
-            aria-pressed={selected}
-            title={row.host}
-            onClick={(event) => {
-              event.stopPropagation();
-              onSelect();
-            }}
-          >
-            {row.service}
-          </button>
+          <strong title={row.host}>{row.service}</strong>
           {row.model && <span className="pill accent">{row.model}</span>}
           {row.repeats?.length ? (
             <span className="pill" title={`${row.repeats.length + 1} identical requests in a row; showing the newest`}>
               ×{row.repeats.length + 1}
             </span>
           ) : null}
-        </span>
-        <small className="mono traffic-path" title={`${row.method} ${row.host}${row.path}`}>
-          <span className="method">{row.method}</span> {row.path}
-        </small>
-        <small>
-          <RouteBadge item={{ backend: row.record?.backend ?? row.live?.backend ?? "", client: row.client, kind: row.kind as RequestRecord["kind"] }} />{" "}
-          {row.service !== row.host && <span className="mono">{row.host} · </span>}
-          {row.client} #{row.request_id}
-          {row.kind === "tunnel" ? ", not decrypted" : row.kind === "upgrade" ? ", WebSocket" : ""}
-        </small>
-      </td>
-      <td className="nowrap">
-        {record ? (
-          <span className={`pill ${failed ? "bad" : "good"}`} title={outcomeLabel(record) ?? undefined}>
-            {record.status}
+          <span className="traffic-item-end">
+            {record ? (
+              <span className={`pill ${failed ? "bad" : "good"}`} title={outcomeLabel(record) ?? undefined}>
+                {record.status}
+              </span>
+            ) : (
+              <span className="pill live">pending</span>
+            )}
           </span>
-        ) : (
-          <span className="pill live">pending</span>
-        )}
-        {/* Time and size sit under the status, leaving the columns to the token counts. */}
-        <small>{formatDuration(elapsed)}</small>
-        <small className="subtle">{new Date(row.started).toLocaleTimeString()}</small>
-        {record && (
-          <small className="subtle" title={`${formatBytes(record.request_bytes)} sent, ${formatBytes(record.response_bytes)} received`}>
-            ↑ {formatBytes(record.request_bytes)} ↓ {formatBytes(record.response_bytes)}
-          </small>
-        )}
-      </td>
-      <TokenCell value={record?.input_tokens} estimated={record?.tokens_estimated} />
-      <TokenCell value={record?.output_tokens} estimated={record?.tokens_estimated} />
-      <TokenCell value={record?.cache_read_tokens} />
-      <TokenCell value={record?.cache_creation_tokens} />
-    </tr>
+        </span>
+        <span className="traffic-item-line">
+          <span className="mono traffic-path" title={`${row.method} ${row.host}${row.path}`}>
+            <span className="method">{row.method}</span> {row.path}
+          </span>
+          <span className="traffic-item-end">{formatDuration(elapsed)}</span>
+        </span>
+        <span className="traffic-item-line traffic-item-meta">
+          <RouteBadge item={{ backend: row.record?.backend ?? row.live?.backend ?? "", client: row.client, kind: row.kind as RequestRecord["kind"] }} />
+          <span>
+            {row.client} #{row.request_id}
+            {row.kind === "tunnel" ? ", not decrypted" : row.kind === "upgrade" ? ", WebSocket" : ""}
+          </span>
+          <span>{new Date(row.started).toLocaleTimeString()}</span>
+          <span className="traffic-item-end">
+            {record && (record.input_tokens || record.output_tokens) ? (
+              <span
+                title={`${estimated ? "Estimated: the stream ended before the provider reported counts. " : ""}${formatNumber(record.input_tokens)} tokens in, ${formatNumber(record.output_tokens)} out${cached ? `, ${formatNumber(record.cache_read_tokens ?? 0)} read from and ${formatNumber(record.cache_creation_tokens ?? 0)} written to the prompt cache` : ""}`}
+              >
+                {estimated}
+                {formatNumber(record.input_tokens)} in · {formatNumber(record.output_tokens)} out
+                {cached ? ` · ${formatNumber(record.cache_read_tokens ?? 0)} cached` : ""}
+              </span>
+            ) : record ? (
+              <span title={`${formatBytes(record.request_bytes)} sent, ${formatBytes(record.response_bytes)} received`}>
+                ↑ {formatBytes(record.request_bytes)} ↓ {formatBytes(record.response_bytes)}
+              </span>
+            ) : null}
+          </span>
+        </span>
+      </button>
+    </li>
   );
 }

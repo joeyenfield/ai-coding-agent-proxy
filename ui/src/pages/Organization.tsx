@@ -51,6 +51,7 @@ export function OrganizationPage() {
       {identity && (
         <>
           <TabBar
+            className="page-tabs"
             label="Organizations"
             idPrefix="directory-"
             active={tab}
@@ -61,7 +62,7 @@ export function OrganizationPage() {
               { id: "account", label: "Your account" },
             ]}
           />
-          {(!orgs.data || !users.data) && !error && tab !== "account" && <p className="subtle">Loading…</p>}
+          {(!orgs.data || !users.data) && !error && tab !== "account" && <p className="empty">Loading…</p>}
           <TabPanel idPrefix="directory-" id="organizations" active={tab === "organizations"}>
             {orgs.data && users.data && <Organizations orgs={orgs.data.orgs} users={users.data.users} identity={identity} />}
           </TabPanel>
