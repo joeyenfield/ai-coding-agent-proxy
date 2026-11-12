@@ -66,6 +66,7 @@ const PAGES = {
   traffic: { to: "/traffic", label: "Traffic", icon: "arrows", hint: "Every request, grouped by what it was for" },
   requests: { to: "/requests", label: "Requests", icon: "zap", hint: "Model calls, with their payloads" },
   sessions: { to: "/sessions", label: "Sessions", icon: "layers", hint: "Each agent run, its sharing and recordings" },
+  costs: { to: "/costs", label: "Costs", icon: "chart", hint: "What model calls cost, by day, model and person; prices; recompute" },
   accessLog: { to: "/access-log", label: "Access log", icon: "list", siteAdmin: true, hint: "Every HTTP request and WebSocket, the refused ones too" },
   apiLog: { to: "/api-log", label: "API log", icon: "book", siteAdmin: true, hint: "Saved requests, with payloads in debug mode" },
   audit: { to: "/audit", label: "Audit log", icon: "shield", admin: true, hint: "Who changed what, chained by hash" },
@@ -99,7 +100,7 @@ export const SECTIONS: NavSection[] = [
     id: "activity",
     label: "Activity",
     summary: "What agents send through the server, as it happens and afterwards.",
-    items: [PAGES.live, PAGES.traffic, PAGES.requests, PAGES.sessions],
+    items: [PAGES.live, PAGES.traffic, PAGES.requests, PAGES.sessions, PAGES.costs],
   },
   {
     id: "logs",

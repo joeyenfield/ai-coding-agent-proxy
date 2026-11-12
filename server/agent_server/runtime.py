@@ -250,18 +250,43 @@ class Runtime:
         backend = self.settings.backends.get(name) if name else None
         if backend is not None and api_providers.external(backend):
             basis = "api"
-        elif name == DIRECT_BACKEND or (backend is not None and backend.type == "anthropic"):
+        elif name == DIRECT_BACKEND or record.get("kind") in ("intercept", "upgrade") or (backend is not None and backend.type == "anthropic"):
+            # An intercepted call is recorded under the host it went to (api.anthropic.com), not a backend's name.
             basis = "subscription"
+        elif backend is None and isinstance(record.get("cost"), dict) and record["cost"].get("basis") in ("api", "subscription"):
+            # Priced before (costs.py works costs out again) and its provider has gone since: it stays what it was.
+            basis = record["cost"]["basis"]
         else:
             return
         # The provider's own prices come first: what it charges is its to say (a gateway's markup, a negotiated rate).
         own = api_providers.options(backend)["prices"] if backend is not None and backend.type == "api" else []
         cost = pricing.estimate([*own, *self.settings.prices()], record, basis)
+        # Nothing to drop the first time; a record priced again loses what the old prices gave it.
+        record.pop("cost", None)
+        record.pop("unpriced", None)
         if cost is not None:
             record["cost"] = cost
         elif record.get("model") and int(record.get("input_tokens") or 0) + int(record.get("output_tokens") or 0) > 0:
             # A model call the table has no price for: said, so a session's total isn't read as complete.
             record["unpriced"] = True
+
+    def reprice(self, record: dict[str, Any]) -> dict[str, Any] | None:
+        """The record at today's prices, or None when that changes nothing (costs.py's recompute)."""
+        priced = dict(record)
+        self._price(priced)
+        if priced.get("cost") == record.get("cost") and priced.get("unpriced") == record.get("unpriced"):
+            return None
+        return priced
+
+    def repriced(self, changed: dict[tuple[str, str], dict[str, Any]]) -> None:
+        """Records priced again, by (session, request): what this process still holds of them (the Overview's
+        recent requests) follows. Another process's copy stays as it was until it restarts; the database is right."""
+        for held in self.recent:
+            priced = changed.get((str(held.get("session_id")), str(held.get("request_id"))))
+            if priced is not None:
+                held.pop("cost", None)
+                held.pop("unpriced", None)
+                held.update({key: priced[key] for key in ("cost", "unpriced") if key in priced})
 
     def records(self, session: Session) -> list[dict[str, Any]]:
         return self.sessions.records(session)

@@ -27,7 +27,7 @@ from .api_providers import ProviderTransport
 from .intercept import InterceptProxy, InterceptTransport
 from .audit import AuditMiddleware
 from .routes import api_providers as api_provider_routes
-from .routes import auth, bridges, compat, containers, governance, links, machines, management, mcp, provider_accounts, providers, proxy, terminals
+from .routes import auth, bridges, compat, containers, costs, governance, links, machines, management, mcp, provider_accounts, providers, proxy, terminals
 from .runtime import LOGGER, Runtime, upstream_client
 from .ui_build import ensure_built
 from .usage_limits import UsageLimits
@@ -156,6 +156,7 @@ def create_app(
     # Before management: /api/sessions/{id}/provider-credential sits beside its session routes.
     registered("provider_accounts", provider_accounts.register, runtime)
     registered("providers", providers.register, runtime)
+    registered("costs", costs.register, runtime)
     registered("governance", governance.register, runtime)
     # Links and bridges (links.py, bridges.py): the site admins', organization admins' and people's routes, and
     # the routes a linked server calls; before management (/api/agents/{id:path}/sessions) and compat.

@@ -41,6 +41,12 @@ def test_the_price_table_is_checked():
         with pytest.raises(ValueError):
             pricing.checked_prices(bad)
     assert pricing.price_for(pricing.DEFAULT_PRICES, "claude-opus-4-5-20251101")["match"] == "claude-opus-4-5*"
+    # A newer version has its own row ahead of its family's, and an older one isn't caught by a newer one's.
+    shipped = {name: pricing.price_for(pricing.DEFAULT_PRICES, name) for name in (
+        "claude-fable-5-2", "claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5", "claude-haiku-5-5",
+        "claude-opus-4-8", "claude-opus-4-1-20250805",
+    )}
+    assert [shipped[name]["input"] for name in shipped] == [8.0, 10.0, 4.0, 5.0, 2.0, 0.1, 5.0, 15.0]
     assert pricing.price_for(pricing.DEFAULT_PRICES, "llama3") is None
 
 

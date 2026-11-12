@@ -123,8 +123,9 @@ export function PriceRows({ rows, onChange, empty }: { rows: PriceRow[]; onChang
  * US dollars for a million tokens, by a pattern matched against the model's name, the first
  * match first. The server checks and keeps it; requests already recorded keep their cost.
  * A provider's own prices (its API providers editor) come before these.
+ * suggest names models seen with no price (the Costs page): each can be added as a row.
  */
-export function ModelPricesSettings() {
+export function ModelPricesSettings({ suggest = [], onSaved }: { suggest?: string[]; onSaved?: () => void } = {}) {
   const client = useQueryClient();
   const notify = useToast();
   const prices = useQuery({ queryKey: ["model-prices"], queryFn: api.modelPrices, retry: false });
@@ -140,6 +141,8 @@ export function ModelPricesSettings() {
     mutationFn: (value: ModelPrice[] | null) => api.saveModelPrices(value),
     onSuccess: (saved, value) => {
       client.setQueryData(["model-prices"], saved);
+      client.invalidateQueries({ queryKey: ["prices"] });
+      onSaved?.();
       notify(value === null ? "Back to the shipped prices." : "Prices saved. They apply to requests from now on.");
     },
     onError: (error: Error) => setProblem(error.message),
@@ -148,6 +151,9 @@ export function ModelPricesSettings() {
   if (prices.error instanceof ApiError && prices.error.status === 403) return null;
   if (prices.isError) return <p className="bad">{prices.error.message}</p>;
   if (!rows || !prices.data) return <p className="empty">Reading the prices…</p>;
+
+  // Suggested models that still have no row of their own.
+  const missing = suggest.filter((model) => model && !rows.some((row) => row.match.trim().toLowerCase() === model.toLowerCase()));
 
   const submit = () => {
     setProblem("");
@@ -171,6 +177,19 @@ export function ModelPricesSettings() {
         change their prices, so check them against your provider's price list. A model with no row gets no estimate. A change applies to
         requests from now on; ones already recorded keep the cost they were given.
       </p>
+      {missing.length > 0 && (
+        <div className="callout">
+          <strong>{missing.length === 1 ? "1 model was used with no price" : `${missing.length} models were used with no price`}</strong>
+          <div className="row wrap">
+            {missing.map((model) => (
+              <button key={model} type="button" className="small" onClick={() => setRows([priceRow({ match: model, input: 0, output: 0 }), ...rows])}>
+                Add {model}
+              </button>
+            ))}
+          </div>
+          <span className="subtle">Each is added as a row at the top with prices of 0: fill them in from the provider's price list, then save.</span>
+        </div>
+      )}
       <PriceRows rows={rows} onChange={setRows} empty="No prices, so nothing gets an estimate. Add one, or go back to the shipped prices." />
       {problem && <p className="bad">{problem}</p>}
       <div className="row wrap">

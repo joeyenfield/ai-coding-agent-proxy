@@ -16,7 +16,7 @@ The rail on the left groups the pages by what you're doing. Members see only the
 | **Agents** | Start an agent, Live agent view, Running agents, Ask a model | Start coding agents through the server, then watch them and type into them from any device, or ask a model a question yourself. |
 | **Models** | Providers, Subscriptions, Shared with you | Where agents' model calls go: machines' model servers, hosted APIs, your own AI plans, and what linked servers share with your organization. |
 | **Machines** | All machines, Add a machine, Approve a device | The fleet. Open **All machines** to search and open a computer; individual machines aren't listed in the rail. |
-| **Activity** | Live, Traffic, Requests, Sessions | What agents send through the server, as it happens and afterwards. |
+| **Activity** | Live, Traffic, Requests, Sessions, Costs | What agents send through the server, as it happens and afterwards, and what it cost. |
 | **Logs** | Access log, API log, Audit log | What reached the server, what it saved and who changed what (admins). |
 | **Administration** | Organizations, Server settings, Server stats | Your organization, and for site admins the server's own settings and load. |
 
@@ -243,6 +243,14 @@ Account agents' other calls (sign-in, telemetry, MCP) aren't shown here; they're
 ![A session](screenshots/session.png)
 
 **A session's page** (`/sessions/<id>`) shows the session, when it started, its last traffic, requests, tokens read and written, a **Payloads** switch (when the organization's policy allows choosing), and its OpenAI and Anthropic URLs. Two tabs: **Requests** (the default), its requests as on Traffic, with **Model calls only**, **Group repeats** and **Open in Traffic**; and **Chat**, the session's captured model calls read back as a chat (it needs payload capture, `--trace`; see [The chat view](#the-chat-view)).
+
+### Costs
+
+**Costs** (`/costs`) shows what your organization's model calls cost between two days, and is where prices are managed and recorded calls are priced again. Pick the first and last day (UTC days), or **7 days**, **30 days** or **90 days**; site admins also pick the organization. An organization's admins see everyone's calls in it; members see their own sessions'. How a cost is estimated is in [Cost estimates](providers.md#cost-estimates).
+
+- **Summary**: four cards (**Spent on paid APIs**, **Subscriptions, at API prices**, **Model calls**, **With no price**), a bar for each day, and the same split **By model**, **By person** (admins) and **By provider**. Money spent on a paid API is the solid part of a bar; what a subscription's calls would cost at API prices, which isn't billed, is the quieter part. Point at a day for its figures. When calls had no price, a note says how many and links to the prices.
+- **Model prices**: the server's price table. Site admins edit it here as on Server settings: rows of a model name or pattern with its prices, **Add a price**, reorder, remove, **Save prices**, **Back to the shipped prices**. Models that were used with no price in the chosen days are listed above the table, each with a button that adds its row. Everyone else sees the table read-only.
+- **Recompute** (the organization's admins and site admins): prices every recorded model call of the organization in the chosen days again, at the prices of now. Calls with no price get one if there is one now; calls priced before get today's price. Sessions, Traffic and Requests then show the new costs. It asks first, then says how many calls changed and the totals before and after. It can't be undone, except by changing the prices back and recomputing.
 
 ### The chat view
 

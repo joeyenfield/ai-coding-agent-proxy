@@ -27,7 +27,19 @@ RATES = ("input", "output", "cache_read", "cache_write")
 
 # US dollars for a million tokens. Patterns are matched in order against the lower-cased model name.
 DEFAULT_PRICES: list[dict[str, Any]] = [
+    # Claude 5: a version's own row comes before its family's (5.5 and 5.2 cost less than 5 and 5.1).
+    {"match": "claude-fable-5-2*", "input": 8.0, "output": 40.0, "cache_read": 0.2, "cache_write": 10.0},
+    {"match": "claude-mythos-5-2*", "input": 8.0, "output": 40.0, "cache_read": 0.2, "cache_write": 10.0},
+    {"match": "claude-fable-5*", "input": 10.0, "output": 50.0, "cache_read": 1.0, "cache_write": 12.5},
+    {"match": "claude-mythos-5*", "input": 10.0, "output": 50.0, "cache_read": 1.0, "cache_write": 12.5},
+    {"match": "claude-opus-5-5*", "input": 4.0, "output": 20.0, "cache_read": 0.2, "cache_write": 5.0},
+    {"match": "claude-opus-5*", "input": 5.0, "output": 25.0, "cache_read": 0.5, "cache_write": 6.25},
+    {"match": "claude-sonnet-5-5*", "input": 2.0, "output": 10.0, "cache_read": 0.1, "cache_write": 2.5},
+    {"match": "claude-sonnet-5*", "input": 2.0, "output": 10.0, "cache_read": 0.2, "cache_write": 2.5},
+    # Prompts up to 100K tokens; longer ones cost more, which one price per model can't say.
+    {"match": "claude-haiku-5*", "input": 0.1, "output": 0.5, "cache_read": 0.01, "cache_write": 0.125},
     {"match": "claude-opus-4-5*", "input": 5.0, "output": 25.0, "cache_read": 0.5, "cache_write": 6.25},
+    {"match": "claude-opus-4-[6-8]*", "input": 5.0, "output": 25.0, "cache_read": 0.5, "cache_write": 6.25},
     {"match": "claude-opus-4*", "input": 15.0, "output": 75.0, "cache_read": 1.5, "cache_write": 18.75},
     {"match": "claude-sonnet-4*", "input": 3.0, "output": 15.0, "cache_read": 0.3, "cache_write": 3.75},
     {"match": "claude-3-7-sonnet*", "input": 3.0, "output": 15.0, "cache_read": 0.3, "cache_write": 3.75},

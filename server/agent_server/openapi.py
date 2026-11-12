@@ -33,6 +33,8 @@ TAGS = [
     ("Providers and usage", "agent_server.routes.providers",
      "Providers as people use them (backends on machines, hosted APIs, kinds of subscription), each person's usage of "
      "each, and the token limits an organization's admins set (`/api/providers`, `/api/orgs/{org}/usage`, `/api/orgs/{org}/limits`)."),
+    ("Costs", "agent_server.routes.costs",
+     "What an organization's model calls cost between two days, by day, model, person and provider, pricing recorded calls again at today's prices, and the price table for anyone signed in to read (`/api/orgs/{org}/costs`, `/api/orgs/{org}/costs/recompute`, `/api/prices`)."),
     ("API providers", "agent_server.routes.api_providers",
      "OpenAI and Anthropic-compatible providers (`api` backends): an organization's, set up by its admins with the teams that may use them, and every one for site admins; their settings, write-only keys, connection tests and model discovery (`/api/orgs/{org}/providers`, `/api/config/providers`)."),
     ("Retention and audit", "agent_server.routes.governance",

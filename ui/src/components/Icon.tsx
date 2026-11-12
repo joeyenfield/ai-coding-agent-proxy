@@ -7,6 +7,7 @@ const PATHS = {
   grid: "M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z",
   expand: "M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5",
   activity: "M3 12h4l3-8 4 16 3-8h4",
+  chart: "M5 20v-9M12 20V4M19 20v-6M3 20h18",
   arrows: "M4 8h13l-3-3M20 16H7l3 3",
   list: "M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01",
   layers: "m12 3 9 5-9 5-9-5zM3 13l9 5 9-5",

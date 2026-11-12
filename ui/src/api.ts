@@ -270,6 +270,50 @@ export interface ModelPrices {
   custom: boolean;
 }
 
+/** The price table as anyone signed in reads it (GET /api/prices); only site admins change it. */
+export interface ReadablePrices extends ModelPrices {
+  editable: boolean;
+}
+
+/** Model calls added up by the server: money spent on paid APIs, and subscriptions' calls at API prices. */
+export interface CostTotals {
+  requests: number;
+  priced: number;
+  /** Paid model calls with no price, so the totals leave them out. */
+  unpriced: number;
+  usd: number;
+  subscription_usd: number;
+  input_tokens: number;
+  output_tokens: number;
+}
+
+/** An organization's costs between two UTC days, as the server adds them up (GET /api/orgs/{org}/costs). */
+export interface OrgCosts extends CostTotals {
+  org: string;
+  since: string;
+  until: string;
+  currency: string;
+  sessions: number;
+  /** Whether the caller sees everyone's in the organization (its admins), not only their own. */
+  manage: boolean;
+  days: (CostTotals & { day: string })[];
+  models: (CostTotals & { model: string })[];
+  users: (CostTotals & { user: string })[];
+  providers: (CostTotals & { provider: string })[];
+}
+
+/** What pricing an organization's recorded calls again changed (POST /api/orgs/{org}/costs/recompute). */
+export interface CostRecompute {
+  org: string;
+  since: string;
+  until: string;
+  requests: number;
+  changed: number;
+  sessions: number;
+  before: CostTotals;
+  after: CostTotals;
+}
+
 export interface Status {
   proxy_instance_id: string;
   proxy_url: string;
@@ -2416,6 +2460,11 @@ export const api = {
   sessionCost: (sessionId: string) => request<SessionCost>(`/api/sessions/${encodeURIComponent(sessionId)}/cost`),
   modelPrices: () => request<ModelPrices>("/api/config/prices"),
   saveModelPrices: (prices: ModelPrice[] | null) => request<ModelPrices>("/api/config/prices", { method: "PUT", body: JSON.stringify({ prices }) }),
+  prices: () => request<ReadablePrices>("/api/prices"),
+  orgCosts: (org: string, since: string, until: string) =>
+    request<OrgCosts>(`/api/orgs/${encodeURIComponent(org)}/costs?since=${encodeURIComponent(since)}&until=${encodeURIComponent(until)}`),
+  recomputeCosts: (org: string, since: string, until: string) =>
+    request<CostRecompute>(`/api/orgs/${encodeURIComponent(org)}/costs/recompute`, { method: "POST", body: JSON.stringify({ since, until }) }),
   saveSharedModels: (shared: Record<string, string[]>) =>
     request<SharedModels>("/api/config/shared-models", { method: "PUT", body: JSON.stringify({ shared }) }),
   storage: () => request<StorageInfo>("/api/config/storage"),
