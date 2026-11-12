@@ -2,7 +2,7 @@
 
 You start every coding agent with the `agent` command on the computer where you work. It asks the server for a session and runs the agent pointed at this computer's `agent-proxy`. The `agent-proxy` carries everything the agent sends to the server, which records it and passes it on.
 
-Day to day you need the first half of this page: [the three routes](#the-three-routes), [the agent command](#the-agent-command), [signing in](#signing-in-agent-login-and-agent-logout), [the supported agents](#supported-agents) and [sharing a terminal](#sharing-a-terminal-with---control). The rest is reference: how the `agent-proxy` keeps itself safe, what every recorded request is, and [adding an agent of your own](#adding-a-new-agent). To put a computer in the server's fleet (its model servers, containers, launches from the console) you use a different program, `agent-machine`: see [Machines](machines.md).
+Day to day you need the first half of this page: [the three routes](#the-three-routes), [installing only the agent command](#installing-only-the-agent-command), [the agent command](#the-agent-command), [signing in](#signing-in-agent-login-and-agent-logout), [the supported agents](#supported-agents) and [sharing a terminal](#sharing-a-terminal-with---control). The rest is reference: how the `agent-proxy` keeps itself safe, what every recorded request is, and [adding an agent of your own](#adding-a-new-agent). To put a computer in the server's fleet (its model servers, containers, launches from the console) you use a different program, `agent-machine`: see [Machines](machines.md).
 
 ## The three routes
 
@@ -67,6 +67,21 @@ Privacy and security:
 - **The CA key.** The CA's private key is kept in the server's database (`intercept-ca` in table `secrets`), never in a file; only its public certificate is written out for agents. To rotate the CA, delete that row and restart the server (see [Configuration](configuration.md#secrets)).
 - **No credential handling.** The proxy never reads the agents' credentials from disk or asks you to copy tokens. The agents keep managing their own sign-in and refresh.
 - **VS Code extensions** (Copilot, ChatGPT/Codex) run their own processes and aren't captured. Only agents started with `agent` go through the proxy.
+
+## Installing only the agent command
+
+To start coding agents on a computer through a server that runs somewhere else, that computer needs only the `agent` command (with its `agent-proxy`), signed in to the server. It doesn't need `agent-machine`, and it doesn't join the server's fleet.
+
+One command does it. It downloads the server's build for the computer, checks it, installs `agent` and `agent-proxy`, and signs them in (it prints a link and a code to approve):
+
+```bash
+curl -fsSL https://<your server>/install.sh | sh -s -- --only agent                    # Linux, macOS, FreeBSD
+& ([scriptblock]::Create((irm https://<your server>/install.ps1))) -Only agent         # Windows (PowerShell)
+```
+
+The console writes the command with the server's own address in three places: **Downloads** (choose **Only the agent command** under **Install with one command**), **Start an agent** with **Give me the command** (**Install the agent command on that computer**), and **Organizations** › **Your account** (**That computer doesn't have the agent command yet**). Add `--no-login` (`-NoLogin`) to sign in later with `agent login https://<your server>`. Then start an agent from a project folder: `agent qwen . --model <model>`.
+
+[Deployment](deployment.md#installing-on-a-machine) has the installer's other options, the packages and the archives.
 
 ## The agent command
 

@@ -11,6 +11,7 @@ import { ApiProviderSettings } from "./ApiProviders";
 import { ApiCredentials } from "./ApiCredentials";
 import { OrgDataTab } from "./OrgData";
 import { OrgUsageTab } from "./OrgUsage";
+import { OneLineInstall } from "./Downloads";
 import { useAuth, useClipboard, useStatus, useToast } from "../hooks";
 
 const NAME_PATTERN = "[a-z0-9][a-z0-9._\\-]*";
@@ -108,6 +109,14 @@ function YourAccount({ identity, orgs }: { identity: Identity; orgs: Org[] }) {
         links to). The launcher renews its short-lived access tokens automatically.
       </p>
       <CodeLine text={`agent login ${server}`} onCopy={() => copy(`agent login ${server}`, "Command copied")} />
+      <details className="manual">
+        <summary>That computer doesn't have the agent command yet</summary>
+        <p className="subtle">
+          This installs only <code>agent</code> there (not agent-machine, so the computer doesn't join the fleet) and signs it in to
+          this server, so you don't need the command above.
+        </p>
+        <OneLineInstall server={server} only="agent" />
+      </details>
       <p className="subtle">For automation, an administrator provisions a service account at the issuer. API requests use a Bearer access token, never an ID token. Ask an admin of your organization to reset your password.</p>
     </section>
   );

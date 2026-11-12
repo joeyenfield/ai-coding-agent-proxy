@@ -40,6 +40,8 @@ export function DownloadsPage({ standalone = false }: { standalone?: boolean }) 
   const files = index.data?.files ?? [];
   const platforms = useMemo(() => orderPlatforms(files.filter((file) => file.platform !== "android" && file.platform !== "python").map((file) => file.platform)), [files]);
   const [picked, setPicked] = useState<string | null>(null);
+  // What the one-line installer installs: both programs, or one of them.
+  const [only, setOnly] = useState<InstallOptions["only"]>(undefined);
   const platform = picked && platforms.includes(picked) ? picked : platforms[0];
   const android = files.filter((file) => file.component === "android");
   const python = files.filter((file) => file.component === "python");
@@ -84,16 +86,23 @@ export function DownloadsPage({ standalone = false }: { standalone?: boolean }) 
           <div className="panel-head">
             <h2 id="one-line-install">Install with one command</h2>
             <p className="subtle">
-              Run it on the computer: it picks the build for its system, checks it, installs agent and agent-machine, and signs
-              them in to this server. Send it to anyone who should join.
+              Run it on the computer: it picks the build for its system, checks it, installs it and signs it in to this server.
+              Send it to anyone who should join.
             </p>
           </div>
-          <OneLineInstall server={server} />
+          <div className="chip-bar" role="group" aria-label="What to install">
+            {INSTALL_CHOICES.map((choice) => (
+              <button key={choice.label} type="button" aria-pressed={only === choice.only} onClick={() => setOnly(choice.only)}>
+                {choice.label}
+              </button>
+            ))}
+          </div>
+          <p className="subtle">{INSTALL_CHOICES.find((choice) => choice.only === only)?.summary}</p>
+          <OneLineInstall server={server} only={only} />
           <p className="subtle">
-            Options after <code>sh -s --</code> (or after the PowerShell script block): <code>--only agent</code> or{" "}
-            <code>--only agent-machine</code> for one of them, <code>--service</code> to start agent-machine at boot,{" "}
+            Options after <code>sh -s --</code> (or after the PowerShell script block): <code>--service</code> to start agent-machine at boot,{" "}
             <code>--no-login</code> to sign in later, <code>--prefix DIR</code> for another folder. In PowerShell they're{" "}
-            <code>-Only</code>, <code>-Service</code>, <code>-NoLogin</code> and <code>-Prefix</code>.
+            <code>-Service</code>, <code>-NoLogin</code> and <code>-Prefix</code>.
           </p>
         </section>
       )}
@@ -354,6 +363,13 @@ function packageCommand(file: DownloadFile, server: string): string | null {
 }
 
 type InstallOptions = { only?: "agent" | "agent-machine"; service?: boolean };
+
+/** What the one-line installer can install, as the Downloads page offers it. */
+const INSTALL_CHOICES: { only: InstallOptions["only"]; label: string; summary: string }[] = [
+  { only: undefined, label: "Agent and agent-machine", summary: "Both programs: start coding agents there, and put the computer in this server's fleet." },
+  { only: "agent", label: "Only the agent command", summary: "Just agent and agent-proxy, to start coding agents there through this server. The computer doesn't join the fleet." },
+  { only: "agent-machine", label: "Only agent-machine", summary: "Just agent-machine, to put the computer in this server's fleet: its model servers, containers and launches." },
+];
 
 /** The one-line installer for one system: sh for Linux, macOS and FreeBSD, else PowerShell. */
 export function installLine(server: string, system: "sh" | "powershell", { only, service }: InstallOptions = {}): string {

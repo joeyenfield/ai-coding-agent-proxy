@@ -28,6 +28,7 @@ The documentation has two halves. The **guides** (from *Start here* to *Run a se
 | Feature | Commands | Console | Docs |
 | --- | --- | --- | --- |
 | Run an agent through the server | `agent <agent> [project]` | Start an agent | [Agents](running-agents.md#the-agent-command) |
+| Install only the agent command, for a server elsewhere | `curl -fsSL <server>/install.sh \| sh -s -- --only agent` | Downloads › Only the agent command; Start an agent › Give me the command | [Agents](running-agents.md#installing-only-the-agent-command) |
 | Sign a computer in | `agent login`, `agent logout` | Organizations › Start agents from your own computer | [Agents](running-agents.md#signing-in-agent-login-and-agent-logout) |
 | List the server's agents | `agent --list` | Start an agent | [Agents](running-agents.md#options) |
 | Capture full payloads | `--trace` | Capture full request and response payloads | [Agents](running-agents.md#options) |

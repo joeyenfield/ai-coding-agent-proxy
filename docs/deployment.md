@@ -228,6 +228,7 @@ The quickest way, from the server itself:
 ```bash
 curl -fsSL http://server:9999/install.sh | sh                                      # Linux, macOS, FreeBSD
 curl -fsSL http://server:9999/install.sh | sh -s -- --only agent-machine --service # just agent-machine, started at boot
+curl -fsSL http://server:9999/install.sh | sh -s -- --only agent                   # just the agent command, to start agents through a server elsewhere
 ```
 
 ```powershell

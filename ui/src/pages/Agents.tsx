@@ -9,6 +9,7 @@ import { PartTag } from "../components/PartTag";
 import { ShareChoice, shareArgs } from "../components/Sharing";
 import { providerLabel, ROUTE_ORDER, ROUTES, type RouteKind } from "../routes";
 import { LaunchForm } from "./Machine";
+import { OneLineInstall, serverAddress } from "./Downloads";
 
 /** One line on each route, under the agent's name. */
 const ROUTE_LINES: Record<RouteKind, string> = {
@@ -159,6 +160,7 @@ export function AgentsPage() {
 /** The chosen agent: what it is, then how to start it where it was asked to run. */
 function AgentStart({ agent, machine }: { agent: Agent; machine?: FleetMachine }) {
   const agents = useAgents();
+  const status = useStatus();
   const route = routeOfAgent(agent);
   return (
     <section className="panel agent-start" aria-labelledby="agent-start-title">
@@ -184,9 +186,16 @@ function AgentStart({ agent, machine }: { agent: Agent; machine?: FleetMachine }
           <InstallCommand agent={agent} />
           <h3>4. Start it from your project folder</h3>
           <p className="subtle">
-            It needs the <code>agent</code> command, signed in to this server: get it from <Link to="/get">Downloads</Link>,
-            then run <code>agent login</code> once.
+            It needs the <code>agent</code> command on that computer, signed in to this server.
           </p>
+          <details className="manual">
+            <summary>Install the agent command on that computer</summary>
+            <p className="subtle">
+              One command installs only <code>agent</code> (not agent-machine, so the computer doesn't join the fleet) and signs it
+              in to this server. Other ways to get it are on <Link to="/get">Downloads</Link>.
+            </p>
+            <OneLineInstall server={serverAddress(status.data?.proxy_url)} only="agent" />
+          </details>
           {agent.intercept ? <AccountCommand agent={agent} /> : <ProxyCommand agent={agent} />}
         </>
       )}
