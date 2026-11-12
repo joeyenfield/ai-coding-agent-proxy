@@ -1,4 +1,4 @@
-"""devhelpers/scripts/release/release.py: the files of a GitHub Release, and the web installers it fills in."""
+"""devhelpers/release_scripts/release/release.py: the files of a GitHub Release, and the web installers it fills in."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-SCRIPT = Path(__file__).resolve().parents[2] / "devhelpers" / "scripts" / "release" / "release.py"
+SCRIPT = Path(__file__).resolve().parents[2] / "devhelpers" / "release_scripts" / "release" / "release.py"
 spec = importlib.util.spec_from_file_location("release", SCRIPT)
 release = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(release)

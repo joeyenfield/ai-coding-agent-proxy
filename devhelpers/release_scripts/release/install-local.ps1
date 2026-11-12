@@ -17,7 +17,7 @@
 #
 # Needs Python 3.11 or later (python.org's, or py). Run it again to update. Every download is
 # checked against the SHA-256 written into this script when the release was made.
-# devhelpers/scripts/release/release.py fills it in.
+# devhelpers/release_scripts/release/release.py fills it in.
 param([int]$Port = 0, [int]$AuthPort = 0, [string]$Prefix = "", [switch]$NoClient, [switch]$NoLogin, [switch]$Python, [switch]$NoTray)
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"

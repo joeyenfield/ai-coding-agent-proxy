@@ -19,7 +19,8 @@ python/          agent_py: the same agent, agent-proxy and agent-machine in Pyth
 android/         The Android app (Kotlin): a list of servers, each one's console in a WebView
 tools/dist/      Build tooling, in Go: every platform's binaries, archives, packages and the Python wheel
 devhelpers/      For development: the deploy/ stacks built from this checkout, the all-in-one image's Dockerfile
-  scripts/       Build, dev, launcher, screenshot, site, release and deploy scripts (.ps1 and .sh pairs), HTTPS setup
+  scripts/       Build, dev, launcher, screenshot and site scripts (.ps1 and .sh pairs), HTTPS setup
+  release_scripts/   Release, ARM64 emulation and deploy scripts (.ps1 and .sh pairs)
 deploy/          Runs the published images: compose/ (quickstart, allinone, peer, server) and helm/ (the chart, its quickstart)
 sandbox/         The agent-sandbox image
 benchmarks/      tests/<name>/ (prompt.md, test.yaml); results/ is gitignored
@@ -86,7 +87,7 @@ Vite on 5173 proxies `/api` (WebSockets included), `/health`, the OpenAPI pages,
 | `cd ui && npm run build` | Writes `ui/dist`. |
 | `helm lint --strict deploy/helm/agent-mesh -f deploy/helm/agent-mesh/ci/<file>.yaml` | The chart with each CI values file; then `helm template ... \| kubeconform -strict`. |
 
-Builds and releases run locally; there are no GitHub Actions workflows. Pushes and tags do not publish anything. Run the checks before publishing. Use `devhelpers/scripts/release.ps1` or `.sh` with `website`, `services` or `installers` for independent snapshots. Add `--publish` to upload directly, and `--plan` to preview commands. See [Local releases and snapshots](releases.md) for prerequisites, offline archives, ARM64, stable releases and old queue cleanup.
+Builds and releases run locally; there are no GitHub Actions workflows. Pushes and tags do not publish anything. Run the checks before publishing. Use `devhelpers/release_scripts/release.ps1` or `.sh` with `website`, `services` or `installers` for independent snapshots. Add `--publish` to upload directly, and `--plan` to preview commands. See [Local releases and snapshots](releases.md) for prerequisites, offline archives, ARM64, stable releases and old queue cleanup.
 
 The one pytest warning, Starlette's httpx deprecation in `TestClient`, is expected.
 
@@ -147,11 +148,11 @@ Compatibility is `PROTOCOL`, an integer in `version.py` and in `settings.Protoco
 
 To release, change `VERSION`, commit, tag `vX.Y.Z`, and build the distributions.
 
-Pushing a tag does not start a build. Run `devhelpers/scripts/release.ps1 installers --stable --publish` (or `sh devhelpers/scripts/release.sh installers --stable --publish`) to build locally and create the GitHub Release the web installer downloads from ([Run it on your own computer](local.md)). This builds the console and `tools/dist` without packages or the Android app. Then `devhelpers/scripts/release/release.py` writes the release's files:
+Pushing a tag does not start a build. Run `devhelpers/release_scripts/release.ps1 installers --stable --publish` (or `sh devhelpers/release_scripts/release.sh installers --stable --publish`) to build locally and create the GitHub Release the web installer downloads from ([Run it on your own computer](local.md)). This builds the console and `tools/dist` without packages or the Android app. Then `devhelpers/release_scripts/release/release.py` writes the release's files:
 
 - the server bundle `ai-control-mesh-X.Y.Z.zip`: `VERSION`, a `BUILD` file naming the version (it has no git), the server's sources, `ui/dist`, `docs/` and `benchmarks/tests`;
 - every `agent` and `agent-machine` archive, and the Python wheel (required: it's what the installers' `--python` and any system without a Go build use);
-- `install-local.sh` and `install-local.ps1`, filled in from `devhelpers/scripts/release/` with the release's address and every download's SHA-256;
+- `install-local.sh` and `install-local.ps1`, filled in from `devhelpers/release_scripts/release/` with the release's address and every download's SHA-256;
 - `uninstall-local.sh` and `uninstall-local.ps1`, which remove such an install, copied as they are;
 - `SHA256SUMS`.
 

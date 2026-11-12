@@ -2,7 +2,7 @@
 
 Everything here runs the **published images** from the GitHub Container Registry
 (`ghcr.io/joeyenfield/agent-server`, `agent-sandbox`, `ai-control-mesh` and the site), built locally with
-[`devhelpers/scripts/release.ps1|.sh`](../docs/releases.md) and published explicitly. Nothing here builds this
+[`devhelpers/release_scripts/release.ps1|.sh`](../docs/releases.md) and published explicitly. Nothing here builds this
 checkout's code; for that, see [`devhelpers/`](../devhelpers/README.md).
 
 `AI_PROXY_IMAGE_TAG` picks the services version: `latest` (the default, the last promoted stable build), a

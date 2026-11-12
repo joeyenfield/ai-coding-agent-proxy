@@ -78,7 +78,7 @@ COPY --from=node /usr/local/ /usr/local/
 RUN if [ -n "$AGENTS" ]; then npm install -g --no-audit --no-fund $AGENTS && npm cache clean --force; fi
 COPY --from=build /out/ /usr/local/bin/
 COPY --from=ollama /out/ /usr/local/
-# The server, as the release bundle lays it out (devhelpers/scripts/release/release.py): installed editable, so
+# The server, as the release bundle lays it out (devhelpers/release_scripts/release/release.py): installed editable, so
 # /opt/mesh is its root, with VERSION, the built console, the docs and BUILD naming the version.
 COPY VERSION LICENSE /opt/mesh/
 COPY server/pyproject.toml server/README.md /opt/mesh/server/

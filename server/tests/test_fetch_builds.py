@@ -27,7 +27,7 @@ def pinned(monkeypatch):
 
 
 def release_files() -> dict[str, bytes]:
-    """A GitHub Release as devhelpers/scripts/release/release.py leaves it: flat, under SHA256SUMS."""
+    """A GitHub Release as devhelpers/release_scripts/release/release.py leaves it: flat, under SHA256SUMS."""
     files = {
         f"agent-{RELEASE}-linux-amd64.tar.gz": tar_gz("linux-amd64", {"agent": b"agent", "agent-proxy": b"proxy", "install.sh": b"#!/bin/sh\n"}),
         f"agent-machine-{RELEASE}-linux-amd64.tar.gz": tar_gz("linux-amd64", {"agent-machine": b"machine", "install.sh": b"#!/bin/sh\n"}),

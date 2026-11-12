@@ -18,7 +18,7 @@
 #
 # Needs Python 3.11 or later (with venv) and curl or wget. Run it again to update. Every
 # download is checked against the SHA-256 written into this script when the release was made.
-# devhelpers/scripts/release/release.py fills it in.
+# devhelpers/release_scripts/release/release.py fills it in.
 set -eu
 
 BASE='{{BASE}}'

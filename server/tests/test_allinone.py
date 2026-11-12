@@ -43,7 +43,7 @@ def test_a_gpu_is_only_in_the_image_and_the_files_that_ask_for_it():
         assert mesh(tree, "compose.gpu.yaml")["devices"] == ["nvidia.com/gpu=all"]
     # The GPU image is the same Dockerfile with the CUDA libraries kept, under its own name, so
     # neither build replaces the other: the local release catalog keeps their names and arguments separate.
-    catalog = (ROOT / "devhelpers/scripts/release/local.py").read_text(encoding="utf-8")
+    catalog = (ROOT / "devhelpers/release_scripts/release/local.py").read_text(encoding="utf-8")
     assert 'Image("ai-control-mesh-gpu", "devhelpers/allinone/Dockerfile", ("OLLAMA_GPU=cuda_v13",))' in catalog
     published = mesh("deploy/compose", "compose.gpu.yaml")
     assert published == {"image": "${AI_PROXY_IMAGES:-ghcr.io/joeyenfield}/ai-control-mesh-gpu:${AI_PROXY_IMAGE_TAG:-latest}",
@@ -57,7 +57,7 @@ def test_it_copies_only_what_exists_and_is_published_with_the_others():
     for line in re.findall(r"^COPY (?!--from)(.+)$", ALLINONE, re.MULTILINE):
         for source in line.split()[:-1]:
             assert (ROOT / source).exists(), source
-    catalog = (ROOT / "devhelpers/scripts/release/local.py").read_text(encoding="utf-8")
+    catalog = (ROOT / "devhelpers/release_scripts/release/local.py").read_text(encoding="utf-8")
     assert 'Image("ai-control-mesh", "devhelpers/allinone/Dockerfile")' in catalog
     assert 'Image("ai-control-mesh-site", "site/Dockerfile")' in catalog
 

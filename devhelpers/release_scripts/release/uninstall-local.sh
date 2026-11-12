@@ -12,7 +12,7 @@
 #                    agent and agent-machine out and delete their settings
 #
 # Without --purge the server's data stays in its folder, so installing again finds it.
-# devhelpers/scripts/release/release.py puts this file in every release as it is. The folders
+# devhelpers/release_scripts/release/release.py puts this file in every release as it is. The folders
 # are the ones install-local.sh uses; keep them in step.
 set -eu
 

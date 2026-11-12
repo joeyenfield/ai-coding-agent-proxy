@@ -17,10 +17,10 @@ machine/bin/
 .playwright-mcp/
 .qwen/
 *.stackdump
-devhelpers/scripts/deploy.sh
-devhelpers/scripts/deploy.ps1
-devhelpers/scripts/deploy-remote.sh
-devhelpers/scripts/deploy-setup-remote.sh
+devhelpers/release_scripts/deploy.sh
+devhelpers/release_scripts/deploy.ps1
+devhelpers/release_scripts/deploy-remote.sh
+devhelpers/release_scripts/deploy-setup-remote.sh
 # devhelpers/scripts/screenshots/demo.py's temporary home, left behind if it is killed
 .screenshot-demo-*/
 .screenshot-demo.json

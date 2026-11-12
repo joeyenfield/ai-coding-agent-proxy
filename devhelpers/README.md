@@ -99,10 +99,16 @@ find the repository themselves):
 | `screenshots/demo.py` | A self-contained demo server with made-up data on http://127.0.0.1:8199 for checking the console: sign in as demo-admin / demo-admin-screenshot-password (a site admin) or demo / demo-screenshot-password. `--capture [names]` takes `docs/screenshots/` and stops; `--stop` stops one left running. |
 | `screenshots/` | Also `capture.mjs` (the console's screenshots), `quickstart-steps.mjs` (the quickstart guide's), `site-images.py` and `traffic.py`. |
 | `site/` | Checks (`check.mjs`), previews and fingerprints the brochure site. |
-| `release.sh`, `release.ps1` | Local website, services or installer snapshots; explicit `--publish` uploads directly. No Actions runner. See [Local releases and snapshots](../docs/releases.md). |
-| `release/release.py` | Packages already-built archives and the console into installer files. Called by the local release command. |
-| `deploy.sh`, `deploy.ps1` | Deploys master (or a new version) to the project's server: pushes, waits for the images, and restarts its Compose stack (`deploy-remote.sh` runs there). |
 | `https/` | nginx with Let's Encrypt in front of a server (`setup-https.ps1`). |
 | `start-ollama.sh` | Starts Ollama listening on every address. |
+
+[`release_scripts/`](release_scripts) holds the scripts for releasing and deploying:
+
+| Script | What it does |
+| --- | --- |
+| `release.sh`, `release.ps1` | Local website, services or installer snapshots; explicit `--publish` uploads directly. No Actions runner. See [Local releases and snapshots](../docs/releases.md). |
+| `release/release.py` | Packages already-built archives and the console into installer files. Called by the local release command. |
+| `podman-arm64.sh`, `podman-arm64.ps1` | Gets Podman ready to build ARM64 images on an x64 computer: starts the Podman machine and registers its ARM64 emulator. Run it before a `--platform linux/arm64` release. |
+| `deploy.sh`, `deploy.ps1` | Deploys master (or a new version) to the project's server: pushes, builds and publishes the ARM64 service image, and restarts its Compose stack (`deploy-remote.sh` runs there). Not in the repository. |
 
 [AGENTS.md](../AGENTS.md) has the commands for tests and builds, and [docs/development.md](../docs/development.md) the rest.

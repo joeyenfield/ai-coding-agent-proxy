@@ -6,7 +6,7 @@ computes it for the Go programs and the Android app, this module for the server)
 
   - X.Y.Z when HEAD is tagged exactly vX.Y.Z and the tree is clean;
   - X.Y.Z+<short commit> otherwise, with .dirty when tracked files have uncommitted changes;
-  - without git, what a BUILD file beside VERSION says (a release bundle's, devhelpers/scripts/release/),
+  - without git, what a BUILD file beside VERSION says (a release bundle's, devhelpers/release_scripts/release/),
     else X.Y.Z+unknown;
   - AI_PROXY_VERSION, when set, wins (Docker images, CI).
 

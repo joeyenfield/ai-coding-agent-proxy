@@ -15,20 +15,20 @@ Use Python 3.11 or later. Image builds need Podman and a running Podman machine 
 PowerShell:
 
 ```powershell
-.\devhelpers\scripts\release.ps1 website --archive
-.\devhelpers\scripts\release.ps1 services --archive
-.\devhelpers\scripts\release.ps1 installers --target windows/amd64 --target linux/amd64
+.\devhelpers\release_scripts\release.ps1 website --archive
+.\devhelpers\release_scripts\release.ps1 services --archive
+.\devhelpers\release_scripts\release.ps1 installers --target windows/amd64 --target linux/amd64
 ```
 
 Linux/macOS:
 
 ```sh
-sh devhelpers/scripts/release.sh website --archive
-sh devhelpers/scripts/release.sh services --archive
-sh devhelpers/scripts/release.sh installers --target windows/amd64 --target linux/amd64
+sh devhelpers/release_scripts/release.sh website --archive
+sh devhelpers/release_scripts/release.sh services --archive
+sh devhelpers/release_scripts/release.sh installers --target windows/amd64 --target linux/amd64
 ```
 
-Both wrappers accept the same flags. You can also run `python devhelpers/scripts/release/local.py website`. Add `--plan` to inspect commands without building, publishing or writing output. Add `--help` to see every option.
+Both wrappers accept the same flags. You can also run `python devhelpers/release_scripts/release/local.py website`. Add `--plan` to inspect commands without building, publishing or writing output. Add `--help` to see every option.
 
 Snapshots do not change `VERSION` or create Git tags. Each gets a unique `snapshot-<UTC timestamp>-g<commit>` image tag. The embedded application version is `X.Y.Z+snapshot.<timestamp>.g<commit>`, which the Python wheel and installers accept. Uncommitted tracked changes add `.dirty` to the version and `-dirty` to the tag. Dirty builds are allowed locally; publishing requires committed tracked changes.
 
@@ -39,13 +39,13 @@ Installer files are under `files/`, including their own `SHA256SUMS`. The interm
 The default image platform is `linux/amd64`. ARM64 and large service images are explicit choices:
 
 ```powershell
-.\devhelpers\scripts\release.ps1 services --image server --image sandbox
-.\devhelpers\scripts\release.ps1 services --image allinone
-.\devhelpers\scripts\release.ps1 services --image gpu
-.\devhelpers\scripts\release.ps1 services --platform linux/amd64 --platform linux/arm64
+.\devhelpers\release_scripts\release.ps1 services --image server --image sandbox
+.\devhelpers\release_scripts\release.ps1 services --image allinone
+.\devhelpers\release_scripts\release.ps1 services --image gpu
+.\devhelpers\release_scripts\release.ps1 services --platform linux/amd64 --platform linux/arm64
 ```
 
-Multiple platforms produce a local manifest; publishing pushes every platform together. ARM64 builds on x64 need QEMU installed in the Podman machine. The release command does not install emulators or change the machine. Native x64 snapshots avoid that dependency. Image builds retain Docker manifest format so Podman reads the images' healthchecks.
+Multiple platforms produce a local manifest; publishing pushes every platform together. ARM64 builds on x64 need QEMU installed and registered in the Podman machine. The release command does not install emulators or change the machine. Run `devhelpers/release_scripts/podman-arm64.ps1` (or `sh devhelpers/release_scripts/podman-arm64.sh`) first: it starts the Podman machine if it is stopped and registers the ARM64 emulator. The registration is lost when the Podman machine restarts, so run it before each ARM64 build; without it the build stops with `Exec format error`. If QEMU is missing, install it in the machine with `sudo dnf install qemu-user-static`. Native x64 snapshots avoid that dependency. Image builds retain Docker manifest format so Podman reads the images' healthchecks.
 
 ## Publish directly
 
@@ -54,9 +54,9 @@ Publishing builds locally and uploads directly to the registry or GitHub API. No
 ```powershell
 podman login ghcr.io
 gh auth login
-.\devhelpers\scripts\release.ps1 website --publish
-.\devhelpers\scripts\release.ps1 services --publish
-.\devhelpers\scripts\release.ps1 installers --publish
+.\devhelpers\release_scripts\release.ps1 website --publish
+.\devhelpers\release_scripts\release.ps1 services --publish
+.\devhelpers\release_scripts\release.ps1 installers --publish
 ```
 
 Images need credentials with package write access; GitHub installer releases need repository contents write access. Tokens belong in the tools' credential stores, not in these scripts or command arguments. `--registry registry.example.com/team` chooses another image registry. `--repo owner/repository` chooses another GitHub repository for installers.
@@ -93,8 +93,8 @@ Include `agent-sandbox` only if you built and use it. Rebuild the separate `cons
 When a stable release is intended, set `VERSION`, commit and create the matching `vX.Y.Z` tag as before. `--stable` requires a clean checkout at that existing tag. Building does not create or push the tag. Push the tag yourself before publishing installer files, so `gh release create --verify-tag` can verify it.
 
 ```powershell
-.\devhelpers\scripts\release.ps1 services --stable --image server --image sandbox --publish
-.\devhelpers\scripts\release.ps1 installers --stable --publish
+.\devhelpers\release_scripts\release.ps1 services --stable --image server --image sandbox --publish
+.\devhelpers\release_scripts\release.ps1 installers --stable --publish
 ```
 
 Image tags are `X.Y.Z`. Add `--promote` with `--stable --publish` only when you intend to update the selected images' `latest` tags, or mark an installer release as latest. The website is built and promoted separately. Installer publication creates a new release and fails if it already exists; it never overwrites published assets. Old image tags such as `master`, `sha-<commit>` and `X.Y` remain usable where already published, but new local releases do not update them.

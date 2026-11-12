@@ -11,7 +11,7 @@
 #                  agent and agent-machine out and delete their settings
 #
 # Without -Purge the server's data stays in its folder, so installing again finds it.
-# devhelpers/scripts/release/release.py puts this file in every release as it is. The folders
+# devhelpers/release_scripts/release/release.py puts this file in every release as it is. The folders
 # are the ones install-local.ps1 uses; keep them in step.
 param([string]$Prefix = "", [switch]$KeepClient, [switch]$Purge)
 $ErrorActionPreference = "Stop"

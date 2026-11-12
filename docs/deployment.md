@@ -19,7 +19,7 @@ AI_PROXY_IMAGE_TAG=2.0.1 docker compose up -d           # or a release of your c
 docker compose pull && docker compose up -d             # move to the newest build
 ```
 
-**Moving from the old root `compose.yaml`.** It moved to `deploy/compose/server/`. Compose names a project, and so its volumes, after the folder it runs from, so set `COMPOSE_PROJECT_NAME` to your checkout folder's name (the name the volumes have, such as `ai-proxy` for `ai-proxy_postgres-data`; `docker volume ls` shows them) in the `.env`, and move that `.env` beside the new file. `devhelpers/scripts/deploy.sh` does this for you with `-p`.
+**Moving from the old root `compose.yaml`.** It moved to `deploy/compose/server/`. Compose names a project, and so its volumes, after the folder it runs from, so set `COMPOSE_PROJECT_NAME` to your checkout folder's name (the name the volumes have, such as `ai-proxy` for `ai-proxy_postgres-data`; `docker volume ls` shows them) in the `.env`, and move that `.env` beside the new file. `devhelpers/release_scripts/deploy.sh` does this for you with `-p`.
 
 Pick the tag to match the `dist/` build you hand out (below): the server offers the build of its own version. To build the images from your checkout instead, add `devhelpers/server/compose.build.yaml`, from the repository root:
 

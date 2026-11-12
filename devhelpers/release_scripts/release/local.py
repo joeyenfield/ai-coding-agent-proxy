@@ -138,7 +138,7 @@ def installers(args: argparse.Namespace, build: Build, runner: Runner, out: Path
     runner.run("npm", "run", "build", cwd=runner.root / "ui")
     runner.run("go", "run", "./dist", "-version", build.version, "-android=false",
                "-out", "dist/local-builds", *(args.target or []), cwd=runner.root / "tools")
-    runner.run(sys.executable, "devhelpers/scripts/release/release.py", "--version", build.version,
+    runner.run(sys.executable, "devhelpers/release_scripts/release/release.py", "--version", build.version,
                "--base-url", base, "--dist", str(runner.root / "dist/local-builds" / build.version),
                "--out", str(out / "files"))
     if args.publish:

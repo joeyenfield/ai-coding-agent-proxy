@@ -1,6 +1,6 @@
 """Make a release's files for the local release command, a GitHub Release or a test.
 
-    python devhelpers/scripts/release/release.py --version 2.1.49 --base-url https://github.com/<owner>/<repo>/releases/download/v2.1.49
+    python devhelpers/release_scripts/release/release.py --version 2.1.49 --base-url https://github.com/<owner>/<repo>/releases/download/v2.1.49
 
 It reads what tools/dist built (dist/<version>/, with its SHA256SUMS) and the console's build
 (ui/dist), and writes into --out (default dist/release/<version>/), flat, as a release holds them:
