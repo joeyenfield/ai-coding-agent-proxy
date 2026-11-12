@@ -181,8 +181,8 @@ def test_legacy_backends_need_explicit_admin_adoption_with_accounts(tmp_path):
     settings = org_settings(tmp_path)
     settings.backends = {**settings.backends, "old": Backend("old", "http://localhost:11434/")}
     app = create_app(settings)
-    alice, dave, sally = signed_in(app, "alice"), signed_in(app, "dave"), signed_in(app, "sally")
-    # The machines are this computer, so their Ollama is http://127.0.0.1:11434: the same server.
+    alice, dave, sally = signed_in(app, "alice", local=True), signed_in(app, "dave"), signed_in(app, "sally", local=True)
+    # The machines are this computer (they connect from it), so their Ollama is http://127.0.0.1:11434: the same server.
     with alice, dave, sally, machine(alice, hello(address="127.0.0.1")) as socket:
         assert settings.backends["old"].machine is None
         assert dave.get("/api/machines/m1").json()["providers"][0]["backend"] is None
@@ -330,6 +330,24 @@ def test_a_machine_says_whether_it_has_the_agent_command_for_launches(tmp_path):
         assert alice.get("/api/machines/m1").json()["launcher"] is False
 
 
+def test_a_machine_elsewhere_cant_claim_to_be_this_computer(tmp_path):
+    """A machine that says 127.0.0.1 from another computer would point its providers at the server's own
+    loopback services: the server takes the address its connection came from instead."""
+    settings = org_settings(tmp_path)
+    settings.backends = {**settings.backends, "gamepc": Backend("gamepc", "http://109.77.112.130:11434", machine="m1")}
+    app = create_app(settings)
+    alice = signed_in(app, "alice")  # the test client's own address isn't loopback
+    with alice, machine(alice, hello(address="127.0.0.1")) as socket:
+        assert alice.get("/api/machines/m1").json()["address"] != "127.0.0.1"
+        assert "127.0.0.1" not in settings.backends["gamepc"].url and "localhost" not in settings.backends["gamepc"].url
+        socket.send_json({"type": "update", "address": "localhost"})
+        assert alice.get("/api/machines/m1").json()["address"] != "localhost"
+        # Another address is still the machine's to say.
+        socket.send_json({"type": "update", "address": "192.0.2.25"})
+        assert alice.get("/api/machines/m1").json()["address"] == "192.0.2.25"
+        assert settings.backends["gamepc"].url == "http://192.0.2.25:11434"
+
+
 def test_a_machines_providers_follow_its_address(tmp_path):
     settings = org_settings(tmp_path)
     spec = {"engine": "ollama", "image": "ollama/ollama:latest", "port": 11500, "gpus": "all", "env": {}}
@@ -340,8 +358,8 @@ def test_a_machines_providers_follow_its_address(tmp_path):
         "elsewhere": Backend("elsewhere", "http://10.0.0.9:11434", machine="m2"),
     }
     app = create_app(settings)
-    alice = signed_in(app, "alice")
-    # The machine says it's this computer (agent-machine address 127.0.0.1): its providers move there.
+    alice = signed_in(app, "alice", local=True)
+    # The machine says it's this computer (agent-machine address 127.0.0.1) and connects from it: its providers move there.
     with alice, machine(alice, hello(address="127.0.0.1")):
         assert settings.backends["gamepc"].url == "http://127.0.0.1:11434"
         assert settings.backends["box"].url == "http://127.0.0.1:11500" and settings.backends["box"].container == spec

@@ -62,7 +62,7 @@ sequenceDiagram
 
 | Type | Gate on the machine | Does |
 | --- | --- | --- |
-| `provider` | changes (pull, delete, load, unload) need `servers` | status, models, log, metrics (the load sample, below), catalogue search; kind `api` (`api.go`) answers only `status` (`{"online", "version": "", "models": [{id, owned_by, context_length?}]}` from `/v1/models`, `context_length` from `context_length`, `max_model_len` or `loaded_context_length`), every other op is refused: its models are managed in that server itself |
+| `provider` | changes (pull, delete, load, unload) need `servers`, and a port that's one of its model servers (`Manager.Serves`: reported in the last hello, or a container's, as a tunnel may reach) or that answers as that kind (`answersAs`, `kindPaths`), so nothing else on loopback gets a change | status, models, log, metrics (the load sample, below), catalogue search; kind `api` (`api.go`) answers only `status` (`{"online", "version": "", "models": [{id, owned_by, context_length?}]}` from `/v1/models`, `context_length` from `context_length`, `max_model_len` or `loaded_context_length`), every other op is refused: its models are managed in that server itself |
 | `server` | `servers` | Ollama settings and start/stop/restart; llama.cpp settings, start/stop/restart, `install_options`, `install` (a job: answers at once) and `uninstall` (GitHub builds only); Strata start/stop, remove/prune (profiles whose run config is gone, deleted from Strata's profiles folder) and cleanup (`strata runtime cleanup`) |
 | `container` | `containers` | status, start/restart/switch (jobs), stop, remove, logs |
 | `folders` | `launches` or `commands`, inside the roots | folder names only, at most 500 |

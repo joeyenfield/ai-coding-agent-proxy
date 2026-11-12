@@ -55,6 +55,9 @@ type Manager struct {
 	Machine func() *settings.Machine
 	// Host is where the model servers are reached; tests leave it, it's always loopback.
 	Host string
+	// Serves says whether a port is one of this machine's model servers: those it reported, and its
+	// containers. The fleet connection sets it; nil (tests, the commands) trusts every port.
+	Serves func(port int) bool
 	// External makes calls to the catalogues; tests point it at a fake.
 	External *http.Client
 	// Catalog URLs; tests replace them.
@@ -77,6 +80,37 @@ func (m *Manager) machine() *settings.Machine {
 		return m.Machine()
 	}
 	return settings.LoadMachine()
+}
+
+// kindPaths is what each kind of model server answers on, as the fleet connection's detection asks it.
+var kindPaths = map[string]string{"ollama": "/api/version", "docker": "/engines/v1/models", "strata": "/v1/models", "llamacpp": "/models"}
+
+// answersAs says whether what listens on the port answers as that kind of model server. A change
+// (pull, delete, load, unload) is only sent to one that does: the server names the port, and
+// something else on loopback there must never get a POST or DELETE meant for a model server.
+func (m *Manager) answersAs(kind string, port int) bool {
+	path, known := kindPaths[kind]
+	if !known {
+		return false
+	}
+	response, err := settings.Client(3 * time.Second).Get(m.base(port) + path)
+	if err != nil {
+		return false
+	}
+	defer response.Body.Close()
+	// Strata answers 401 without its key; it's still Strata.
+	if response.StatusCode != http.StatusOK {
+		return kind == "strata" && response.StatusCode == http.StatusUnauthorized
+	}
+	var body map[string]any
+	if json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&body) != nil {
+		return false
+	}
+	if kind == "ollama" {
+		_, ok := body["version"].(string)
+		return ok
+	}
+	return true
 }
 
 func (m *Manager) base(port int) string {
@@ -126,6 +160,11 @@ func (m *Manager) handle(request Request, progress Progress) (map[string]any, er
 			return map[string]any{"state": apiStatus(base)}, nil
 		}
 		return nil, errAPIManaged
+	}
+	// The server names the port. One this machine found itself is its model server; any other has to
+	// answer as that kind first (one just started, or one the machine doesn't look for).
+	if changes[request.Op] && m.Serves != nil && !m.Serves(request.Port) && !m.answersAs(request.Kind, request.Port) {
+		return nil, fmt.Errorf("nothing on port %d answers as %s, so its models can't be changed", request.Port, request.Kind)
 	}
 	if progress == nil {
 		progress = func(map[string]any) {}

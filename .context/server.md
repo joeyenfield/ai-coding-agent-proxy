@@ -222,7 +222,7 @@ A new route belongs to a role by the module that registers it (`roles.MODULE_ROL
 
 ## Security model
 
-Two things a machine is trusted with are known limits, kept because the fleet's own tests define the behaviour (`docs/security.md`, What a machine is trusted with): its self-reported address is where a direct (untunnelled) provider is reached, and with `servers` on it changes models on any loopback port the server names.
+What a machine is trusted with (`docs/security.md`): its self-reported address is where a direct (untunnelled) provider is reached, but `Fleet._update` only takes a loopback address from a connection that came from loopback (else the peer's address), so a machine elsewhere can't point a provider at the server's own loopback.
 
 The summary; `auth.md` has the whole of it (credentials, the middleware's order, roles, what must never change).
 

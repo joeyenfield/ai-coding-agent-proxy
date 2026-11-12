@@ -62,6 +62,8 @@ def llama_server_port() -> int:
 
 # Where each kind of model server listens by default, and the path that says it's there.
 # llama-server's router lists every model it can serve here, loaded or not (its port: llama_server_port()).
+# What each kind of model server answers on, as detect() asks it.
+KIND_PATHS = {"ollama": "/api/version", "docker": "/engines/v1/models", "strata": "/v1/models", "llamacpp": "/models"}
 PROBES = (("ollama", "/api/version", 11434), ("docker", "/engines/v1/models", 12434), ("strata", "/v1/models", 18500), ("llamacpp", "/models", 0))
 # Where the OpenAI-compatible servers that only serve (their models are managed in the server
 # itself) listen by default. They're reported as type "api"; only their /v1/models is read.
@@ -230,12 +232,38 @@ class Manager:
     def __init__(self, machine: Callable[[], settings.Machine] = settings.Machine.load, host: str = "127.0.0.1") -> None:
         self.machine = machine
         self.host = host
+        # Whether a port is one of this machine's model servers: those it reported, and its containers. The
+        # fleet connection sets it; None (tests, the commands) trusts every port.
+        self.serves: Optional[Callable[[int], bool]] = None
         self.catalogs = catalog.Catalogs()
         # Where llama.cpp model files are downloaded from, and the client that does it (no time limit); tests replace them.
         self.hugging_face_files_url = HUGGING_FACE_FILES_URL
         self.downloads: Callable[[], httpx.Client] = lambda: httpx.Client(trust_env=False, timeout=httpx.Timeout(60, read=300), follow_redirects=True)
         # Restarts the llama-server agent-machine runs, so it serves its GGUF folder; presence wires it to servers.
         self.restart_llama: Optional[Callable[[], None]] = None
+
+    def answers_as(self, kind: str, port: int) -> bool:
+        """Whether what listens on the port answers as that kind of model server. A change (pull, delete,
+        load, unload) is only sent to one that does: the server names the port, and something else on
+        loopback there must never get a POST or DELETE meant for a model server."""
+        path = KIND_PATHS.get(kind)
+        if path is None:
+            return False
+        try:
+            with local(3) as http:
+                response = http.get(f"http://{self.host}:{port}{path}")
+        except httpx.HTTPError:
+            return False
+        # Strata answers 401 without its key; it's still Strata.
+        if response.status_code != 200:
+            return kind == "strata" and response.status_code == 401
+        try:
+            body = response.json()
+        except ValueError:
+            return False
+        if not isinstance(body, dict):
+            return False
+        return isinstance(body.get("version"), str) if kind == "ollama" else True
 
     def handle(self, request: Dict[str, Any], progress: Optional[Progress] = None) -> Dict[str, Any]:
         """One request, always answered with a provider_result for its id. progress hears a pull's progress before the answer."""
@@ -271,6 +299,10 @@ class Manager:
             if op == "status":
                 return {"state": api_status(base)}
             raise Refused(API_MANAGED)
+        # The server names the port. One this machine found itself is its model server; any other has to
+        # answer as that kind first (one just started, or one the machine doesn't look for).
+        if op in CHANGES and self.serves is not None and not self.serves(port) and not self.answers_as(kind, port):
+            raise Refused(f"nothing on port {port} answers as {kind}, so its models can't be changed")
         model = str(request.get("model") or "").strip()
         if (op in CHANGES or op == "files") and kind != "strata" and not model:
             raise Refused("A model name is required")

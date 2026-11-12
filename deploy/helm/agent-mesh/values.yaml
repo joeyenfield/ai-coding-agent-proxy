@@ -365,9 +365,11 @@ auth:
     # AI_PROXY_AUTH_JWT_ACCESS_TOKENS: auto (on in mode scaled), true or false.
     jwtAccessTokens: auto
     # The proxies whose forwarded headers agent-auth trusts for a visitor's address, which its sign-in
-    # rate limits count by. "*" trusts every pod that can reach it: set your ingress or gateway ranges,
-    # or restrict networkPolicy.publicFrom, so nobody inside the cluster can pose as another address.
-    forwardedAllowIps: "*"
+    # rate limits count by. Set this to your ingress or gateway ranges: until you do, every visitor
+    # through the ingress counts as the ingress's one address, so a run of wrong passwords can hold
+    # up sign-in for everyone for ten minutes. Use "*" only with networkPolicy.publicFrom restricted
+    # to trusted proxies, or any pod that reaches it can pose as another address.
+    forwardedAllowIps: "127.0.0.1"
     resources:
       requests: {cpu: 100m, memory: 256Mi}
       limits: {memory: 512Mi}

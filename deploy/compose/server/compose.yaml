@@ -1,17 +1,21 @@
 # A server for real use, from the published images: PostgreSQL, agent-auth and agent-server.
 # From this folder (deploy/compose/server): docker compose up -d. See ../README.md.
 #
-# The console is then on http://<this host>:9999. On first start the server creates an
+# The console is then on http://127.0.0.1:9999 on this host: the port is published on loopback
+# only, for a reverse proxy with HTTPS in front. To reach it from other computers without one,
+# set AI_PROXY_PUBLISH_HOST=0.0.0.0 (plain HTTP on every interface). On first start the server creates an
 # admin with a random password: `docker compose logs agent-server` shows it, and it's
 # saved as certs/first-user-password in the agent-server-certs volume. Sign each agent
-# machine in through OIDC: agent login https://api.aicontrolmesh.com
+# machine in through OIDC: agent login https://<your server>
 #
 # Everything the server keeps (settings, accounts, the fleet, every session's records,
 # traces and terminals, and agent-auth's OAuth state) is in PostgreSQL, in the postgres-data
 # volume; back it up with: docker compose exec -T postgres pg_dump -U postgres -Fc mesh > mesh.dump
 # Set AI_PROXY_POSTGRES_PASSWORD, AI_PROXY_DB_API_PASSWORD and AI_PROXY_DB_AUTH_PASSWORD
-# (letters and digits) and AI_PROXY_OIDC_INTROSPECTION_SECRET in .env, beside this file,
-# before the first start.
+# (letters and digits), AI_PROXY_OIDC_INTROSPECTION_SECRET, and your own addresses
+# (AI_PROXY_OIDC_ISSUER, AI_PROXY_OIDC_AUDIENCE, AI_PROXY_OIDC_REDIRECT_URIS,
+# AI_PROXY_OIDC_BROWSER_ORIGINS, AI_PROXY_SERVER) in .env, beside this file, before the
+# first start. Compose says which one is missing.
 #
 # The images come from a registry, built locally with devhelpers/release_scripts/release.ps1 or .sh:
 # AI_PROXY_IMAGE_TAG picks the services version (default latest, the last promoted stable
@@ -50,13 +54,12 @@ services:
       AI_PROXY_AUTH_DATABASE_URL: postgresql+psycopg://mesh_auth:${AI_PROXY_DB_AUTH_PASSWORD}@postgres:5432/mesh
       AI_PROXY_AUTH_HOST: 0.0.0.0
       AI_PROXY_AUTH_PORT: 10000
-      # The OIDC addresses default to the project's reference deployment: set all four
-      # (here and on agent-server below) to YOUR OWN hostnames, or sign-in redirects to
-      # a server that isn't yours. See docs/oidc.md.
-      AI_PROXY_OIDC_ISSUER: ${AI_PROXY_OIDC_ISSUER:-https://auth.aicontrolmesh.com}
-      AI_PROXY_OIDC_AUDIENCE: ${AI_PROXY_OIDC_AUDIENCE:-https://api.aicontrolmesh.com}
-      AI_PROXY_OIDC_REDIRECT_URIS: ${AI_PROXY_OIDC_REDIRECT_URIS:-https://api.aicontrolmesh.com/api/auth/callback}
-      AI_PROXY_OIDC_BROWSER_ORIGINS: ${AI_PROXY_OIDC_BROWSER_ORIGINS:-https://console.aicontrolmesh.com}
+      # The OIDC addresses have no default: set all four to your own hostnames (they're
+      # used here and on agent-server below). See docs/oidc.md.
+      AI_PROXY_OIDC_ISSUER: ${AI_PROXY_OIDC_ISSUER:?Set AI_PROXY_OIDC_ISSUER to your sign-in service's address, such as https://auth.example.com}
+      AI_PROXY_OIDC_AUDIENCE: ${AI_PROXY_OIDC_AUDIENCE:?Set AI_PROXY_OIDC_AUDIENCE to your server's address, such as https://api.example.com}
+      AI_PROXY_OIDC_REDIRECT_URIS: ${AI_PROXY_OIDC_REDIRECT_URIS:?Set AI_PROXY_OIDC_REDIRECT_URIS to your server's sign-in callback, such as https://api.example.com/api/auth/callback}
+      AI_PROXY_OIDC_BROWSER_ORIGINS: ${AI_PROXY_OIDC_BROWSER_ORIGINS:?Set AI_PROXY_OIDC_BROWSER_ORIGINS to your console's address, such as https://console.example.com}
       AI_PROXY_OIDC_INTROSPECTION_SECRET: ${AI_PROXY_OIDC_INTROSPECTION_SECRET:?Set a strong shared OIDC introspection secret}
       AI_PROXY_OIDC_STATE_DIR: /app/auth-state
       # Requests reach the container from Docker's bridge, not 127.0.0.1, so uvicorn would
@@ -103,19 +106,19 @@ services:
       AI_PROXY_SERVE_UI: ${AI_PROXY_SERVE_UI:-1}
       AI_PROXY_CONSOLE_ORIGINS: ${AI_PROXY_CONSOLE_ORIGINS:-}
       # Set the four OIDC addresses to your own hostnames (see the agent-auth service above).
-      AI_PROXY_OIDC_ISSUER: ${AI_PROXY_OIDC_ISSUER:-https://auth.aicontrolmesh.com}
-      AI_PROXY_OIDC_AUDIENCE: ${AI_PROXY_OIDC_AUDIENCE:-https://api.aicontrolmesh.com}
-      AI_PROXY_OIDC_REDIRECT_URIS: ${AI_PROXY_OIDC_REDIRECT_URIS:-https://api.aicontrolmesh.com/api/auth/callback}
-      AI_PROXY_OIDC_BROWSER_ORIGINS: ${AI_PROXY_OIDC_BROWSER_ORIGINS:-https://console.aicontrolmesh.com}
+      AI_PROXY_OIDC_ISSUER: ${AI_PROXY_OIDC_ISSUER:?Set AI_PROXY_OIDC_ISSUER to your sign-in service's address, such as https://auth.example.com}
+      AI_PROXY_OIDC_AUDIENCE: ${AI_PROXY_OIDC_AUDIENCE:?Set AI_PROXY_OIDC_AUDIENCE to your server's address, such as https://api.example.com}
+      AI_PROXY_OIDC_REDIRECT_URIS: ${AI_PROXY_OIDC_REDIRECT_URIS:?Set AI_PROXY_OIDC_REDIRECT_URIS to your server's sign-in callback, such as https://api.example.com/api/auth/callback}
+      AI_PROXY_OIDC_BROWSER_ORIGINS: ${AI_PROXY_OIDC_BROWSER_ORIGINS:?Set AI_PROXY_OIDC_BROWSER_ORIGINS to your console's address, such as https://console.example.com}
       AI_PROXY_OIDC_INTROSPECTION_SECRET: ${AI_PROXY_OIDC_INTROSPECTION_SECRET:?Set a strong shared OIDC introspection secret}
       # The vault key for subscriptions' managed tokens (agent-server vault key makes one); empty refuses storing them.
       AI_PROXY_VAULT_KEYS: ${AI_PROXY_VAULT_KEYS:-}
-      # Behind a reverse proxy on this computer (nginx for HTTPS): set AI_PROXY_PUBLISH_HOST=127.0.0.1
-      # and AI_PROXY_FORWARDED_ALLOW_IPS=*, so the proxy's X-Forwarded-For and -Proto count (the
+      # Behind a reverse proxy on this computer (nginx for HTTPS): keep the port on loopback (the default)
+      # and set AI_PROXY_FORWARDED_ALLOW_IPS=*, so the proxy's X-Forwarded-For and -Proto count (the
       # container sees Docker's bridge, never 127.0.0.1) and nothing else can reach the port to fake them.
       FORWARDED_ALLOW_IPS: ${AI_PROXY_FORWARDED_ALLOW_IPS:-127.0.0.1}
     ports:
-      - "${AI_PROXY_PUBLISH_HOST:-0.0.0.0}:9999:9999"
+      - "${AI_PROXY_PUBLISH_HOST:-127.0.0.1}:9999:9999"
     extra_hosts:
       # Providers on the Docker host (Ollama on 11434, ...), on Linux as on Docker Desktop.
       - "host.docker.internal:host-gateway"
@@ -150,9 +153,8 @@ services:
     depends_on: [agent-server]
     hostname: agent-sandbox
     environment:
-      # Set AI_PROXY_SERVER to your own server, or the sandbox asks the project's
-      # reference deployment for device codes.
-      AI_PROXY_SERVER: ${AI_PROXY_SERVER:-https://api.aicontrolmesh.com}
+      # Your own server's address: where the sandbox asks for device codes.
+      AI_PROXY_SERVER: ${AI_PROXY_SERVER:?Set AI_PROXY_SERVER to your server's address, such as https://api.example.com}
       AI_PROXY_MACHINE_NAME: ${AI_PROXY_MACHINE_NAME:-agent-sandbox}
       GIT_USER_NAME: ${GIT_USER_NAME:-}
       GIT_USER_EMAIL: ${GIT_USER_EMAIL:-}

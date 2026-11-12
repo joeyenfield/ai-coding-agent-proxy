@@ -171,6 +171,22 @@ func (p *Presence) Run(ctx context.Context) {
 	if p.Providers == nil {
 		p.Providers = &providers.Manager{}
 	}
+	if p.Providers.Serves == nil {
+		// The ports a tunnel may reach are the ones whose models may be changed without asking what they are.
+		p.Providers.Serves = func(port int) bool {
+			if p.tunnels.allowed(port) {
+				return true
+			}
+			if p.Containers != nil {
+				for _, container := range p.Containers.Ports() {
+					if container == port {
+						return true
+					}
+				}
+			}
+			return false
+		}
+	}
 	if p.Providers.RestartLlama == nil {
 		// After agent-machine downloads a model into its GGUF folder, a llama-server started
 		// before it served that folder restarts to serve it.

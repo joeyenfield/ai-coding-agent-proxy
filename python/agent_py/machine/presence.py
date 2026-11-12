@@ -365,6 +365,8 @@ class Presence:
         self.shell: Callable[[Dict[str, Any], str], str] = shell_headless
         # The ports tunnels may reach: the model servers in the last hello or update. Nothing else here is ever reached.
         self.tunnel_ports: set = set()
+        # The ports a tunnel may reach are the ones whose models may be changed without asking what they are.
+        self.providers.serves = lambda port: port in self.tunnel_ports or port in self.containers.ports()
         # Shares the MCP servers in mcp.json (agent-machine mcp add) through the tunnel.
         self.mcp = mcp.Bridge()
         # The provider CLIs here and whether each is signed in, for the hello.

@@ -133,7 +133,7 @@ irm https://github.com/joeyenfield/ai-control-mesh/releases/latest/download/inst
 Four steps, walked through in [Getting started](docs/getting-started.md):
 
 1. **Run the server and its sign-in service.** They are two programs, `agent-server` and `agent-auth` (the OIDC issuer), behind HTTPS with your callback URLs ([OIDC authentication](docs/oidc.md)). Sign-in is mandatory everywhere, loopback included. Either:
-   - **in containers:** in `deploy/compose/server`, put `AI_PROXY_POSTGRES_PASSWORD`, `AI_PROXY_DB_API_PASSWORD`, `AI_PROXY_DB_AUTH_PASSWORD` and `AI_PROXY_OIDC_INTROSPECTION_SECRET` in a `.env` file, then run `docker compose up -d` there ([Deployment](docs/deployment.md)); or
+   - **in containers:** in `deploy/compose/server`, put `AI_PROXY_POSTGRES_PASSWORD`, `AI_PROXY_DB_API_PASSWORD`, `AI_PROXY_DB_AUTH_PASSWORD`, `AI_PROXY_OIDC_INTROSPECTION_SECRET` and your own addresses (`AI_PROXY_OIDC_ISSUER`, `AI_PROXY_OIDC_AUDIENCE`, `AI_PROXY_OIDC_REDIRECT_URIS`, `AI_PROXY_OIDC_BROWSER_ORIGINS`, `AI_PROXY_SERVER`) in a `.env` file, then run `docker compose up -d` there ([Deployment](docs/deployment.md)); or
    - **from a checkout:** `pip install -e ./server`, set the `AI_PROXY_OIDC_*` variables, then run `agent-server` and `agent-auth` ([Getting started](docs/getting-started.md#from-a-checkout)).
 2. **Install `agent` where you run coding agents**, from the server's **Downloads** page or its one-line installer, and sign each computer in once. A new server gets the builds it hands out with `agent-server downloads fetch`.
 

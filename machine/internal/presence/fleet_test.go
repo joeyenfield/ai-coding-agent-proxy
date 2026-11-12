@@ -251,6 +251,11 @@ func TestPresenceAnswersProviderRequestsAndSendsStrataKeys(t *testing.T) {
 	_ = os.WriteFile(config, []byte(`{"port": 18691, "api_key": "sk-strata"}`), 0o600)
 	_ = os.WriteFile(filepath.Join(profiles, "coder.json"), []byte(`{"id": "coder", "source_config": `+strconv.Quote(config)+`}`), 0o600)
 	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// It isn't one of the ports the machine reported, so it's asked what it is before the pull.
+		if r.URL.Path == "/api/version" {
+			_, _ = w.Write([]byte(`{"version":"0.12.3"}`))
+			return
+		}
 		_, _ = w.Write([]byte("{\"status\":\"pulling manifest\"}\n{\"status\":\"success\"}\n"))
 	}))
 	defer ollama.Close()

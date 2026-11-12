@@ -49,8 +49,9 @@ def org_settings(tmp_path: Path) -> Settings:
     return settings
 
 
-def signed_in(app, user: str) -> TestClient:
-    client = OAuthTestClient(app, base_url=BASE)
+def signed_in(app, user: str, local: bool = False) -> TestClient:
+    """local: its requests come from this computer (127.0.0.1), as a machine that says it's this computer must."""
+    client = OAuthTestClient(app, base_url=BASE, **({"client": ("127.0.0.1", 50000)} if local else {}))
     client.cookies.set("ai_proxy_session", access_token(app, user))
     return client
 

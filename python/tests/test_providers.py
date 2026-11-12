@@ -141,6 +141,22 @@ def test_changes_need_servers_on(serve):
     assert answer["ok"] is True and fake.bodies["DELETE /api/delete"]["model"] == "m", answer
 
 
+def test_changes_on_an_unknown_port_need_a_model_server_there(serve):
+    """A port the machine didn't find itself has to answer as that kind of model server before its models are
+    changed: the server names the port, and whatever else listens there is never sent the change."""
+    other = serve({"DELETE /api/delete": reply({})})
+    manager = providers.Manager(on)
+    manager.serves = lambda port: False
+    answer = handle(manager, op="delete", kind="ollama", port=other.port, model="m")
+    assert answer["ok"] is False and "answers as ollama" in answer["error"], answer
+    assert not [call for call in other.calls if call.startswith("DELETE")]
+    ollama = serve({"GET /api/version": reply({"version": "0.12.3"}), "DELETE /api/delete": reply({})})
+    assert handle(manager, op="delete", kind="ollama", port=ollama.port, model="m")["ok"] is True
+    # One the machine reported isn't asked what it is.
+    manager.serves = lambda port: True
+    assert handle(manager, op="delete", kind="ollama", port=other.port, model="m")["ok"] is True
+
+
 def test_requests_are_checked():
     manager = providers.Manager(on)
     for request in (

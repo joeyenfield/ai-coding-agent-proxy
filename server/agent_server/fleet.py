@@ -558,7 +558,12 @@ class Fleet:
         machine.os = str(data.get("os") or machine.os)[:40]
         machine.arch = str(data.get("arch") or machine.arch)[:40]
         machine.version = str(data.get("version") or machine.version)[:40]
-        machine.address = str(data.get("address") or "").strip()[:255] or client_host or machine.address
+        address = str(data.get("address") or "").strip()[:255]
+        # A machine can only be "this computer" when its connection came from this computer: one elsewhere
+        # that says 127.0.0.1 would point its providers at the server's own loopback services.
+        if address and self._is_loopback(address) and not self._is_loopback(client_host or ""):
+            address = ""
+        machine.address = address or client_host or machine.address
         if isinstance(data.get("agents"), list):
             machine.agents = [str(item)[:80] for item in data["agents"]][:100]
         if isinstance(data.get("providers"), list):
@@ -930,7 +935,11 @@ class Fleet:
     @staticmethod
     def loopback(machine: Machine) -> bool:
         """Whether the machine is this computer, so what it runs only needs to listen on loopback."""
-        host = (machine.address or "127.0.0.1").strip("[]")
+        return Fleet._is_loopback(machine.address or "127.0.0.1")
+
+    @staticmethod
+    def _is_loopback(address: str) -> bool:
+        host = address.strip("[]")
         if host == "localhost":
             return True
         try:

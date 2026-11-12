@@ -185,15 +185,15 @@ Plain HTTP between computers isn't blocked outright everywhere: a LAN-only insta
 
 ## What a machine is trusted with
 
-A machine signed in to the server is trusted in two ways, by design. Both are in its owner's and its organization's admins' hands, so give machine sign-in, and the admin role, only to people you'd trust with them.
+A machine signed in to the server is in its owner's and its organization's admins' hands, so give machine sign-in, and the admin role, only to people you'd trust with them. Two rules limit what one can do:
 
-- **Its address.** A machine says what address its model servers are reached at, and once one of them is a provider the server sends agents' requests there. A machine that names the server's own computer or another on its network points that provider at whatever listens there. Machines whose traffic goes through the fleet's tunnel aren't reached by address at all.
-- **Its model server's port.** With `agent-machine servers on`, the server can ask a machine to pull, delete, load or unload a model on any loopback port it names, not only one the machine found itself. That's what lets the console manage a model server the machine hasn't detected. Leave `servers` off on a computer that runs other services on loopback you wouldn't want the server's admins to reach.
+- **Its address.** A machine says what address its model servers are reached at, and once one of them is a provider the server sends agents' requests there. It can only say it's the server's own computer (`127.0.0.1`, `localhost`) when its connection comes from that computer; from anywhere else the server uses the address the connection came from, so a machine can't point a provider at the server's own loopback services. It can still name another address on the server's network, which is how a machine without a tunnel is reached: a machine whose traffic goes through the fleet's tunnel isn't reached by address at all.
+- **Its model server's port.** With `agent-machine servers on`, the server can ask a machine to pull, delete, load or unload a model on a port it names. A port the machine found itself, or one of its containers, is its model server. Any other port has to answer as that kind of model server first, so something else listening on the machine's loopback is never sent a change meant for a model server.
 
 ## A checklist for a public server
 
 1. Put nginx (or another reverse proxy) with a real certificate in front of agent-server and agent-auth: `devhelpers/scripts/https/setup-https.ps1` on Windows, or see [Deployment](deployment.md#https).
-2. Publish agent-server's port on loopback only: `AI_PROXY_PUBLISH_HOST=127.0.0.1`, `AI_PROXY_FORWARDED_ALLOW_IPS=*`.
+2. Keep agent-server's port on loopback only, which `deploy/compose/server` does unless you set `AI_PROXY_PUBLISH_HOST`, and set `AI_PROXY_FORWARDED_ALLOW_IPS=*` so the proxy's forwarded headers count.
 3. Use `https://` addresses everywhere you type one: `agent login`, `agent-machine login`, the one-line installers, `--server`, `AI_PROXY_URL`, `AI_PROXY_OIDC_ISSUER`.
 4. Set strong, different passwords for PostgreSQL's three roles and for `AI_PROXY_OIDC_INTROSPECTION_SECRET`, in `.env` or a secret manager, never in a file you commit.
 5. Keep model servers on loopback and add them from their machines, so their traffic goes through the fleet's tunnels.

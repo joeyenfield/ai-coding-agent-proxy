@@ -123,6 +123,35 @@ func TestChangesNeedServersOn(t *testing.T) {
 	}
 }
 
+// A port the machine didn't find itself has to answer as that kind of model server before its models
+// are changed: the server names the port, and whatever else listens there is never sent the change.
+func TestChangesOnAnUnknownPortNeedAModelServerThere(t *testing.T) {
+	unknown := func(int) bool { return false }
+	other := serve(t, map[string]http.HandlerFunc{"DELETE /api/delete": reply(map[string]any{})})
+	answer := (&Manager{Machine: on, Serves: unknown}).Handle(Request{Op: "delete", Kind: "ollama", Port: other.port(), Model: "m"}, nil)
+	if answer["ok"] != false || !strings.Contains(answer["error"].(string), "answers as ollama") {
+		t.Fatalf("%v", answer)
+	}
+	for _, call := range other.calls {
+		if strings.HasPrefix(call, "DELETE") {
+			t.Fatalf("it was sent the change: %v", other.calls)
+		}
+	}
+	ollama := serve(t, map[string]http.HandlerFunc{
+		"GET /api/version":   reply(map[string]any{"version": "0.12.3"}),
+		"DELETE /api/delete": reply(map[string]any{}),
+	})
+	answer = (&Manager{Machine: on, Serves: unknown}).Handle(Request{Op: "delete", Kind: "ollama", Port: ollama.port(), Model: "m"}, nil)
+	if answer["ok"] != true {
+		t.Fatalf("%v", answer)
+	}
+	// One the machine reported isn't asked what it is.
+	answer = (&Manager{Machine: on, Serves: func(int) bool { return true }}).Handle(Request{Op: "delete", Kind: "ollama", Port: other.port(), Model: "m"}, nil)
+	if answer["ok"] != true {
+		t.Fatalf("%v", answer)
+	}
+}
+
 func TestRequestsAreChecked(t *testing.T) {
 	manager := &Manager{Machine: on}
 	for _, request := range []Request{
