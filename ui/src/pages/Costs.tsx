@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ROOT_ORG, type CostRecompute, type CostTotals, type Identity, type OrgCosts } from "../api";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { CostBars, CostChart } from "../components/CostChart";
+import { dayAgo, DayRange } from "../components/DayRange";
 import { ModelPricesSettings } from "../components/ModelPrices";
 import { PartTag } from "../components/PartTag";
 import { TabBar, TabPanel, useTabParam } from "../components/Tabs";
@@ -10,10 +11,6 @@ import { formatCompact, formatNumber, formatUsd } from "../format";
 import { useAuth, useToast } from "../hooks";
 
 const TABS = ["summary", "prices", "recompute"] as const;
-const RANGES = [7, 30, 90];
-
-/** A UTC day, days back from today: the server's days are UTC days, as its records' timestamps are. */
-const dayAgo = (days: number) => new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
 
 /** The figure to lead with: money spent, or what subscriptions' calls would cost when nothing was. */
 const spentText = (cost: CostTotals) => (cost.usd > 0 || cost.subscription_usd === 0 ? formatUsd(cost.usd) : `≈ ${formatUsd(cost.subscription_usd)}`);
@@ -34,14 +31,11 @@ function Costs({ identity }: { identity: Identity }) {
   const [org, setOrg] = useState(identity.tenant);
   const [since, setSince] = useState(() => dayAgo(29));
   const [until, setUntil] = useState(() => dayAgo(0));
-  // Site admins look after every organization: they choose which one's costs to see.
-  const orgs = useQuery({ queryKey: ["orgs"], queryFn: api.orgs, enabled: identity.site_admin });
   const valid = Boolean(since && until && since <= until);
   const costs = useQuery({ queryKey: ["org-costs", org, since, until], queryFn: () => api.orgCosts(org, since, until), enabled: valid, retry: false });
   const data = costs.data;
   const manage = data?.manage ?? (identity.site_admin || (identity.role === "admin" && identity.tenant === org));
   const unpriced = (data?.models ?? []).filter((item) => item.unpriced > 0 && item.model).map((item) => item.model);
-  const preset = RANGES.find((days) => until === dayAgo(0) && since === dayAgo(days - 1));
 
   return (
     <div className="page">
@@ -51,30 +45,7 @@ function Costs({ identity }: { identity: Identity }) {
         <p className="lede">What model calls cost, estimated from the price table. Days are UTC days.</p>
       </header>
 
-      <div className="filters cost-range">
-        {identity.site_admin && (
-          <select value={org} onChange={(event) => setOrg(event.target.value)} aria-label="Organization">
-            {(orgs.data?.orgs ?? [{ id: org, name: org }]).map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.id === ROOT_ORG ? "Site (root)" : item.name || item.id}
-              </option>
-            ))}
-          </select>
-        )}
-        <label>
-          From <input type="date" value={since} max={until} onChange={(event) => setSince(event.target.value)} />
-        </label>
-        <label>
-          to <input type="date" value={until} min={since} max={dayAgo(0)} onChange={(event) => setUntil(event.target.value)} />
-        </label>
-        <div className="chip-bar" role="group" aria-label="Range">
-          {RANGES.map((days) => (
-            <button key={days} type="button" aria-pressed={preset === days} onClick={() => { setSince(dayAgo(days - 1)); setUntil(dayAgo(0)); }}>
-              {days} days
-            </button>
-          ))}
-        </div>
-      </div>
+      <DayRange identity={identity} org={org} since={since} until={until} onOrg={setOrg} onDays={(first, last) => { setSince(first); setUntil(last); }} />
 
       <TabBar
         label="Costs"

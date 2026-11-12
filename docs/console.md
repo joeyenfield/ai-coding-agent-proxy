@@ -16,7 +16,8 @@ The rail on the left groups the pages by what you're doing. Members see only the
 | **Agents** | Start an agent, Live agent view, Running agents, Ask a model | Start coding agents through the server, then watch them and type into them from any device, or ask a model a question yourself. |
 | **Models** | Providers, Subscriptions, Shared with you | Where agents' model calls go: machines' model servers, hosted APIs, your own AI plans, and what linked servers share with your organization. |
 | **Machines** | All machines, Add a machine, Approve a device | The fleet. Open **All machines** to search and open a computer; individual machines aren't listed in the rail. |
-| **Activity** | Live, Traffic, Requests, Sessions, Costs | What agents send through the server, as it happens and afterwards, and what it cost. |
+| **Activity** | Live, Traffic, Requests, Sessions | What agents send through the server, as it happens and afterwards. |
+| **Analytics** | Usage, Sessions by day, Model calls by day, Cost by day, People by day (admins), Costs and prices | How much your organization uses its agents and models, day by day, and what it costs. |
 | **Logs** | Access log, API log, Audit log | What reached the server, what it saved and who changed what (admins). |
 | **Administration** | Organizations, Server settings, Server stats | Your organization, and for site admins the server's own settings and load. |
 
@@ -244,9 +245,25 @@ Account agents' other calls (sign-in, telemetry, MCP) aren't shown here; they're
 
 **A session's page** (`/sessions/<id>`) shows the session, when it started, its last traffic, requests, tokens read and written, a **Payloads** switch (when the organization's policy allows choosing), and its OpenAI and Anthropic URLs. Two tabs: **Requests** (the default), its requests as on Traffic, with **Model calls only**, **Group repeats** and **Open in Traffic**; and **Chat**, the session's captured model calls read back as a chat (it needs payload capture, `--trace`; see [The chat view](#the-chat-view)).
 
+### Analytics
+
+The **Analytics** section shows how much your organization uses its agents and models between two days, as stacked bars: one bar a day, split into colours. Pick the first and last day (UTC days), or **7 days**, **30 days** or **90 days**; site admins also pick the organization. An organization's admins see everyone's usage in it; members see their own sessions' and have no **Person** split or **People** chart.
+
+![Usage, split by model](screenshots/analytics.png)
+
+- **Usage** (`/analytics`) has all four charts: **Sessions** (sessions that made model calls), **Model calls** (calls that used tokens), **Cost** (estimated: money spent on paid APIs plus subscriptions' calls at API prices) and **People** (whose sessions made calls). Four cards above them give the totals for the days.
+- **Sessions by day**, **Model calls by day**, **Cost by day** and **People by day** (`/analytics/sessions`, `/requests`, `/cost`, `/people`) show one of the charts larger. The buttons above the charts move between them and keep what you chose.
+- **Split by** chooses what the colours are: **Person**, **Model**, **Provider** or **Agent**. The eight busiest get a colour each; the rest are counted together as **Other**. The legend names them, and pointing at a day lists its figures.
+- **Drilling down**: choose a name in the legend, a part of a bar or a row of the table to see only that, split by the next thing. Choose a person, and the charts show that person's models; choose a model, and they show the providers it went through; and so on. What you narrowed to is listed after **Only**: choose one to take it away, or **Clear**. Each step is in the address, so Back undoes it and a view can be shared as a link.
+- The table under the charts lists every value of the split with its sessions, model calls, tokens, cost and people. **Sessions that cost the most** lists up to 50 sessions that match, each a link to the session.
+
+A session or person counts once in each model, provider or agent they used, so a day's bar can be taller than the day's own count; pointing at the day shows both.
+
 ### Costs
 
-**Costs** (`/costs`) shows what your organization's model calls cost between two days, and is where prices are managed and recorded calls are priced again. Pick the first and last day (UTC days), or **7 days**, **30 days** or **90 days**; site admins also pick the organization. An organization's admins see everyone's calls in it; members see their own sessions'. How a cost is estimated is in [Cost estimates](providers.md#cost-estimates).
+**Costs and prices** (`/costs`, in the Analytics section) shows what your organization's model calls cost between two days, and is where prices are managed and recorded calls are priced again. Pick the first and last day (UTC days), or **7 days**, **30 days** or **90 days**; site admins also pick the organization. An organization's admins see everyone's calls in it; members see their own sessions'. How a cost is estimated is in [Cost estimates](providers.md#cost-estimates).
+
+![Costs and prices](screenshots/costs.png)
 
 - **Summary**: four cards (**Spent on paid APIs**, **Subscriptions, at API prices**, **Model calls**, **With no price**), a bar for each day, and the same split **By model**, **By person** (admins) and **By provider**. Money spent on a paid API is the solid part of a bar; what a subscription's calls would cost at API prices, which isn't billed, is the quieter part. Point at a day for its figures. When calls had no price, a note says how many and links to the prices.
 - **Model prices**: the server's price table. Site admins edit it here as on Server settings: rows of a model name or pattern with its prices, **Add a price**, reorder, remove, **Save prices**, **Back to the shipped prices**. Models that were used with no price in the chosen days are listed above the table, each with a button that adds its row. Everyone else sees the table read-only.

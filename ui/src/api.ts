@@ -302,6 +302,52 @@ export interface OrgCosts extends CostTotals {
   providers: (CostTotals & { provider: string })[];
 }
 
+/** What usage is split by and narrowed to. */
+export type UsageDimension = "user" | "model" | "provider" | "agent";
+
+/** Usage counted over some model calls: in all, in a day, or in one series of a day. */
+export interface UsageCell {
+  requests: number;
+  usd: number;
+  subscription_usd: number;
+  input_tokens: number;
+  output_tokens: number;
+  sessions: number;
+  users: number;
+}
+
+/** The series a day's values beyond the charted ones are counted in. */
+export const USAGE_OTHER = "__other__";
+
+/** An organization's usage between two UTC days, split by one dimension (GET /api/orgs/{org}/analytics). */
+export interface OrgAnalytics extends UsageCell {
+  org: string;
+  since: string;
+  until: string;
+  currency: string;
+  by: UsageDimension;
+  filters: Partial<Record<UsageDimension, string>>;
+  /** Whether the caller sees everyone's in the organization (its admins), not only their own. */
+  manage: boolean;
+  /** Every day of the range, with its series by the split's value (USAGE_OTHER for the rest). */
+  days: (UsageCell & { day: string; series: Record<string, UsageCell> })[];
+  /** The split's values, the busiest first; slot is its series in the days, null when it's in the rest. */
+  values: (UsageCell & { key: string; slot: number | null })[];
+  more_values: number;
+  top_sessions: {
+    session_id: string;
+    user: string;
+    agent: string;
+    project: string;
+    started_at: string;
+    requests: number;
+    usd: number;
+    subscription_usd: number;
+    input_tokens: number;
+    output_tokens: number;
+  }[];
+}
+
 /** What pricing an organization's recorded calls again changed (POST /api/orgs/{org}/costs/recompute). */
 export interface CostRecompute {
   org: string;
@@ -2463,6 +2509,8 @@ export const api = {
   prices: () => request<ReadablePrices>("/api/prices"),
   orgCosts: (org: string, since: string, until: string) =>
     request<OrgCosts>(`/api/orgs/${encodeURIComponent(org)}/costs?since=${encodeURIComponent(since)}&until=${encodeURIComponent(until)}`),
+  orgAnalytics: (org: string, since: string, until: string, by: UsageDimension, filters: Partial<Record<UsageDimension, string>>) =>
+    request<OrgAnalytics>(`/api/orgs/${encodeURIComponent(org)}/analytics?${new URLSearchParams({ since, until, by, ...filters })}`),
   recomputeCosts: (org: string, since: string, until: string) =>
     request<CostRecompute>(`/api/orgs/${encodeURIComponent(org)}/costs/recompute`, { method: "POST", body: JSON.stringify({ since, until }) }),
   saveSharedModels: (shared: Record<string, string[]>) =>

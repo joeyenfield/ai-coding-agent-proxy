@@ -10,6 +10,7 @@ import { BootstrapCredentialWarning } from "./pages/ApiCredentials";
 import { OverviewPage } from "./pages/Overview";
 import { LivePage } from "./pages/Live";
 import { TrafficPage } from "./pages/Traffic";
+import { AnalyticsPage } from "./pages/Analytics";
 import { CostsPage } from "./pages/Costs";
 import { RequestsPage } from "./pages/Requests";
 import { RequestPage } from "./pages/Request";
@@ -227,6 +228,8 @@ function Shell({ identity }: { identity: Identity | null }) {
           <Route path="/requests" element={<RequestsPage />} />
           <Route path="/requests/:sessionId/:requestId" element={<RequestPage />} />
           <Route path="/costs" element={<CostsPage />} />
+          <Route path="/analytics" element={<AnalyticsPage />} />
+          <Route path="/analytics/:measure" element={<AnalyticsPage />} />
           <Route path="/sessions" element={<SessionsPage />} />
           <Route path="/sessions/:sessionId" element={<SessionPage />} />
           <Route path="/agents" element={<AgentsPage />} />

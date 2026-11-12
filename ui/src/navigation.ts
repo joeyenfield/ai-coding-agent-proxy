@@ -8,7 +8,7 @@
  *   Only hosted APIs and agents' own accounts aren't on a machine. The Overview and its routing
  *   map explain the console this way.
  * - The rail's sections, grouped by what you're doing: running agents, the models they use, the
- *   machines, the traffic, the logs and the server's administration. The breadcrumb above each
+ *   machines, the traffic, the analytics, the logs and the server's administration. The breadcrumb above each
  *   page's title names its section.
  *
  * Everything about a model server (its models, settings, logs, the containers that run it, the
@@ -66,7 +66,12 @@ const PAGES = {
   traffic: { to: "/traffic", label: "Traffic", icon: "arrows", hint: "Every request, grouped by what it was for" },
   requests: { to: "/requests", label: "Requests", icon: "zap", hint: "Model calls, with their payloads" },
   sessions: { to: "/sessions", label: "Sessions", icon: "layers", hint: "Each agent run, its sharing and recordings" },
-  costs: { to: "/costs", label: "Costs", icon: "chart", hint: "What model calls cost, by day, model and person; prices; recompute" },
+  usage: { to: "/analytics", label: "Usage", icon: "activity", end: true, hint: "Sessions, model calls, cost and people by day, in one place" },
+  usageSessions: { to: "/analytics/sessions", label: "Sessions by day", icon: "layers", hint: "Sessions each day, by person, model, provider or agent" },
+  usageRequests: { to: "/analytics/requests", label: "Model calls by day", icon: "zap", hint: "Model calls each day, by person, model, provider or agent" },
+  usageCost: { to: "/analytics/cost", label: "Cost by day", icon: "chart", hint: "Estimated cost each day, by person, model, provider or agent" },
+  usagePeople: { to: "/analytics/people", label: "People by day", icon: "users", admin: true, hint: "Who used agents each day" },
+  costs: { to: "/costs", label: "Costs and prices", icon: "list", hint: "What model calls cost in all; the price table; recompute" },
   accessLog: { to: "/access-log", label: "Access log", icon: "list", siteAdmin: true, hint: "Every HTTP request and WebSocket, the refused ones too" },
   apiLog: { to: "/api-log", label: "API log", icon: "book", siteAdmin: true, hint: "Saved requests, with payloads in debug mode" },
   audit: { to: "/audit", label: "Audit log", icon: "shield", admin: true, hint: "Who changed what, chained by hash" },
@@ -100,7 +105,13 @@ export const SECTIONS: NavSection[] = [
     id: "activity",
     label: "Activity",
     summary: "What agents send through the server, as it happens and afterwards.",
-    items: [PAGES.live, PAGES.traffic, PAGES.requests, PAGES.sessions, PAGES.costs],
+    items: [PAGES.live, PAGES.traffic, PAGES.requests, PAGES.sessions],
+  },
+  {
+    id: "analytics",
+    label: "Analytics",
+    summary: "How much your organization uses its agents and models, day by day, and what it costs.",
+    items: [PAGES.usage, PAGES.usageSessions, PAGES.usageRequests, PAGES.usageCost, PAGES.usagePeople, PAGES.costs],
   },
   {
     id: "logs",
@@ -178,7 +189,8 @@ export function sectionFor(pathname: string): { section: NavSection; page: NavLi
   for (const section of SECTIONS) {
     for (const page of section.items) {
       const to = pathOf(page.to);
-      if (pathname === to || pathname.startsWith(`${to}/`)) return { section, page };
+      // A page with pages under it (end) is only itself: /analytics/cost is Cost by day, not Usage.
+      if (pathname === to || (!page.end && pathname.startsWith(`${to}/`))) return { section, page };
     }
   }
   const help = HELP_LINKS.find((page) => pathname === page.to || pathname.startsWith(`${page.to}/`));

@@ -193,6 +193,24 @@ await shot("traffic-models", "/traffic?type=model", {
     await page.waitForTimeout(800);
   },
 });
+// Analytics: the demo team's usage split by model (a site admin picks the organization), and its costs.
+await shot("analytics", "/analytics?org=demo-team&by=model", {
+  admin: true,
+  height: 1150,
+  prepare: async (page) => {
+    await page.locator(".stacked-chart").first().waitFor({ timeout: 30000 });
+    await page.waitForTimeout(500);
+  },
+});
+await shot("costs", "/costs", {
+  admin: true,
+  height: 1000,
+  prepare: async (page) => {
+    await page.locator(".cost-range select").selectOption("demo-team");
+    await page.locator(".cost-chart").waitFor({ timeout: 30000 });
+    await page.waitForTimeout(500);
+  },
+});
 await shot("sessions", "/sessions", {
   prepare: async (page) => {
     await page.locator(".xrow-toggle", { hasText: "claude-account" }).first().click();

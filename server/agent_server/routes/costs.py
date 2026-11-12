@@ -1,6 +1,8 @@
-"""An organization's costs: GET /api/orgs/{org}/costs, POST /api/orgs/{org}/costs/recompute and GET /api/prices.
+"""An organization's costs and usage: GET /api/orgs/{org}/costs, GET /api/orgs/{org}/analytics,
+POST /api/orgs/{org}/costs/recompute and GET /api/prices.
 
-costs.py adds up what an organization's model calls cost between two days and prices them again.
+costs.py adds up what an organization's model calls cost between two days and prices them again;
+analytics.py counts the same calls as usage, split by person, model, provider or agent.
 The organization's admins (and site admins) see everyone's in it and may recompute; a member sees
 only the cost of their own sessions. Another organization's answers 404. The price table itself is
 the server's (site admins change it at /api/config/prices); anyone signed in may read it here.
@@ -13,7 +15,7 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 
-from .. import auth, costs, remote
+from .. import analytics, auth, costs, remote
 from ..runtime import Runtime
 
 
@@ -49,6 +51,26 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         identity, manager = visible(request, org)
         try:
             found = await asyncio.to_thread(costs.report, runtime.db, org, since, until, None if manager else identity.user)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {**found, "manage": manager}
+
+    @app.get("/api/orgs/{org}/analytics")
+    async def org_analytics(
+        org: str, request: Request, since: str, until: str, by: str = "model",
+        user: str | None = None, model: str | None = None, provider: str | None = None, agent: str | None = None,
+    ) -> dict[str, Any]:
+        """The organization's usage between two UTC days, split by one dimension (by: user, model, provider
+        or agent) and narrowed to one value of any of them (user, model, provider, agent): sessions, model
+        calls, cost, tokens and people in all, for each day with its series, for each value of the split, and
+        the costliest sessions. Its admins get everyone's (manage: true); a member only their own sessions'."""
+        identity, manager = visible(request, org)
+        filters = {"user": user, "model": model, "provider": provider, "agent": agent}
+        if not manager:
+            # A member's is their own, whoever they ask for.
+            filters["user"] = None
+        try:
+            found = await asyncio.to_thread(analytics.usage, runtime.db, org, since, until, by, filters, None if manager else identity.user)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {**found, "manage": manager}
