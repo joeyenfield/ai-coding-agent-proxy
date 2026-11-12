@@ -44,7 +44,7 @@ include = ["agent_server*"]
 
 # The one-line installers the server fills in (installer.py).
 [tool.setuptools.package-data]
-agent_server = ["install/*.sh", "install/*.ps1"]
+agent_server = ["install/*.sh", "install/*.ps1", "default_prices.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

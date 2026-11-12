@@ -1,0 +1,81 @@
+# The prices the server ships with: what cost estimates use until a site admin saves a table of their own
+# (Costs and prices > Model prices in the console, or model_prices in the settings).
+#
+# US dollars for a million tokens. A model takes the FIRST row whose pattern matches its lower-cased name,
+# so a version's own row goes above its family's (gpt-5.6-luna* above gpt-5*). * matches anything and
+# [6-8] one character of a set. cache_read and cache_write may be left out: they then cost what input does.
+#
+# To update: edit the rows here, set "checked" for that provider, and run
+#   cd server && python -m pytest -q tests/test_pricing.py
+# which fails for a row that can't be read or that a row above it hides. A server that has no table of its
+# own uses the new prices once it runs this version, for calls from then on; calls already recorded keep
+# their cost until an admin recomputes them (Costs and prices > Recompute).
+#
+# Leave a model out rather than guess: a call with no price is counted as unpriced, not costed wrongly.
+
+sources:
+  anthropic: {url: "https://www.anthropic.com/pricing", checked: "2026-11-03"}
+  openai: {url: "https://developers.openai.com/api/docs/pricing", checked: "2026-11-12"}
+  deepseek: {url: "https://api-docs.deepseek.com/quick_start/pricing", checked: "2026-11-12"}
+
+prices:
+  # Claude 5: a version's own row comes before its family's (5.5 and 5.2 cost less than 5 and 5.1).
+  - {match: "claude-fable-5-2*", input: 8, output: 40, cache_read: 0.2, cache_write: 10}
+  - {match: "claude-mythos-5-2*", input: 8, output: 40, cache_read: 0.2, cache_write: 10}
+  - {match: "claude-fable-5*", input: 10, output: 50, cache_read: 1, cache_write: 12.5}
+  - {match: "claude-mythos-5*", input: 10, output: 50, cache_read: 1, cache_write: 12.5}
+  - {match: "claude-opus-5-5*", input: 4, output: 20, cache_read: 0.2, cache_write: 5}
+  - {match: "claude-opus-5*", input: 5, output: 25, cache_read: 0.5, cache_write: 6.25}
+  - {match: "claude-sonnet-5-5*", input: 2, output: 10, cache_read: 0.1, cache_write: 2.5}
+  - {match: "claude-sonnet-5*", input: 2, output: 10, cache_read: 0.2, cache_write: 2.5}
+  # Prompts up to 100K tokens; longer ones cost more, which one price per model can't say.
+  - {match: "claude-haiku-5*", input: 0.1, output: 0.5, cache_read: 0.01, cache_write: 0.125}
+
+  # Claude 4 and earlier.
+  - {match: "claude-opus-4-5*", input: 5, output: 25, cache_read: 0.5, cache_write: 6.25}
+  - {match: "claude-opus-4-[6-8]*", input: 5, output: 25, cache_read: 0.5, cache_write: 6.25}
+  - {match: "claude-opus-4*", input: 15, output: 75, cache_read: 1.5, cache_write: 18.75}
+  - {match: "claude-sonnet-4*", input: 3, output: 15, cache_read: 0.3, cache_write: 3.75}
+  - {match: "claude-3-7-sonnet*", input: 3, output: 15, cache_read: 0.3, cache_write: 3.75}
+  - {match: "claude-haiku-4*", input: 1, output: 5, cache_read: 0.1, cache_write: 1.25}
+  - {match: "claude-3-5-haiku*", input: 0.8, output: 4, cache_read: 0.08, cache_write: 1}
+
+  # OpenAI: prompts up to 272K tokens (longer ones cost more).
+  - {match: "gpt-6-astra*", input: 10, output: 50, cache_read: 1}
+  - {match: "gpt-6.1-sol*", input: 2, output: 10, cache_read: 0.1}
+  - {match: "gpt-6.1-terra*", input: 1, output: 5, cache_read: 0.05}
+  - {match: "gpt-6-sol*", input: 2, output: 10, cache_read: 0.2}
+  - {match: "gpt-6-luna*", input: 0.1, output: 0.5, cache_read: 0.01}
+  # A promotional price, listed until 2026-11-30.
+  - {match: "gpt-5.6-sol*", input: 4, output: 20, cache_read: 0.4}
+  - {match: "gpt-5.6-terra*", input: 2, output: 12, cache_read: 0.2}
+  - {match: "gpt-5.6-luna*", input: 0.2, output: 1.2, cache_read: 0.02}
+  - {match: "gpt-5.5-pro*", input: 30, output: 180}
+  - {match: "gpt-5.5*", input: 5, output: 30, cache_read: 0.5}
+  - {match: "gpt-5.4-pro*", input: 30, output: 180}
+  - {match: "gpt-5.4-mini*", input: 0.75, output: 4.5, cache_read: 0.075}
+  - {match: "gpt-5.4-nano*", input: 0.2, output: 1.25, cache_read: 0.02}
+  - {match: "gpt-5.4*", input: 2.5, output: 15, cache_read: 0.25}
+  - {match: "gpt-5.3-codex*", input: 1.75, output: 14, cache_read: 0.175}
+  - {match: "gpt-5.2-pro*", input: 21, output: 168}
+  - {match: "gpt-5.2*", input: 1.75, output: 14, cache_read: 0.175}
+  - {match: "gpt-5-pro*", input: 15, output: 120}
+  - {match: "gpt-5-mini*", input: 0.25, output: 2, cache_read: 0.025}
+  - {match: "gpt-5-nano*", input: 0.05, output: 0.4, cache_read: 0.005}
+  - {match: "gpt-5*", input: 1.25, output: 10, cache_read: 0.125}
+  - {match: "gpt-4.1-mini*", input: 0.4, output: 1.6, cache_read: 0.1}
+  - {match: "gpt-4.1-nano*", input: 0.1, output: 0.4, cache_read: 0.025}
+  - {match: "gpt-4.1*", input: 2, output: 8, cache_read: 0.5}
+  - {match: "gpt-4o-mini*", input: 0.15, output: 0.6, cache_read: 0.075}
+  - {match: "gpt-4o*", input: 2.5, output: 10, cache_read: 1.25}
+  - {match: "o4-mini*", input: 1.1, output: 4.4, cache_read: 0.275}
+  - {match: "o3-pro*", input: 20, output: 80}
+  - {match: "o3*", input: 2, output: 8, cache_read: 0.5}
+
+  # DeepSeek charges by the hour: these are the off-peak prices, which most hours are. In its peak hours
+  # (01:00 to 04:00 and 06:00 to 10:00 UTC on weekdays) everything costs double, which one price can't say.
+  - {match: "deepseek-v4-pro*", input: 0.66, output: 1.98, cache_read: 0.022}
+  - {match: "deepseek-flash*", input: 0.15, output: 0.6, cache_read: 0.003}
+  - {match: "deepseek-v4-flash*", input: 0.15, output: 0.6, cache_read: 0.003}
+  # The names before V4 (deepseek-chat and the like).
+  - {match: "deepseek-*", input: 0.28, output: 0.42, cache_read: 0.028}

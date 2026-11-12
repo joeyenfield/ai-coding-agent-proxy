@@ -116,3 +116,12 @@ def test_shipped_prices_know_openai_and_deepseek_models_by_version():
     }
     assert found["gpt-6.1-sol"]["cache_read"] == 0.1 and found["gpt-6-sol"]["cache_read"] == 0.2
     assert pricing.checked_prices(prices) == prices
+
+
+def test_every_shipped_price_can_be_reached():
+    """The shipped table is data (default_prices.yaml): no row is hidden by a wider pattern above it."""
+    assert pricing.shipped_prices() == pricing.DEFAULT_PRICES and len(pricing.DEFAULT_PRICES) > 40
+    for row in pricing.DEFAULT_PRICES:
+        # The shortest name the pattern matches: its text with nothing for * and one character of a set.
+        name = row["match"].replace("[6-8]", "6").replace("*", "")
+        assert pricing.price_for(pricing.DEFAULT_PRICES, name)["match"] == row["match"], f"{row['match']} is hidden by a row above it"

@@ -3,8 +3,8 @@
 The table is a stored setting (`model_prices`): US dollars for a million tokens, by a pattern
 matched against the model's name, with the first match winning. Site admins edit it
 (`/api/config/prices`), and an API provider can carry prices of its own (its `prices` option),
-which are tried before the server's; it starts as `DEFAULT_PRICES`, which are list prices as they were known
-when this was written and so only a starting point: providers change them, and a model with no
+which are tried before the server's; it starts as `DEFAULT_PRICES` (the rows of `default_prices.yaml`), which are list
+prices as they were known when that file was last checked and so only a starting point: providers change them, and a model with no
 entry gets no estimate rather than a guess.
 
 A cost is worked out once, when the request is recorded, at the prices of that moment, and kept
@@ -18,71 +18,17 @@ from __future__ import annotations
 
 import re
 from fnmatch import fnmatchcase
+from pathlib import Path
 from typing import Any
+
+import yaml
 
 MILLION = 1_000_000
 MAX_PRICES = 500
 PATTERN = re.compile(r"[^\s\x00-\x1f]{1,200}")
 RATES = ("input", "output", "cache_read", "cache_write")
-
-# US dollars for a million tokens. Patterns are matched in order against the lower-cased model name.
-DEFAULT_PRICES: list[dict[str, Any]] = [
-    # Claude 5: a version's own row comes before its family's (5.5 and 5.2 cost less than 5 and 5.1).
-    {"match": "claude-fable-5-2*", "input": 8.0, "output": 40.0, "cache_read": 0.2, "cache_write": 10.0},
-    {"match": "claude-mythos-5-2*", "input": 8.0, "output": 40.0, "cache_read": 0.2, "cache_write": 10.0},
-    {"match": "claude-fable-5*", "input": 10.0, "output": 50.0, "cache_read": 1.0, "cache_write": 12.5},
-    {"match": "claude-mythos-5*", "input": 10.0, "output": 50.0, "cache_read": 1.0, "cache_write": 12.5},
-    {"match": "claude-opus-5-5*", "input": 4.0, "output": 20.0, "cache_read": 0.2, "cache_write": 5.0},
-    {"match": "claude-opus-5*", "input": 5.0, "output": 25.0, "cache_read": 0.5, "cache_write": 6.25},
-    {"match": "claude-sonnet-5-5*", "input": 2.0, "output": 10.0, "cache_read": 0.1, "cache_write": 2.5},
-    {"match": "claude-sonnet-5*", "input": 2.0, "output": 10.0, "cache_read": 0.2, "cache_write": 2.5},
-    # Prompts up to 100K tokens; longer ones cost more, which one price per model can't say.
-    {"match": "claude-haiku-5*", "input": 0.1, "output": 0.5, "cache_read": 0.01, "cache_write": 0.125},
-    {"match": "claude-opus-4-5*", "input": 5.0, "output": 25.0, "cache_read": 0.5, "cache_write": 6.25},
-    {"match": "claude-opus-4-[6-8]*", "input": 5.0, "output": 25.0, "cache_read": 0.5, "cache_write": 6.25},
-    {"match": "claude-opus-4*", "input": 15.0, "output": 75.0, "cache_read": 1.5, "cache_write": 18.75},
-    {"match": "claude-sonnet-4*", "input": 3.0, "output": 15.0, "cache_read": 0.3, "cache_write": 3.75},
-    {"match": "claude-3-7-sonnet*", "input": 3.0, "output": 15.0, "cache_read": 0.3, "cache_write": 3.75},
-    {"match": "claude-haiku-4*", "input": 1.0, "output": 5.0, "cache_read": 0.1, "cache_write": 1.25},
-    {"match": "claude-3-5-haiku*", "input": 0.8, "output": 4.0, "cache_read": 0.08, "cache_write": 1.0},
-    # OpenAI: prompts up to 272K tokens (longer ones cost more). A version's own row comes before its family's.
-    {"match": "gpt-6-astra*", "input": 10.0, "output": 50.0, "cache_read": 1.0},
-    {"match": "gpt-6.1-sol*", "input": 2.0, "output": 10.0, "cache_read": 0.1},
-    {"match": "gpt-6.1-terra*", "input": 1.0, "output": 5.0, "cache_read": 0.05},
-    {"match": "gpt-6-sol*", "input": 2.0, "output": 10.0, "cache_read": 0.2},
-    {"match": "gpt-6-luna*", "input": 0.1, "output": 0.5, "cache_read": 0.01},
-    {"match": "gpt-5.6-sol*", "input": 4.0, "output": 20.0, "cache_read": 0.4},
-    {"match": "gpt-5.6-terra*", "input": 2.0, "output": 12.0, "cache_read": 0.2},
-    {"match": "gpt-5.6-luna*", "input": 0.2, "output": 1.2, "cache_read": 0.02},
-    {"match": "gpt-5.5-pro*", "input": 30.0, "output": 180.0},
-    {"match": "gpt-5.5*", "input": 5.0, "output": 30.0, "cache_read": 0.5},
-    {"match": "gpt-5.4-pro*", "input": 30.0, "output": 180.0},
-    {"match": "gpt-5.4-mini*", "input": 0.75, "output": 4.5, "cache_read": 0.075},
-    {"match": "gpt-5.4-nano*", "input": 0.2, "output": 1.25, "cache_read": 0.02},
-    {"match": "gpt-5.4*", "input": 2.5, "output": 15.0, "cache_read": 0.25},
-    {"match": "gpt-5.3-codex*", "input": 1.75, "output": 14.0, "cache_read": 0.175},
-    {"match": "gpt-5.2-pro*", "input": 21.0, "output": 168.0},
-    {"match": "gpt-5.2*", "input": 1.75, "output": 14.0, "cache_read": 0.175},
-    {"match": "gpt-5-pro*", "input": 15.0, "output": 120.0},
-    {"match": "gpt-5-mini*", "input": 0.25, "output": 2.0, "cache_read": 0.025},
-    {"match": "gpt-5-nano*", "input": 0.05, "output": 0.4, "cache_read": 0.005},
-    {"match": "gpt-5*", "input": 1.25, "output": 10.0, "cache_read": 0.125},
-    {"match": "gpt-4.1-mini*", "input": 0.4, "output": 1.6, "cache_read": 0.1},
-    {"match": "gpt-4.1-nano*", "input": 0.1, "output": 0.4, "cache_read": 0.025},
-    {"match": "gpt-4.1*", "input": 2.0, "output": 8.0, "cache_read": 0.5},
-    {"match": "gpt-4o-mini*", "input": 0.15, "output": 0.6, "cache_read": 0.075},
-    {"match": "gpt-4o*", "input": 2.5, "output": 10.0, "cache_read": 1.25},
-    {"match": "o4-mini*", "input": 1.1, "output": 4.4, "cache_read": 0.275},
-    {"match": "o3-pro*", "input": 20.0, "output": 80.0},
-    {"match": "o3*", "input": 2.0, "output": 8.0, "cache_read": 0.5},
-    # DeepSeek charges by the hour: these are the off-peak prices, which most hours are. In its peak hours
-    # (01:00 to 04:00 and 06:00 to 10:00 UTC on weekdays) everything costs double, which one price can't say.
-    {"match": "deepseek-v4-pro*", "input": 0.66, "output": 1.98, "cache_read": 0.022},
-    {"match": "deepseek-flash*", "input": 0.15, "output": 0.6, "cache_read": 0.003},
-    {"match": "deepseek-v4-flash*", "input": 0.15, "output": 0.6, "cache_read": 0.003},
-    # The names before V4 (deepseek-chat and the like).
-    {"match": "deepseek-*", "input": 0.28, "output": 0.42, "cache_read": 0.028},
-]
+# The prices the server ships with, kept as data so they can be brought up to date without touching code.
+SHIPPED = Path(__file__).with_name("default_prices.yaml")
 
 
 def checked_prices(data: Any) -> list[dict[str, Any]]:
@@ -108,6 +54,15 @@ def checked_prices(data: Any) -> list[dict[str, Any]]:
         prices.append(price)
     return prices
 
+
+def shipped_prices() -> list[dict[str, Any]]:
+    """The table in default_prices.yaml, checked as a saved one is: a mistake there stops the server starting."""
+    document = yaml.safe_load(SHIPPED.read_text(encoding="utf-8"))
+    return checked_prices(document.get("prices") if isinstance(document, dict) else None)
+
+
+# US dollars for a million tokens. Patterns are matched in order against the lower-cased model name.
+DEFAULT_PRICES: list[dict[str, Any]] = shipped_prices()
 
 def price_for(prices: list[dict[str, Any]], model: str | None) -> dict[str, Any] | None:
     """The first price whose pattern matches the model's name. A name with a provider in front

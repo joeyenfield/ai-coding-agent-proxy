@@ -219,6 +219,16 @@ To test installers and packages, use a throwaway user in a separate WSL distribu
 
 **A new console page.** Create `ui/src/pages/X.tsx`, add a `<Route>` in `App.tsx` and an item in `PARTS` in `navigation.ts`, and put `<PartTag />` above its `<h1>`. Anything about a model server goes on its machine's page instead.
 
+### Updating the shipped prices
+
+The prices cost estimates start from are data, in `server/agent_server/default_prices.yaml`: one row for a model name or pattern, in US dollars for a million tokens, with the page each provider's prices came from and the day they were checked.
+
+1. Edit the rows. The first row that matches a model's name wins, so put a version's own row above its family's.
+2. Set `checked` for that provider under `sources`.
+3. Run `cd server && python -m pytest -q tests/test_pricing.py`. It fails for a row that can't be read or that a row above it hides.
+
+A server with no price table of its own uses the new prices once it runs that version. Calls already recorded keep their cost until an admin recomputes them (**Costs and prices** > **Recompute**). Leave a model out rather than guess its price: its calls are then counted as having no price.
+
 ## Conventions worth knowing
 
 - **Route order matters.** `routes/compat.py` has catch-alls, including `/api/{path}` for agents' native Ollama calls. `app.py` registers every console router before compat, then the console's fallback. Within a router, register literal paths before parameterised ones.
