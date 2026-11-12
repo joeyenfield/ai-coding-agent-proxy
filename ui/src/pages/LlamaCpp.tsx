@@ -55,7 +55,7 @@ export function LlamaCppProvider({ target, label, manageable }: { target: Provid
   if (state.isPending) return <p className="empty">Asking {label} for its models…</p>;
   if (state.isError) return <p className="bad">{state.error.message}</p>;
   const data = state.data;
-  const fixed = data.online && !data.router ? "This llama-server serves one model (it was started with -m), so its models can't change from here. Start llama.cpp from the machine's llama.cpp server tab to serve many." : null;
+  const fixed = data.online && !data.router ? "This llama-server serves one model (it was started with -m), so its models can't change from here. Start llama.cpp from its Server settings on this machine to serve many." : null;
   return (
     <>
       <LlamaTotals state={data} />
@@ -217,7 +217,7 @@ function LlamaModels({
                     {model.path && <small className="mono">{model.path}</small>}
                   </td>
                   <td className="num nowrap">{formatBytes(model.size)}</td>
-                  <td>
+                  <td className="nowrap">
                     <ModelState model={model} />
                   </td>
                   <td>

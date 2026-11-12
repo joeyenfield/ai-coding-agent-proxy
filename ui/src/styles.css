@@ -604,7 +604,7 @@ dialog::backdrop { background: rgb(15 20 30 / 0.5); }
 .metric figcaption { display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 0 8px; }
 .metric-label { font-size: 13px; font-weight: 700; color: var(--steel); }
 .metric-value { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; grid-row: span 2; }
-.metric-detail { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.metric-detail { font-size: 12px; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
 .metric-plot { position: relative; }
 .metric-plot svg { display: block; width: 100%; height: 80px; touch-action: none; cursor: crosshair; }
 .metric-plot line, .metric-plot path { vector-effect: non-scaling-stroke; }
@@ -1263,7 +1263,8 @@ ul.plain { list-style: none; padding: 0; margin: 6px 0; display: flex; flex-dire
 .pill.accent, .pill.bad, .pill.live, .pill.sharing-team, .pill.sharing-org { border-color: transparent; }
 .route-badge { font-weight: 600; font-size: 11.5px; line-height: 18px; }
 /* Page tabs: a quiet row with a firm accent under the open one. */
-.tabs.page-tabs { gap: 4px; border-bottom-color: var(--line); }
+/* overflow-y: the buttons' -1px margin would otherwise give the row a vertical scrollbar. */
+.tabs.page-tabs { gap: 4px; border-bottom-color: var(--line); overflow-y: hidden; scrollbar-width: thin; }
 .tabs.page-tabs button { position: relative; padding: 9px 12px 11px; margin-bottom: -1px; font-size: 13.5px; font-weight: 580; color: var(--steel); border-bottom: 2px solid transparent; border-radius: 8px 8px 0 0; }
 .tabs.page-tabs button:hover:not(:disabled) { color: var(--ink); background: var(--hover); }
 .tabs.page-tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
@@ -1457,22 +1458,35 @@ legend { padding: 0 6px; font-weight: 650; font-size: 13.5px; color: var(--ink);
 .machine-nav a.active { color: var(--ink); border-color: var(--accent); background: none; }
 .machine-nav .nav-note { font-size: 11.5px; font-weight: 600; color: var(--steel); background: var(--ground); border-radius: 999px; padding: 1px 7px; }
 .machine-overview { display: flex; flex-direction: column; gap: 28px; }
-/* The Providers tab: its kinds (Ollama, llama.cpp, ...), then each kind's instances and server tab. */
-/* Second-level tabs (an organization's sections): a segmented control, as a machine's provider kinds are. */
+/* Second-level tabs (an organization's sections): a segmented control, so they never read as a second row of the page's tabs. */
 .tabs.segmented { display: inline-flex; flex-wrap: wrap; align-self: flex-start; gap: 2px; padding: 3px; background: var(--hover); border: 1px solid var(--line); border-radius: 11px; }
 .tabs.segmented button { padding: 5px 12px; min-height: 0; border: 0; border-radius: 8px; font-size: 13px; font-weight: 580; color: var(--steel); }
 .tabs.segmented button:hover:not(:disabled) { color: var(--ink); background: none; }
 .tabs.segmented button[aria-selected="true"] { color: var(--ink); background: var(--paper); box-shadow: var(--shadow); }
-/* A machine's second level (its providers' kinds): a segmented control, so it never reads as a second row of the same tabs. */
-.machine-subnav { display: inline-flex; flex-wrap: wrap; align-self: flex-start; gap: 2px; margin: -6px 0 20px; padding: 3px; background: var(--hover); border: 1px solid var(--line); border-radius: 11px; }
-.machine-subnav a { display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px; color: var(--steel); font-weight: 580; font-size: 13px; text-decoration: none; border-radius: 8px; white-space: nowrap; transition: background-color 0.12s, color 0.12s; }
-.machine-subnav a:hover { color: var(--ink); }
-.machine-subnav a.active { color: var(--ink); background: var(--paper); box-shadow: var(--shadow); }
-.machine-subnav .nav-note, .instance-nav .nav-note { font-size: 11.5px; font-weight: 600; color: var(--steel); background: var(--ground); border-radius: 999px; padding: 1px 7px; }
-.instance-nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 20px; }
-.instance-nav a { display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--paper); color: var(--steel); font-weight: 600; font-size: 13.5px; text-decoration: none; white-space: nowrap; }
-.instance-nav a:hover { color: var(--ink); border-color: var(--line-strong); }
-.instance-nav a.active { color: var(--accent-ink); background: var(--accent-soft); border-color: var(--accent); }
+/* A machine's Providers tab: a list beside what's chosen, grouped by kind, so the kinds and what each runs read as one level. */
+.providers-layout { display: grid; grid-template-columns: 236px minmax(0, 1fr); gap: 28px; align-items: start; }
+.providers-detail { min-width: 0; }
+.provider-side { position: sticky; top: 20px; display: flex; flex-direction: column; gap: 14px; padding: 10px; background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+.provider-side-group { display: flex; flex-direction: column; gap: 2px; }
+.provider-side h3 { margin: 0 0 3px; padding: 0 10px; font-size: 11px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--faint); }
+.provider-side a { display: flex; align-items: flex-start; gap: 10px; padding: 7px 10px; border-radius: 9px; color: var(--steel); text-decoration: none; transition: background-color 0.12s, color 0.12s; }
+.provider-side a > svg, .provider-side a > .state-dot { flex: none; margin-top: 5px; }
+.provider-side a > svg { margin-top: 2px; }
+.provider-side a > span:last-child { display: flex; flex-direction: column; min-width: 0; }
+.provider-side a strong { font-size: 13.5px; font-weight: 620; color: var(--ink); overflow-wrap: anywhere; }
+.provider-side a small { font-size: 12px; color: var(--steel); }
+.provider-side a:hover { background: var(--hover); }
+.provider-side a.active { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+.provider-side a.active strong { color: var(--accent-ink); }
+.provider-pick { display: none; }
+.kind-tag { align-self: center; font-size: 11.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent-ink); background: var(--accent-soft); border-radius: 6px; padding: 2px 8px; }
+@media (max-width: 900px) {
+  .providers-layout { grid-template-columns: 1fr; gap: 18px; }
+  .provider-side { display: none; }
+  .provider-pick { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--steel); }
+  .provider-pick select { width: 100%; }
+}
+
 
 /* A machine's summary: its features, whether it has each on and whether you can use it. */
 .feature-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--paper); }
@@ -1505,6 +1519,8 @@ legend { padding: 0 6px; font-weight: 650; font-size: 13.5px; color: var(--ink);
 .provider-head { display: flex; flex-direction: column; gap: 6px; margin-bottom: 18px; }
 .provider-head h2 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; font-size: 20px; }
 .provider-head h2 .subtle { font-size: 14px; font-weight: 600; }
+.provider-head h2 .pill { align-self: center; }
+.provider-head-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; }
 .provider-head .callout.row { flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; }
 .launch-form.panel { margin-bottom: 18px; }
 

@@ -145,10 +145,10 @@ function ProviderCard({ provider, window, windows }: { provider: ProviderWithUsa
             {provider.machine.online ? "" : " · offline"}
           </>
         ) : provider.kind === "subscription" ? (
-          <>
-            {provider.accounts ? `${provider.accounts} of your subscriptions` : "No subscription of yours on the server"} ·{" "}
+          <span>
+            {provider.accounts ? `${provider.accounts} of your subscriptions` : "None of yours on the server"} ·{" "}
             <Link to="/subscriptions">Subscriptions</Link>
-          </>
+          </span>
         ) : (
           "Hosted"
         )}

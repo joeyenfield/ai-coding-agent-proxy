@@ -446,11 +446,11 @@ Approve only a code from a sign-in you started: approving lets that computer use
 
 ![A machine's providers](screenshots/machine-model-servers.png)
 
-Everything about the machine's model servers is in this one tab, at `/machines/<id>/providers`. Its own tabs are:
+Everything about the machine's model servers is in this one tab, at `/machines/<id>/providers`. A list on the left groups what the machine has by kind, and what you pick opens beside it. On a narrow screen the list is a **Showing** menu. It holds:
 
-- **Overview**: the model servers it runs (Ollama, llama.cpp, Strata, Docker Model Runner, and the containers it runs for the server), each with its address, version and whether it's a provider yet, and the Ollama, llama.cpp and Strata installed there, with **Start** and **Stop**. A model server that isn't a provider has **Add as a provider** (for the organization's admins), after which every agent of the organization that speaks its API can use it.
-- **Ollama**, **llama.cpp**, **Strata** and **Docker Model Runner**: one tab for each kind the machine runs or has installed, with how many it runs. Inside it, a button for each instance, a model server or a container, named after its provider (or `Port 11434` until it is one), and for Ollama and llama.cpp the kind's server tab, **Ollama server** or **llama.cpp server**. Each has an address of its own: `/machines/<id>/providers/ollama/ollama-11434`, `/machines/<id>/providers/llamacpp/server`.
-- **Containers**: the containers the machine runs, when it runs them.
+- **All providers**: the model servers it runs (Ollama, llama.cpp, Strata, Docker Model Runner, and the containers it runs for the server), each with its address, version and whether it's a provider yet, and the Ollama, llama.cpp and Strata installed there, with **Start** and **Stop**. A model server that isn't a provider has **Add as a provider** (for the organization's admins), after which every agent of the organization that speaks its API can use it.
+- **Ollama**, **llama.cpp**, **Strata** and **Docker Model Runner**: one group for each kind the machine runs or has installed. Under it, an entry for each model server or container, named after its provider (or `Port 11434` until it is one), with whether it's running and its port. Ollama and llama.cpp also have **Server settings**, for the one installed on the machine (**Install llama.cpp** until it's installed). A model server's page starts with its kind, name and state, and the controls that fit it: **Start** or **Stop** and **Server settings** for the Ollama or llama.cpp installed there, **Stop** for a Strata profile, **Container controls** for a container. Each has an address of its own: `/machines/<id>/providers/ollama/ollama-11434`, `/machines/<id>/providers/llamacpp/server`.
+- **Containers** → **Manage containers**: the containers the machine runs, when it runs them.
 
 Older addresses (`/machines/<id>/ollama-11434`, `/machines/<id>/ollama`, `/machines/<id>/containers`, `/machines/<id>/model-servers`) still work and open the same tab here.
 
@@ -460,7 +460,7 @@ Older addresses (`/machines/<id>/ollama-11434`, `/machines/<id>/ollama`, `/machi
 
 - **API** (LM Studio, vLLM, SGLang or another OpenAI-compatible server): the models it lists, read only. Its models are managed in that server itself. **Add as a provider** adds it with Chat Completions only; its organization's admins turn on more protocols on its **API providers** tab (Organizations).
 - **Ollama**: **Models** (each model's size, whether it's loaded and where, the agent requests it served, and load, unload and delete), **Aliases** (the model tuning's aliases that point at it, with their settings; change them on [Server settings](#server-settings)) and **Find and pull** (search the Ollama library and Hugging Face, or pull by name, with progress).
-- **Strata**: **Overview** (state, profile, engine, uptime, model, context, prompt and generation speed, speculative decoding, with **Load** and **Unload**, then its **Hardware** and **Models**), **Connect agents** (the agent commands for it) and **Log** (server and engine logs, key blanked).
+- **Strata**: **Status** (state, profile, engine, uptime, model, context, prompt and generation speed, speculative decoding, with **Load** and **Unload**, then its **Hardware** and **Models**), **Connect agents** (the agent commands for it) and **Log** (server and engine logs, key blanked).
 - **llama.cpp**: **Models** (what its router can serve: each model's size, state, download progress and file, with load, unload and delete) and **Find and download** (search Hugging Face for GGUF repos and pick a quant, or name one as `user/repo:quant`, with progress; choose whether llama.cpp or the machine downloads it; **By hand** gives the `curl` commands and **Reload**).
 - **Docker Model Runner**: **Models**, **Get models** (search Docker Hub's `ai/` models and their tags, or pull by name) and **Connect agents**.
 
@@ -470,9 +470,9 @@ When the machine doesn't report an Ollama, llama.cpp or Strata running, its tab 
 
 ![The machine's Ollama settings](screenshots/ollama-server.png)
 
-**Ollama server**, for the Ollama installed on the machine: **Start**, **Stop** or **Restart** it (with `servers on`), **Settings** (the `OLLAMA_*` settings agent-machine starts it with, such as context length, parallel requests, flash attention and KV cache type, with warnings), **Environment** (what Ollama starts with, plus **Extra variables**) and **Log**.
+**Ollama → Server settings**, for the Ollama installed on the machine: **Start**, **Stop** or **Restart** it (with `servers on`), **Settings** (the `OLLAMA_*` settings agent-machine starts it with, such as context length, parallel requests, flash attention and KV cache type, with warnings), **Environment** (what Ollama starts with, plus **Extra variables**) and **Log**.
 
-**llama.cpp server**, for llama.cpp on the machine (with `servers on`): its state, build and where it came from; **Install llama.cpp** (or **Update or change build**), which lists the builds that fit the machine, suggests one, and shows the install's progress; **Remove** for builds installed from here; **Start**, **Stop** and **Restart**; **Settings** (the `LLAMA_ARG_*` settings agent-machine starts it with: context, KV cache, GPU layers, devices, models loaded at once, thinking budget, download folder and more, with warnings), **Environment** (what llama-server starts with, plus **Extra variables**) and **Log**. See [llama.cpp](providers.md#llamacpp).
+**llama.cpp → Server settings**, for llama.cpp on the machine (with `servers on`): its state, build and where it came from; **Install llama.cpp** (or **Update or change build**), which lists the builds that fit the machine, suggests one, and shows the install's progress; **Remove** for builds installed from here; **Start**, **Stop** and **Restart**; **Settings** (the `LLAMA_ARG_*` settings agent-machine starts it with: context, KV cache, GPU layers, devices, models loaded at once, thinking budget, download folder and more, with warnings), **Environment** (what llama-server starts with, plus **Extra variables**) and **Log**. See [llama.cpp](providers.md#llamacpp).
 
 ![Containers a machine runs](screenshots/containers.png)
 

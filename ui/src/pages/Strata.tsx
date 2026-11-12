@@ -74,7 +74,7 @@ export function StrataProvider({ target, label, backend, manageable }: { target:
           active={tab}
           onSelect={setTab}
           tabs={[
-            { id: "overview", label: "Overview" },
+            { id: "overview", label: "Status" },
             { id: "connect", label: "Connect agents" },
             { id: "log", label: "Log" },
           ]}

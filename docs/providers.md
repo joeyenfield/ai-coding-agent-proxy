@@ -344,7 +344,7 @@ Each Ollama's tab on its machine's page has:
 
 ### Ollama's server settings
 
-With `agent-machine servers on`, the machine's **Ollama server** tab starts, stops and restarts the Ollama installed there, and edits the settings it starts with. The settings are the machine's (`ollama.json` in agent-machine's folder, applied at Ollama's next start); the server has no Ollama config.
+With `agent-machine servers on`, the machine's Ollama **Server settings** (on its Providers tab) starts, stops and restarts the Ollama installed there, and edits the settings it starts with. The settings are the machine's (`ollama.json` in agent-machine's folder, applied at Ollama's next start); the server has no Ollama config.
 
 | Group | Setting | Variable | Default |
 |---|---|---|---|
@@ -427,7 +427,7 @@ It listens on `127.0.0.1:9931` (llama-server's own default port) and nowhere els
 
 ### Installing it
 
-With `agent-machine servers on`, the machine's **llama.cpp server** tab installs llama.cpp there. **Install llama.cpp** asks the machine which builds fit it and suggests one:
+With `agent-machine servers on`, the machine's llama.cpp **Server settings** (on its Providers tab; **Install llama.cpp** until it's there) installs llama.cpp there. **Install llama.cpp** asks the machine which builds fit it and suggests one:
 
 - **In Termux on Android**, Termux's own packages, through its `apt-get`: `llama-cpp` with its OpenCL backend (`llama-cpp-backend-opencl`, `ocl-icd`, `opencl-vendor-driver`, for the phone's own OpenCL driver: the fastest on Snapdragon phones), its Vulkan backend (`llama-cpp-backend-vulkan`, `vulkan-loader-android`), or the CPU only.
 - **Anywhere else**, the newest build llama.cpp publishes on GitHub (`ggml-org/llama.cpp`) for the machine's system and processor, with the backend you pick: CPU, Vulkan, CUDA (NVIDIA; its runtime is downloaded too), ROCm, SYCL, OpenVINO, Metal on a Mac, or Snapdragon. agent-machine installs a download only when its SHA-256 is the one GitHub lists for it, and unpacks it into `llamacpp/<release>-<build>/` in its own folder. Nothing outside that folder changes and nothing needs root. The build before it is kept until the next install, so a running llama-server keeps its files until it restarts onto the new one.
