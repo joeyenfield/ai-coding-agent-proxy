@@ -765,6 +765,9 @@ h1 a, h2 a, h3 a, .provider-card-head a, .host-name a { text-decoration: none; }
 h1 a:hover, h2 a:hover, h3 a:hover, .provider-card-head a:hover, .host-name a:hover { text-decoration: underline; text-decoration-color: currentColor; }
 @media (max-width: 900px) {
   .xrow-summary { flex-direction: column; align-items: flex-start; gap: 4px; }
+  /* Stacked, a line is as wide as its content unless capped: wrap it inside the row instead of running under the actions. */
+  .xrow-main, .xrow-meta { max-width: 100%; flex-wrap: wrap; row-gap: 4px; }
+  .xrow-main > *, .xrow-meta > * { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
   .xrow-body { padding-left: 14px; }
 }
 
