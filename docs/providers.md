@@ -64,7 +64,7 @@ Each agent is declared for a backend type (`backend_type`, default `ollama`) and
 | `ollama` (native) | Aider, Goose | Yes | No | Yes | No | | No |
 | `anthropic` | Claude Code (Anthropic API pass-through) | | | | | Yes | |
 
-Strata and llama.cpp don't speak Ollama's native `/api`, so Aider and Goose can't use them. Account agents (`intercept: true`) don't use a backend: their traffic goes to their vendor. See [Agents](agents.md).
+Strata and llama.cpp don't speak Ollama's native `/api`, so Aider and Goose can't use them. Account agents (`intercept: true`) don't use a backend: their traffic goes to their vendor. See [Agents](running-agents.md).
 
 ### Sharing models with every organization
 

@@ -61,7 +61,7 @@ One computer can be all three. A laptop that runs the server, has Ollama, and ru
 | **Own provider** | Any supported agent against a model on your machines | The server sends the request to the machine's model server, translating it for Ollama when needed. |
 | **Hosted APIs** | An agent using a provider's API, such as OpenAI, Anthropic, OpenRouter or a LiteLLM gateway | The server adds the provider's key, which never leaves the server, and passes the request on. |
 
-[Agents](agents.md#the-three-routes) has each route in full, and [Providers](providers.md) every kind of provider.
+[Agents](running-agents.md#the-three-routes) has each route in full, and [Providers](providers.md) every kind of provider.
 
 ## What gets recorded
 
@@ -94,5 +94,5 @@ Two servers can **link**, and an organization on each can then share chosen prov
 
 - **Try it**: [on your own computer](local.md), with [Docker or Podman](quickstart.md) or on [Kubernetes](quickstart-kubernetes.md).
 - **Set it up for real**: [Getting started](getting-started.md), then [Deployment](deployment.md).
-- **Use it day to day**: [Agents](agents.md), [The console](console.md), [Machines](machines.md), [Providers](providers.md).
+- **Use it day to day**: [Agents](running-agents.md), [The console](console.md), [Machines](machines.md), [Providers](providers.md).
 - **The technical detail**: [Architecture](architecture.md), [Flows](flows.md), [Networking and protocols](networking.md), [API](api.md).

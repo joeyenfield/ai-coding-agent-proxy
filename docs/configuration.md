@@ -194,7 +194,7 @@ Every agent the launcher and the console can start: its executable, the protocol
 
 The server ships with a set of agents (`server/agent_server/defaults.py`). A shipped agent follows the server's updates until an admin changes it; after that it stays as they left it, and **Reset** (or `POST /api/config/agents/<id>/reset`) takes it back to the shipped one. A shipped agent an admin removes stays removed through updates. Agents added on a server are its own.
 
-See [Agents](agents.md) for the format and how to add one, and [MCP](mcp.md) for the `mcp` block.
+See [Agents](running-agents.md) for the format and how to add one, and [MCP](mcp.md) for the `mcp` block.
 
 ## Environment variables on the server
 
@@ -224,7 +224,7 @@ See [Agents](agents.md) for the format and how to add one, and [MCP](mcp.md) for
 | `AI_PROXY_LIVE=0` | Stops streaming request text to the console's live views. Counts still stream. |
 | `AI_PROXY_REMOTE_KEY_FILE` | Names the folder for `first-user-password` (default `certs/remote-access-key`, so `certs/`), and where an upgrade looks for the old `users.json` and keys. |
 | `AI_PROXY_BACKENDS`, `AI_PROXY_MODELS`, `AI_PROXY_AGENTS` | Read only when upgrading from files: where the old YAML files are. |
-| `AI_PROXY_TOKEN` | The OAuth access token `agent-benchmark` sends; it refuses to start without one. (On agent machines the launcher reads it too, see [Agents](agents.md).) |
+| `AI_PROXY_TOKEN` | The OAuth access token `agent-benchmark` sends; it refuses to start without one. (On agent machines the launcher reads it too, see [Agents](running-agents.md).) |
 | `AI_PROXY_USERNAME`, `AI_PROXY_PASSWORD` | An admin account from the environment, outside the database, which the issuer accepts. With both set, the first start makes no `admin` user. |
 | `AI_PROXY_NEW_PASSWORD` | The password for `agent-server user add` and `user passwd`, instead of asking. For scripts. |
 | `AI_PROXY_LOCAL_HOME` | The folder `agent-server local` keeps its instance in (default: your user's data folder). See [Run it on your own computer](local.md). |

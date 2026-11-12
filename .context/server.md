@@ -221,6 +221,8 @@ A new route belongs to a role by the module that registers it (`roles.MODULE_ROL
 
 ## Security model
 
+Two things a machine is trusted with are known limits, kept because the fleet's own tests define the behaviour (`docs/security.md`, What a machine is trusted with): its self-reported address is where a direct (untunnelled) provider is reached, and with `servers` on it changes models on any loopback port the server names.
+
 The summary; `auth.md` has the whole of it (credentials, the middleware's order, roles, what must never change).
 
 - **Mandatory OIDC**: `AuthMiddleware` covers `/api/`, `/v1/`, `/anthropic/`, `/session/` and API documentation, except explicit public authentication endpoints. Active access tokens are introspected at the separate issuer (`Auth.identify`; down or unconfigured is 503); identity and permissions come from current accounts. Loopback, session ids and legacy keys never authenticate. Retired auth routes (password sign-in, launcher tokens, pairing) answer 410 or 403.
@@ -241,7 +243,7 @@ The summary; `auth.md` has the whole of it (credentials, the middleware's order,
   6. The comments in `defaults.py` where they name backend types; `docs/providers.md`, `docs/console.md`, `docs/configuration.md`, `docs/api.md`; the fake server in `devhelpers/scripts/screenshots/demo.py`.
   7. Tests: traffic in `server/tests/test_<provider>.py` (follow `test_model_runner.py`), the relay in `test_providers.py`, the machine's side in Go and Python.
 - **Fleet message**: a `Fleet.ask` channel with its gate and `<channel>_result` in `Fleet.message`, a hello field in `_update`/`Machine`, then the machine side in Go and Python.
-- **Agent**: an entry in `defaults.AGENTS_YAML` to ship it (`executable`, `protocol`, `env`/`args` templates, `install`, `homepage`, and `backend_type` or `intercept`; synced into every server's `agents` table on start), or one added on Server settings → Agents (`PUT /api/config/agents/{id}`); no client code. Then check `agent --list` finds it, launch it once with `--trace` and read the traces, and add it to "Supported agents" in `docs/agents.md`.
+- **Agent**: an entry in `defaults.AGENTS_YAML` to ship it (`executable`, `protocol`, `env`/`args` templates, `install`, `homepage`, and `backend_type` or `intercept`; synced into every server's `agents` table on start), or one added on Server settings → Agents (`PUT /api/config/agents/{id}`); no client code. Then check `agent --list` finds it, launch it once with `--trace` and read the traces, and add it to "Supported agents" in `docs/running-agents.md`.
 - **Setting**: a key in the `settings` table, read in `Settings._configure`, written by `_store_config` (code-built Settings) and seeded in `config.seed`; add it to `config_io`'s document (export, parse, apply) so `config export|import` carry it, and to `ADMIN_ONLY` if a new route changes it.
 - **Table or column**: `db/schema.py` plus a new step appended to `db/migrate.py`'s `API_STEPS` (never an edit to step 1); queries in SQLAlchemy Core; if the issuer must read it, `migrate.ISSUER_READS`. Cover it in `test_db.py`, on SQLite and PostgreSQL.
 

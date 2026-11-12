@@ -14,7 +14,7 @@ This page is the technical view: the system's main flows end to end, message by 
 | Updating agent and agent-machine from the server | [below](#updating-agent-and-agent-machine) |
 | Browser sign-in to the console | [OIDC authentication](oidc.md#browser-sign-in) |
 | Device approval (`agent login`, `agent-machine login`) | [Security](security.md#device-approval) |
-| `agent login` and the agent-proxy's token | [Running coding agents](agents.md#signing-in-agent-login-and-agent-logout) |
+| `agent login` and the agent-proxy's token | [Running coding agents](running-agents.md#signing-in-agent-login-and-agent-logout) |
 | A session, step by step (`agent qwen .` on your computer) | [Architecture](architecture.md#a-session-step-by-step) |
 | HTTPS interception for account agents | [Architecture](architecture.md#https-interception), [Networking](networking.md#account-agents-https) |
 | Tunnels to machines, and the MCP relay | [Architecture](architecture.md#tunnels-to-machines-and-the-mcp-relay) |

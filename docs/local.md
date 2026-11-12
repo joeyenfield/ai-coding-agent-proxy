@@ -98,7 +98,7 @@ agent-machine roots add ~/projects
 agent-machine start
 ```
 
-Each `login` prints a link and a code: open the link, sign in, enter the code and approve. Then `agent qwen .` (or any agent from `agent --list`) runs an agent through your local server, and the machine shows on the console's **Machines** page. See [Agents](agents.md) and [Machines](machines.md).
+Each `login` prints a link and a code: open the link, sign in, enter the code and approve. Then `agent qwen .` (or any agent from `agent --list`) runs an agent through your local server, and the machine shows on the console's **Machines** page. See [Agents](running-agents.md) and [Machines](machines.md).
 
 `localhost` is the one name it signs in on. Use `http://localhost:19999`, not `127.0.0.1`, in the browser and the commands.
 

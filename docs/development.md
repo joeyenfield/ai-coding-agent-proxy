@@ -201,11 +201,11 @@ To test installers and packages, use a throwaway user in a separate WSL distribu
 
 ## Checklists
 
-**A new agent.** On a running server, an admin adds it on **Server settings** → **Agents** (or `PUT /api/config/agents/<id>`). To ship it with the server, add it to `AGENTS_YAML` in `server/agent_server/defaults.py`: `executable`, `protocol`, `env` and `args` templates, `install`, `homepage`, and `backend_type` or `intercept` (see [Agents](agents.md#adding-a-new-agent)). Servers pick up shipped agents on their next start, unless an admin changed or removed that agent. The server renders it for every launch, so the client needs no change. Then:
+**A new agent.** On a running server, an admin adds it on **Server settings** → **Agents** (or `PUT /api/config/agents/<id>`). To ship it with the server, add it to `AGENTS_YAML` in `server/agent_server/defaults.py`: `executable`, `protocol`, `env` and `args` templates, `install`, `homepage`, and `backend_type` or `intercept` (see [Agents](running-agents.md#adding-a-new-agent)). Servers pick up shipped agents on their next start, unless an admin changed or removed that agent. The server renders it for every launch, so the client needs no change. Then:
 
 - run `agent --list` to check it's found;
 - launch it once with `--trace` and read the recorded traces;
-- add it to the supported agents in [Agents](agents.md).
+- add it to the supported agents in [Agents](running-agents.md).
 
 **A new backend or provider type.** The places Docker Model Runner touched:
 

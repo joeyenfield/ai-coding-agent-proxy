@@ -230,7 +230,7 @@ Everything is in the server's database: each session, a record per request and, 
 
 ## Where to go next
 
-- [Agents](agents.md): every supported agent, launch options, sharing sessions, and adding an agent of your own.
+- [Agents](running-agents.md): every supported agent, launch options, sharing sessions, and adding an agent of your own.
 - [Machines](machines.md): the fleet, starting agents on a machine from the console, remote terminals and updates.
 - [Providers](providers.md): Ollama tuning, llama.cpp, Strata, Docker Model Runner and containers.
 - [MCP](mcp.md): sharing a machine's MCP servers with agents.

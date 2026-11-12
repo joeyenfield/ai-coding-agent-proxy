@@ -23,7 +23,7 @@ export const DOC_SECTIONS: { title: string; pages: { id: string; label: string }
   {
     title: "Use it",
     pages: [
-      { id: "agents", label: "Agents" },
+      { id: "running-agents", label: "Agents" },
       { id: "console", label: "The console" },
       { id: "machines", label: "Machines" },
       { id: "providers", label: "Providers" },
@@ -123,7 +123,9 @@ const markdown = new Marked({
  * does and how to use it. Public, like Downloads, so it can be read before signing in.
  */
 export function DocsPage() {
-  const { page = "index" } = useParams();
+  const { page: asked = "index" } = useParams();
+  // The page was docs/agents.md: links and bookmarks to /help/agents still open it.
+  const page = asked === "agents" ? "running-agents" : asked;
   const known = DOC_PAGES.some((item) => item.id === page);
   const location = useLocation();
   const navigate = useNavigate();

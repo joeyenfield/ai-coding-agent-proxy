@@ -183,6 +183,13 @@ Plain HTTP between computers isn't blocked outright everywhere: a LAN-only insta
 - The built-in console server and the standalone nginx images send framing protection (`frame-ancestors 'none'` and `X-Frame-Options: DENY`), `nosniff` and a `same-origin` referrer policy. They disable object embedding and restrict base URLs to the same origin, and the nginx images hide their version. Rebuild and redeploy those images to apply header changes; changing the API alone does not update a separately hosted console.
 - The Helm chart trusts forwarded headers from loopback by default. Set `server.forwardedAllowIps` to your trusted ingress or gateway addresses or CIDRs. Only use `*` when `networkPolicy.publicFrom` and external firewall rules restrict direct access to trusted proxies. An unrestricted public pod port does not make arbitrary forwarded headers trustworthy.
 
+## What a machine is trusted with
+
+A machine signed in to the server is trusted in two ways, by design. Both are in its owner's and its organization's admins' hands, so give machine sign-in, and the admin role, only to people you'd trust with them.
+
+- **Its address.** A machine says what address its model servers are reached at, and once one of them is a provider the server sends agents' requests there. A machine that names the server's own computer or another on its network points that provider at whatever listens there. Machines whose traffic goes through the fleet's tunnel aren't reached by address at all.
+- **Its model server's port.** With `agent-machine servers on`, the server can ask a machine to pull, delete, load or unload a model on any loopback port it names, not only one the machine found itself. That's what lets the console manage a model server the machine hasn't detected. Leave `servers` off on a computer that runs other services on loopback you wouldn't want the server's admins to reach.
+
 ## A checklist for a public server
 
 1. Put nginx (or another reverse proxy) with a real certificate in front of agent-server and agent-auth: `devhelpers/scripts/https/setup-https.ps1` on Windows, or see [Deployment](deployment.md#https).

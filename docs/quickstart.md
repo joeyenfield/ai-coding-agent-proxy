@@ -183,6 +183,6 @@ The quickstart is the real server, sign-in service and machines, set up for one 
 - **HTTPS**, with real host names for the API, the console and the sign-in service, instead of `localhost` ([Deployment](deployment.md#https), [OIDC](oidc.md)).
 - **Private secrets**: no demo password, a strong introspection secret, and your own database passwords ([Deployment](deployment.md#postgresql)).
 - **Your own machines**: `agent-machine login https://<your server>` on each computer that runs models or agents, approving its code yourself ([Machines](machines.md)).
-- **Your own computers**: `agent login https://<your server>` where you run agents by hand ([Agents](agents.md)).
+- **Your own computers**: `agent login https://<your server>` where you run agents by hand ([Agents](running-agents.md)).
 
 [Getting started](getting-started.md) walks through it, and [Security](security.md#a-checklist-for-a-public-server) has a checklist for a server others can reach.
