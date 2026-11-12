@@ -170,8 +170,8 @@ export function ApiProviderSettings({ org }: { org: Org }) {
       {query.isPending && <p className="subtle">Loading…</p>}
       {data && !data.vault && adding?.preset?.id !== "deepseek" && (
         <p className="callout">
-          This server can't store keys: that needs <code>AI_PROXY_VAULT_KEYS</code> set on it. Instead, put each key in an environment variable on the server
-          whose name starts with <code>{KEY_ENV_PREFIX}</code> and give that name as the key's environment variable.
+          This server can't store keys: that needs <code>AI_PROXY_VAULT_KEYS</code> set on it. Instead, a site admin puts each key in an environment variable
+          on the server whose name starts with <code>{KEY_ENV_PREFIX}</code> and gives that name as the key's environment variable.
         </p>
       )}
       {data && (
@@ -565,6 +565,8 @@ function ProviderEditor({
   onDone: (saved: string | null) => void;
 }) {
   const client = useQueryClient();
+  // The server's environment is its operator's: only a site admin names one of its variables as a key.
+  const siteAdmin = Boolean(useAuth().data?.identity?.site_admin);
   const [name, setName] = useState(initialName);
   const [fields, setFields] = useState<ApiProviderFields>(initial);
   const [models, setModels] = useState<Pair[]>(() => pairsOf(initial.models));
@@ -699,9 +701,12 @@ function ProviderEditor({
               onChange={(event) => set({ key_env: event.target.value })}
               pattern={`${KEY_ENV_PREFIX}[A-Za-z0-9_]+`}
               autoCapitalize="none"
+              disabled={!siteAdmin}
             />
             <small>
-              Optional. A variable set on the server holding the key; its name must start with <code>{KEY_ENV_PREFIX}</code>. A stored key comes first.
+              {siteAdmin
+                ? <>Optional. A variable set on the server holding the key; its name must start with <code>{KEY_ENV_PREFIX}</code>. A stored key comes first.</>
+                : "Only a site admin sets this: the variable is one of the server's own. It's kept while the provider stays at the same address."}
             </small>
           </label>
         )}
