@@ -45,6 +45,25 @@ DEFAULT_PRICES: list[dict[str, Any]] = [
     {"match": "claude-3-7-sonnet*", "input": 3.0, "output": 15.0, "cache_read": 0.3, "cache_write": 3.75},
     {"match": "claude-haiku-4*", "input": 1.0, "output": 5.0, "cache_read": 0.1, "cache_write": 1.25},
     {"match": "claude-3-5-haiku*", "input": 0.8, "output": 4.0, "cache_read": 0.08, "cache_write": 1.0},
+    # OpenAI: prompts up to 272K tokens (longer ones cost more). A version's own row comes before its family's.
+    {"match": "gpt-6-astra*", "input": 10.0, "output": 50.0, "cache_read": 1.0},
+    {"match": "gpt-6.1-sol*", "input": 2.0, "output": 10.0, "cache_read": 0.1},
+    {"match": "gpt-6.1-terra*", "input": 1.0, "output": 5.0, "cache_read": 0.05},
+    {"match": "gpt-6-sol*", "input": 2.0, "output": 10.0, "cache_read": 0.2},
+    {"match": "gpt-6-luna*", "input": 0.1, "output": 0.5, "cache_read": 0.01},
+    {"match": "gpt-5.6-sol*", "input": 4.0, "output": 20.0, "cache_read": 0.4},
+    {"match": "gpt-5.6-terra*", "input": 2.0, "output": 12.0, "cache_read": 0.2},
+    {"match": "gpt-5.6-luna*", "input": 0.2, "output": 1.2, "cache_read": 0.02},
+    {"match": "gpt-5.5-pro*", "input": 30.0, "output": 180.0},
+    {"match": "gpt-5.5*", "input": 5.0, "output": 30.0, "cache_read": 0.5},
+    {"match": "gpt-5.4-pro*", "input": 30.0, "output": 180.0},
+    {"match": "gpt-5.4-mini*", "input": 0.75, "output": 4.5, "cache_read": 0.075},
+    {"match": "gpt-5.4-nano*", "input": 0.2, "output": 1.25, "cache_read": 0.02},
+    {"match": "gpt-5.4*", "input": 2.5, "output": 15.0, "cache_read": 0.25},
+    {"match": "gpt-5.3-codex*", "input": 1.75, "output": 14.0, "cache_read": 0.175},
+    {"match": "gpt-5.2-pro*", "input": 21.0, "output": 168.0},
+    {"match": "gpt-5.2*", "input": 1.75, "output": 14.0, "cache_read": 0.175},
+    {"match": "gpt-5-pro*", "input": 15.0, "output": 120.0},
     {"match": "gpt-5-mini*", "input": 0.25, "output": 2.0, "cache_read": 0.025},
     {"match": "gpt-5-nano*", "input": 0.05, "output": 0.4, "cache_read": 0.005},
     {"match": "gpt-5*", "input": 1.25, "output": 10.0, "cache_read": 0.125},
@@ -54,7 +73,14 @@ DEFAULT_PRICES: list[dict[str, Any]] = [
     {"match": "gpt-4o-mini*", "input": 0.15, "output": 0.6, "cache_read": 0.075},
     {"match": "gpt-4o*", "input": 2.5, "output": 10.0, "cache_read": 1.25},
     {"match": "o4-mini*", "input": 1.1, "output": 4.4, "cache_read": 0.275},
+    {"match": "o3-pro*", "input": 20.0, "output": 80.0},
     {"match": "o3*", "input": 2.0, "output": 8.0, "cache_read": 0.5},
+    # DeepSeek charges by the hour: these are the off-peak prices, which most hours are. In its peak hours
+    # (01:00 to 04:00 and 06:00 to 10:00 UTC on weekdays) everything costs double, which one price can't say.
+    {"match": "deepseek-v4-pro*", "input": 0.66, "output": 1.98, "cache_read": 0.022},
+    {"match": "deepseek-flash*", "input": 0.15, "output": 0.6, "cache_read": 0.003},
+    {"match": "deepseek-v4-flash*", "input": 0.15, "output": 0.6, "cache_read": 0.003},
+    # The names before V4 (deepseek-chat and the like).
     {"match": "deepseek-*", "input": 0.28, "output": 0.42, "cache_read": 0.028},
 ]
 

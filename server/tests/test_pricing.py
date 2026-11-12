@@ -100,3 +100,19 @@ def test_a_hosted_providers_calls_are_priced_and_a_machines_arent(tmp_path):
         assert latest["cost"]["usd"] == pytest.approx(0.01 + 0.01) and latest["cost"]["price"] == "gpt-test-*"
     finally:
         close_app(app, client, old)
+
+
+def test_shipped_prices_know_openai_and_deepseek_models_by_version():
+    """A version's own row is found before its family's: gpt-5.6-luna isn't priced as gpt-5."""
+    prices = pricing.DEFAULT_PRICES
+    found = {model: pricing.price_for(prices, model) for model in (
+        "gpt-6.1-sol", "gpt-6-sol", "gpt-6-astra", "gpt-6-luna", "gpt-5.6-luna", "gpt-5.5-pro", "gpt-5.4-mini", "gpt-5.1", "o3-pro", "o3",
+        "deepseek-flash", "deepseek-v4-flash", "deepseek-v4-pro", "deepseek-chat",
+    )}
+    assert {model: (price["input"], price["output"]) for model, price in found.items()} == {
+        "gpt-6.1-sol": (2.0, 10.0), "gpt-6-sol": (2.0, 10.0), "gpt-6-astra": (10.0, 50.0), "gpt-6-luna": (0.1, 0.5), "gpt-5.6-luna": (0.2, 1.2),
+        "gpt-5.5-pro": (30.0, 180.0), "gpt-5.4-mini": (0.75, 4.5), "gpt-5.1": (1.25, 10.0), "o3-pro": (20.0, 80.0), "o3": (2.0, 8.0),
+        "deepseek-flash": (0.15, 0.6), "deepseek-v4-flash": (0.15, 0.6), "deepseek-v4-pro": (0.66, 1.98), "deepseek-chat": (0.28, 0.42),
+    }
+    assert found["gpt-6.1-sol"]["cache_read"] == 0.1 and found["gpt-6-sol"]["cache_read"] == 0.2
+    assert pricing.checked_prices(prices) == prices
