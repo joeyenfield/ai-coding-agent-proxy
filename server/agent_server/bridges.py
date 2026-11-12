@@ -493,10 +493,13 @@ class Bridges:
         except (LinkDown, ValueError) as exc:
             LOGGER.info("couldn't fetch the catalogue of %s: %s", bridge.id, exc)
             return
-        if isinstance(catalogue, dict):
-            bridge.data["catalogue"] = catalogue
-            bridge.data["refreshed_at"] = time.time()
-            self._save(bridge)
+        # The bridge as it is now: it may have ended (its link removed) while the catalogue was fetched,
+        # and saving the one held from before would bring it back.
+        current = self.bridges.get(bridge.id)
+        if isinstance(catalogue, dict) and current is not None:
+            current.data["catalogue"] = catalogue
+            current.data["refreshed_at"] = time.time()
+            self._save(current)
 
     def catalogue_for(self, bridge: Bridge) -> dict[str, Any]:
         """What crosses to the other organization, described: what its people see and choose from."""
