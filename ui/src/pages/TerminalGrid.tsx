@@ -7,6 +7,7 @@ import { PartTag } from "../components/PartTag";
 import { useAuth } from "../hooks";
 import { PairPanel, terminalState } from "./Terminals";
 import { KEYS, TerminalView, type KeySender } from "./Terminal";
+import { SessionCostPill } from "../components/SessionCost";
 
 const LAYOUT_KEY = "ai-proxy-terminal-grid-layout";
 const MAX_SELECTED = 16;
@@ -287,6 +288,7 @@ function TerminalTile({ id, terminal, fontSize, loading, active, onActivate, sen
         <span className={`state-dot ${state.tone}`} aria-hidden="true" />
         <span className="terminal-tile-name">{name}</span>
       </button>
+      <SessionCostPill sessionId={id} enabled={Boolean(terminal)} />
       <Link className="button icon-button" to={`/terminals/${encodeURIComponent(id)}`} state={{ fromGrid: true }} title="Fullscreen: open the full terminal view" aria-label={`Fullscreen ${name}`}><Icon name="expand" size={16} /></Link>
       <button type="button" className="icon-button" title="Remove from grid" aria-label={`Remove ${name} from grid`} onClick={onRemove}><Icon name="close" size={14} /></button>
     </header>

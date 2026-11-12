@@ -229,7 +229,7 @@ Account agents' other calls (sign-in, telemetry, MCP) aren't shown here; they're
 
 `/sessions` lists every session, the most recently active first: agent, project, provider, model, who can see it, its state (**Streaming**, **Open** or **Ended**), its requests and when it last had traffic. The cards at the top count the sessions, the ones streaming now, the open ones and all their requests. **Search** by agent, project, model or session id, and filter by state with the chips. Expanding one shows its **Latest requests** and its actions:
 
-**Estimated cost.** A session's own page shows what its calls to paid providers cost, by the server's price table, and each request in its list and in the inspector shows its own. An account agent's calls show what they'd cost at API prices, since a subscription doesn't bill them by the token. See [Cost estimates](providers.md#cost-estimates).
+**Estimated cost.** A session's own page shows what its calls to paid providers cost, by the server's price table, and each request in its list and in the inspector shows its own. **Traffic** shows each request's cost in its row and the total of the requests shown in its cards. In the **Live agent view** each agent's header carries its session's cost so far, as does the bar of its full terminal page; point at it for the cost by model. An account agent's calls show what they'd cost at API prices, since a subscription doesn't bill them by the token. See [Cost estimates](providers.md#cost-estimates).
 
 - **Capture full request and response payloads**: turn saving payloads on or off for the rest of the session.
 - **Review requests**, **Traffic**: open its requests on those pages.

@@ -5,7 +5,7 @@ import { DetailBack, useDetailView } from "../components/DetailView";
 import { Inspector } from "../components/Inspector";
 import { LiveDetails } from "../components/LiveDetails";
 import { RouteBadge } from "../components/RouteBadge";
-import { formatBytes, formatDuration, formatNumber, shortId } from "../format";
+import { formatBytes, formatDuration, formatNumber, formatUsd, shortId } from "../format";
 import { useRequests, useSessions, useStatus } from "../hooks";
 import { useLive, useTicker } from "../live";
 import { CATEGORY_LABELS, CATEGORY_ORDER, groupRepeats, mergeRows, type Category, type Row } from "../traffic";
@@ -59,7 +59,7 @@ export function TrafficPage() {
   const services = new Set(matches.map((row) => row.service)).size;
   // Over every request the filters match, folded repeats included, not just the rows drawn.
   const totals = useMemo(() => {
-    const sum = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, estimated: false };
+    const sum = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, estimated: false, cost: 0, atApiPrices: 0, priced: 0 };
     for (const row of matches) {
       for (const record of [row.record, ...(row.repeats ?? []).map((repeat) => repeat.record)]) {
         if (!record) continue;
@@ -68,6 +68,12 @@ export function TrafficPage() {
         sum.cacheRead += record.cache_read_tokens ?? 0;
         sum.cacheWrite += record.cache_creation_tokens ?? 0;
         sum.estimated ||= Boolean(record.tokens_estimated);
+        // Each request's cost is the server's; this only adds up the ones shown.
+        if (record.cost) {
+          sum.priced += 1;
+          if (record.cost.basis === "api") sum.cost += record.cost.usd;
+          else sum.atApiPrices += record.cost.usd;
+        }
       }
     }
     return sum;
@@ -104,6 +110,16 @@ export function TrafficPage() {
           <dt>Services</dt>
           <dd>{formatNumber(services)}</dd>
         </div>
+        {totals.priced > 0 && (
+          <div>
+            <dt>Estimated cost</dt>
+            <dd title="Of the requests shown. Calls on a subscription are counted at API prices, apart from money spent.">
+              {totals.cost > 0 || totals.atApiPrices === 0 ? formatUsd(totals.cost) : `≈ ${formatUsd(totals.atApiPrices)}`}
+              {totals.cost > 0 && totals.atApiPrices > 0 && <small> plus ≈ {formatUsd(totals.atApiPrices)} on subscriptions</small>}
+              {totals.cost === 0 && totals.atApiPrices > 0 && <small> at API prices</small>}
+            </dd>
+          </div>
+        )}
         <div>
           <dt>Tokens in</dt>
           <dd title={totals.estimated ? "Partly estimated: a stream ended before the provider reported counts" : undefined}>
@@ -302,6 +318,13 @@ function TrafficRow({ row, selected, onSelect }: { row: Row; selected: boolean; 
                 ↑ {formatBytes(record.request_bytes)} ↓ {formatBytes(record.response_bytes)}
               </span>
             ) : null}
+            {record?.cost && (
+              <span title={record.cost.basis === "api" ? "Estimated cost" : "What it would cost at API prices: a subscription doesn't bill it"}>
+                {" · "}
+                {record.cost.basis === "api" ? "" : "≈ "}
+                {formatUsd(record.cost.usd)}
+              </span>
+            )}
           </span>
         </span>
       </button>

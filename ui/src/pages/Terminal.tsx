@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { SessionCostPill } from "../components/SessionCost";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { api, onRenewed, renewSignIn, terminalSocketUrl, type TerminalInfo } from "../api";
@@ -396,6 +397,7 @@ export function TerminalView({ sessionId, compact = false, gridFontSize = 9, fro
           <Icon name="chevron" size={12} className={`tile-chevron${details ? " open" : ""}`} />
         </button>
         <span className={`pill ${state.tone === "idle" ? "" : state.tone}`}>{state.label}</span>
+        <SessionCostPill sessionId={sessionId} />
         <div className="terminal-toolbar">
           <div className="row" role="group" aria-label="Text size">
             <button type="button" onClick={() => resize(-1)} aria-label="Smaller text" disabled={fontSize <= SIZES.min}>
