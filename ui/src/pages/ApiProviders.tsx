@@ -23,6 +23,7 @@ import { Icon } from "../components/Icon";
 import { StateDot } from "../components/ProviderState";
 import { formatRelative } from "../format";
 import { useAuth, useMachines, useModels } from "../hooks";
+import { PriceRows, priceRow, pricesOf, type PriceRow } from "../components/ModelPrices";
 import { DeepSeekSetup } from "./DeepSeekSetup";
 
 /**
@@ -73,6 +74,7 @@ function fieldsOf(provider: ApiProvider): ApiProviderFields {
     api_version: provider.api_version,
     priority: provider.priority,
     fallback: provider.fallback,
+    prices: provider.prices ?? [],
     enabled: provider.enabled,
     org: provider.org,
     teams: provider.teams,
@@ -569,6 +571,7 @@ function ProviderEditor({
   const siteAdmin = Boolean(useAuth().data?.identity?.site_admin);
   const [name, setName] = useState(initialName);
   const [fields, setFields] = useState<ApiProviderFields>(initial);
+  const [priceRows, setPriceRows] = useState<PriceRow[]>(() => (initial.prices ?? []).map(priceRow));
   const [models, setModels] = useState<Pair[]>(() => pairsOf(initial.models));
   const [headers, setHeaders] = useState<Pair[]>(() => pairsOf(initial.headers));
   const [key, setKey] = useState("");
@@ -597,8 +600,11 @@ function ProviderEditor({
     if (!fields.protocols.length) return setProblem("Choose at least one API it speaks.");
     const keyEnv = fields.key_env?.trim() || null;
     if (keyEnv && !keyEnv.startsWith(KEY_ENV_PREFIX)) return setProblem(`The key's environment variable must start with ${KEY_ENV_PREFIX}.`);
+    const prices = pricesOf(priceRows);
+    if (typeof prices === "string") return setProblem(prices);
     const body: ApiProviderSave = {
       ...fields,
+      prices,
       url: fields.url.trim(),
       anthropic_url: fields.anthropic_url?.trim() || null,
       api_version: fields.api_version?.trim() || null,
@@ -800,6 +806,15 @@ function ProviderEditor({
           )}
           <small>In the order chosen{fields.fallback.length ? `: ${fields.fallback.join(", ")}` : ""}. Only when it can't be reached at all, not when it answers with an error.</small>
         </fieldset>
+        <details className="manual span-2" open={priceRows.length > 0}>
+          <summary>Prices, for cost estimates{priceRows.length ? ` (${priceRows.length})` : ""}</summary>
+          <p className="subtle">
+            What this provider charges, in US dollars for a million tokens, by model name or pattern (<code>*</code> stands for anything;
+            the first match wins). Sessions and requests show what its calls cost. A model with no row here takes the server's own
+            price for it, if it has one.
+          </p>
+          <PriceRows rows={priceRows} onChange={setPriceRows} empty="No prices of its own: the server's price table is used." />
+        </details>
         <label className="check">
           <input type="checkbox" checked={fields.verify_tls} onChange={(event) => set({ verify_tls: event.target.checked })} />
           Check its TLS certificate

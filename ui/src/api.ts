@@ -223,6 +223,51 @@ export interface RequestRecord {
   host?: string | null;
   cache_read_tokens?: number;
   cache_creation_tokens?: number;
+  /** What it cost, estimated by the server when it was recorded (a paid provider's calls only). */
+  cost?: RequestCost;
+  /** A paid model call the server's price table had no price for. */
+  unpriced?: boolean;
+}
+
+/** A request's estimated cost in US dollars. basis "api": paid for by the token. "subscription": what an account agent's call would cost at API prices, which a plan doesn't bill. */
+export interface RequestCost {
+  usd: number;
+  input_usd: number;
+  output_usd: number;
+  cache_read_usd: number;
+  cache_write_usd: number;
+  /** The price table's pattern that matched the model. */
+  price: string;
+  basis: "api" | "subscription";
+}
+
+/** A session's estimated cost, summed by the server from its requests. */
+export interface SessionCost {
+  currency: string;
+  /** Calls to hosted APIs, paid for by the token. */
+  usd: number;
+  /** Account agents' calls at API prices: not money spent. */
+  subscription_usd: number;
+  priced: number;
+  /** Paid model calls with no price, so the total leaves them out. */
+  unpriced: number;
+  models: { model: string | null; requests: number; usd: number; basis: "api" | "subscription" }[];
+}
+
+/** A row of the server's price table: US dollars for a million tokens. */
+export interface ModelPrice {
+  match: string;
+  input: number;
+  output: number;
+  cache_read?: number;
+  cache_write?: number;
+}
+
+export interface ModelPrices {
+  currency: string;
+  prices: ModelPrice[];
+  /** Whether it's this server's own table, not the shipped one. */
+  custom: boolean;
 }
 
 export interface Status {
@@ -1123,6 +1168,8 @@ export interface ApiProviderFields {
   priority: number;
   /** Other API providers to try when this one can't be reached. */
   fallback: string[];
+  /** Its own prices for cost estimates, tried before the server's table. */
+  prices?: ModelPrice[];
   enabled: boolean;
   /** The organization that owns a hosted one, null for the site's own (a machine's is its machine's). */
   org: string | null;
@@ -2366,6 +2413,9 @@ export const api = {
     request<ApiProviderBalance>(`/api/orgs/${encodeURIComponent(org)}/providers/${encodeURIComponent(name)}/balance`, { method: "POST" }),
   // Models shared with every organization, by provider (site admins).
   sharedModels: () => request<SharedModels>("/api/config/shared-models"),
+  sessionCost: (sessionId: string) => request<SessionCost>(`/api/sessions/${encodeURIComponent(sessionId)}/cost`),
+  modelPrices: () => request<ModelPrices>("/api/config/prices"),
+  saveModelPrices: (prices: ModelPrice[] | null) => request<ModelPrices>("/api/config/prices", { method: "PUT", body: JSON.stringify({ prices }) }),
   saveSharedModels: (shared: Record<string, string[]>) =>
     request<SharedModels>("/api/config/shared-models", { method: "PUT", body: JSON.stringify({ shared }) }),
   storage: () => request<StorageInfo>("/api/config/storage"),

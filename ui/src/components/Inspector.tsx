@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, isFailure, outcomeLabel, tokens, trafficTarget, type RequestRecord, type Session, type Trace } from "../api";
-import { endpointPath, formatBytes, formatDate, formatDuration, formatNumber } from "../format";
+import { endpointPath, formatBytes, formatDate, formatDuration, formatNumber, formatUsd } from "../format";
 import { download, useClipboard, useToast } from "../hooks";
 import { HeadersView } from "./Headers";
 import { RouteBadge } from "./RouteBadge";
@@ -74,6 +74,15 @@ function InspectorBody({
             value={`${formatNumber(record.cache_read_tokens ?? 0)} read, ${formatNumber(record.cache_creation_tokens ?? 0)} written`}
           />
         )}
+        {record.cost && (
+          <Metric
+            label={record.cost.basis === "api" ? "Estimated cost" : "At API prices"}
+            value={`${formatUsd(record.cost.usd)}: ${formatUsd(record.cost.input_usd)} in, ${formatUsd(record.cost.output_usd)} out${
+              record.cost.cache_read_usd || record.cost.cache_write_usd ? `, ${formatUsd(record.cost.cache_read_usd + record.cost.cache_write_usd)} cache` : ""
+            }${record.cost.basis === "api" ? "" : " (a subscription doesn't bill it)"}`}
+          />
+        )}
+        {record.unpriced && <Metric label="Estimated cost" value="No price for this model (Server settings, Model prices)" />}
       </dl>
       {(record.tokens_estimated || record.error_type === "client_closed" || record.error_type === "incomplete_stream") && (
         <p className="inspector-note">{outcomeNote(record)}</p>

@@ -15,14 +15,14 @@ from typing import Any
 import yaml
 from sqlalchemy import select
 
-from . import defaults
+from . import defaults, pricing
 from .agents import parse_agents
 from .config import (
     BACKEND_TYPES, Settings, _replace_backends, _validate_http_url, checked_request_log, checked_shared_models, stored_config, validate_models,
 )
 from .db import kv, schema
 
-KEYS = ("proxy", "default_backend", "intercept", "retention_days", "request_log", "shared_models", "backends", "models", "agents")
+KEYS = ("proxy", "default_backend", "intercept", "retention_days", "request_log", "shared_models", "model_prices", "backends", "models", "agents")
 
 
 def export(settings: Settings) -> dict[str, Any]:
@@ -37,6 +37,8 @@ def export(settings: Settings) -> dict[str, Any]:
         "intercept": document.get("intercept") or {}, "retention_days": document.get("retention_days"),
         "request_log": checked_request_log(document.get("request_log") or {}),
         "shared_models": checked_shared_models(document.get("shared_models") or {}),
+        # The table in use, so an export shows the prices estimates are made with.
+        "model_prices": pricing.checked_prices(document["model_prices"]) if document.get("model_prices") is not None else list(pricing.DEFAULT_PRICES),
         "backends": document.get("backends") or {}, "models": models or {}, "agents": agents,
     }
 
@@ -116,6 +118,8 @@ def apply(settings: Settings, document: dict[str, Any], *, replace: bool = False
         checked["request_log"] = checked_request_log(parts["request_log"] or {})
     if "shared_models" in parts:
         checked["shared_models"] = checked_shared_models(parts["shared_models"] or {})
+    if "model_prices" in parts:
+        checked["model_prices"] = pricing.checked_prices(parts["model_prices"] or [])
     if "models" in parts:
         checked["models"] = validate_models(parts["models"] or {})
     if "agents" in parts:
@@ -125,7 +129,7 @@ def apply(settings: Settings, document: dict[str, Any], *, replace: bool = False
         parse_agents(agents)
         checked["agents"] = agents
     with settings.open_database().write() as connection:
-        for key in ("proxy", "default_backend", "intercept", "retention_days", "request_log", "models"):
+        for key in ("proxy", "default_backend", "intercept", "retention_days", "request_log", "models", "model_prices"):
             if key in checked:
                 kv.put(connection, schema.settings, key, checked[key])
         if "backends" in checked:

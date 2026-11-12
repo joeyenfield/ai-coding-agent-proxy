@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { isFailure, outcomeLabel, tokens } from "../api";
-import { formatBytes, formatDuration, formatRelative } from "../format";
+import { formatBytes, formatDuration, formatRelative, formatUsd } from "../format";
 import { useSessions } from "../hooks";
 import { LiveCard } from "../pages/Live";
 import { CATEGORY_LABELS, type Row } from "../traffic";
@@ -95,6 +95,12 @@ function RequestSummary({ row }: { row: Row }) {
         {record && (record.input_tokens > 0 || record.output_tokens > 0) && (
           <span>
             {tokens(record, record.input_tokens)} in, {tokens(record, record.output_tokens)} out
+          </span>
+        )}
+        {record?.cost && (
+          <span title={record.cost.basis === "api" ? "Estimated cost" : "What it would cost at API prices: a subscription doesn't bill it"}>
+            {record.cost.basis === "api" ? "" : "≈ "}
+            {formatUsd(record.cost.usd)}
           </span>
         )}
         {record && <span>{formatBytes(record.response_bytes)}</span>}

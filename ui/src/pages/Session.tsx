@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { PartTag } from "../components/PartTag";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, isFailure } from "../api";
-import { formatCompact, formatDate, formatNumber, formatRelative, lastTraffic } from "../format";
+import { formatCompact, formatDate, formatNumber, formatRelative, formatUsd, lastTraffic } from "../format";
 import { useRequests, useStatus, useToast } from "../hooks";
 import { useLive, useTicker } from "../live";
 import { RouteBadge } from "../components/RouteBadge";
@@ -20,6 +20,8 @@ export function SessionPage() {
   const session = useQuery({ queryKey: ["session", sessionId], queryFn: () => api.session(sessionId), refetchInterval: 3000 });
   const live = useLive(sessionId);
   const requests = useRequests(sessionId);
+  // Summed by the server; asked again as requests arrive.
+  const cost = useQuery({ queryKey: ["session-cost", sessionId, session.data?.request_count ?? 0], queryFn: () => api.sessionCost(sessionId), retry: false });
   const status = useStatus();
   const client = useQueryClient();
   const notify = useToast();
@@ -104,6 +106,18 @@ export function SessionPage() {
           <dt>Tokens written</dt>
           <dd>{formatCompact(totals.output)}</dd>
         </div>
+        {cost.data && (cost.data.priced > 0 || cost.data.unpriced > 0) && (
+          <div>
+            <dt>Estimated cost</dt>
+            <dd title={cost.data.models.map((item) => `${item.model ?? "unknown"}: ${formatUsd(item.usd)} in ${item.requests} requests`).join("\n")}>
+              {cost.data.priced === 0 ? "No price set" : cost.data.usd > 0 || cost.data.subscription_usd === 0 ? formatUsd(cost.data.usd) : formatUsd(cost.data.subscription_usd)}
+              {cost.data.usd === 0 && cost.data.subscription_usd > 0 && <small> at API prices, on a subscription</small>}
+              {cost.data.usd > 0 && cost.data.subscription_usd > 0 && <small> plus {formatUsd(cost.data.subscription_usd)} at API prices on a subscription</small>}
+              {cost.data.unpriced > 0 && cost.data.priced > 0 && <small className="warn"> {cost.data.unpriced} without a price</small>}
+              {cost.data.priced === 0 && <small> for its models (Server settings, Model prices)</small>}
+            </dd>
+          </div>
+        )}
       </dl>
 
       <section className="section">

@@ -128,6 +128,7 @@ Each provider has these settings. Only the key is secret, and it is never shown,
 | `auth` | `bearer` (`Authorization: Bearer <key>`), `x-api-key` (Anthropic), `api-key` (Azure), `none`, or `agent` (the agent's own `Authorization` or `x-api-key` goes through and the server adds none). |
 | `category` | How the console groups it: `hosted` (the default), `gateway` (LiteLLM, OpenRouter and other aggregators), or `machine` (set when a machine's server is adopted). |
 | key | Typed once on the console, stored encrypted (it needs `AI_PROXY_VAULT_KEYS`, as [subscriptions](subscriptions.md) do). A stored key is bound to the provider's address: change the address and it must be typed again. |
+| `prices` | Its own prices for [cost estimates](#cost-estimates): a list of `{match, input, output, cache_read, cache_write}`, US dollars for a million tokens by model name or pattern, tried before the server's table. |
 | `key_env` | Or: the name of an environment variable on the server holding the key. It must start with `AI_PROXY_API_KEY_`, so a provider can never be pointed at the server's own secrets. Only a site admin sets or changes it, as those variables are the server operator's: an organization's admin stores a key instead, and a provider that has a `key_env` loses it if its organization's admin moves it to another address. A stored key wins over it. |
 | `models` | Aliases agents use, mapped to the provider's model ids (`fast: gpt-4.1-mini`). An alias can be the id itself. |
 | `discover` | Also list the provider's own `GET /models` (on by default). |
@@ -188,6 +189,17 @@ An API provider's requests are recorded like every other:
 Tokens come from what the provider reports. When it reports none (a Chat Completions stream without `stream_options.include_usage`, say), the counts are estimates and the record says so (`tokens_estimated`). The provider's own rate-limit headers (`x-ratelimit-*`, `anthropic-ratelimit-*`, `retry-after`) are passed back to the agent, and its request id comes back as `upstream-request-id`.
 
 Each server process keeps what it last saw of each provider (status, time, error) as its health on the console, in memory only: with several processes, each shows its own.
+
+### Cost estimates
+
+The server estimates what each model call to a paid provider cost, so you can see where a session's money went. It multiplies the request's token counts by a table of prices, **US dollars for a million tokens**: input, output, and cached input read and written (priced at their own rates; when a row leaves them out, at the input price).
+
+- **Where you see it.** A session's page shows its **Estimated cost**, with the cost by model when you point at it. Each request in the list shows its own cost, and its details split it into input, output and cache. `GET /api/sessions/<id>/cost` returns the same total, and every request record carries its `cost`.
+- **What gets one.** Calls to a hosted API or gateway the server calls with a key are paid for by the token, so their cost counts toward the total. An account agent's calls go out on a subscription that isn't billed by the token: they're shown as what the same tokens would cost **at API prices**, kept apart from the total. Calls to a machine's own model server (Ollama, llama.cpp, Strata, Docker Model Runner) cost nothing here and get no estimate.
+- **A provider's own prices.** Any API provider can carry its own price list: **Prices, for cost estimates** where the provider is edited (its organization's **API providers** tab), or `prices` in its settings. They're tried before the server's table, so a provider says what it charges: a gateway's markup, a negotiated rate, a model the server's table doesn't know. A model with no row there takes the server's price.
+- **The server's prices.** Site admins edit the table on **Server settings** › **Model prices**. It starts with list prices for Claude, OpenAI and DeepSeek models. A row is a model name or pattern (`*` stands for anything, such as `claude-sonnet-4*`) and its prices; a model takes the first row that matches the name the provider was asked for, so narrower patterns go first. A name with a provider in front (`openai/gpt-4o`, as gateways write them) is also matched without it.
+- **They're estimates.** The server ships with list prices as they were known when it was written, as a starting point. Providers change their prices and add models, so check the table against your provider's price list. A model with no row gets no estimate, and the session says how many of its calls had no price, rather than guessing. Discounts, batch prices and a gateway's markup aren't known to the server.
+- **A cost is kept with its request.** It's worked out when the request is recorded, at the prices of that moment. Changing the table applies to requests from then on; earlier ones keep the cost they were given.
 
 ### Examples
 

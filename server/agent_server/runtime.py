@@ -24,8 +24,8 @@ from .agents import ALL_TENANTS, AgentDefinition, load_agents, stored_definition
 from .auth import Auth, Revocations, UserStore
 from .certs import CertificateAuthority
 from .chat import Chats
-from .config import LOCAL_INTERCEPT_PORT, Settings
-from . import api_providers, strata
+from .config import DIRECT_BACKEND, LOCAL_INTERCEPT_PORT, Settings
+from . import api_providers, pricing, strata
 from .containers import ContainerManager, KeyStore
 from .live import LiveHub
 from .provider_accounts import ProviderAccounts, Vault
@@ -240,6 +240,28 @@ class Runtime:
         self.tokens = self.sessions.totals()
         self.recent.clear()
         self.recent.extend(self.sessions.recent(self.recent.maxlen or 100))
+
+    def _price(self, record: dict[str, Any]) -> None:
+        """Adds what the request cost (pricing.py) to its record, when it's one that's paid for by the token:
+        a hosted API or gateway the server calls with a key. An account agent's calls (intercepted, or through
+        the anthropic pass-through on the agent's own sign-in) say what they'd cost at API prices. Requests to
+        a machine's own model server cost nothing here, so they get neither."""
+        name = record.get("backend")
+        backend = self.settings.backends.get(name) if name else None
+        if backend is not None and api_providers.external(backend):
+            basis = "api"
+        elif name == DIRECT_BACKEND or (backend is not None and backend.type == "anthropic"):
+            basis = "subscription"
+        else:
+            return
+        # The provider's own prices come first: what it charges is its to say (a gateway's markup, a negotiated rate).
+        own = api_providers.options(backend)["prices"] if backend is not None and backend.type == "api" else []
+        cost = pricing.estimate([*own, *self.settings.prices()], record, basis)
+        if cost is not None:
+            record["cost"] = cost
+        elif record.get("model") and int(record.get("input_tokens") or 0) + int(record.get("output_tokens") or 0) > 0:
+            # A model call the table has no price for: said, so a session's total isn't read as complete.
+            record["unpriced"] = True
 
     def records(self, session: Session) -> list[dict[str, Any]]:
         return self.sessions.records(session)
@@ -484,6 +506,7 @@ class Runtime:
     ) -> dict[str, Any]:
         self.active.pop(_key(telemetry), None)
         record = telemetry.finish()
+        self._price(record)
         if isinstance(response_payload, dict):
             # Non-streamed replies arrive in one piece; show them in the live view too.
             self.stream_object(telemetry, response_payload)

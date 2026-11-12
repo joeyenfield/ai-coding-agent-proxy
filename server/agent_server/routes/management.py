@@ -14,7 +14,7 @@ from urllib.parse import quote, urlparse
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
-from .. import access, api_providers, auth, config_io, mcp, remote, strata, version
+from .. import access, api_providers, auth, config_io, mcp, pricing, remote, strata, version
 from ..agents import stored_agents
 from ..db import redacted
 from ..config import DIRECT_BACKEND, LOCAL_PROXY_URL, ModelProfile, serves, shared_model
@@ -423,6 +423,37 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         """Stop the session's replies that are read to the end for their client (Ask a model's Stop)."""
         session = controllable(session_id, request)
         return {"stopped": runtime.stop_finishing(session.session_id)}
+
+    @app.get("/api/sessions/{session_id}/cost")
+    async def session_cost(session_id: str, request: Request) -> dict[str, Any]:
+        """What the session's model calls cost, estimated from the server's price table when each was recorded:
+        usd (calls to hosted APIs, paid for by the token), subscription_usd (an account agent's calls at API
+        prices, which a subscription doesn't bill), how many calls were priced and how many had no price, and
+        the same by model."""
+        session = viewable(session_id, request)
+        return pricing.total(await asyncio.to_thread(runtime.records, session))
+
+    @app.get("/api/config/prices")
+    async def model_prices() -> dict[str, Any]:
+        """The price table estimates are made with: dollars for a million tokens, by model name pattern, first
+        match first. custom says whether it's the server's own or the shipped starting table."""
+        return {"currency": "USD", "prices": settings.prices(), "custom": settings.model_prices is not None}
+
+    @app.put("/api/config/prices")
+    async def set_model_prices(request: Request) -> dict[str, Any]:
+        """Replace the price table: {"prices": [{match, input, output, cache_read?, cache_write?}]}; null goes
+        back to the shipped one. It applies to requests from now on; recorded ones keep their cost."""
+        try:
+            data = await request.json()
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Send JSON") from exc
+        if not isinstance(data, dict) or "prices" not in data:
+            raise HTTPException(status_code=400, detail='Send {"prices": [...]}, or {"prices": null} for the shipped table')
+        try:
+            settings.set_model_prices(data["prices"])
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"currency": "USD", "prices": settings.prices(), "custom": settings.model_prices is not None}
 
     @app.get("/api/sessions/{session_id}/telemetry")
     async def download_telemetry(session_id: str, request: Request) -> PlainTextResponse:

@@ -7,6 +7,14 @@ export const formatNumber = (value: number | null | undefined) =>
 export const formatCompact = (value: number | null | undefined) =>
   value == null ? "–" : compactFormat.format(value);
 
+/** An estimated cost in US dollars: cents for what's a cent or more, else enough places to show it isn't nothing. */
+export function formatUsd(value: number | null | undefined): string {
+  if (value == null) return "–";
+  if (value === 0) return "$0.00";
+  if (value >= 0.01) return `$${value.toFixed(2)}`;
+  return value >= 0.0001 ? `$${value.toFixed(4)}` : "under $0.0001";
+}
+
 export function formatDuration(ms: number | null | undefined): string {
   if (ms == null) return "–";
   if (ms < 1000) return `${Math.round(ms)} ms`;

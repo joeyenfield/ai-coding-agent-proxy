@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 
 from sqlalchemy import select
 
-from . import api_providers, defaults
+from . import api_providers, defaults, pricing
 from .db import Database, kv, migrate, schema, sqlite_url
 
 
@@ -258,6 +258,8 @@ class Settings:
     # Models site admins share with every organization, by backend (checked_shared_models); the fleet applies
     # them to the site's own providers only (fleet.shared_with_all).
     shared_models: dict[str, list[str]] = field(default_factory=dict)
+    # What a million tokens of each model cost, for the cost estimates (pricing.py); None until read: the shipped table.
+    model_prices: list[dict[str, Any]] | None = None
     # The open database (open_database). Settings.load() reads its settings from it; Settings built
     # in code write theirs into it instead, so a test says what it wants and the database follows.
     db: Database | None = field(default=None, repr=False, compare=False)
@@ -396,6 +398,11 @@ class Settings:
             self.shared_models = checked_shared_models(document.get("shared_models") or {})
         except ValueError:
             self.shared_models = {}
+        try:
+            stored = document.get("model_prices")
+            self.model_prices = pricing.checked_prices(stored) if stored is not None else None
+        except ValueError:
+            self.model_prices = None
 
     def _store_config(self, connection: Any) -> None:
         """Settings built in code: their values become the database's."""
@@ -411,6 +418,8 @@ class Settings:
         kv.put(connection, schema.settings, "retention_days", self.retention_days)
         kv.put(connection, schema.settings, "request_log", checked_request_log(self.request_log))
         kv.put(connection, schema.settings, "shared_models", checked_shared_models(self.shared_models))
+        if self.model_prices is not None:
+            kv.put(connection, schema.settings, "model_prices", pricing.checked_prices(self.model_prices))
         _replace_backends(connection, {name: backend.public() for name, backend in self.backends.items()})
         definitions = defaults.agents() if self.agents is None else self.agents
         connection.execute(schema.agents.delete())
@@ -665,6 +674,22 @@ class Settings:
         self.changed("shared_models")
         return shared
 
+    def prices(self) -> list[dict[str, Any]]:
+        """The price table in use: the stored one, or the shipped one until a site admin saves theirs."""
+        return self.model_prices if self.model_prices is not None else pricing.DEFAULT_PRICES
+
+    def set_model_prices(self, value: Any) -> list[dict[str, Any]]:
+        """Replace the price table; None goes back to the shipped one. Requests already recorded keep their cost."""
+        prices = pricing.checked_prices(value) if value is not None else None
+        with self.open_database().write() as connection:
+            if prices is None:
+                connection.execute(schema.settings.delete().where(schema.settings.c.key == "model_prices"))
+            else:
+                kv.put(connection, schema.settings, "model_prices", prices)
+        self.model_prices = prices
+        self.changed("model_prices")
+        return self.prices()
+
     def _forget_shares(self) -> None:
         """A removed backend's share goes with it, so a new backend of the same name never inherits it."""
         kept = {name: models for name, models in self.shared_models.items() if name in self.backends}
@@ -746,7 +771,7 @@ def stored_config(connection: Any) -> tuple[dict[str, Any], dict[str, Any]]:
     """The stored network settings (shaped as backends.yaml was) and model tuning."""
     document: dict[str, Any] = {
         key: kv.get(connection, schema.settings, key)
-        for key in ("proxy", "default_backend", "intercept", "retention_days", "request_log", "shared_models")
+        for key in ("proxy", "default_backend", "intercept", "retention_days", "request_log", "shared_models", "model_prices")
     }
     rows = connection.execute(select(schema.backends).order_by(schema.backends.c.position, schema.backends.c.name)).mappings()
     document["backends"] = {

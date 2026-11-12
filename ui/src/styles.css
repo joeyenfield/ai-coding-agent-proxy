@@ -448,6 +448,9 @@ details.chat-tool-run[open] > summary { margin-bottom: 6px; }
   .chat-bubble { padding: 8px 12px; }
 }
 .table .nowrap { white-space: nowrap; }
+/* The price table (Server settings, Model prices): inputs fill their cells, prices stay narrow. */
+.price-table input { width: 100%; min-width: 84px; }
+.price-table td:first-child input { min-width: 220px; }
 .title-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 dialog.fullscreen { width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; background: var(--paper); color: var(--ink); }

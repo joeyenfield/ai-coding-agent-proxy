@@ -43,6 +43,8 @@ class RequestTelemetry:
     host: str | None = None
     cache_read_tokens: int = 0
     cache_creation_tokens: int = 0
+    # OpenAI-style usage counts cached tokens inside the prompt tokens; Anthropic's counts them beside it (pricing.py).
+    cached_in_input: bool = False
     # API providers (api_providers.py): which protocol the request was, the provider's model id when an
     # alias was mapped, and where it went when its provider couldn't be reached (fallback).
     protocol: str | None = None
@@ -83,6 +85,8 @@ class RequestTelemetry:
         # DeepSeek reports its cache hits as prompt_cache_hit_tokens.
         cached = cached or usage.get("prompt_cache_hit_tokens")
         self.cache_read_tokens = int(usage.get("cache_read_input_tokens") or cached or self.cache_read_tokens)
+        if cached and not usage.get("cache_read_input_tokens"):
+            self.cached_in_input = True
         self.cache_creation_tokens = int(usage.get("cache_creation_input_tokens") or self.cache_creation_tokens)
 
     def finish(self) -> dict[str, Any]:
@@ -139,6 +143,7 @@ class RequestTelemetry:
             **({"upstream_model": self.upstream_model} if self.upstream_model else {}),
             **({"fallback_from": self.fallback_from, "routing": self.routing} if self.fallback_from else {}),
             **({"rate_limited": True} if self.rate_limited else {}),
+            **({"cached_in_input": True} if self.cached_in_input and self.cache_read_tokens else {}),
         }
 
 

@@ -10,6 +10,7 @@ import { machinePath, providersPath } from "./Machine";
 import { TabBar, TabPanel, useTabParam } from "../components/Tabs";
 import { LinksSettings } from "../components/LinksSettings";
 import { SharedModelsSettings } from "../components/SharedModels";
+import { ModelPricesSettings } from "../components/ModelPrices";
 import { AgentDefinitions, AuditSettings, ModelTuningEditor, StorageSettings } from "./SettingsStored";
 
 const URL_PLACEHOLDERS: Record<string, string> = {
@@ -61,7 +62,7 @@ export function SettingsPage() {
   return <ServerSettings />;
 }
 
-const TABS = ["server", "shared", "agents", "tuning", "storage", "audit", "links"] as const;
+const TABS = ["server", "shared", "agents", "tuning", "prices", "storage", "audit", "links"] as const;
 
 function ServerSettings() {
   const [tab, setTab] = useTabParam(TABS);
@@ -153,6 +154,7 @@ function ServerSettings() {
           { id: "shared", label: "Shared models" },
           { id: "agents", label: "Agents" },
           { id: "tuning", label: "Model tuning" },
+          { id: "prices", label: "Model prices" },
           { id: "storage", label: "Storage" },
           { id: "audit", label: "Audit" },
           { id: "links", label: "Links" },
@@ -312,6 +314,9 @@ function ServerSettings() {
       </TabPanel>
       <TabPanel idPrefix="settings-" id="tuning" active={tab === "tuning"} className="settings-panel">
         <ModelTuningEditor />
+      </TabPanel>
+      <TabPanel idPrefix="settings-" id="prices" active={tab === "prices"} className="settings-panel">
+        <ModelPricesSettings />
       </TabPanel>
       <TabPanel idPrefix="settings-" id="storage" active={tab === "storage"} className="settings-panel">
         <StorageSettings />

@@ -229,6 +229,8 @@ Account agents' other calls (sign-in, telemetry, MCP) aren't shown here; they're
 
 `/sessions` lists every session, the most recently active first: agent, project, provider, model, who can see it, its state (**Streaming**, **Open** or **Ended**), its requests and when it last had traffic. The cards at the top count the sessions, the ones streaming now, the open ones and all their requests. **Search** by agent, project, model or session id, and filter by state with the chips. Expanding one shows its **Latest requests** and its actions:
 
+**Estimated cost.** A session's own page shows what its calls to paid providers cost, by the server's price table, and each request in its list and in the inspector shows its own. An account agent's calls show what they'd cost at API prices, since a subscription doesn't bill them by the token. See [Cost estimates](providers.md#cost-estimates).
+
 - **Capture full request and response payloads**: turn saving payloads on or off for the rest of the session.
 - **Review requests**, **Traffic**: open its requests on those pages.
 - **Download JSONL**: its telemetry, one request per line.
@@ -326,12 +328,13 @@ The log's own requests aren't listed, nor the console's `/assets/`. Requests tha
 
 ![Server settings](screenshots/settings.png)
 
-`/settings` (site admins only) changes the server's stored settings, in tabs kept in the address (`?tab=`): **Server and providers**, **Shared models**, **Agents**, **Model tuning**, **Storage**, **Audit** and **Links**. Most changes apply at once, in every server process:
+`/settings` (site admins only) changes the server's stored settings, in tabs kept in the address (`?tab=`): **Server and providers**, **Shared models**, **Model prices**, **Agents**, **Model tuning**, **Storage**, **Audit** and **Links**. Most changes apply at once, in every server process:
 
 - **Server**: **Listen host**, **Listen port**, **Address agent machines use** (shown for `agent login`) and **Public console address** (`public_url`, optional: where people open the console from anywhere, shown ahead of the addresses the server finds itself). A changed listen address needs a restart.
 - **Providers**: every backend, with its type, address and machine. Choose the **Default**, or remove one. **Add hosted API** adds an Anthropic API backend (name, type, URL). Local providers can't be added here: they come from machines (see [Providers](providers.md)). API providers are listed here too, and can be the default, but are edited on their organization's **API providers** tab (**Organizations**). **Save changes** saves this section and the one above.
 - **Shared models**: the site's own providers, each with the models every organization may use there: tick known models, type others (separated by commas) or choose **Every model**, then **Save sharing**. Other organizations see only those models and never the provider's address or machine. See [Sharing models with every organization](providers.md#sharing-models-with-every-organization).
 - **Agents**: every agent launchers can start, each marked **Shipped**, **Shipped, changed** or **Added here**. **Edit** opens its definition as YAML; **Add an agent** takes an id and a definition; **Remove** stops launchers offering it. **Reset to the shipped one** undoes changes to an agent that ships with the server. Shipped agents follow the server's upgrades until you change them. See [Adding a new agent](running-agents.md#adding-a-new-agent).
+- **Model prices**: the table the [cost estimates](providers.md#cost-estimates) are made with, dollars for a million tokens by model name or pattern: add, change, reorder (the first match wins) or remove rows, **Save prices**, and **Back to the shipped prices**.
 - **Ollama model tuning**: the `defaults`, `profiles` and `aliases` the server applies to requests it sends to Ollama, as one YAML document. **Save tuning** applies it to new requests. See [Model tuning](providers.md#model-tuning).
 - **Storage**: which database the server uses (SQLite or PostgreSQL, its address without the password, and its size), and the server's [retention policy](retention.md):
   - which trace modes organizations may choose and the default one, and whether account agents' traffic and terminal output are recorded;

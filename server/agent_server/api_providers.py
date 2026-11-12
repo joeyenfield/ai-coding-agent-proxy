@@ -36,6 +36,7 @@ import httpx
 from httpcore._backends.auto import AutoBackend
 from sqlalchemy import select
 
+from . import pricing
 from .auth import ROOT_TENANT
 from .db import Database, schema
 
@@ -73,6 +74,8 @@ DEFAULT_OPTIONS: dict[str, Any] = {
     "api_version": None,
     "priority": 0,
     "fallback": [],
+    # Its own prices for cost estimates (pricing.py), ahead of the server's table.
+    "prices": [],
     "enabled": True,
     # Who may use it. org: the organization that owns it (None is the site's own, the root); its admins
     # manage it. teams: the owner's teams (<org>/<team>) whose people may use it; none listed is everyone
@@ -200,6 +203,10 @@ def validate(name: str, value: Any, current: Any | None) -> tuple[str, dict[str,
     if not isinstance(fallback, list) or any(not isinstance(item, str) for item in fallback) or name in fallback or len(fallback) > 5:
         raise ProviderError("fallback lists up to five other providers")
     merged["fallback"] = list(dict.fromkeys(fallback))
+    try:
+        merged["prices"] = pricing.checked_prices(merged["prices"])
+    except ValueError as exc:
+        raise ProviderError(f"prices: {exc}") from exc
     orgs = merged["orgs"]
     if not isinstance(orgs, list) or any(not isinstance(item, str) or not re.fullmatch(r"\*|[A-Za-z0-9][A-Za-z0-9_.-]{0,99}", item) for item in orgs):
         raise ProviderError('orgs lists organizations, or ["*"] for every one')
