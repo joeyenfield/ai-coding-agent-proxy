@@ -103,6 +103,11 @@ def register(app: FastAPI, runtime: Runtime) -> None:
                 raise HTTPException(status_code=400, detail=f"org: there's no organization {body['org']}")
             if not identity.site_admin:
                 body["orgs"] = api_providers.options(current)["orgs"] if current is not None else []
+                # key_env names one of the server's own environment variables, which are its operator's:
+                # an organization's admin can't point a provider at one, nor send one it has to another address.
+                kept = api_providers.options(current).get("key_env") if current is not None else None
+                same_place = current is not None and (body.get("url") is None or api_providers.origin(str(body["url"])) == api_providers.origin(current.url))
+                body["key_env"] = kept if kept and same_place else None
             try:
                 url, options = api_providers.validate(name, body, current)
             except ProviderError as exc:

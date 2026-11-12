@@ -93,6 +93,9 @@ FORBIDDEN = ["TOOL", "MCP", "AGENT", "SSL", "PROPS"]
 def _extra(name: str) -> str:
     if not name.startswith("LLAMA_ARG_") and not name.startswith("GGML_"):
         return "only LLAMA_ARG_* and GGML_* variables can be set here"
+    # Windows reads environment names without regard to case, so a lower-case name would slip past the lists below.
+    if name != name.upper():
+        return "write the variable's name in upper case"
     if name in RESERVED:
         return "agent-machine sets where llama-server listens, and it takes no API key or presets file here"
     if any(part in name for part in FORBIDDEN):

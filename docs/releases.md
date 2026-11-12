@@ -2,7 +2,7 @@
 
 Build releases on your computer. GitHub Actions and self-hosted Actions runners are not part of this process. Pushing a commit or tag does not start a build. GitHub can still store the images and installer files when you explicitly publish them.
 
-Use Python 3.11 or later. Image builds need Podman and a running Podman machine on Windows/macOS. Installer builds also need Go 1.25 and Node.js 22/npm. Run the commands from the repository root; the scripts also work when invoked by full path from another directory.
+Use Python 3.11 or later. Image builds need Podman and a running Podman machine on Windows/macOS. Installer builds also need Go 1.24 or later and Node.js 22/npm. Run the commands from the repository root; the scripts also work when invoked by full path from another directory.
 
 | Type | Default build | Other options |
 | --- | --- | --- |

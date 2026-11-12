@@ -214,7 +214,12 @@ class AgentProxy:
         await response(scope, receive, send)
 
     async def handle(self, request: Request) -> Response:
-        path = request.url.path
+        # The decoded path, as the server will read it. A "." or ".." segment would be resolved on the way
+        # (/v1/../api/... reaches the whole API past the allowlist), and a decoded "?" or "#" makes the
+        # path checked here differ from the one forwarded: neither is ever a real request.
+        path = str(request.scope.get("path") or request.url.path)
+        if "\\" in path or "?" in path or "#" in path or any(segment in (".", "..") for segment in path.split("/")):
+            return JSONResponse({"detail": "Not found"}, status_code=404)
         if path == "/health" and request.method == "GET":
             server = self.upstream.server()
             return JSONResponse({

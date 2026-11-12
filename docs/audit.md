@@ -57,7 +57,7 @@ Server settings › Audit (site admins), or `PUT /api/config/audit`, lists where
 | `webhook` | `https://hooks.example/audit` | `POST {"events": [...]}`; with `token_env`, signed: `X-Mesh-Signature: sha256=<HMAC of the body>`. |
 | `blob` | | NDJSON files in blob storage under `prefix` (default `audit/export/`). |
 
-`token_env` names an environment variable on the server holding the export's secret (an OTLP collector's token, sent as `Authorization`, or the webhook's signing key), never the value itself. `tenants` limits an export to some organizations.
+`token_env` names an environment variable on the server holding the export's secret (an OTLP collector's token, sent as `Authorization`, or the webhook's signing key), never the value itself. It can't be one of the server's own settings (a name starting with `AI_PROXY_`, other than `AI_PROXY_AUDIT_...`, or `STRATA_API_KEY`), since its value is sent to the export's address. `tenants` limits an export to some organizations.
 
 ```json
 {"checkpoint_minutes": 60,

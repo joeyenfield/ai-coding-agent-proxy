@@ -216,7 +216,7 @@ See [Agents](agents.md) for the format and how to add one, and [MCP](mcp.md) for
 | `AI_PROXY_SERVE_UI=0` | API-only server: don't serve or rebuild the console. Host the console separately; see [Deployment](deployment.md#separate-console-and-api-domains). |
 | `AI_PROXY_CONSOLE_ORIGINS` | Comma-separated trusted console origins for credentialed CORS, HTTP mutations and WebSockets (default: none). Exact HTTP(S) origins only, no trailing slash, path or wildcard. |
 | `AI_PROXY_DIST_DIR` | The builds the server hands out (default `dist/`). |
-| `AI_PROXY_DOCS_DIR` | The documentation the console shows under **Docs** (`/help`), served at `/help-files/` (default `docs/`). |
+| `AI_PROXY_DOCS_DIR` | The documentation the console shows under **Documentation** (`/help`), served at `/help-files/` (default `docs/`). |
 | `AI_PROXY_VERSION` | The version the server says it is, instead of the one worked out from `VERSION` and git. |
 | `AI_PROXY_INTERCEPT=0` | Turns HTTPS capture off. |
 | `AI_PROXY_INTERCEPT_HOST`, `AI_PROXY_INTERCEPT_PORT` | `intercept.listen_host` and `intercept.listen_port`. |

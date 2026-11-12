@@ -38,7 +38,7 @@ FROM docker.io/ollama/ollama:${OLLAMA_VERSION} AS ollama
 # Ollama's CPU backends are the files at the top of lib/ollama; each GPU backend is a folder, and
 # they are most of its 3 GB. OLLAMA_GPU names the folders to keep (cuda_v12, cuda_v13, vulkan),
 # for a container that is given a GPU. Empty is CPU only, as ai-control-mesh is published;
-# ai-control-mesh-gpu is this file built with OLLAMA_GPU=cuda_v13 (images.yml, compose.gpu.yaml here).
+# ai-control-mesh-gpu is this file built with OLLAMA_GPU=cuda_v13 (release/local.py's image catalog, compose.gpu.yaml here).
 ARG OLLAMA_GPU=
 RUN mkdir -p /out/bin /out/lib \
     && cp /usr/bin/ollama /out/bin/ \

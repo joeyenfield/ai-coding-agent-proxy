@@ -10,7 +10,8 @@
 # traces and terminals, and agent-auth's OAuth state) is in PostgreSQL, in the postgres-data
 # volume; back it up with: docker compose exec -T postgres pg_dump -U postgres -Fc mesh > mesh.dump
 # Set AI_PROXY_POSTGRES_PASSWORD, AI_PROXY_DB_API_PASSWORD and AI_PROXY_DB_AUTH_PASSWORD
-# (letters and digits) in .env, beside this file, before the first start.
+# (letters and digits) and AI_PROXY_OIDC_INTROSPECTION_SECRET in .env, beside this file,
+# before the first start.
 #
 # The images come from a registry, built locally with devhelpers/release_scripts/release.ps1 or .sh:
 # AI_PROXY_IMAGE_TAG picks the services version (default latest, the last promoted stable

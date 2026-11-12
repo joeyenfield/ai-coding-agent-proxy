@@ -360,10 +360,14 @@ def test_only_folders_that_exist_inside_the_roots_count(tmp_path):
     assert not machine.within(str(tmp_path))[1]
     # A launch still makes a new project folder below a root.
     machine.launches = True
-    made = presence.check({"project": str(root / "new" / "app")}, machine)
+    made = presence.check({"agent": "qwen", "project": str(root / "new" / "app")}, machine)
     assert Path(made).is_dir()
     with pytest.raises(presence.Refused):
-        presence.check({"project": str(tmp_path / "elsewhere")}, machine)
+        presence.check({"agent": "qwen", "project": str(tmp_path / "elsewhere")}, machine)
+    # The agent becomes the agent command's first argument, so it's never an option (--shell) or empty.
+    for agent in ("", "--shell"):
+        with pytest.raises(presence.Refused):
+            presence.check({"agent": agent, "project": str(root / "new" / "app")}, machine)
 
 
 def test_folders_are_listed_in_order_without_files(tmp_path):

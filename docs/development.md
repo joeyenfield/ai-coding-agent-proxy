@@ -23,6 +23,9 @@ devhelpers/      For development: the deploy/ stacks built from this checkout, t
   release_scripts/   Release, ARM64 emulation and deploy scripts (.ps1 and .sh pairs)
 deploy/          Runs the published images: compose/ (quickstart, allinone, peer, server) and helm/ (the chart, its quickstart)
 sandbox/         The agent-sandbox image
+site/            The brochure site
+docs/            The user documentation, also served by the console at /help
+.context/        The design of each component, for people and agents changing the code
 benchmarks/      tests/<name>/ (prompt.md, test.yaml); results/ is gitignored
 VERSION          The project's one hand-written version
 ```

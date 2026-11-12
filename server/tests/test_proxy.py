@@ -192,6 +192,26 @@ async def test_cancelling_a_buffered_request_completes_telemetry(tmp_path, path,
             assert (await client.delete(f"/api/sessions/{session}")).status_code == 200
 
 
+def test_dot_segments_never_reach_the_model_server(tmp_path):
+    """/v1/../api/pull would be resolved by the HTTP client into the model server's own management API."""
+    reached: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        reached.append(request.url.path)
+        return httpx.Response(200, json={})
+
+    app, client, old = make_app(tmp_path, handler, model_defaults={"translate_openai": False})
+    try:
+        session = client.post("/api/sessions", json={"client": "test", "backend": "test"}).json()
+        for path in ("%2e%2e/api/pull", "chat/%2e%2e/%2e%2e/api/delete", "./%2e%2e/api/create"):
+            response = client.post(f"/session/{session['session_id']}/v1/{path}", json={"model": "model"})
+            assert response.status_code == 404, path
+            assert response.json()["detail"] == "No such path", path
+        assert reached == []
+    finally:
+        close_app(app, client, old)
+
+
 def test_openai_passthrough_stream_records_telemetry_and_trace(tmp_path):
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/v1/chat/completions"

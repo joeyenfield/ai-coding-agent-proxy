@@ -386,6 +386,9 @@ def validate_config(document: Any) -> dict[str, Any]:
         token_env = item.get("token_env")
         if token_env is not None and (not isinstance(token_env, str) or not token_env.replace("_", "").isalnum()):
             raise ValueError(f"{name}: token_env names an environment variable")
+        # The export sends this variable's value to its url, so it can't be one of the server's own secrets.
+        if token_env and (token_env.upper().startswith("AI_PROXY_") and not token_env.upper().startswith("AI_PROXY_AUDIT_") or token_env.upper() == "STRATA_API_KEY"):
+            raise ValueError(f"{name}: token_env can't be one of the server's own settings; use a variable of its own, such as AI_PROXY_AUDIT_TOKEN")
         tenants = item.get("tenants")
         if tenants is not None and (not isinstance(tenants, list) or not all(isinstance(value, str) for value in tenants)):
             raise ValueError(f"{name}: tenants is a list of organizations")

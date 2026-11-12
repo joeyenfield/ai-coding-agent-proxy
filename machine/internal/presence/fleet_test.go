@@ -30,18 +30,24 @@ func TestTheMachineChecksEveryLaunchItself(t *testing.T) {
 		t.Fatal(err)
 	}
 	machine := &settings.Machine{Launches: true, Roots: []string{root}}
-	if project, err := Check(Launch{Project: inside}, machine); err != nil || !strings.HasSuffix(project, "api") {
+	if project, err := Check(Launch{Agent: "qwen", Project: inside}, machine); err != nil || !strings.HasSuffix(project, "api") {
 		t.Fatalf("inside a root: %q %v", project, err)
+	}
+	// The agent becomes the agent command's first argument, so it's never an option (--shell) or empty.
+	for _, agent := range []string{"", "--shell", "-m"} {
+		if _, err := Check(Launch{Agent: agent, Project: inside}, machine); err == nil {
+			t.Fatalf("agent %q accepted", agent)
+		}
 	}
 	outside := t.TempDir()
 	for _, project := range []string{filepath.Join(root, "..", "elsewhere"), outside, filepath.Join(outside, "new"), filepath.Join(root, "new", "..", "..", "escape")} {
-		if _, err := Check(Launch{Project: project}, machine); err == nil {
+		if _, err := Check(Launch{Agent: "qwen", Project: project}, machine); err == nil {
 			t.Fatalf("%s accepted", project)
 		}
 	}
 	// A new project folder inside a root is made for the launch.
 	fresh := filepath.Join(root, "joey-testing", "sub")
-	if project, err := Check(Launch{Project: fresh}, machine); err != nil || !strings.HasSuffix(project, filepath.Join("joey-testing", "sub")) {
+	if project, err := Check(Launch{Agent: "qwen", Project: fresh}, machine); err != nil || !strings.HasSuffix(project, filepath.Join("joey-testing", "sub")) {
 		t.Fatalf("a new folder inside a root: %q %v", project, err)
 	}
 	if info, err := os.Stat(fresh); err != nil || !info.IsDir() {
@@ -49,7 +55,7 @@ func TestTheMachineChecksEveryLaunchItself(t *testing.T) {
 	}
 	// A link inside a root that leads outside it doesn't let a new folder escape.
 	if err := os.Symlink(outside, filepath.Join(root, "out")); err == nil {
-		if _, err := Check(Launch{Project: filepath.Join(root, "out", "new")}, machine); err == nil {
+		if _, err := Check(Launch{Agent: "qwen", Project: filepath.Join(root, "out", "new")}, machine); err == nil {
 			t.Fatal("a new folder through a link out of the root was accepted")
 		}
 		if _, err := os.Stat(filepath.Join(outside, "new")); err == nil {
@@ -57,7 +63,7 @@ func TestTheMachineChecksEveryLaunchItself(t *testing.T) {
 		}
 	}
 	machine.Launches = false
-	if _, err := Check(Launch{Project: inside}, machine); err == nil || !strings.Contains(err.Error(), "launches on") {
+	if _, err := Check(Launch{Agent: "qwen", Project: inside}, machine); err == nil || !strings.Contains(err.Error(), "launches on") {
 		t.Fatalf("launches off: %v", err)
 	}
 }

@@ -344,6 +344,10 @@ def test_the_launcher_reaches_the_server_only_through_the_proxys_short_list(tmp_
         # The rest of the server's API isn't reachable through it.
         assert httpx.get(f"{m.proxy}/api/requests").status_code == 404
         assert httpx.post(f"{m.proxy}/api/server/restart", json={}).status_code == 404
+        # Nor by stepping out of an agent's path with dot segments, or past the list with an encoded "?".
+        assert httpx.get(f"{m.proxy}/v1/%2e%2e/api/requests").status_code == 404
+        assert httpx.post(f"{m.proxy}/session/{session_id}/v1/%2e%2e/%2e%2e/%2e%2e/api/server/restart", json={}).status_code == 404
+        assert httpx.get(f"{m.proxy}/api/agents%3Fx/y").status_code == 404
         # Nor is it from web pages: DNS rebinding names another host, other sites send their Origin.
         assert httpx.get(f"{m.proxy}/api/config", headers={"host": "evil.example"}).status_code == 403
         assert httpx.post(f"{m.proxy}/api/sessions", json={"client": "x"}, headers={"origin": "http://evil.example"}).status_code == 403

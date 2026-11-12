@@ -2,7 +2,7 @@
 
 How to run the server for other machines and people, put HTTPS in front of it, and get `agent` and `agent-machine` onto the computers that use it.
 
-**Authentication is mandatory.** For public deployments, run `agent-auth` separately at your own issuer hostname (`auth.example.com` below), register API callbacks, configure the shared introspection secret and provide HTTPS. The root Compose includes the issuer on host loopback :10000, with its state in its own PostgreSQL schema. See [OIDC authentication](oidc.md) before starting or upgrading public services.
+**Authentication is mandatory.** For public deployments, run `agent-auth` separately at your own issuer hostname (`auth.example.com` below), register API callbacks, configure the shared introspection secret and provide HTTPS. `deploy/compose/server/compose.yaml` includes the issuer on host loopback :10000, with its state in its own PostgreSQL schema. See [OIDC authentication](oidc.md) before starting or upgrading public services.
 
 **To try it first**, run the self-contained demo stack on your own computer: [Quickstart with Docker or Podman](quickstart.md), or [Quickstart on Kubernetes](quickstart-kubernetes.md). The demo has its own loopback issuer, signs its machines in through normal device authorization, and mounts no host project folders or Docker socket; `deploy/compose/quickstart/README.md` explains how its local sign-in and Podman setup work. For a public install, follow this page and the [OIDC deployment guide](oidc.md).
 
@@ -46,7 +46,7 @@ A new server starts with the hosted Anthropic API as its one provider. Local pro
 
 Authentication is always required. The first start on a new database creates an `admin` user with a random password. `docker compose logs agent-server` shows it, and it's saved as `first-user-password` in the certs volume. See [Accounts](accounts.md).
 
-**Versions in Docker.** The published images carry their version (`2.0.1`, or `2.0.1+<commit>` for `sha-<commit>`). An image you build has no git inside, so pass the version as a build argument: `AI_PROXY_VERSION=1.2.0+abc1234 docker compose -f deploy/compose/server/compose.yaml -f devhelpers/server/compose.build.yaml build`. The server hands out the `dist/<version>/` of its own version, or the newest of the same `X.Y.Z` when that wasn't built, so match it to the builds you mount.
+**Versions in Docker.** The published images carry their version (`2.1.61`, or `2.1.61+snapshot.<timestamp>.g<commit>` for a snapshot). An image you build has no git inside, so pass the version as a build argument: `AI_PROXY_VERSION=1.2.0+abc1234 docker compose -f deploy/compose/server/compose.yaml -f devhelpers/server/compose.build.yaml build`. The server hands out the `dist/<version>/` of its own version, or the newest of the same `X.Y.Z` when that wasn't built, so match it to the builds you mount.
 
 **A sandbox machine.** `docker compose --profile sandbox up -d` also starts `agent-sandbox` (`ghcr.io/joeyenfield/agent-sandbox`, from `sandbox/Dockerfile`): `agent`, `agent-machine` and npm coding agents in a container that joins the fleet and takes launches in `/workspace` only. Set `AI_PROXY_SERVER` to your HTTPS API and optionally `AI_PROXY_MACHINE_NAME`. Approve both device codes from its logs on first start, or set `AI_PROXY_MACHINE_SETUP_CODE` to a setup code from the console's **Machines** page (**Add a machine** › **Create a setup code**) so agent-machine signs in without one; persistent credentials refresh on later starts. Password/key bootstrap is removed. See [Machines](machines.md).
 

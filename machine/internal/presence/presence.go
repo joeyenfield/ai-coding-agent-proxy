@@ -566,6 +566,11 @@ func Check(request Launch, machine *settings.Machine) (string, error) {
 	if !machine.Launches {
 		return "", errors.New("this machine doesn't take launches (agent-machine launches on)")
 	}
+	// The agent is the first argument of the agent command: an option there (--shell) would start
+	// something a launch never may.
+	if request.Agent == "" || strings.HasPrefix(request.Agent, "-") {
+		return "", errors.New("name an agent")
+	}
 	return inRoots(request.Project, machine)
 }
 

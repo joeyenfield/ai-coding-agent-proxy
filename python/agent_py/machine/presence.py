@@ -156,6 +156,11 @@ def check(request: Dict[str, Any], machine: settings.Machine) -> str:
     inside one of the roots. A new project folder is made, below the part that exists. Returns the folder."""
     if not machine.launches:
         raise Refused("this machine doesn't take launches (agent-machine launches on)")
+    # The agent is the first argument of the agent command: an option there (--shell) would start
+    # something a launch never may.
+    agent = str(request.get("agent") or "")
+    if not agent or agent.startswith("-"):
+        raise Refused("name an agent")
     folder = str(request.get("project") or "")
     if not folder:
         raise Refused("name a folder")

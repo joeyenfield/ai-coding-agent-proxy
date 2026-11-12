@@ -61,6 +61,7 @@ With `--account`, the session request names the provider account; when the answe
 
 **agent-proxy** (`Proxy.ServeHTTP`), checked in this order:
 
+0. Before any route: a decoded path with a `.` or `..` segment, a backslash, `?` or `#` is a 404. An HTTP client or the server would resolve `/v1/../api/...` past the allowlist, and a decoded `?` makes the path checked differ from the one forwarded.
 1. `GET /health`: open (role, server, user, version, protocol).
 2. `POST /shutdown`: `local()` only.
 3. `/api/terminals/<id>/host`: WebSocket relay to the server. Refusals map to close `4400+status%100`.

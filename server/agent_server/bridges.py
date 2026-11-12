@@ -765,6 +765,11 @@ class Bridges:
         session_id = f"bridge-{key}"
         session = self.runtime.sessions.get(session_id)
         if session is not None:
+            # Only a session this made: one somebody created under the same id isn't the bridge's to record into.
+            if session.tags.get("peering") != "bridge" or session.tags.get("launched_by") != f"bridge:{bridge.id}":
+                from fastapi import HTTPException
+
+                raise HTTPException(status_code=403, detail="That session isn't this bridge's")
             return session
         tags = {
             **guest.tags(), "tenant": bridge.org, "owner": None, "visibility": "private", "access": "view",

@@ -101,6 +101,19 @@ func New(upstream settings.Upstream, interceptPort int, logger *log.Logger) *Pro
 
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
+	// The decoded path, as the server will read it. A "." or ".." segment would be resolved on the
+	// way (/v1/../api/... reaches the whole API past the allowlist), and a decoded "?" or "#" makes
+	// the path checked here differ from the one forwarded: neither is ever a real request.
+	if strings.ContainsAny(path, "\\?#") {
+		writeJSON(w, http.StatusNotFound, map[string]any{"detail": "Not found"})
+		return
+	}
+	for _, segment := range strings.Split(path, "/") {
+		if segment == "." || segment == ".." {
+			writeJSON(w, http.StatusNotFound, map[string]any{"detail": "Not found"})
+			return
+		}
+	}
 	switch {
 	case path == "/health" && r.Method == http.MethodGet:
 		server := p.Upstream.Server()

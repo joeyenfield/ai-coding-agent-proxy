@@ -429,6 +429,10 @@ func interceptFiles(client *api.Client) (map[string]any, error) {
 	if len(fingerprint) > 16 {
 		fingerprint = fingerprint[:16]
 	}
+	// It names a folder: only the hex of a fingerprint, never a path out of the cache.
+	if _, err := hex.DecodeString(fingerprint + strings.Repeat("0", len(fingerprint)%2)); err != nil || fingerprint == "" {
+		return nil, errors.New("the agent-server sent a CA fingerprint that isn't one")
+	}
 	directory := filepath.Join(home, ".cache", "agent-proxy", fingerprint)
 	caPath, bundlePath := filepath.Join(directory, "ca.pem"), filepath.Join(directory, "bundle.pem")
 	if _, err := os.Stat(bundlePath); err != nil {

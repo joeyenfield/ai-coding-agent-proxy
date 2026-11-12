@@ -109,6 +109,6 @@ find the repository themselves):
 | `release.sh`, `release.ps1` | Local website, services or installer snapshots; explicit `--publish` uploads directly. No Actions runner. See [Local releases and snapshots](../docs/releases.md). |
 | `release/release.py` | Packages already-built archives and the console into installer files. Called by the local release command. |
 | `podman-arm64.sh`, `podman-arm64.ps1` | Gets Podman ready to build ARM64 images on an x64 computer: starts the Podman machine and registers its ARM64 emulator. Run it before a `--platform linux/arm64` release. |
-| `deploy.sh`, `deploy.ps1` | Deploys master (or a new version) to the project's server: pushes, builds and publishes the ARM64 service image, and restarts its Compose stack (`deploy-remote.sh` runs there). Not in the repository. |
+| `deploy.sh`, `deploy.ps1` | Deploys master (or a new version) to the project's server: pushes, builds and publishes the ARM64 service image, and restarts its Compose stack (`deploy-remote.sh` runs there; `--setup` runs `deploy-setup-remote.sh` once for the ssh key and sudo). Not in the repository. |
 
 [AGENTS.md](../AGENTS.md) has the commands for tests and builds, and [docs/development.md](../docs/development.md) the rest.

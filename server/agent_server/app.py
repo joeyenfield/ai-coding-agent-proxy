@@ -288,6 +288,9 @@ def _register_help(app: FastAPI, docs_dir: Path) -> None:
     @app.get("/help-files/{path:path}")
     async def help_file(path: str) -> FileResponse:
         root = docs_dir.resolve()
+        # An absolute or drive path would replace the root when joined (and on Windows, //host/share opens a connection there).
+        if path.startswith(("/", "\\")) or ":" in path:
+            raise HTTPException(status_code=404, detail="Not one of the documentation's pages. See /help.")
         candidate = (root / path).resolve()
         # Only the documentation's own pages and pictures, and nothing outside docs/ (no "..", no links out).
         if candidate.suffix.lower() not in HELP_FILES or not candidate.is_relative_to(root) or not candidate.is_file():
@@ -324,8 +327,10 @@ def _register_ui(app: FastAPI, ui_dir: Path) -> None:
     # else is a client-side route in the single-page app.
     @app.get("/{path:path}", include_in_schema=False)
     async def ui_fallback(path: str) -> Any:
-        candidate = (ui_dir / path).resolve()
-        if candidate.is_file() and candidate.is_relative_to(ui_dir.resolve()):
+        # An absolute or drive path would replace ui_dir when joined: never look such a file up.
+        local = not path.startswith(("/", "\\")) and ":" not in path
+        candidate = (ui_dir / path).resolve() if local else ui_dir
+        if local and candidate.is_file() and candidate.is_relative_to(ui_dir.resolve()):
             return FileResponse(candidate, headers=headers)
         if path.startswith(("api/", "v1/", "session/", "anthropic/", "downloads/", "help-files/")) or not index.exists():
             raise HTTPException(status_code=404, detail="Not found")

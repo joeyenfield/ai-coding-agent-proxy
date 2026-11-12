@@ -85,6 +85,10 @@ var llamaTable = table{
 		if !strings.HasPrefix(name, "LLAMA_ARG_") && !strings.HasPrefix(name, "GGML_") {
 			return "only LLAMA_ARG_* and GGML_* variables can be set here"
 		}
+		// Windows reads environment names without regard to case, so a lower-case name would slip past the lists below.
+		if name != strings.ToUpper(name) {
+			return "write the variable's name in upper case"
+		}
 		if contains(llamaReserved, name) {
 			return "agent-machine sets where llama-server listens, and it takes no API key or presets file here"
 		}

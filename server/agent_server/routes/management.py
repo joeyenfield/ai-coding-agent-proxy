@@ -284,6 +284,9 @@ def register(app: FastAPI, runtime: Runtime) -> None:
     async def create_session(request: Request) -> dict[str, Any]:
         data = await request.json()
         try:
+            # bridge-<hash> ids are the ones bridges.bridge_session makes for guests' calls: never a caller's to take.
+            if str(data.get("session_id") or "").startswith("bridge-"):
+                raise ValueError("Session ids starting with bridge- are reserved")
             if data.get("backend") != DIRECT_BACKEND:
                 data = {**data, "backend": settings.backend(data.get("backend"), usable(request)).name}
             return described(runtime.sessions.create({**data, "tags": _new_tags(data, data.get("tags"), request)}), request)

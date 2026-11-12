@@ -934,7 +934,11 @@ def display_name(tag: str) -> str:
 
 def model_path(name: str) -> str:
     """A model reference as a URL path, keeping its slashes: ai/qwen3:8B-Q4_K_M."""
-    return "/".join(quote(part, safe="$&+:=@") for part in name.strip().split("/"))  # what Go's url.PathEscape keeps
+    # A "." or ".." part would be resolved into another path of the model server: keep it a name.
+    return "/".join(
+        part.replace(".", "%2E") if part in (".", "..") else quote(part, safe="$&+:=@")  # what Go's url.PathEscape keeps
+        for part in name.strip().split("/")
+    )
 
 
 def tags_of(item: Dict[str, Any]) -> List[str]:

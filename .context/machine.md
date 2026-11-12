@@ -67,7 +67,7 @@ sequenceDiagram
 | `container` | `containers` | status, start/restart/switch (jobs), stop, remove, logs |
 | `folders` | `launches` or `commands`, inside the roots | folder names only, at most 500 |
 | `files` | `files`, inside the roots (hidden names included) | op `list`: folders and files (`kind`, `size`, `modified`), at most 1000; op `read`: a file's text, at most `FileReadLimit` (1 MiB, `truncated`), `binary` (a NUL or not UTF-8) without its bytes |
-| `launch` / `shell` | `launches` / `commands`, inside the roots | runs `agent ... --headless --launch-id` and reads its one `{"session_id"}` line |
+| `launch` / `shell` | `launches` / `commands`, inside the roots; a launch's `agent` is a name, never empty or an option (it's the `agent` command's first argument, and `--shell` there would open a shell past `commands`) | runs `agent ... --headless --launch-id` and reads its one `{"session_id"}` line |
 | `update` | `updates` | runs `agent-machine update` detached |
 | `tunnel` | port reported, a container's port, or the bridge | pipes bytes to `127.0.0.1:<port>`; closes 4502 if nothing answers |
 

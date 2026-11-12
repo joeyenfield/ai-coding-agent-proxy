@@ -332,6 +332,10 @@ async def _forward(
 ):
     """Pass a request through to the backend unchanged, apart from Ollama model aliases and profiles, Strata's key,
     Docker Model Runner's path prefixes and, for an API provider, its key, model aliases and paths."""
+    # The HTTP client resolves "." and ".." (an encoded %2e%2e arrives decoded), so /v1/../api/pull would
+    # reach a path this route never offered: the model server's own management endpoints.
+    if "\\" in upstream_path or any(segment in (".", "..") for segment in upstream_path.split("/")):
+        raise HTTPException(status_code=404, detail="No such path")
     body = await request.body()
     payload = _json(body)
     original_payload = json.loads(json.dumps(payload))

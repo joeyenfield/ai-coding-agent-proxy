@@ -1,4 +1,4 @@
-# The build context of the images: agent-server (server/Dockerfile: server/, ui/, config/,
+# The build context of the images: agent-server (server/Dockerfile: server/, ui/, docs/,
 # benchmarks/tests), agent-sandbox (sandbox/Dockerfile: client/, machine/, sandbox/) and
 # ai-control-mesh (devhelpers/allinone/Dockerfile: all of those, docs/, deploy/compose/quickstart/machine.py,
 # devhelpers/allinone/entrypoint.py).
@@ -28,6 +28,9 @@ machine/bin
 dist
 android
 benchmarks/results
+devhelpers/release_scripts
+.github
+.playwright-mcp
 server/tests
 devhelpers/scripts
 devhelpers/basic/tests

@@ -55,6 +55,10 @@ func modelPath(name string) string {
 	parts := strings.Split(strings.TrimSpace(name), "/")
 	for i, part := range parts {
 		parts[i] = strings.NewReplacer("%3A", ":", "%40", "@").Replace(url.PathEscape(part))
+		// A "." or ".." part would be resolved into another path of the model server: keep it a name.
+		if part == "." || part == ".." {
+			parts[i] = strings.ReplaceAll(part, ".", "%2E")
+		}
 	}
 	return strings.Join(parts, "/")
 }

@@ -368,6 +368,9 @@ def intercept_files(api: API) -> Dict[str, Any]:
     if not info.get("running"):
         raise LaunchError(f"the agent-server's HTTPS interception is off: {info.get('error') or 'unknown error'}")
     fingerprint = str(info.get("ca_fingerprint") or "").replace(":", "")[:16]
+    # It names a folder: only the hex of a fingerprint, never a path out of the cache.
+    if not fingerprint or any(character not in "0123456789abcdefABCDEF" for character in fingerprint):
+        raise LaunchError("the agent-server sent a CA fingerprint that isn't one")
     directory = Path.home() / ".cache" / "agent-proxy" / fingerprint
     ca_path, bundle_path = directory / "ca.pem", directory / "bundle.pem"
     if not bundle_path.exists():

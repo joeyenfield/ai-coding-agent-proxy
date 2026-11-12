@@ -78,8 +78,8 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         """
         identity = identity_of(request)
         data = await body(request)
-        known = runtime.agents()
-        named = [str(item) for item in data.get("agents") or []] or [agent.id for agent in known.values() if agent.subscription]
+        known = runtime.agents(identity)
+        named =[str(item) for item in data.get("agents") or []] or [agent.id for agent in known.values() if agent.subscription]
         agents = [known[item] for item in named if item in known]
         fallback = [known[str(item)] for item in data.get("fallback") or [] if str(item) in known]
         if data.get("machine"):

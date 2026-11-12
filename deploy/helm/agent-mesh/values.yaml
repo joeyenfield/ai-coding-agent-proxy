@@ -20,7 +20,7 @@ fullnameOverride: ""
 image:
   repository: ghcr.io/joeyenfield/agent-server
   # Empty: the chart's appVersion (the repository's VERSION). Release tags are X.Y.Z;
-  # master builds are sha-<commit>.
+  # snapshots are snapshot-<timestamp>-g<commit> (docs/releases.md).
   tag: ""
   pullPolicy: IfNotPresent
 
