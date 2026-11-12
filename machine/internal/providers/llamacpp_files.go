@@ -155,6 +155,10 @@ func (m *Manager) llamaPlanFor(model string) (llamaPlan, error) {
 		}
 		file := segments[len(segments)-1]
 		local, _ := url.PathUnescape(file)
+		// The name is joined into the model's folder: on Windows a backslash or a drive would step out of it.
+		if local == "" || local == "." || local == ".." || strings.ContainsAny(local, "\\:") {
+			return llamaPlan{}, fmt.Errorf("%s has a file whose name can't be saved here: %s", repo, path)
+		}
 		plan.Files = append(plan.Files, llamaFile{
 			Repo: path, Path: filepath.Join(name, local), Size: size, SHA256: strings.ToLower(str(lfs["oid"])),
 			URL: base + "/" + repo + "/resolve/main/" + strings.Join(segments, "/"),

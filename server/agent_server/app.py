@@ -194,7 +194,11 @@ def _register_ready(app: FastAPI, runtime: Runtime) -> None:
         if runtime.blobs is not None:
             checks["blobs"] = await asyncio.to_thread(runtime.blobs.ready)
         ok = all(item[0] for item in checks.values()) and not getattr(runtime, "draining", False)
-        body = {"ready": ok, "pod": runtime.cluster.pod_id, "roles": sorted(runtime.roles), "checks": {name: {"ok": item[0], "detail": item[1]} for name, item in checks.items()}}
+        # It's public, so a check's detail (a folder, Redis's address, an error) goes to the log, not the answer.
+        for name, item in checks.items():
+            if not item[0]:
+                logging.getLogger(__name__).warning("Not ready: %s: %s", name, item[1])
+        body = {"ready": ok, "pod": runtime.cluster.pod_id, "roles": sorted(runtime.roles), "checks": {name: {"ok": item[0], "detail": "ok" if item[0] else "failed, see the server's log"} for name, item in checks.items()}}
         return JSONResponse(body, status_code=200 if ok else 503)
 
 

@@ -211,6 +211,7 @@ Egress stays open, because the gateway reaches hosted model APIs and HTTPS captu
 
 | Value | Default | Meaning |
 | --- | --- | --- |
+| `auth.issuer.forwardedAllowIps` | `*` | The same for agent-auth, whose sign-in rate limits count by the visitor's address. Set your ingress/gateway ranges, or restrict `networkPolicy.publicFrom`: with `*`, any pod that reaches it can pose as another address. |
 | `server.forwardedAllowIps` | `127.0.0.1` | uvicorn's `FORWARDED_ALLOW_IPS`. Set trusted ingress/gateway addresses or CIDRs. Use `*` only when `networkPolicy.publicFrom` restricts access to trusted proxies. The default policy permits direct access to the public pod port. |
 | `single.workers`, `roles.<name>.workers` | `1` | `AI_PROXY_WORKERS`. More than 1 needs Redis, and each worker then takes an ephemeral internal port: `/metrics` isn't on 9100 in those pods, and the network policy allows all TCP ports between the release's server pods. Keep `fleet` at 1. |
 | `downloads.existingClaim` | empty | A ReadOnlyMany claim holding `dist/<version>/` for the Downloads page and `agent update` |

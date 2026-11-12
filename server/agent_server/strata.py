@@ -49,7 +49,10 @@ def key_for(backend: Backend) -> tuple[str | None, str | None]:
         # The server chose this key when it created the container.
         return managed_keys[backend.name], "container"
     environment = first_key(os.environ.get("STRATA_API_KEY", ""))
-    if environment:
+    # The environment's key is the server operator's: it goes to their own Strata (one added by address, or
+    # on a machine of the root organization), never to a server another organization's machine reports.
+    own = not backend.machine or fleet is None or fleet.backend_tenant(backend) in (None, "root")
+    if environment and own:
         return environment, "environment"
     if fleet is not None and backend.machine:
         try:

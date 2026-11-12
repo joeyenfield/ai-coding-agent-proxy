@@ -54,6 +54,9 @@ func formerPath() string {
 func LoadMachine() *Machine {
 	machine := &Machine{}
 	data, err := os.ReadFile(MachinePath())
+	// A file that's there but couldn't be read just now (locked while another command rewrites it) isn't
+	// replaced below: that would lose the machine's id, toggles and folders.
+	unreadable := err != nil && !os.IsNotExist(err)
 	if err != nil && os.Getenv("AI_PROXY_MACHINE_HOME") == "" {
 		// Carry the old file over once: the server knows the machine (and its backends) by its id.
 		if data, err = os.ReadFile(formerPath()); err == nil {
@@ -68,7 +71,9 @@ func LoadMachine() *Machine {
 		buffer := make([]byte, 8)
 		_, _ = rand.Read(buffer)
 		machine.ID = hex.EncodeToString(buffer)
-		_ = machine.Save()
+		if !unreadable {
+			_ = machine.Save()
+		}
 	}
 	return machine
 }

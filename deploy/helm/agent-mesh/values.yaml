@@ -364,6 +364,9 @@ auth:
     port: 10000
     # AI_PROXY_AUTH_JWT_ACCESS_TOKENS: auto (on in mode scaled), true or false.
     jwtAccessTokens: auto
+    # The proxies whose forwarded headers agent-auth trusts for a visitor's address, which its sign-in
+    # rate limits count by. "*" trusts every pod that can reach it: set your ingress or gateway ranges,
+    # or restrict networkPolicy.publicFrom, so nobody inside the cluster can pose as another address.
     forwardedAllowIps: "*"
     resources:
       requests: {cpu: 100m, memory: 256Mi}

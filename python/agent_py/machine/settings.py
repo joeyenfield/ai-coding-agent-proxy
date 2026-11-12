@@ -119,13 +119,17 @@ class Machine:
     def load(cls) -> "Machine":
         path = machine_path()
         data = None
+        unreadable = False
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except ValueError:
             # A corrupt machine.json regenerates, as in Go: it must not silently
             # resurrect the pre-agent-machine file's id, roots and toggles.
             data = None
-        except OSError:
+        except OSError as error:
+            # A file that's there but couldn't be read just now (locked while another command rewrites it)
+            # isn't replaced below: that would lose the machine's id, toggles and folders.
+            unreadable = not isinstance(error, FileNotFoundError)
             if not os.environ.get("AI_PROXY_MACHINE_HOME"):
                 # Carry the old file over once: the server knows the machine (and its backends) by its id.
                 former = common.config_dir() / "agent-proxy" / "machine.json"
@@ -142,7 +146,8 @@ class Machine:
             machine.roots = [str(root) for root in data.get("roots") or [] if isinstance(root, str)]
         if not machine.id:
             machine.id = secrets.token_hex(8)
-            machine.save()
+            if not unreadable:
+                machine.save()
         elif data is not None and not path.exists():
             machine.save()
         return machine

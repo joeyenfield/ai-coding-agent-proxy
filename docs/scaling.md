@@ -94,7 +94,7 @@ On agent-auth, set `AI_PROXY_REDIS_URL` too (its sign-in rate limits are then sh
 ## Health, readiness and metrics
 
 - `GET /health` says the process runs.
-- `GET /ready` says whether to send it traffic: its database, Redis and blob storage answer, and it isn't shutting down. `503` otherwise, with each check's detail.
+- `GET /ready` says whether to send it traffic: its database, Redis and blob storage answer, and it isn't shutting down. `503` otherwise, naming the check that failed; the reason is in that process's log.
 - `GET /metrics` on the internal port: Prometheus metrics per process (`pod` label). A server without an internal port serves the same text at `GET /api/server/metrics` on its public port, to a site admin: give Prometheus a site admin's [API credential](api-credentials.md) (OAuth client credentials) to scrape it.
 - `GET /api/machines/{id}/metrics?format=prometheus`: one machine's load, asked from its agent-machine when scraped, as `agent_machine_*` metrics labelled `machine` and `machine_name`: CPU, load average, memory, swap, uptime, GPUs, network bytes, packets and errors, disks, agent-machine's own memory, and its connection, requests and tunnels. Machines only dial out, so the server is where they're scraped; the credential needs to see the machine. A machine that isn't connected answers `409`.
 

@@ -12,6 +12,8 @@ cd "$(dirname "$0")/../../client"
 version="${VERSION:-$(cd ../tools && GOTOOLCHAIN="${GOTOOLCHAIN:-local}" go run ./dist -print-version)}"
 flags="-s -w -X main.version=$version"
 export GOTOOLCHAIN="${GOTOOLCHAIN:-local}"
+# As build-client.ps1 and tools/dist build it: no cgo, so the binary is the same wherever it is built.
+export CGO_ENABLED=0
 ext=""
 [ "$(go env GOOS)" = windows ] && ext=.exe
 for program in agent agent-proxy; do

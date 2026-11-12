@@ -392,7 +392,7 @@ Each Strata's tab on its machine's page shows its model, whether it's loaded, it
 The agent sends a placeholder key. The server swaps it for Strata's own (`strata.py`), so no secret goes in the server's settings. It uses the first of:
 
 1. the key the server generated for a Strata container it had a machine run;
-2. `STRATA_API_KEY` on the server;
+2. `STRATA_API_KEY` on the server, for a Strata added by address or on a machine of the root organization (it's the server operator's key, so it never goes to a Strata another organization's machine reports);
 3. the key the machine reported for the Strata on that port.
 
 The machine reads that last key from the Strata profile serving on the port (the run config its profile names) and sends it in its hello. The server keeps it in memory only, never in its database or the console. Without any key the agent's own headers go through, so a key set in the agent still works. On the machine, agent-machine uses `STRATA_API_KEY` there before the profile's key for its own requests.

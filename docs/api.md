@@ -66,7 +66,7 @@ A non-streaming upstream reply cut off after its headers answers `502` and is re
 | Method | Path | Who | What it does |
 |---|---|---|---|
 | GET | `/health` | Public | `status`, the running instance's id, the server's `version`, `protocol` and `min_protocol`. |
-| GET | `/ready` | Public | Whether to send this process traffic: `ready`, `pod`, `roles` and `checks` (`database`, `cluster`, `blobs`, each `ok` and `detail`). `503` when one fails or the process is shutting down. See [Running several server processes](scaling.md#health-readiness-and-metrics). |
+| GET | `/ready` | Public | Whether to send this process traffic: `ready`, `pod`, `roles` and `checks` (`database`, `cluster`, `blobs`, each `ok` and a `detail` that only says whether it failed: the reason is in the server's log, as this is public). `503` when one fails or the process is shutting down. See [Running several server processes](scaling.md#health-readiness-and-metrics). |
 | GET | `/metrics` | The internal port only (`AI_PROXY_INTERNAL_PORT`), no token | Prometheus metrics of this process. Every other path on the internal port needs `AI_PROXY_INTERNAL_TOKEN`; the public port answers `/internal/*` with `404`. |
 | GET | `/api/status` | Signed in | Totals, requests in flight, recent requests (the last 100; `?recent=0` leaves them out, for polling), intercept state, `default_backend`, whether the listen address needs a restart, and each machine backend's `provider`, counting only sessions you can see and backends your organization's agents may use. |
 | GET | `/api/config` | Site admin | The editable network settings (`proxy.listen_host`, `listen_port`, `url`, `public_url`, `default_backend`, `backends`) and `restart_required`. |

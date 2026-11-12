@@ -778,7 +778,11 @@ def llama_plan(catalogs: "catalog.Catalogs", files_url: str, model: str) -> Dict
         path = text(item.get("path"))
         lfs = obj(item.get("lfs"))
         size = int(number(lfs.get("size")) or number(item.get("size")))
-        files.append({"repo_path": path, "path": os.path.join(name, path.rsplit("/", 1)[-1]), "size": size, "sha256": text(lfs.get("oid")).lower(),
+        # The name is joined into the model's folder: on Windows a backslash or a drive would step out of it.
+        local_name = path.rsplit("/", 1)[-1]
+        if local_name in ("", ".", "..") or "\\" in local_name or ":" in local_name:
+            raise Refused(f"{repo} has a file whose name can't be saved here: {path}")
+        files.append({"repo_path": path, "path": os.path.join(name, local_name), "size": size, "sha256": text(lfs.get("oid")).lower(),
                       "url": f"{files_url}/{repo}/resolve/main/" + "/".join(quote(segment, safe="") for segment in path.split("/"))})
     return {"model": f"{repo}:{quant}", "name": name, "folder": folder, "dir": os.path.join(folder, name), "files": files}
 
