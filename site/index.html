@@ -5,20 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#101523">
   <title>AIControlMesh — Open-Source Control Plane for AI Coding Agents</title>
-  <meta name="description" content="Run coding agents on your own machines, watch them live and answer them from anywhere. AIControlMesh is an open-source, self-hosted control plane for agents, models, MCP tools and machines.">
+  <meta name="description" content="Run coding agents on your own machines. Watch them live, review sessions with AI coaching, improve your prompts and find ways to reduce token use and costs. Open source and self-hosted.">
   <link rel="canonical" href="https://aicontrolmesh.com/">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="AIControlMesh">
   <meta property="og:url" content="https://aicontrolmesh.com/">
   <meta property="og:title" content="Your AI agents. Your infrastructure. One control plane.">
-  <meta property="og:description" content="Run several coding agents at once on different machines, watch them live and answer them from anywhere. Open source and self-hosted.">
+  <meta property="og:description" content="Run coding agents on your own machines, watch them live and use AI session reviews to improve how you work and find ways to reduce costs. Open source and self-hosted.">
   <meta property="og:image" content="https://aicontrolmesh.com/assets/social.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta property="og:image:alt" content="AIControlMesh: Your AI agents. Your infrastructure. One control plane. Open source. Self-hosted. MIT licensed.">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="AIControlMesh — Your AI agents. Your infrastructure. One control plane.">
-  <meta name="twitter:description" content="An open-source, self-hosted control plane for coding agents, models, MCP tools, and machines.">
+  <meta name="twitter:description" content="Run coding agents on your own machines. Review sessions with AI coaching to improve your prompts and find ways to reduce costs. Open source and self-hosted.">
   <meta name="twitter:image" content="https://aicontrolmesh.com/assets/social.png">
   <meta name="twitter:image:alt" content="AIControlMesh: Your AI agents. Your infrastructure. One control plane.">
   <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
@@ -69,6 +69,7 @@
           <a class="button button-outline" href="/teams.html">Explore team deployment <span aria-hidden="true">→</span></a>
         </div>
         <p class="hero-note">A local demo runs with one command, in about fifteen minutes. No sign-up, no hosted service.</p>
+        <p class="hero-note"><a href="#ai-coaching">AI coaching: review your sessions, improve your prompts and find ways to reduce costs →</a></p>
       </div>
       <figure class="hero-product">
         <div class="window-bar"><span aria-hidden="true"><i></i><i></i><i></i></span><span>Live agent view / 4 agents at once</span><span class="demo-label">DEMO DATA</span></div>
@@ -158,8 +159,22 @@
         </div>
       </div>
     </section>
+    <section class="section tinted" id="ai-coaching" aria-labelledby="coaching-title">
+      <div class="wrap">
+        <div class="section-heading split-heading"><div><p class="eyebrow">05 / AI coaching</p><h2 id="coaching-title">Review your session.<br>Get better at working with AI.</h2></div><p>See where a session spent its tokens, time and money. Find issues in how you prompt and steer an agent, then ask AI for specific changes to try next time.</p></div>
+        <div class="detail-grid">
+          <article><h3>Spot repeated work and wasted context</h3><p>Open a session’s <strong>Review</strong> tab for checks on oversized instructions, unused tools, repeated file reads, failed calls and growing context. The checks run without a model and have no model cost.</p></article>
+          <article><h3>Improve how you ask and steer</h3><p>Choose <strong>Prompts and workflow</strong> for an AI review of how the task was stated and how much correction it needed. Get suggestions for a clearer prompt, when to plan first and when to start a fresh session.</p></article>
+          <article><h3>Find ways to reduce costs</h3><p>Sort sessions by estimated cost to choose one to review. Choose <strong>Cost and caching</strong> to ask which habits or settings could lower its cost, where caching could help and whether a smaller model could handle part of the work.</p></article>
+          <article><h3>Turn one session into lessons for the next</h3><p>Pick a review focus and an available provider and model. Review context, tool use or instruction files, or choose <strong>Lessons for the project</strong> for suggested lines to add to your project’s instructions.</p></article>
+        </div>
+        <p class="callout"><strong>Try it:</strong> Sessions → open a session → Review → choose a focus and model → Review this session.</p>
+        <p class="section-note">Detailed prompt and tool checks need captured payloads (<code>--trace</code> or the session’s capture switch). AI reviews use selected measurements and excerpts, rather than the full transcript. Reviews on paid providers incur model costs. Cost figures and possible savings are estimates; check the advice against your task.</p>
+        <a class="text-link" href="https://github.com/joeyenfield/ai-control-mesh/blob/master/docs/session-review.md">Explore session reviews and AI coaching →</a>
+      </div>
+    </section>
     <section class="section wrap" id="anywhere" aria-labelledby="anywhere-title">
-      <div class="section-heading split-heading"><div><p class="eyebrow">05 / Where it runs</p><h2 id="anywhere-title">Runs where<br>your code does.</h2></div><p>Any computer that runs agents or models joins the same fleet. <strong>Add a machine</strong> in the console gives you one command for that system.</p></div>
+      <div class="section-heading split-heading"><div><p class="eyebrow">06 / Where it runs</p><h2 id="anywhere-title">Runs where<br>your code does.</h2></div><p>Any computer that runs agents or models joins the same fleet. <strong>Add a machine</strong> in the console gives you one command for that system.</p></div>
       <div class="runs-grid">
         <article><span class="run-kind">LINUX · MACOS · WINDOWS · FREEBSD</span><h3>One-line install</h3><p>Installs <code>agent-machine</code> (and <code>agent</code>, if you start agents there), verified against the server’s SHA-256. It can start at boot.</p><a href="https://github.com/joeyenfield/ai-control-mesh/blob/master/docs/machines.md">Machines guide →</a></article>
         <article><span class="run-kind">PYTHON 3.9+</span><h3>Anywhere Python runs</h3><p>The same programs and commands as a pip package, for computers without a Go build, including Termux on Android.</p><a href="https://github.com/joeyenfield/ai-control-mesh/blob/master/python/README.md">Python version →</a></article>
@@ -168,7 +183,7 @@
       </div>
     </section>
     <section class="section wrap trust-section" id="teams" aria-labelledby="trust-title">
-      <div class="section-heading split-heading"><div><p class="eyebrow">06 / For engineering teams</p><h2 id="trust-title">Evaluate the controls.<br>Plan the operation.</h2></div><p>Team features are part of the MIT-licensed project. Start with a small pilot, review what is recorded and test your deployment before you rely on it.</p></div>
+      <div class="section-heading split-heading"><div><p class="eyebrow">07 / For engineering teams</p><h2 id="trust-title">Evaluate the controls.<br>Plan the operation.</h2></div><p>Team features are part of the MIT-licensed project. Start with a small pilot, review what is recorded and test your deployment before you rely on it.</p></div>
       <div class="trust-grid">
         <article><h3>People and permissions</h3><p>Organizations, roles, session sharing and machine grants decide who can start, inspect and control work.</p><a href="/teams.html#controls">Review team controls →</a></article>
         <article><h3>Recording and accountability</h3><p>Tracing is opt-in by default; organization policy can turn it off or require it. Retention, legal holds and audit exports support your own data controls.</p><a href="/security.html">Review security and data handling →</a></article>
@@ -178,7 +193,7 @@
     </section>
     <section class="quickstart-teaser section wrap" id="quickstart" aria-labelledby="quickstart-title">
       <div class="quickstart-copy">
-        <p class="eyebrow">07 / Run it locally</p>
+        <p class="eyebrow">08 / Run it locally</p>
         <h2 id="quickstart-title">Your first mesh,<br>on your computer.</h2>
         <p>Pick your level: one container, a small Compose fleet, the Helm chart on a local cluster, or the production chart. Each has its own guide, and each ends with an agent answering on a provider of your own.</p>
         <div class="actions"><a class="button button-primary" href="/quickstart.html">Open the quickstart <span aria-hidden="true">→</span></a><a class="button button-outline" href="https://github.com/joeyenfield/ai-control-mesh/blob/master/docs/quickstart.md">Read the guide</a></div>
