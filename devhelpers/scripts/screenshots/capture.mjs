@@ -241,6 +241,18 @@ await shot("session-chat", "/sessions", {
     await page.waitForTimeout(800);
   },
 });
+// The review of the demo's wasteful session (project monolith): the checks' findings, then an AI review by a demo model.
+await shot("session-review", "/sessions", {
+  fullPage: true,
+  prepare: async (page) => {
+    const id = await page.evaluate(async () => (await (await fetch("/api/sessions")).json()).find((item) => item.project === "monolith").session_id);
+    await page.goto(`${base}/sessions/${id}?view=review`, { waitUntil: "networkidle", timeout: 10000 }).catch(() => {});
+    await page.getByRole("button", { name: "Review this session" }).click();
+    await page.waitForFunction(() => document.querySelector(".review-answer")?.textContent.includes("What went well"), null, { timeout: 60000 });
+    await page.waitForSelector(".review-answer .chat-typing", { state: "detached", timeout: 60000 });
+    await page.waitForTimeout(500);
+  },
+});
 // Ask a model: one question to a demo model, answered by the fake Ollama.
 await shot("ask", "/ask", {
   height: 950,

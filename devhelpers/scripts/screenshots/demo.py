@@ -246,6 +246,20 @@ ANSWER = (
     "3. Give up after five attempts and log the final error with the event id.\n\n"
     "Let me read `payments/webhooks.py` first."
 )
+REVIEW_ANSWER = (
+    "## Summary\n"
+    "A one-line prompt sent the agent hunting: most of its tool calls were searches for a test it was never pointed at, "
+    "and four full test logs then filled the context. The fix itself was one small edit.\n\n"
+    "## What to change\n"
+    "1. Name the test in the prompt (`tests/shop/test_checkout.py::test_total_rounds`). 24 of 40 tool calls were searches and listings that only found it.\n"
+    "2. Run the one failing test, quietly: `pytest tests/shop/test_checkout.py -q -x`. `pytest tests/ -v` ran four times and each log put about 37,000 tokens into the context.\n"
+    "3. Remove the Jira, Confluence, Figma and Sentry MCP servers from this project. None of their 46 tools was called, and they cost about 10,000 tokens on every call.\n"
+    "4. Cut `CLAUDE.md` down. About 21,000 tokens of rules are sent with every call; keep the few that apply to every task and link to the rest.\n"
+    "5. When an edit fails twice, have the agent read the lines again before retrying. The same `Edit` failed six times on indentation.\n\n"
+    "## What went well\n"
+    "- The agent found the real cause, float rounding, rather than adding a retry to hide the flakiness.\n"
+    "- Two thirds of the tokens read came from the cache."
+)
 
 
 CODEX_REASONING = (
@@ -295,8 +309,12 @@ def ollama_app(models: list[tuple[str, float, str, str]], loaded: dict[str, floa
         think = body.get("think") is not False
         prompt_tokens = 9000 + random.randint(0, 4000)
 
+        # A session's AI review (the console's Review tab) gets an answer that reads like one.
+        first = (body.get("messages") or [{}])[0]
+        reviewing = first.get("role") == "system" and str(first.get("content") or "").startswith("You review one recorded session")
+
         async def stream():
-            words = (REASONING if think else "").split(" ")
+            words = (REASONING if think and not reviewing else "").split(" ")
             await asyncio.sleep(delay * 12)  # prompt evaluation
             count = 0
             for word in words:
@@ -304,7 +322,7 @@ def ollama_app(models: list[tuple[str, float, str, str]], loaded: dict[str, floa
                     count += 1
                     yield json.dumps({"model": model, "message": {"role": "assistant", "content": "", "thinking": word + " "}, "done": False}) + "\n"
                     await asyncio.sleep(delay)
-            for word in ANSWER.split(" "):
+            for word in (REVIEW_ANSWER if reviewing else ANSWER).split(" "):
                 count += 1
                 yield json.dumps({"model": model, "message": {"role": "assistant", "content": word + " "}, "done": False}) + "\n"
                 await asyncio.sleep(delay)
@@ -602,6 +620,59 @@ def claude_conversation(seed: Seeder, claude_headers: list) -> None:
          [text("Adding retries with backoff to the payment webhook; done and tested. Next: commit the change.")], previous="req_demo_5", ms=1700)
 
 
+def wasteful_conversation(seed: Seeder, claude_headers: list) -> None:
+    """A session for the Review tab to find things in: a long system prompt, four MCP servers nobody called, a
+    hunt through the project for one test, the same file read five times, a test log pasted whole, edits that
+    didn't apply and pauses that let the cache run out."""
+    servers = {"jira": 14, "confluence": 11, "figma": 9, "sentry": 12}
+    about = "Use this tool when the task needs it. Arguments are validated; errors come back as text. " * 9
+    tools = [{"name": name, "description": about, "input_schema": {"type": "object"}} for name in CLAUDE_TOOLS]
+    tools += [{"name": f"mcp__{server}__{verb}_{number}", "description": about, "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}}}
+              for server, count in servers.items() for number, verb in enumerate(["search", "get", "list", "update"] * 4) if number < count]
+    rules = "\n".join(f"- Rule {number}: follow the team's convention for {topic} in every module, and say so in the pull request."
+                      for number in range(1, 420) for topic in ("naming", "logging"))
+    system = "You are Claude Code, Anthropic's official CLI for Claude.\n\n# Project instructions (CLAUDE.md)\n" + rules
+    messages: list = [{"role": "user", "content": "the checkout test is flaky, fix it"}]
+    number = 0
+
+    def step(name: str, given: dict, output: str, error: bool = False) -> None:
+        nonlocal number
+        number += 1
+        messages.append({"role": "assistant", "content": [{"type": "tool_use", "id": f"toolu_w{number}", "name": name, "input": given}]})
+        messages.append({"role": "user", "content": [{"type": "tool_result", "tool_use_id": f"toolu_w{number}", "content": output, "is_error": error}]})
+
+    for pattern in ("checkout", "flaky", "test_checkout", "def test_", "retry", "sleep(", "freeze_time", "Cart(", "fixture", "order_total", "tax", "rounding"):
+        step("Grep", {"pattern": pattern, "path": "."}, "\n".join(f"services/shop/module_{n}.py:{n * 7}: {pattern}" for n in range(40)))
+        step("Glob", {"pattern": f"**/*{pattern.strip('(')}*.py"}, "tests/shop/test_checkout.py\nservices/shop/checkout.py")
+    for _ in range(5):
+        step("Read", {"file_path": "services/shop/checkout.py"}, "class Checkout:\n    def total(self, cart):\n        ...\n" * 400)
+    log = "\n".join(f"tests/shop/test_checkout.py::test_case_{n} PASSED [{n % 100:3d}%]" for n in range(2600))
+    for _ in range(4):
+        step("Bash", {"command": "pytest tests/ -v", "description": "Run the tests"}, log + "\nFAILED tests/shop/test_checkout.py::test_total_rounds - assert 10.01 == 10.0")
+    for _ in range(6):
+        step("Edit", {"file_path": "services/shop/checkout.py", "old_string": "return round(total, 2)", "new_string": "return quantize(total)"},
+             "String to replace not found in file.", error=True)
+    step("Edit", {"file_path": "services/shop/checkout.py", "old_string": "        return round(total, 2)", "new_string": "        return quantize(total)"}, "The file services/shop/checkout.py has been updated.")
+    reply = claude_reply({"type": "text", "text": "The total was rounded as a float. It now uses Decimal quantize, and `test_total_rounds` passes."})
+    line = "x-anthropic-billing-header: cc_version=2.1.289; cc_entrypoint=cli; cc_turn_origin=human;"
+    request = {"model": "claude-opus-5-5", "max_tokens": 32000, "stream": True, "tools": tools, "messages": messages,
+               "system": [{"type": "text", "text": line}, {"type": "text", "text": system}]}
+    headers = claude_headers + [["x-claude-code-request-class", "main"]]
+    # (new input, output, read from the cache, written to it): the context grows with every tool result.
+    usage = [(40, 310, 0, 61_000), (38, 280, 61_000, 9_000), (35, 420, 70_000, 12_000), (41, 380, 82_000, 14_000), (36, 510, 96_000, 11_000),
+             (44, 290, 0, 118_000), (39, 330, 118_000, 9_000), (42, 610, 127_000, 13_000), (37, 270, 0, 151_000), (45, 480, 151_000, 12_000), (40, 350, 163_000, 9_000)]
+    for position, counts in enumerate(usage):
+        if counts[2] == 0 and position:
+            # Left waiting past the cache's five minutes: the whole prompt is written to it again.
+            seed.clock += timedelta(minutes=9)
+        seed.add("POST", "api.anthropic.com", "/v1/messages", ms=9000, ttft=2600, model="claude-opus-5-5", sent=640_000, received=5200, usage=counts, headers=headers,
+                 response_headers=[["content-type", "text/event-stream"], ["request-id", f"req_waste_{position}"]],
+                 request=request, response=reply)
+        if position == 6:
+            seed.add("POST", "api.anthropic.com", "/v1/messages", status=429, ms=300, model="claude-opus-5-5", sent=640_000, received=180, headers=headers, request=request,
+                     response={"type": "error", "error": {"type": "rate_limit_error", "message": "This request would exceed your account's rate limit."}})
+
+
 def seed_accounts(db: Database) -> None:
     seed = Seeder(db)
     org = "3f6c2a1e-9b7d-4c55-8e21-0a4d5f6b7c8d"
@@ -624,6 +695,12 @@ def seed_accounts(db: Database) -> None:
     for _ in range(3):
         seed.add("POST", "api.anthropic.com", "/api/event_logging/v2/batch", ms=90, sent=7400, received=60, response={"accepted": 12})
     seed.add("POST", "http-intake.logs.us5.datadoghq.com", "/api/v2/logs", status=202, ms=110, received=2)
+    seed.finish()
+
+    # A second Claude Code session, wasteful on purpose, for the Review tab. Fewer requests than the one above:
+    # capture.mjs takes an agent's busiest session for its other screenshots.
+    seed.session("claude-account", "monolith", 190)
+    wasteful_conversation(seed, claude_headers)
     seed.finish()
 
     # GitHub Copilot CLI on a GitHub account.

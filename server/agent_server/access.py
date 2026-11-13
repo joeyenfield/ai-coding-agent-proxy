@@ -43,7 +43,9 @@ PEERING_TAGS = (
     "guest", "guest_name", "bridge", "link", "allowed_backends", "remote_session", "peering",
     "mirror_link", "mirror_bridge", "mirror_server", "mirror_machine", "mirror_of",
 )
-SERVER_TAGS = (*SHARING_TAGS, "launched_by", "mcp", "provider_account", "retention", *PEERING_TAGS)
+# review_of names the session a review's session reviews (review.py): only the server says so, or anyone could
+# hang a made-up review on a session others can see.
+SERVER_TAGS = (*SHARING_TAGS, "launched_by", "mcp", "provider_account", "retention", "review_of", *PEERING_TAGS)
 
 
 def sharing(session: Session) -> dict[str, Any]:

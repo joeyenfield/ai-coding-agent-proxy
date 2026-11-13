@@ -384,6 +384,55 @@ h3 { font-weight: 650; }
 /* A session read back as a chat: the session's conversations on the side, the open one as a messenger would show it. */
 .session-views { padding: 0; border-bottom: 0; }
 .session-views button { font-size: 16px; }
+/* A session's review: what was measured, what the checks found, and a model's suggestions. */
+.review { display: flex; flex-direction: column; gap: 22px; padding-top: 14px; }
+.review-part { display: flex; flex-direction: column; gap: 10px; }
+.review-findings, .review-runs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.review-finding { padding: 12px 14px; background: var(--paper); border: 1px solid var(--line); border-left: 3px solid var(--line-strong); border-radius: var(--radius-small); display: flex; flex-direction: column; gap: 6px; }
+.review-finding.severity-high { border-left-color: var(--bad); }
+.review-finding.severity-medium { border-left-color: var(--accent); }
+.review-finding p { margin: 0; line-height: 1.55; overflow-wrap: anywhere; }
+.review-finding-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.review-finding-head .subtle { font-size: 12.5px; margin-left: auto; }
+.review-suggestion { color: var(--steel); }
+.review-suggestion strong { color: var(--ink); }
+.review-bar { align-items: flex-end; }
+.review .chip-bar { margin: 0; }
+.review-prompt { font-size: 13.5px; color: var(--steel); }
+.review-prompt summary { cursor: pointer; }
+.review-prompt dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; margin: 8px 0 0; }
+.review-prompt dt { font-weight: 600; color: var(--ink); }
+.review-prompt dd { margin: 0; }
+.review-answer { padding: 14px 16px; background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); display: flex; flex-direction: column; gap: 10px; }
+.review-answer header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.review-answer header a { margin-left: auto; font-size: 12.5px; }
+.review-prompt-text { margin: 0; padding: 10px 12px; max-height: 320px; overflow: auto; white-space: pre-wrap; font: 12.5px/1.5 var(--mono); background: var(--ground); border: 1px solid var(--line); border-radius: var(--radius-small); color: var(--ink); }
+.review-question { display: flex; flex-direction: column; gap: 4px; flex: 1 1 260px; min-width: 0; font-size: 13px; color: var(--steel); }
+.review-evidence { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.review-figure { margin: 0; padding: 12px 14px; background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.review-figure figcaption { font-size: 13px; color: var(--steel); }
+.review-figure svg { width: 100%; height: 96px; display: block; }
+.review-line { fill: none; stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.review-area { fill: var(--accent-soft); stroke: none; }
+.review-bar-parts { display: flex; height: 18px; border-radius: 6px; overflow: hidden; }
+.review-bar-parts span { flex-basis: 0; min-width: 2px; }
+.review-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; }
+.review-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; }
+.review-table { background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius-small); padding: 8px 12px; }
+.review-table summary { cursor: pointer; font-weight: 600; font-size: 13.5px; }
+.review-table table { width: 100%; margin-top: 8px; font-size: 13px; border-collapse: collapse; }
+.review-table th { text-align: left; font-weight: 600; color: var(--steel); padding: 4px 10px 4px 0; }
+.review-table td { padding: 4px 10px 4px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; vertical-align: top; }
+.review-table td:not(:first-child), .review-table th:not(:first-child) { white-space: nowrap; }
+.review-table td:last-child { white-space: normal; }
+.review-names { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin-top: 12px; font-size: 13px; }
+.review-names summary { cursor: pointer; font-weight: 600; }
+.review-names dl { margin: 8px 0 0; display: grid; gap: 4px; }
+.review-names dl > div { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 10px; }
+.review-names dd { margin: 0; color: var(--steel); }
+.review-earlier { font-size: 13.5px; font-weight: 650; margin-top: 6px; }
+.review-runs { gap: 4px; }
+.review-runs li { display: flex; gap: 10px; flex-wrap: wrap; align-items: baseline; font-size: 13.5px; }
 .chat.with-threads { display: grid; grid-template-columns: minmax(200px, 260px) minmax(0, 1fr); gap: 16px; align-items: start; }
 .chat-main { min-width: 0; display: flex; flex-direction: column; }
 .chat-side { position: sticky; top: 12px; max-height: min(88dvh, 1240px); overflow-y: auto; overscroll-behavior: contain; padding-right: 2px; }

@@ -30,6 +30,7 @@ export const DOC_SECTIONS: { title: string; pages: { id: string; label: string }
       { id: "gpu", label: "GPUs in containers" },
       { id: "mcp", label: "MCP servers" },
       { id: "subscriptions", label: "Subscriptions" },
+      { id: "session-review", label: "Reviewing a session" },
     ],
   },
   {

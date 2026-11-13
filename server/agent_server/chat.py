@@ -140,6 +140,23 @@ class Chats:
             return None
         return {**turns[position], "index": position}
 
+    def conversations(self, session: Session, records: list[dict[str, Any]], limit: int = 40) -> list[dict[str, Any]]:
+        """Every thread as view() summarizes it, and for the ones that used tools (at most limit, the main chat
+        first) their turns in full: what a reading of the whole session works from (review.py)."""
+        lock = self._locks.setdefault(session.session_id, threading.Lock())
+        with lock:
+            index = self._update(session, records)
+            threads, main = _threads(index)
+            ordered = sorted(threads, key=lambda item: (item is not main, item["members"][0]))
+            found = []
+            for item in ordered:
+                kind = _kind(item, main)
+                read = kind != "background" and limit > 0
+                limit -= read
+                # A copy of the list: the cached one goes on changing as the session does.
+                found.append({**_summary(item, main), "turns": list(self._turns(session, item, kind, records)) if read else None})
+        return found
+
     def forget(self, session: Session) -> None:
         self.forget_id(session.session_id)
 

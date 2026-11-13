@@ -254,6 +254,113 @@ export interface SessionCost {
   models: { model: string | null; requests: number; usd: number; basis: "api" | "subscription" }[];
 }
 
+/** One thing a session's review found: what was seen, and what to do about it. */
+export interface ReviewFinding {
+  id: string;
+  area: "context" | "tools" | "flow" | "reliability" | "cost";
+  severity: "high" | "medium" | "low" | "info";
+  title: string;
+  detail: string;
+  suggestion: string;
+  /** About how many tokens it cost over the session, where the server can say. */
+  impact_tokens: number | null;
+}
+
+/** An AI review of a session: a session of its own (client console-review). */
+export interface ReviewRun {
+  session_id: string;
+  started_at: string;
+  ended_at: string | null;
+  model: string | null;
+  backend: string;
+  by: string | null;
+  /** The title of the prompt it was asked with. */
+  prompt: string;
+}
+
+/** One review a model can be asked for: what it's about, the data it's sent, what it looks at and the whole prompt. */
+export interface ReviewPrompt {
+  id: string;
+  title: string;
+  about: string;
+  instructions: string;
+  data: string[];
+  metrics: string[];
+}
+
+/** The server's review prompts as stored (Server settings, Review prompts), with the names a prompt may list. */
+export interface ReviewPromptTable {
+  prompts: { id: string; title: string; about: string; focus: string; summary: string; data: string[]; metrics: string[]; suggestions: number }[];
+  custom: boolean;
+  data: Record<string, string>;
+  metrics: Record<string, string>;
+}
+
+/** A session measured and checked by the server. prompt, context, conversation and tools are null when no payloads were captured. */
+export interface SessionReview {
+  session_id: string;
+  traced_calls: number;
+  /** 100 less a penalty for each finding; null for a session with no model calls. */
+  score: number | null;
+  grade: string | null;
+  traffic: {
+    requests: number;
+    model_calls: number;
+    input_tokens: number;
+    output_tokens: number;
+    cache_read_tokens: number;
+    cache_write_tokens: number;
+    /** null where the provider reports no caching. */
+    cached_share: number | null;
+    peak_context_tokens: number;
+    context_window: number | null;
+    failed_calls: number;
+    rate_limited_calls: number;
+    incomplete_calls: number;
+    median_first_token_ms: number | null;
+    duration_seconds: number;
+  };
+  /** The main chat's context call by call (every model call's when its payloads weren't captured). */
+  timeline: { calls: number; growth_per_call: number; points: { call: number; request_id: string; tokens: number; output_tokens: number }[] };
+  context: { part: string; tokens: number; share: number }[] | null;
+  prompt: {
+    system_tokens: number;
+    sections: { title: string; tokens: number }[];
+    tools_defined: number;
+    tool_definition_tokens: number;
+    largest_tools: { name: string; tokens: number }[];
+    tools_unused: string[];
+    mcp_servers: { name: string; tools: number; calls: number; tokens: number }[];
+  } | null;
+  conversation: {
+    conversations: number;
+    subagents: number;
+    background_calls: number;
+    compactions: number;
+    images: number;
+    prompts: number;
+    threads: { kind: string; title: string; model: string; calls: number; tool_calls: number }[];
+    step_count: number;
+    steps: { typed: string; tool_calls: number; by_kind: Record<string, number>; result_tokens: number }[];
+  } | null;
+  tools: {
+    calls: number;
+    errors: number;
+    result_tokens: number;
+    by_category: Record<string, number>;
+    by_name: { name: string; category: string; calls: number; errors: number; result_chars: number }[];
+    reread_files: { file: string; reads: number }[];
+    edited_files: { file: string; edits: number }[];
+    commands: { command: string; calls: number; errors: number; result_tokens: number; example: string }[];
+    error_samples: { name: string; target: string; error: string; times: number }[];
+  } | null;
+  findings: ReviewFinding[];
+  /** The backends an AI review can be sent to. */
+  reviewers: string[];
+  prompts: ReviewPrompt[];
+  reviews: ReviewRun[];
+}
+
 /** A row of the server's price table: US dollars for a million tokens. */
 export interface ModelPrice {
   match: string;
@@ -2502,6 +2609,11 @@ export const api = {
   resetAgent: (id: string) => request<StoredAgent>(`/api/config/agents/${encodeURIComponent(id)}/reset`, { method: "POST" }),
   modelTuning: () => request<ModelTuning>("/api/config/models"),
   modelTuningYaml: () => text("/api/config/models?format=yaml"),
+  reviewPrompts: () => request<ReviewPromptTable>("/api/config/review-prompts"),
+  reviewPromptsYaml: () => text("/api/config/review-prompts?format=yaml"),
+  /** The prompts as a YAML document ({prompts: [...]}); null goes back to the shipped set. */
+  saveReviewPrompts: (yaml: string | null) =>
+    request<ReviewPromptTable>("/api/config/review-prompts", { method: "PUT", body: yaml ?? "prompts: null", headers: { "content-type": "application/yaml" } }),
   saveModelTuning: (yaml: string) =>
     request<ModelTuning>("/api/config/models", { method: "PUT", body: yaml, headers: { "content-type": "application/yaml" } }),
   // OpenAI- and Anthropic-compatible APIs (site admins). Keys go in write-only and never come back.
@@ -2518,6 +2630,12 @@ export const api = {
   sharedModels: () => request<SharedModels>("/api/config/shared-models"),
   sessionsUsage: () => request<Record<string, SessionUsage>>("/api/sessions/usage"),
   sessionCost: (sessionId: string) => request<SessionCost>(`/api/sessions/${encodeURIComponent(sessionId)}/cost`),
+  sessionReview: (sessionId: string) => request<SessionReview>(`${sessionUrl(sessionId)}/review`),
+  /** Opens an AI review: its own session, and the messages to send there with askModel. */
+  startReview: (sessionId: string, body: { backend: string; model: string; prompt?: string; question?: string }) =>
+    request<{ session: Session; model: string; messages: AskMessage[] }>(`${sessionUrl(sessionId)}/reviews`, { method: "POST", body: JSON.stringify(body) }),
+  readReview: (sessionId: string, reviewId: string) =>
+    request<ReviewRun & { text: string | null }>(`${sessionUrl(sessionId)}/reviews/${encodeURIComponent(reviewId)}`),
   modelPrices: () => request<ModelPrices>("/api/config/prices"),
   saveModelPrices: (prices: ModelPrice[] | null) => request<ModelPrices>("/api/config/prices", { method: "PUT", body: JSON.stringify({ prices }) }),
   prices: () => request<ReadablePrices>("/api/prices"),

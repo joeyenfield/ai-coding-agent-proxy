@@ -15,14 +15,14 @@ from typing import Any
 import yaml
 from sqlalchemy import select
 
-from . import defaults, pricing
+from . import defaults, pricing, review_prompts
 from .agents import parse_agents
 from .config import (
     BACKEND_TYPES, Settings, _replace_backends, _validate_http_url, checked_request_log, checked_shared_models, stored_config, validate_models,
 )
 from .db import kv, schema
 
-KEYS = ("proxy", "default_backend", "intercept", "retention_days", "request_log", "shared_models", "model_prices", "backends", "models", "agents")
+KEYS = ("proxy", "default_backend", "intercept", "retention_days", "request_log", "shared_models", "model_prices", "review_prompts", "backends", "models", "agents")
 
 
 def export(settings: Settings) -> dict[str, Any]:
@@ -39,6 +39,8 @@ def export(settings: Settings) -> dict[str, Any]:
         "shared_models": checked_shared_models(document.get("shared_models") or {}),
         # The table in use, so an export shows the prices estimates are made with.
         "model_prices": pricing.checked_prices(document["model_prices"]) if document.get("model_prices") is not None else list(pricing.DEFAULT_PRICES),
+        # The set in use, as the prices are: an export shows what a review is asked with.
+        "review_prompts": review_prompts.checked_prompts(document["review_prompts"]) if document.get("review_prompts") is not None else list(review_prompts.DEFAULT_PROMPTS),
         "backends": document.get("backends") or {}, "models": models or {}, "agents": agents,
     }
 
@@ -120,6 +122,8 @@ def apply(settings: Settings, document: dict[str, Any], *, replace: bool = False
         checked["shared_models"] = checked_shared_models(parts["shared_models"] or {})
     if "model_prices" in parts:
         checked["model_prices"] = pricing.checked_prices(parts["model_prices"] or [])
+    if "review_prompts" in parts and parts["review_prompts"]:
+        checked["review_prompts"] = review_prompts.checked_prompts(parts["review_prompts"])
     if "models" in parts:
         checked["models"] = validate_models(parts["models"] or {})
     if "agents" in parts:
@@ -129,7 +133,7 @@ def apply(settings: Settings, document: dict[str, Any], *, replace: bool = False
         parse_agents(agents)
         checked["agents"] = agents
     with settings.open_database().write() as connection:
-        for key in ("proxy", "default_backend", "intercept", "retention_days", "request_log", "models", "model_prices"):
+        for key in ("proxy", "default_backend", "intercept", "retention_days", "request_log", "models", "model_prices", "review_prompts"):
             if key in checked:
                 kv.put(connection, schema.settings, key, checked[key])
         if "backends" in checked:

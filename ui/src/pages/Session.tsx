@@ -9,12 +9,13 @@ import { useLive, useTicker } from "../live";
 import { RouteBadge } from "../components/RouteBadge";
 import { RequestList } from "../components/RequestList";
 import { SessionChat } from "../components/SessionChat";
+import { SessionReview } from "../components/SessionReview";
 import { TabBar, TabPanel, useTabParam } from "../components/Tabs";
 import { groupRepeats, mergeRows } from "../traffic";
 
-const VIEWS = ["requests", "chat"] as const;
+const VIEWS = ["requests", "chat", "review"] as const;
 
-/** One session: its live traffic as it streams and its saved request history, or the same read back as a chat. */
+/** One session: its live traffic as it streams and its saved request history, the same read back as a chat, or reviewed. */
 export function SessionPage() {
   const { sessionId = "" } = useParams();
   const session = useQuery({ queryKey: ["session", sessionId], queryFn: () => api.session(sessionId), refetchInterval: 3000 });
@@ -131,6 +132,7 @@ export function SessionPage() {
             tabs={[
               { id: "requests", label: streaming ? `Requests (${streaming} streaming)` : "Requests" },
               { id: "chat", label: "Chat" },
+              { id: "review", label: "Review" },
             ]}
           />
           <span className={`connection ${live.connected ? "" : "offline"}`}>
@@ -140,6 +142,9 @@ export function SessionPage() {
         </div>
         <TabPanel idPrefix="session-" id="chat" active={view === "chat"}>
           <SessionChat session={data} records={history} streaming={live.active} />
+        </TabPanel>
+        <TabPanel idPrefix="session-" id="review" active={view === "review"}>
+          <SessionReview session={data} />
         </TabPanel>
         <TabPanel idPrefix="session-" id="requests" active={view === "requests"}>
           <div className="filters">

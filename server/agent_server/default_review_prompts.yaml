@@ -1,0 +1,151 @@
+# The AI reviews a session's Review tab offers, as the server ships them. A site admin's own set
+# (Server settings, Review prompts; the review_prompts setting) replaces this one whole.
+#
+# Each prompt:
+#   id           letters, numbers and dashes; what POST /api/sessions/{id}/reviews names
+#   title        the button's label
+#   about        one line under the buttons
+#   focus        what the model is asked to look at and say, in its own words. The rules every review
+#                shares (work only from the data, be specific, the answer's form) are added around it.
+#   summary      how the answer's Summary should read (optional)
+#   data         the parts of the session the model is sent, in this order, or "all". The names:
+#                  session        the agent, model, how long it ran, how many requests
+#                  tokens         tokens read and written, the cache, the largest call, idle rewrites
+#                  cost           estimated cost, and calls and tokens by model
+#                  reliability    failed, rate-limited and cut-off calls, the wait for the first token
+#                  timeline       the context's size call by call
+#                  context        what the newest call's context is made of, by kind
+#                  prompt         the system prompt's size and start, tools defined, MCP servers
+#                  system-outline the system prompt's sections by size
+#                  tool-definitions  the largest tool definitions, and the tools never called
+#                  conversation   conversations, sub-agents, background calls, compactions, images
+#                  threads        each sub-agent and side conversation: its task, model and calls
+#                  typed          the first messages the person typed
+#                  steps          the main chat step by step: each message typed and what the agent did after it
+#                  tools          tool calls by kind and by tool, with errors and result sizes
+#                  files          files read again, identical calls repeated, the largest results
+#                  commands       shell commands by what they run, with how often and how much came back
+#                  searches       what the agent searched for
+#                  edits          the files it changed, and how often
+#                  errors         failed tool calls with the start of each error
+#   metrics      the checks whose findings go with it, by id, or "all" (docs/session-review.md lists them)
+#   suggestions  how many suggestions to ask for at most (1 to 10, default 4)
+
+prompts:
+  - id: overall
+    title: The whole session
+    about: Everything measured, for the few changes that would help most.
+    focus: >-
+      Look at the whole session. Weigh the findings against each other: say which few changes would
+      save the most, in tokens, time or money, and leave out what barely matters. Where two findings
+      share a cause, name the cause once.
+    summary: how the session went and where most of its tokens and time were spent.
+    data: [session, tokens, cost, reliability, context, prompt, conversation, typed, steps, tools, files, errors]
+    metrics: all
+    suggestions: 6
+
+  - id: context
+    title: Context and prompt
+    about: "What fills the model's context before and during the work: instructions, tool definitions, results, images."
+    focus: >-
+      Look only at what fills the context: the system prompt, the tool definitions, tool results,
+      images and how the context grew. Say what could be removed, shortened or loaded only when
+      needed, and roughly how many tokens a call each change would save. Use the breakdown of the
+      context to rank them: start with the largest part that could shrink.
+    summary: what the context was made of and how close it came to full.
+    data: [session, tokens, context, timeline, prompt, system-outline, tool-definitions, conversation, files]
+    metrics: [system-prompt, tool-definitions, unused-tools, peak-context, context-growth, images, compactions, large-results]
+
+  - id: instructions
+    title: Instruction files
+    about: An audit of the system prompt, section by section, for what belongs in every call.
+    focus: >-
+      Audit the system prompt as an editor would. From its sections and their sizes, say which
+      sections look like they belong in every call, which should move to a document the agent reads
+      only when a task needs it, and which look like duplicates or stale detail. Propose an outline
+      for a shorter version with a target size. Judge only from the section titles, sizes and the
+      start of the prompt: say plainly where you would need to read a section to be sure.
+    summary: how large the instructions are and what most of them are spent on.
+    data: [session, prompt, system-outline, tool-definitions, context, typed]
+    metrics: [system-prompt, tool-definitions, unused-tools]
+    suggestions: 5
+
+  - id: tools
+    title: Tool use
+    about: How the agent found, read and changed things, and what failed or repeated.
+    focus: >-
+      Look only at how the agent used its tools: how it found files, what it read and re-read, what
+      came back too large, what failed and what it repeated. Say what the engineer could tell the
+      agent, or set up in the project (a map of the code, narrower test commands, ignore files,
+      fewer tools), so the next session needs fewer and smaller calls. Quote the command or search
+      you mean, and give the replacement.
+    summary: how the agent spent its tool calls and where they were wasted.
+    data: [session, tools, files, commands, searches, edits, errors, tool-definitions, threads]
+    metrics: [searching, rereads, large-results, tool-errors, repeated-calls, unused-tools, subagents]
+    suggestions: 5
+
+  - id: prompting
+    title: Prompts and workflow
+    about: "How the task was given and steered: the first prompt, corrections, session length."
+    focus: >-
+      Look only at how the engineer worked with the agent: how the task was stated, how much steering
+      it took, how long the session ran and whether it should have been split. Judge the messages
+      typed: do they say what done looks like, which files matter and how to check the result? Where
+      one falls short, write a better version of it as an example, using only what the session shows.
+      From the steps, say where a plan agreed first, or a new session, would have saved the most.
+    summary: how the task was given and how the session unfolded.
+    data: [session, typed, steps, conversation, threads, searches, edits]
+    metrics: [short-prompt, steering, long-session, compactions, subagents, searching, incomplete]
+
+  - id: growth
+    title: Where the context grew
+    about: The session step by step, for the moments that made every later call more expensive.
+    focus: >-
+      Follow the session in order. From the context's size call by call and the steps of the main
+      chat, find the moments where the context jumped, say what caused each (a large result, a file
+      read whole, a log, an image), and what it cost on every call after it. Say where the session
+      should have been cleared, compacted or handed to a sub-agent, and what should have been
+      carried over.
+    summary: how the context grew over the session and which few steps did most of it.
+    data: [session, tokens, timeline, steps, files, commands, conversation]
+    metrics: [peak-context, context-growth, large-results, rereads, compactions, long-session, idle-cache]
+
+  - id: cost
+    title: Cost and caching
+    about: Where the tokens and money went, and how well the prompt cache was used.
+    focus: >-
+      Look only at tokens and money: which calls and models the cost came from, how much of the
+      prompt came from the cache, and what was paid for twice (idle gaps, cut-off replies, a context
+      grown too large). Say which habits or settings would lower the cost of a session like this
+      one, and by roughly how much. Say whether a smaller model would have done for part of the
+      work, and which part.
+    summary: where the tokens and money went.
+    data: [session, tokens, cost, timeline, context, threads, reliability]
+    metrics: [caching, idle-cache, peak-context, context-growth, long-session, subagents, incomplete]
+
+  - id: reliability
+    title: Failures and speed
+    about: Failed and refused calls, cut-off replies, failed tools and slow answers.
+    focus: >-
+      Look only at what failed or was slow: model calls that failed or were rate limited, replies cut
+      off, tool calls that came back as errors, and long waits for the first token. Group the failed
+      tool calls by cause, from their error text. Say what most likely caused each group, and what
+      to check or change so it doesn't happen again.
+    summary: what failed or was slow, and how much of the session that cost.
+    data: [session, reliability, tokens, tools, errors, commands, files]
+    metrics: [failed-calls, rate-limited, incomplete, slow, tool-errors, repeated-calls]
+
+  - id: project
+    title: Lessons for the project
+    about: What to write down or set up in the repository so the next session starts ahead.
+    focus: >-
+      Read the session for what the project should learn from it, not the engineer. From what the
+      agent searched for, the commands it ran, the files it changed and the errors it met, write the
+      lines that should go into the project's instruction file (CLAUDE.md, AGENTS.md): where things
+      are, how to build and test narrowly, what fails and why. Write them as they should appear, as
+      short bullet points, and say which finding each one answers. Don't invent paths or commands
+      the session doesn't show.
+    summary: what the agent had to work out for itself that the project could have told it.
+    data: [session, typed, searches, commands, edits, errors, files, system-outline]
+    metrics: [searching, rereads, tool-errors, repeated-calls, large-results, short-prompt]
+    suggestions: 6

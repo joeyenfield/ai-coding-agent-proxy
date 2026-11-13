@@ -14,7 +14,7 @@ from urllib.parse import quote, urlparse
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
-from .. import access, api_providers, auth, config_io, mcp, pricing, remote, strata, version
+from .. import access, api_providers, auth, config_io, mcp, pricing, remote, review, review_prompts, strata, version
 from ..agents import stored_agents
 from ..db import redacted
 from ..config import DIRECT_BACKEND, LOCAL_PROXY_URL, ModelProfile, serves, shared_model
@@ -465,6 +465,36 @@ def register(app: FastAPI, runtime: Runtime) -> None:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"currency": "USD", "prices": settings.prices(), "custom": settings.model_prices is not None}
 
+    def prompt_table() -> dict[str, Any]:
+        return {
+            "prompts": settings.reviews(), "custom": settings.review_prompts is not None,
+            # What a prompt's data and metrics may name, with what each is called.
+            "data": review_prompts.DATA, "metrics": review_prompts.METRICS,
+        }
+
+    @app.get("/api/config/review-prompts")
+    async def get_review_prompts(format: str = "json") -> Any:
+        """The AI reviews a session's Review tab offers: each prompt's id, title, about, focus (what the model is
+        asked), the data it's sent and the metrics (checks) whose findings go with it. custom says whether it's the
+        server's own set or the shipped one. format=yaml gives the prompts as a document to edit."""
+        if format == "yaml":
+            return PlainTextResponse(config_io.dump({"prompts": settings.reviews()}), media_type="application/yaml")
+        return prompt_table()
+
+    @app.put("/api/config/review-prompts")
+    async def put_review_prompts(request: Request) -> dict[str, Any]:
+        """Replace the review prompts: {"prompts": [...]} as YAML or JSON; {"prompts": null} goes back to the
+        shipped set. data and metrics take names from the lists this answers with, or "all"."""
+        try:
+            document = config_io.parse((await request.body()).decode("utf-8"))
+            if not isinstance(document, dict) or "prompts" not in document:
+                raise ValueError('Send {"prompts": [...]}, or {"prompts": null} for the shipped set')
+            async with runtime.config_lock:
+                await asyncio.to_thread(settings.set_review_prompts, document["prompts"])
+        except (ValueError, TypeError, UnicodeError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return prompt_table()
+
     @app.get("/api/sessions/{session_id}/telemetry")
     async def download_telemetry(session_id: str, request: Request) -> PlainTextResponse:
         session = viewable(session_id, request)
@@ -488,6 +518,70 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         if turn is None:
             raise HTTPException(status_code=404, detail="Turn not found")
         return turn
+
+    def reviews_of(session: Session, request: Request) -> list[Session]:
+        """The session's reviews this user may see, newest first."""
+        identity = auth.request_identity(request)
+        return [item for item in runtime.sessions.list() if review.is_review(item, session.session_id) and access.can_view(identity, item)]
+
+    @app.get("/api/sessions/{session_id}/review")
+    async def session_review(session_id: str, request: Request) -> dict[str, Any]:
+        """The session measured and checked (review.py): traffic from its request records; prompt, conversation
+        and tools where payloads were captured; findings, worst first, each with what was seen and what to do.
+        reviewers are the backends an AI review can be sent to, and reviews the ones made so far."""
+        session = viewable(session_id, request)
+        # Off the event loop: it reads the session's conversations from its traces.
+        found = await asyncio.to_thread(lambda: review.report(runtime.sessions, runtime.chats, session, runtime.records(session)))
+        return {
+            **found, "reviewers": review.reviewers(settings, usable(request)),
+            "prompts": [prompt.public() for prompt in review_prompts.prompts(settings.reviews())],
+            "reviews": [review.described(item) for item in reviews_of(session, request)],
+        }
+
+    @app.post("/api/sessions/{session_id}/reviews", status_code=201)
+    async def start_review(session_id: str, request: Request) -> dict[str, Any]:
+        """Open an AI review of the session: a private session of the caller's own (client console-review) on
+        the backend and model named, and the messages to send it: those of the prompt named (the server's
+        review prompts; the first when none is), with question, something of the caller's own to ask, added. The console sends them through the new
+        session's OpenAI Chat endpoint like any model call, so the review is limited, priced and recorded as one;
+        the server calls no model here."""
+        session = viewable(session_id, request)
+        identity = auth.request_identity(request)
+        data = await request.json()
+        if not isinstance(data, dict):
+            raise HTTPException(status_code=400, detail="Send a JSON object")
+        model = str(data.get("model") or "").strip()
+        name = str(data.get("backend") or "")
+        if not model:
+            raise HTTPException(status_code=400, detail="Pick the model that reviews the session")
+        try:
+            prompt = review_prompts.named(settings.reviews(), data.get("prompt"))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if name not in review.reviewers(settings, usable(request)):
+            raise HTTPException(status_code=400, detail="Pick a provider that can review: one of yours that takes OpenAI Chat")
+        backend = settings.backend(name, usable(request))
+        limit = runtime.fleet.model_limit(identity, backend)
+        if limit is not None and not shared_model(limit, model):
+            raise HTTPException(status_code=403, detail=f"{model} isn't shared with your organization on {name}")
+        found = await asyncio.to_thread(lambda: review.report(runtime.sessions, runtime.chats, session, runtime.records(session)))
+        try:
+            # Private to whoever asked, whatever the reviewed session's sharing: it holds excerpts of it.
+            tags = {**access.sharing_tags(identity, {}), review.REVIEW_TAG: session.session_id, "review_prompt": prompt.title}
+            created = runtime.sessions.create({"client": review.REVIEW_CLIENT, "project": session.project, "model": model, "backend": name, "trace": True, "tags": tags})
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"session": described(created, request), "model": model, "prompt": prompt.id, "messages": review.brief(session, found, prompt, data.get("question"))}
+
+    @app.get("/api/sessions/{session_id}/reviews/{review_id}")
+    async def read_review(session_id: str, review_id: str, request: Request) -> dict[str, Any]:
+        """One AI review of the session: who asked which model when, and text, what it answered (null when the
+        review's own payloads weren't captured or it never finished)."""
+        session = viewable(session_id, request)
+        found = viewable(review_id, request)
+        if not review.is_review(found, session.session_id):
+            raise HTTPException(status_code=404, detail="Review not found")
+        return {**review.described(found), "text": await asyncio.to_thread(review.reply, runtime.sessions, found)}
 
     @app.get("/api/sessions/{session_id}/traces")
     async def list_traces(session_id: str, request: Request) -> list[str]:
