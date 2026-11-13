@@ -1859,6 +1859,14 @@ legend { padding: 0 6px; font-weight: 650; font-size: 13.5px; color: var(--ink);
 .start-page { max-width: 960px; }
 .start-picker .form-grid { align-items: start; }
 .start-picker select { min-height: 42px; font-size: 15px; }
+.agent-picker { position: relative; }
+.agent-picker-trigger { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 42px; width: 100%; text-align: left; font-size: 15px; font-weight: 400; }
+.agent-picker-list { position: absolute; top: 68px; left: 0; right: 0; z-index: 20; max-height: min(420px, 55vh); overflow-y: auto; padding: 6px; border: 1px solid var(--line); border-radius: var(--radius-small); background: var(--paper); box-shadow: var(--shadow); }
+.agent-picker-group { padding: 8px; color: var(--steel); font-size: 12px; font-weight: 700; }
+.agent-picker-list button { display: flex; justify-content: space-between; gap: 8px; width: 100%; text-align: left; border: 0; box-shadow: none; font-weight: 400; }
+.agent-picker-list button[aria-selected="true"] { background: var(--hover); }
+.agent-picker-list small { color: var(--steel); white-space: nowrap; }
+.agent-missing { text-decoration: line-through; color: var(--steel); }
 .start-step { font-weight: 700; font-size: 15px; color: var(--ink); }
 .start-no-machines { gap: 16px; }
 .start-hint { text-align: center; padding: 8px 0; }

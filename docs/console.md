@@ -71,7 +71,7 @@ In the Android app, a server that can't be reached, or that answers with a serve
 `/agents` starts a coding agent. Pick two things, and the page shows only what that choice needs:
 
 1. **Where should it run?** **Give me the command** (the first choice), or one of the machines you may start agents on. A machine that can't start agents says why (offline, launches off, no launch folders, or no `agent` command there). The choice is remembered.
-2. **Which agent?** Every agent the server knows (its stored agent definitions, which site admins change on [Server settings](#server-settings)). With **Give me the command** they're grouped by route: **Your accounts**, **Own provider** and **Hosted API**. With a machine they're grouped by whether they're installed there.
+2. **Which agent?** Every agent the server knows (its stored agent definitions, which site admins change on [Server settings](#server-settings)). Both commands and machines group agents by route: **Your accounts**, **Own provider** and **Hosted API**. On a machine, agents that aren't installed have their names crossed out and say **Not installed**. Select one to see its install command. Use the arrow keys to move through the dropdown and Enter to select.
 
 The agent's card then shows its route and description, and:
 

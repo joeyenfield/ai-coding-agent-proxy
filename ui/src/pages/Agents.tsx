@@ -3,11 +3,12 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, preferredModel, providerModels, type Agent, type FleetMachine, type InstallEnvironment, type PreparedSession } from "../api";
 import { CodeLine } from "../components/CodeLine";
+import { AgentPicker } from "../components/AgentPicker";
 import { McpChoice, McpUrls, mcpArgs } from "../components/McpChoice";
 import { remember, remembered, useAgents, useAuth, useClipboard, useMachines, useModels, useStatus } from "../hooks";
 import { PartTag } from "../components/PartTag";
 import { ShareChoice, shareArgs } from "../components/Sharing";
-import { providerLabel, ROUTE_ORDER, ROUTES, type RouteKind } from "../routes";
+import { providerLabel, ROUTES, type RouteKind } from "../routes";
 import { LaunchForm } from "./Machine";
 import { OneLineInstall, serverAddress } from "./Downloads";
 
@@ -64,14 +65,6 @@ export function AgentsPage() {
     setParams(search, { replace: true });
   };
 
-  const installedHere = (item: Agent) => Boolean(machine?.agents.includes(item.id));
-  const groups = machine
-    ? [
-        { label: `Installed on ${machine.name}`, agents: list.filter(installedHere) },
-        { label: `Not installed on ${machine.name}`, agents: list.filter((item) => !installedHere(item)) },
-      ]
-    : ROUTE_ORDER.map((route) => ({ label: ROUTES[route].label, agents: list.filter((item) => routeOfAgent(item) === route) }));
-
   return (
     <div className="page start-page">
       <header className="page-head">
@@ -124,28 +117,7 @@ export function AgentsPage() {
                   : "You run it yourself in a terminal, on any computer with the agent command."}
             </small>
           </label>
-          <label className="field">
-            <span className="start-step">2. Which agent?</span>
-            <select value={agent?.id ?? ""} onChange={(event) => choose({ agent: event.target.value })} disabled={!list.length}>
-              <option value="">{agents.isPending ? "Loading agents…" : "Choose an agent…"}</option>
-              {groups
-                .filter((group) => group.agents.length)
-                .map((group) => (
-                  <optgroup key={group.label} label={group.label}>
-                    {group.agents.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.name}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-            </select>
-            <small>
-              {machine
-                ? `${list.filter(installedHere).length} of ${list.length} installed on ${machine.name}. Any other shows how to install it.`
-                : "Agents signed in to your own plan, or running on your machines' models or a hosted API."}
-            </small>
-          </label>
+          <AgentPicker agents={list} machine={machine} value={agent?.id ?? ""} loading={agents.isPending} onChange={(id) => choose({ agent: id })} />
         </div>
       </section>
       {agent ? (
