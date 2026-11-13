@@ -118,6 +118,39 @@ def test_shipped_prices_know_openai_and_deepseek_models_by_version():
     assert pricing.checked_prices(prices) == prices
 
 
+@pytest.mark.parametrize("model,rates", [
+    ("chat-latest", (5, 30, 0.5)),
+    ("chatgpt-4o-latest", (5, 15, 5)),
+    ("openai/gpt-5.3-chat-latest", (1.75, 14, 0.175)),
+    ("gpt-5.2-chat-latest", (1.75, 14, 0.175)),
+    ("gpt-5.1-chat-latest", (1.25, 10, 0.125)),
+    ("gpt-5-chat-latest", (1.25, 10, 0.125)),
+    ("gpt-5.1-codex-mini", (0.25, 2, 0.025)),
+    ("gpt-4.5-preview-2025-02-27", (75, 150, 37.5)),
+    ("gpt-4-turbo-2024-04-09", (10, 30, 10)),
+    ("gpt-4-0613", (30, 60, 30)),
+    ("gpt-3.5-turbo-0125", (0.5, 1.5, 0.5)),
+    ("o3-mini-2025-01-31", (1.1, 4.4, 0.55)),
+    ("o3-deep-research", (10, 40, 2.5)),
+    ("o4-mini-deep-research", (2, 8, 0.5)),
+    ("o1-mini", (1.1, 4.4, 0.55)),
+    ("o1-pro", (150, 600, 150)),
+    ("o1-2024-12-17", (15, 60, 7.5)),
+    ("claude-fable-5-1", (10, 50, 0.25)),
+    ("claude-mythos-5-1", (10, 50, 0.25)),
+    ("claude-fable-5", (10, 50, 1)),
+    ("deepseek-v4.1-flash-1017", (0.15, 0.6, 0.003)),
+    ("deepseek-v4-flash-vision-exp", (0.15, 0.6, 0.003)),
+])
+def test_shipped_chat_and_reasoning_prices(model, rates):
+    # A million of each kind checks cached tokens through the estimator too.
+    cost = pricing.estimate(pricing.DEFAULT_PRICES, {
+        "model": model, "input_tokens": 2_000_000, "output_tokens": 1_000_000,
+        "cache_read_tokens": 1_000_000, "cached_in_input": True,
+    }, "subscription")
+    assert (cost["input_usd"], cost["output_usd"], cost["cache_read_usd"]) == rates
+
+
 def test_every_shipped_price_can_be_reached():
     """The shipped table is data (default_prices.yaml): no row is hidden by a wider pattern above it."""
     assert pricing.shipped_prices() == pricing.DEFAULT_PRICES and len(pricing.DEFAULT_PRICES) > 40

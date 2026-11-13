@@ -14,14 +14,18 @@
 # Leave a model out rather than guess: a call with no price is counted as unpriced, not costed wrongly.
 
 sources:
-  anthropic: {url: "https://www.anthropic.com/pricing", checked: "2026-11-03"}
-  openai: {url: "https://developers.openai.com/api/docs/pricing", checked: "2026-11-12"}
-  deepseek: {url: "https://api-docs.deepseek.com/quick_start/pricing", checked: "2026-11-12"}
+  anthropic: {url: "https://platform.claude.com/docs/en/about-claude/pricing", checked: "2026-11-13"}
+  openai: {url: "https://developers.openai.com/api/docs/pricing", checked: "2026-11-13"}
+  # Retired chat/reasoning models retain the rates on their individual model pages for recomputing history.
+  openai_legacy: {url: "https://developers.openai.com/api/docs/models", checked: "2026-11-13"}
+  deepseek: {url: "https://api-docs.deepseek.com/quick_start/pricing", checked: "2026-11-13"}
 
 prices:
   # Claude 5: a version's own row comes before its family's (5.5 and 5.2 cost less than 5 and 5.1).
   - {match: "claude-fable-5-2*", input: 8, output: 40, cache_read: 0.2, cache_write: 10}
   - {match: "claude-mythos-5-2*", input: 8, output: 40, cache_read: 0.2, cache_write: 10}
+  - {match: "claude-fable-5-1*", input: 10, output: 50, cache_read: 0.25, cache_write: 12.5}
+  - {match: "claude-mythos-5-1*", input: 10, output: 50, cache_read: 0.25, cache_write: 12.5}
   - {match: "claude-fable-5*", input: 10, output: 50, cache_read: 1, cache_write: 12.5}
   - {match: "claude-mythos-5*", input: 10, output: 50, cache_read: 1, cache_write: 12.5}
   - {match: "claude-opus-5-5*", input: 4, output: 20, cache_read: 0.2, cache_write: 5}
@@ -41,41 +45,65 @@ prices:
   - {match: "claude-3-5-haiku*", input: 0.8, output: 4, cache_read: 0.08, cache_write: 1}
 
   # OpenAI: prompts up to 272K tokens (longer ones cost more).
-  - {match: "gpt-6-astra*", input: 10, output: 50, cache_read: 1}
-  - {match: "gpt-6.1-sol*", input: 2, output: 10, cache_read: 0.1}
-  - {match: "gpt-6.1-terra*", input: 1, output: 5, cache_read: 0.05}
-  - {match: "gpt-6-sol*", input: 2, output: 10, cache_read: 0.2}
-  - {match: "gpt-6-luna*", input: 0.1, output: 0.5, cache_read: 0.01}
+  # Default cache writes use the 30-minute rate; 12-hour writes cost more.
+  - {match: "gpt-6-astra-law*", input: 10, output: 50, cache_read: 1}
+  - {match: "gpt-6-astra*", input: 10, output: 50, cache_read: 1, cache_write: 12.5}
+  - {match: "gpt-6.1-sol*", input: 2, output: 10, cache_read: 0.1, cache_write: 2.5}
+  - {match: "gpt-6.1-terra*", input: 1, output: 5, cache_read: 0.05, cache_write: 1.25}
+  - {match: "gpt-6-sol*", input: 2, output: 10, cache_read: 0.2, cache_write: 2.5}
+  - {match: "gpt-6-luna*", input: 0.1, output: 0.5, cache_read: 0.01, cache_write: 0.125}
+  - {match: "gpt-6-cyber*", input: 20, output: 100, cache_read: 2, cache_write: 25}
+  - {match: "gpt-6-rosalind*", input: 15, output: 75, cache_read: 1.5, cache_write: 18.75}
   # A promotional price, listed until 2026-11-30.
-  - {match: "gpt-5.6-sol*", input: 4, output: 20, cache_read: 0.4}
-  - {match: "gpt-5.6-terra*", input: 2, output: 12, cache_read: 0.2}
-  - {match: "gpt-5.6-luna*", input: 0.2, output: 1.2, cache_read: 0.02}
+  - {match: "gpt-5.6-cyber*", input: 12.5, output: 75, cache_read: 1.25, cache_write: 15.625}
+  - {match: "gpt-5.6-sol*", input: 4, output: 20, cache_read: 0.4, cache_write: 5}
+  - {match: "gpt-5.6-terra*", input: 2, output: 12, cache_read: 0.2, cache_write: 2.5}
+  - {match: "gpt-5.6-luna*", input: 0.2, output: 1.2, cache_read: 0.02, cache_write: 0.25}
+  - {match: "chat-latest", input: 5, output: 30, cache_read: 0.5}
   - {match: "gpt-5.5-pro*", input: 30, output: 180}
+  - {match: "gpt-5.5-cyber-preview*", input: 12.5, output: 75, cache_read: 1.25}
   - {match: "gpt-5.5*", input: 5, output: 30, cache_read: 0.5}
   - {match: "gpt-5.4-pro*", input: 30, output: 180}
   - {match: "gpt-5.4-mini*", input: 0.75, output: 4.5, cache_read: 0.075}
   - {match: "gpt-5.4-nano*", input: 0.2, output: 1.25, cache_read: 0.02}
   - {match: "gpt-5.4*", input: 2.5, output: 15, cache_read: 0.25}
   - {match: "gpt-5.3-codex*", input: 1.75, output: 14, cache_read: 0.175}
+  - {match: "gpt-5.3-chat*", input: 1.75, output: 14, cache_read: 0.175}
   - {match: "gpt-5.2-pro*", input: 21, output: 168}
   - {match: "gpt-5.2*", input: 1.75, output: 14, cache_read: 0.175}
+  - {match: "gpt-5.1-codex-mini*", input: 0.25, output: 2, cache_read: 0.025}
   - {match: "gpt-5-pro*", input: 15, output: 120}
   - {match: "gpt-5-mini*", input: 0.25, output: 2, cache_read: 0.025}
   - {match: "gpt-5-nano*", input: 0.05, output: 0.4, cache_read: 0.005}
   - {match: "gpt-5*", input: 1.25, output: 10, cache_read: 0.125}
+  - {match: "gpt-4.5-preview*", input: 75, output: 150, cache_read: 37.5}
   - {match: "gpt-4.1-mini*", input: 0.4, output: 1.6, cache_read: 0.1}
   - {match: "gpt-4.1-nano*", input: 0.1, output: 0.4, cache_read: 0.025}
   - {match: "gpt-4.1*", input: 2, output: 8, cache_read: 0.5}
   - {match: "gpt-4o-mini*", input: 0.15, output: 0.6, cache_read: 0.075}
   - {match: "gpt-4o*", input: 2.5, output: 10, cache_read: 1.25}
+  - {match: "chatgpt-4o-latest", input: 5, output: 15}
+  - {match: "gpt-4-turbo*", input: 10, output: 30}
+  - {match: "gpt-4", input: 30, output: 60}
+  - {match: "gpt-4-0613", input: 30, output: 60}
+  - {match: "gpt-3.5-turbo", input: 0.5, output: 1.5}
+  - {match: "gpt-3.5-turbo-0125", input: 0.5, output: 1.5}
+  - {match: "codex-mini-latest", input: 1.5, output: 6, cache_read: 0.375}
+  - {match: "o4-mini-deep-research*", input: 2, output: 8, cache_read: 0.5}
   - {match: "o4-mini*", input: 1.1, output: 4.4, cache_read: 0.275}
   - {match: "o3-pro*", input: 20, output: 80}
+  - {match: "o3-deep-research*", input: 10, output: 40, cache_read: 2.5}
+  - {match: "o3-mini*", input: 1.1, output: 4.4, cache_read: 0.55}
   - {match: "o3*", input: 2, output: 8, cache_read: 0.5}
+  - {match: "o1-pro*", input: 150, output: 600}
+  - {match: "o1-mini*", input: 1.1, output: 4.4, cache_read: 0.55}
+  - {match: "o1*", input: 15, output: 60, cache_read: 7.5}
 
   # DeepSeek charges by the hour: these are the off-peak prices, which most hours are. In its peak hours
-  # (01:00 to 04:00 and 06:00 to 10:00 UTC on weekdays) everything costs double, which one price can't say.
+  # (01:00 to 04:00 and 06:00 to 10:00 UTC on weekdays, except Chinese public holidays) rates double.
   - {match: "deepseek-v4-pro*", input: 0.66, output: 1.98, cache_read: 0.022}
   - {match: "deepseek-flash*", input: 0.15, output: 0.6, cache_read: 0.003}
   - {match: "deepseek-v4-flash*", input: 0.15, output: 0.6, cache_read: 0.003}
+  - {match: "deepseek-v4.1-flash*", input: 0.15, output: 0.6, cache_read: 0.003}
   # The names before V4 (deepseek-chat and the like).
   - {match: "deepseek-*", input: 0.28, output: 0.42, cache_read: 0.028}
