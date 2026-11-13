@@ -8,6 +8,7 @@ import pytest
 
 from agent_server import costs
 from agent_server.app import create_app
+from agent_server.db import migrate, schema
 from test_auth import signed_in
 from test_tenancy import tenant_settings
 from test_usage_limits import call, use_mock
@@ -89,5 +90,44 @@ def test_costs_are_summed_per_organization_and_priced_again_on_request(tmp_path)
             assert "cost" not in page and "unpriced" not in page
             # A day range the calls aren't in reads none of them.
             assert dave.post("/api/orgs/acme/costs/recompute", json={"since": "2020-01-01", "until": "2020-01-31"}).json()["requests"] == 0
+        finally:
+            app.state.runtime.client = old
+
+
+def test_the_session_list_gets_each_sessions_tokens_and_cost(tmp_path):
+    """GET /api/sessions/usage: sums kept beside the records, for the sessions the caller may see, following a recompute."""
+    app = create_app(tenant_settings(tmp_path))
+    site, dave, alice, gina = (signed_in(app, name) for name in ("site", "dave", "alice", "gina"))
+    today = datetime.now(timezone.utc).date()
+    days = {"since": (today - timedelta(days=1)).isoformat(), "until": today.isoformat()}
+    with site, dave, alice, gina:
+        old = use_mock(app, [])
+        try:
+            mine = alice.post("/api/sessions", json={"client": "x", "backend": "hosted"}).json()["session_id"]
+            idle = alice.post("/api/sessions", json={"client": "x", "backend": "hosted"}).json()["session_id"]
+            hers = gina.post("/api/sessions", json={"client": "x", "backend": "hosted"}).json()["session_id"]
+            for client, session in ((alice, mine), (alice, mine), (gina, hers)):
+                assert call(client, session).status_code == 200
+            # Tokens and calls before there's a price; a session that used nothing is left out, as is another's.
+            usage = alice.get("/api/sessions/usage").json()
+            assert set(usage) == {mine} and idle not in usage
+            assert usage[mine] == {"input_tokens": 1200, "output_tokens": 1000, "model_calls": 2, "priced": 0, "usd": 0.0, "subscription_usd": 0.0}
+            assert set(gina.get("/api/sessions/usage").json()) == {hers}
+            # A recompute reaches the sums; a call recorded after the price has its cost from the start.
+            assert site.put("/api/config/prices", json={"prices": PRICES}).status_code == 200
+            assert dave.post("/api/orgs/acme/costs/recompute", json=days).json()["changed"] == 2
+            assert call(alice, mine).status_code == 200
+            usage = alice.get("/api/sessions/usage").json()[mine]
+            assert (usage["model_calls"], usage["priced"], usage["usd"]) == (3, 3, 0.0) and usage["subscription_usd"] == pytest.approx(3 * CALL_USD)
+            assert usage["subscription_usd"] == pytest.approx(alice.get(f"/api/sessions/{mine}/cost").json()["subscription_usd"])
+            # A database from before the columns gets them filled from its records (API step 10).
+            db = app.state.runtime.db
+            db.writer.flush()
+            with db.write() as connection:
+                connection.execute(schema.requests.update().values(cost_usd=None, cost_basis=None))
+            assert alice.get("/api/sessions/usage").json()[mine]["priced"] == 0
+            with db.write() as connection:
+                migrate._request_costs(connection)
+            assert alice.get("/api/sessions/usage").json()[mine] == usage
         finally:
             app.state.runtime.client = old

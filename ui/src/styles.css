@@ -803,12 +803,29 @@ dialog::backdrop { background: rgb(15 20 30 / 0.5); }
 .xrow-meta { flex: none; display: flex; align-items: center; gap: 12px; font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .xrow-actions { flex: none; display: flex; gap: 6px; }
 /* Sessions: the status, request count and last activity line up down the list. */
-.session-cols .session-state { width: 132px; }
-.session-cols .session-count { width: 96px; text-align: right; }
+.session-cols .session-state { width: 118px; }
+.session-cols .session-count { width: 68px; text-align: right; }
+.session-cols .session-tokens { width: 86px; text-align: right; }
+.session-cols .session-cost { position: relative; width: 92px; text-align: right; font-weight: 600; }
 .session-cols .session-when { width: 104px; text-align: right; }
+.session-unit { display: none; }
+/* How a session's cost compares with the costliest one shown: a hairline bar under the figure. */
+.session-cost-bar { position: absolute; left: 0; right: 0; bottom: -5px; height: 3px; border-radius: 2px; background: var(--ground); overflow: hidden; }
+.session-cost-bar > span { display: block; height: 100%; margin-left: auto; background: var(--accent); border-radius: 2px; }
+/* The columns' names: a row's own layout with nothing to press, so each name sits above its figures. */
+.session-columns { margin: 0 -3px 4px 3px; font-size: 11.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--steel); }
+.session-columns .xrow-toggle { padding-top: 0; padding-bottom: 0; cursor: default; }
+.session-columns .xrow-toggle:hover { background: none; }
+.session-columns .xrow-caret, .session-columns .xrow-actions { visibility: hidden; }
+.session-columns .xrow-meta { font-size: inherit; }
+.session-columns .session-cost { font-weight: inherit; }
 .session-state .pill { display: inline-flex; align-items: center; gap: 6px; }
 .pill.good { background: var(--good-soft); }
-@media (max-width: 900px) { .session-cols .session-state, .session-cols .session-count, .session-cols .session-when { width: auto; text-align: left; } }
+@media (max-width: 900px) {
+  .session-cols .session-state, .session-cols .session-count, .session-cols .session-tokens, .session-cols .session-cost, .session-cols .session-when { width: auto; text-align: left; }
+  .session-unit { display: inline; }
+  .session-cost-bar, .session-columns, .session-cols .is-empty { display: none; }
+}
 .xrow-actions .button { padding: 4px 10px; font-size: 13px; }
 .xrow-body { padding: 4px 14px 14px 34px; border-top: 1px solid var(--line); }
 .xrow-body .live-card, .xrow-body .inspector { margin-top: 10px; }

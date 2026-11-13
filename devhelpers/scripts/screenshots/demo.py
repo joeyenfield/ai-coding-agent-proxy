@@ -669,6 +669,87 @@ def seed_accounts(db: Database) -> None:
     seed.finish()
 
 
+# --------------------------------------------------------------------------- seeded history
+
+# The demo team's other people: their sessions are theirs, so the demo's own lists don't show them,
+# but the team's analytics (which an admin sees) have several people to split by.
+TEAMMATES = ("priya", "sam", "lena", "marco")
+HISTORY_DAYS = 34
+
+# What a past session ran: agent, where its calls went, the record's kind, the model, how its cost is
+# counted (None: a machine's own model server, which costs nothing), and the tokens of a call
+# (input, output, cache read, cache written), each varied a little.
+HISTORY_KINDS = {
+    "claude-opus": ("claude-account", "api.anthropic.com", "intercept", "claude-opus-5-5", "subscription", (900, 1400, 52000, 2600)),
+    "claude-haiku": ("claude-account", "api.anthropic.com", "intercept", "claude-haiku-5-5", "subscription", (700, 500, 21000, 900)),
+    "claude-sonnet": ("claude-subscription", "anthropic", "generate", "claude-sonnet-5", "subscription", (1200, 1100, 38000, 1800)),
+    "codex": ("codex-account", "chatgpt.com", "intercept", "gpt-6.1-sol", "subscription", (14000, 600, 11000, 0)),
+    "copilot": ("copilot-account", "api.individual.githubcopilot.com", "intercept", "claude-sonnet-5", "subscription", (600, 450, 22000, 0)),
+    "deepseek": ("opencode", "deepseek", "generate", "deepseek-flash", "api", (26000, 900, 18000, 0)),
+    "openai": ("aider", "openai", "generate", "gpt-6-luna", "api", (19000, 1300, 9000, 0)),
+    "astra": ("codex", "openai", "generate", "gpt-6-astra", "api", (8000, 1500, 4000, 0)),
+    "qwen": ("qwen", "laptop", "generate", "qwen3.6:35b", None, (9000, 700, 0, 0)),
+    "local": ("opencode", "desktop", "generate", "qwen3.8:latest", None, (11000, 600, 0, 0)),
+}
+# Who uses what, and how much: sessions on a working day, and what they tend to run. The demo's own
+# past sessions stay off the agents the screenshots look up by name (qwen, claude-account).
+HISTORY_PEOPLE = {
+    DEMO_USER: (1.4, ("codex", "copilot", "claude-sonnet", "deepseek", "local")),
+    "priya": (2.6, ("claude-opus", "claude-opus", "claude-haiku", "astra")),
+    "sam": (1.8, ("codex", "codex", "openai", "qwen")),
+    "lena": (1.2, ("deepseek", "deepseek", "claude-sonnet", "local")),
+    "marco": (0.8, ("qwen", "local", "copilot")),
+}
+HISTORY_PROJECTS = ("payments-api", "web-dashboard", "data-pipeline", "cli-tools", "docs-site", "infra")
+
+
+def seed_history(db: Database) -> None:
+    """Five weeks of the team's past sessions, so Analytics, Costs and the session list have days, people,
+    models and providers to show. Records only (no payloads): each priced as the server would price it."""
+    from agent_server import pricing
+
+    store = SessionStore(db)
+    # Its own dice, so adding history doesn't change what the rest of the demo rolls.
+    dice = random.Random(11)
+    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    for back in range(HISTORY_DAYS, 0, -1):
+        day = today - timedelta(days=back)
+        # Quiet weekends, and a team that uses it more as the weeks go by.
+        busy = (0.15 if day.weekday() >= 5 else 1.0) * (0.55 + 0.45 * (HISTORY_DAYS - back) / HISTORY_DAYS)
+        for person, (rate, kinds) in HISTORY_PEOPLE.items():
+            for _ in range(round(rate * busy * dice.uniform(0.3, 1.7))):
+                client, backend, kind, model, basis, tokens = HISTORY_KINDS[dice.choice(kinds)]
+                project = dice.choice(HISTORY_PROJECTS)
+                session = store.create({"client": client, "backend": backend if basis != "subscription" or kind == "generate" else "direct",
+                                        "model": model, "project": project,
+                                        "tags": {"project_path": f"/home/dev/{project}", "owner": person, "tenant": DEMO_ORG,
+                                                 "visibility": "private", "access": "control"}})
+                clock = day + timedelta(hours=dice.uniform(7, 17), minutes=dice.uniform(0, 59))
+                session.started_at = iso(clock)
+                for _ in range(dice.randint(3, 24)):
+                    session.request_sequence += 1
+                    session.request_count += 1
+                    telemetry = RequestTelemetry(session.session_id, f"{session.request_sequence:06d}", client, model, backend, "/v1/messages", 4000,
+                                                 kind=kind, method="POST", host=backend if kind == "intercept" else None)
+                    telemetry.status = 200
+                    telemetry.completed = True
+                    telemetry.input_tokens, telemetry.output_tokens, telemetry.cache_read_tokens, telemetry.cache_creation_tokens = (
+                        round(value * dice.uniform(0.4, 1.8)) for value in tokens
+                    )
+                    record = telemetry.finish()
+                    took = dice.uniform(1500, 14000)
+                    record.update(timestamp=iso(clock), total_ms=took)
+                    cost = pricing.estimate(pricing.DEFAULT_PRICES, record, basis) if basis else None
+                    if cost is not None:
+                        record["cost"] = cost
+                    store.append_request(session, record)
+                    clock += timedelta(milliseconds=took, seconds=dice.uniform(5, 240))
+                session.last_activity_at = iso(clock)
+                session.ended_at = iso(clock + timedelta(seconds=30))
+                session.exit_status = 0
+                store._write_session(session)
+
+
 # --------------------------------------------------------------------------- driving real traffic
 
 TOOLS = [{"type": "function", "function": {"name": "read_file", "description": "Read a file", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}}}}]
@@ -1458,6 +1539,8 @@ def main() -> None:
     # The demo's user, machines and sessions are one organization's (tenant's).
     users.add_org(DEMO_ORG, "Demo team")
     users.add_user(DEMO_USER, DEMO_PASSWORD, role="member", tenant=DEMO_ORG)
+    for name in TEAMMATES:
+        users.add_user(name, secrets.token_urlsafe(24), role="member", tenant=DEMO_ORG)
     issuer = Issuer(settings)
     try:
         with issuer.state.transaction():
@@ -1470,6 +1553,7 @@ def main() -> None:
             issuer.accounts.close()
         issuer.state.db.close()
     seed_accounts(db)
+    seed_history(db)
     seed_subscriptions(db)
     backends = {
         # A made-up public name, so Running agents shows how a phone pairs from anywhere.

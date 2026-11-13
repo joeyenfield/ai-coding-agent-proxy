@@ -26,6 +26,7 @@ import yaml
 from sqlalchemy import select
 
 from . import Database, kv, pack, schema
+from .. import pricing
 
 LOGGER = logging.getLogger("agent-proxy")
 TRACE_BATCH = 200
@@ -187,7 +188,7 @@ def import_session(db: Database, directory: Path) -> None:
                 "timestamp": str(record.get("timestamp") or session.started_at), "kind": record.get("kind"),
                 "model": record.get("model"), "backend": record.get("backend"),
                 "input_tokens": int(record.get("input_tokens") or 0), "output_tokens": int(record.get("output_tokens") or 0),
-                "record": record,
+                "record": record, **pricing.cost_columns(record),
             })
         index = directory / "chat-index.json"
         if index.is_file():

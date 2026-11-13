@@ -211,9 +211,12 @@ await shot("costs", "/costs", {
     await page.waitForTimeout(500);
   },
 });
+// The list sorted by cost, so the columns show where it went.
 await shot("sessions", "/sessions", {
+  height: 1000,
   prepare: async (page) => {
-    await page.locator(".xrow-toggle", { hasText: "claude-account" }).first().click();
+    await page.locator(".session-columns").waitFor({ timeout: 30000 });
+    await page.getByRole("button", { name: "Cost", exact: true }).click();
     await page.waitForTimeout(800);
   },
 });

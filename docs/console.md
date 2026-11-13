@@ -228,7 +228,7 @@ Account agents' other calls (sign-in, telemetry, MCP) aren't shown here; they're
 
 ![Sessions](screenshots/sessions.png)
 
-`/sessions` lists every session, the most recently active first: agent, project, provider, model, who can see it, its state (**Streaming**, **Open** or **Ended**), its requests and when it last had traffic. The cards at the top count the sessions, the ones streaming now, the open ones and all their requests. **Search** by agent, project, model or session id, and filter by state with the chips. Expanding one shows its **Latest requests** and its actions:
+`/sessions` lists every session, the most recently active first: agent, project, provider, model, who can see it, its state (**Streaming**, **Open** or **Ended**), its requests, the tokens it sent and got back, its estimated cost and when it last had traffic. On a wide screen these are columns with their names above, so the figures line up down the list, and a thin bar under each cost shows how it compares with the costliest session shown. The cards at the top count the sessions, the ones streaming now, the open ones, all their requests, their tokens and their cost. **Search** by agent, project, model or session id, filter by state with the chips, and **Sort by** **Latest**, **Cost**, **Tokens** or **Requests** to bring the sessions that used the most to the top. A cost with **≈** is a subscription's calls at API prices, which isn't billed; a dash means none of the session's model calls has a price yet (recompute them on **Costs and prices**). Expanding one shows its **Latest requests** and its actions:
 
 **Estimated cost.** A session's own page shows what its calls to paid providers cost, by the server's price table, and each request in its list and in the inspector shows its own. **Traffic** shows each request's cost in its row and the total of the requests shown in its cards. In the **Live agent view** each agent's header carries its session's cost so far, as does the bar of its full terminal page; point at it for the cost by model. An account agent's calls show what they'd cost at API prices, since a subscription doesn't bill them by the token. See [Cost estimates](providers.md#cost-estimates).
 
@@ -247,7 +247,7 @@ Account agents' other calls (sign-in, telemetry, MCP) aren't shown here; they're
 
 ### Analytics
 
-The **Analytics** section shows how much your organization uses its agents and models between two days, as stacked bars: one bar a day, split into colours. Pick the first and last day (UTC days), or **7 days**, **30 days** or **90 days**; site admins also pick the organization. An organization's admins see everyone's usage in it; members see their own sessions' and have no **Person** split or **People** chart.
+[Analytics and costs](analytics.md) is the guide to this section: what is counted, drilling down, how costs are estimated and keeping prices right. The **Analytics** section shows how much your organization uses its agents and models between two days, as stacked bars: one bar a day, split into colours. Pick the first and last day (UTC days), or **7 days**, **30 days** or **90 days**; site admins also pick the organization. An organization's admins see everyone's usage in it; members see their own sessions' and have no **Person** split or **People** chart.
 
 ![Usage, split by model](screenshots/analytics.png)
 

@@ -302,6 +302,19 @@ export interface OrgCosts extends CostTotals {
   providers: (CostTotals & { provider: string })[];
 }
 
+/** What one session used (GET /api/sessions/usage): the session list's token and cost columns. */
+export interface SessionUsage {
+  input_tokens: number;
+  output_tokens: number;
+  /** Requests that used tokens. */
+  model_calls: number;
+  /** How many of them have a cost. */
+  priced: number;
+  usd: number;
+  /** A subscription's calls at API prices: not money spent. */
+  subscription_usd: number;
+}
+
 /** What usage is split by and narrowed to. */
 export type UsageDimension = "user" | "model" | "provider" | "agent";
 
@@ -2503,6 +2516,7 @@ export const api = {
     request<ApiProviderBalance>(`/api/orgs/${encodeURIComponent(org)}/providers/${encodeURIComponent(name)}/balance`, { method: "POST" }),
   // Models shared with every organization, by provider (site admins).
   sharedModels: () => request<SharedModels>("/api/config/shared-models"),
+  sessionsUsage: () => request<Record<string, SessionUsage>>("/api/sessions/usage"),
   sessionCost: (sessionId: string) => request<SessionCost>(`/api/sessions/${encodeURIComponent(sessionId)}/cost`),
   modelPrices: () => request<ModelPrices>("/api/config/prices"),
   saveModelPrices: (prices: ModelPrice[] | null) => request<ModelPrices>("/api/config/prices", { method: "PUT", body: JSON.stringify({ prices }) }),

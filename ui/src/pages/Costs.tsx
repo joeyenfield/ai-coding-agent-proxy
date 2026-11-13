@@ -202,7 +202,7 @@ function Recompute({ org, since, until, valid, data }: { org: string; since: str
       setConfirm(false);
       notify(result.changed ? `${formatNumber(result.changed)} model calls priced again` : "Nothing changed: the costs were already at these prices");
       // Every place that shows a cost reads it again.
-      for (const key of ["org-costs", "session-cost", "requests", "status"]) client.invalidateQueries({ queryKey: [key] });
+      for (const key of ["org-costs", "org-analytics", "session-cost", "sessions-usage", "requests", "status"]) client.invalidateQueries({ queryKey: [key] });
     },
   });
   return (

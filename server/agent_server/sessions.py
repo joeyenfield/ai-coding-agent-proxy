@@ -15,6 +15,7 @@ from typing import Any, Iterable
 from sqlalchemy import case, func, or_, select
 
 from . import blobs as blob_store
+from . import pricing
 from .cluster import Cluster, LocalCluster
 from .db import Database, kv, pack, schema, unpack
 
@@ -392,7 +393,7 @@ class SessionStore:
             "timestamp": str(record.get("timestamp") or utc_now()), "kind": record.get("kind"),
             "model": record.get("model"), "backend": record.get("backend"),
             "input_tokens": input_tokens, "output_tokens": output_tokens,
-            "record": record,
+            "record": record, **pricing.cost_columns(record),
         }
         sessions = schema.sessions
 
@@ -561,6 +562,30 @@ class SessionStore:
         with self.db.read() as connection:
             rows = connection.execute(query).all()
         return {str(row[0]): [int(row[1]), int(row[2])] for row in rows if row[1] or row[2]}
+
+    def usage(self) -> dict[str, dict[str, Any]]:
+        """What every session used, by session: its tokens, its model calls (requests that used tokens), what
+        they cost on paid APIs (usd) and what a subscription's would at API prices (subscription_usd), and how
+        many of them have a cost. Sums in the database: the session list shows them for every row."""
+        found: dict[str, dict[str, Any]] = {}
+        for session_id, (input_tokens, output_tokens) in self.totals().items():
+            found[session_id] = {"input_tokens": input_tokens, "output_tokens": output_tokens, "model_calls": 0, "priced": 0, "usd": 0.0, "subscription_usd": 0.0}
+        requests = schema.requests
+        query = select(requests.c.session_id, requests.c.cost_basis, func.count(), func.coalesce(func.sum(requests.c.cost_usd), 0)).where(
+            or_(requests.c.input_tokens > 0, requests.c.output_tokens > 0),
+        ).group_by(requests.c.session_id, requests.c.cost_basis)
+        with self.db.read() as connection:
+            rows = connection.execute(query).all()
+        for session_id, basis, count, usd in rows:
+            entry = found.get(str(session_id))
+            if entry is None:
+                continue
+            entry["model_calls"] += int(count)
+            if basis:
+                entry["priced"] += int(count)
+                key = "usd" if basis == "api" else "subscription_usd"
+                entry[key] = round(entry[key] + float(usd), 6)
+        return found
 
     def recent(self, limit: int = 100) -> list[dict[str, Any]]:
         """The newest request records, oldest first."""

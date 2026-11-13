@@ -57,6 +57,7 @@ SHOTS = (
     Shot("agents", box=NO_SIDEBAR),
     Shot("machines", box=NO_SIDEBAR),
     Shot("machine-mcp", box=NO_SIDEBAR),
+    Shot("analytics", box=NO_SIDEBAR),
     Shot("terminal"),
     Shot("overview-dark", keep=0.35),
     # quickstart.html's steps: the real quickstart, from quickstart-steps.mjs, whole (the sidebar

@@ -17,6 +17,7 @@ from typing import Any, Callable, Iterable
 
 from sqlalchemy import func, or_, select
 
+from . import pricing
 from .db import Database, schema
 from .usage_limits import session_user
 
@@ -154,7 +155,7 @@ def recompute(
     for offset in range(0, len(changed), CHUNK):
         with db.write() as connection:
             for session_id, request_id, record in changed[offset:offset + CHUNK]:
-                connection.execute(table.update().where(table.c.session_id == session_id, table.c.request_id == request_id).values(record=record))
+                connection.execute(table.update().where(table.c.session_id == session_id, table.c.request_id == request_id).values(record=record, **pricing.cost_columns(record)))
     answer = {
         "org": tenant, "since": days[0], "until": days[-1], "currency": "USD",
         "requests": len(found), "changed": len(changed), "sessions": len({session_id for session_id, _, _ in found}),

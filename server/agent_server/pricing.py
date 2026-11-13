@@ -105,6 +105,14 @@ def estimate(prices: list[dict[str, Any]], record: dict[str, Any], basis: str) -
     }
 
 
+def cost_columns(record: dict[str, Any]) -> dict[str, Any]:
+    """A record's cost as the requests table keeps it beside the record: cost_usd and cost_basis, None with no cost."""
+    cost = record.get("cost")
+    if not isinstance(cost, dict):
+        return {"cost_usd": None, "cost_basis": None}
+    return {"cost_usd": float(cost.get("usd") or 0), "cost_basis": "api" if cost.get("basis") == "api" else "subscription"}
+
+
 def total(records: list[dict[str, Any]]) -> dict[str, Any]:
     """A session's cost from its records: the total, by model, and how many model calls had no price."""
     models: dict[str, dict[str, Any]] = {}

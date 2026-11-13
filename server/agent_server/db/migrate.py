@@ -8,11 +8,12 @@ from __future__ import annotations
 
 from typing import Callable
 
-from sqlalchemy import MetaData, Table, func, inspect, select, text
+from sqlalchemy import MetaData, Table, func, inspect, or_, select, text
 from sqlalchemy.engine import Connection
 
 from . import API_SCHEMA, AUTH_SCHEMA, Database
 from . import schema
+from .. import pricing
 
 Step = Callable[[Connection], None]
 
@@ -176,7 +177,23 @@ def _peering(connection: Connection) -> None:
         connection.execute(text(f'ALTER TABLE "{API_SCHEMA}"."requests" ALTER COLUMN "backend" TYPE VARCHAR(255)'))
 
 
-API_STEPS: list[Step] = [_create(schema.api), _tenants, _provider_accounts, _access_log, _usage_limits, _scaling, _request_log, _api_providers, _peering]
+def _request_costs(connection: Connection) -> None:
+    """Step 10: a request's cost estimate in columns of its own, filled from the records that have one, so a
+    session's cost is summed in the database instead of read out of every record."""
+    requests = schema.requests
+    _add_column(connection, requests, "cost_usd", "FLOAT")
+    _add_column(connection, requests, "cost_basis", "VARCHAR(16)")
+    # Only a call that used tokens can have a cost.
+    rows = connection.execute(
+        select(requests.c.session_id, requests.c.request_id, requests.c.record).where(or_(requests.c.input_tokens > 0, requests.c.output_tokens > 0))
+    )
+    for session_id, request_id, record in rows.all():
+        columns = pricing.cost_columns(record) if isinstance(record, dict) else None
+        if columns and columns["cost_usd"] is not None:
+            connection.execute(requests.update().where(requests.c.session_id == session_id, requests.c.request_id == request_id).values(**columns))
+
+
+API_STEPS: list[Step] = [_create(schema.api), _tenants, _provider_accounts, _access_log, _usage_limits, _scaling, _request_log, _api_providers, _peering, _request_costs]
 AUTH_STEPS: list[Step] = [_create(schema.auth)]
 
 # One lock id per component, so two processes starting at once don't both migrate.

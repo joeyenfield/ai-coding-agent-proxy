@@ -14,10 +14,10 @@ const levels = [
   ...['sign-in', 'issuer', 'machines', 'start-ollama', ...walk].map(name => `quickstart-basic-${name}`),
   ...['sign-in', 'issuer', 'approve-code', 'approve', 'machines', ...walk].map(name => `quickstart-helm-${name}`),
 ];
-const captures = [...quickstart, ...levels, 'terminal-grid-dark', 'real-opencode', 'real-copilot', 'real-qwen', 'live-dark', 'terminal-phone', 'overview-dark', 'agents', 'machines', 'session-chat', 'machine-mcp', 'terminal'];
+const captures = [...quickstart, ...levels, 'terminal-grid-dark', 'real-opencode', 'real-copilot', 'real-qwen', 'live-dark', 'terminal-phone', 'overview-dark', 'agents', 'machines', 'session-chat', 'machine-mcp', 'analytics', 'terminal'];
 // The web-sized copies the homepage shows (devhelpers/scripts/screenshots/site-images.py).
 const screens = [
-  ...['terminal-grid-dark', 'live-dark', 'overview-dark', 'agents', 'machines', 'session-chat', 'machine-mcp', 'terminal'].flatMap(name => [800, 1440].map(width => `screens/${name}-${width}.webp`)),
+  ...['terminal-grid-dark', 'live-dark', 'overview-dark', 'agents', 'machines', 'session-chat', 'machine-mcp', 'analytics', 'terminal'].flatMap(name => [800, 1440].map(width => `screens/${name}-${width}.webp`)),
   ...[400, 618].map(width => `screens/terminal-phone-${width}.webp`),
   ...[...quickstart, ...levels].flatMap(name => (/0[12]-|-(sign-in|issuer)$/.test(name) ? [540, 1080] : [800, 1440]).map(width => `screens/${name}-${width}.webp`)),
   ...['real-opencode', 'real-copilot', 'real-qwen'].flatMap(name => [666, 1333].map(width => `screens/${name}-${width}.webp`)),

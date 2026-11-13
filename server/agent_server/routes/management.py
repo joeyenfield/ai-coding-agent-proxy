@@ -298,6 +298,16 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         identity = auth.request_identity(request)
         return [described(item, request) for item in runtime.sessions.list() if access.can_view(identity, item)]
 
+    @app.get("/api/sessions/usage")
+    async def sessions_usage(request: Request) -> dict[str, dict[str, Any]]:
+        """What each session the caller may see used, by session id: input_tokens, output_tokens, model_calls
+        (requests that used tokens), priced (how many of them have a cost), usd (calls to paid APIs) and
+        subscription_usd (a subscription's calls at API prices). A session that used no tokens is left out."""
+        identity = auth.request_identity(request)
+        seen = {item.session_id for item in runtime.sessions.list() if access.can_view(identity, item)}
+        found = await asyncio.to_thread(runtime.sessions.usage)
+        return {session_id: value for session_id, value in found.items() if session_id in seen}
+
     @app.get("/api/requests")
     async def list_requests(
         request: Request, session_id: str | None = None, limit: int | None = None, before: str | None = None,

@@ -1,9 +1,9 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, type Session } from "../api";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { api, type Session, type SessionUsage } from "../api";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-import { formatDate, formatNumber, lastTraffic } from "../format";
+import { formatCompact, formatDate, formatNumber, formatUsd, lastTraffic } from "../format";
 import { useRequests, useSessions, useStatus, useToast } from "../hooks";
 import { ExpandRow } from "../components/ExpandRow";
 import { RequestList } from "../components/RequestList";
@@ -22,6 +22,24 @@ const STATE_LABELS: Record<SessionState, string> = { streaming: "Streaming", ope
 const byLastActivity = (a: Session, b: Session) =>
   (b.last_activity_at ?? b.started_at).localeCompare(a.last_activity_at ?? a.started_at);
 
+/** What the list is ordered by: the latest traffic, or what the sessions used, the most first. */
+type SessionSort = "recent" | "cost" | "tokens" | "requests";
+const SORT_LABELS: Record<SessionSort, string> = { recent: "Latest", cost: "Cost", tokens: "Tokens", requests: "Requests" };
+
+/** A session's estimated cost: money spent on paid APIs and a subscription's calls at API prices together. */
+const costOf = (usage: SessionUsage | undefined) => (usage ? usage.usd + usage.subscription_usd : 0);
+const tokensOf = (usage: SessionUsage | undefined) => (usage ? usage.input_tokens + usage.output_tokens : 0);
+
+/** What a row's cost is made of, for its tooltip. */
+function costTitle(used: SessionUsage | undefined) {
+  if (!used || used.priced === 0) return "No estimated cost: no model call of this session has a price";
+  const parts = [];
+  if (used.usd > 0) parts.push(`${formatUsd(used.usd)} spent on paid APIs`);
+  if (used.subscription_usd > 0) parts.push(`${formatUsd(used.subscription_usd)} at API prices, on a subscription (not billed)`);
+  if (used.priced < used.model_calls) parts.push(`${formatNumber(used.model_calls - used.priced)} model calls have no cost`);
+  return parts.join(". ");
+}
+
 export function SessionsPage() {
   const sessions = useSessions();
   const status = useStatus();
@@ -32,6 +50,9 @@ export function SessionsPage() {
   const [open, setOpen] = useState<Set<string>>(() => new Set());
   const [query, setQuery] = useState("");
   const [show, setShow] = useState<SessionState | "">("");
+  const [sort, setSort] = useState<SessionSort>("recent");
+  // Tokens and cost of every session, summed by the server: the list's columns.
+  const usage = useQuery({ queryKey: ["sessions-usage"], queryFn: api.sessionsUsage, refetchInterval: 30_000, retry: false }).data ?? {};
   const busy = new Set(status.data?.current_requests.map((item) => item.session_id));
   const refresh = () => client.invalidateQueries();
 
@@ -86,7 +107,23 @@ export function SessionsPage() {
   );
   const counts = { streaming: 0, open: 0, ended: 0 };
   for (const session of found) counts[stateOf(session)] += 1;
-  const shown = show ? found.filter((session) => stateOf(session) === show) : found;
+  const filtered = show ? found.filter((session) => stateOf(session) === show) : found;
+  const measure: Record<Exclude<SessionSort, "recent">, (session: Session) => number> = {
+    cost: (session) => costOf(usage[session.session_id]),
+    tokens: (session) => tokensOf(usage[session.session_id]),
+    requests: (session) => session.request_count,
+  };
+  // A stable sort: sessions that used the same keep the latest first.
+  const shown = sort === "recent" ? filtered : [...filtered].sort((a, b) => measure[sort](b) - measure[sort](a));
+  const totals = ordered.reduce(
+    (sum, session) => {
+      const item = usage[session.session_id];
+      return item ? { tokens: sum.tokens + tokensOf(item), usd: sum.usd + item.usd, subscription_usd: sum.subscription_usd + item.subscription_usd } : sum;
+    },
+    { tokens: 0, usd: 0, subscription_usd: 0 },
+  );
+  // Each row's cost bar is to the scale of the costliest session shown.
+  const topCost = Math.max(...shown.map((session) => costOf(usage[session.session_id])), 0);
   const totalRequests = ordered.reduce((total, item) => total + item.request_count, 0);
   const toggle = (id: string) =>
     setOpen((current) => {
@@ -135,6 +172,17 @@ export function SessionsPage() {
             <dt>Requests</dt>
             <dd>{formatNumber(totalRequests)}</dd>
           </div>
+          <div>
+            <dt>Tokens</dt>
+            <dd>{formatCompact(totals.tokens)}</dd>
+          </div>
+          <div>
+            <dt>Cost</dt>
+            <dd title="Estimated: money spent on paid APIs, and what subscriptions' calls would cost at API prices, which isn't billed">
+              {totals.usd > 0 || totals.subscription_usd === 0 ? formatUsd(totals.usd) : `≈ ${formatUsd(totals.subscription_usd)}`}{" "}
+              {totals.usd > 0 && totals.subscription_usd > 0 && <small>+ ≈ {formatUsd(totals.subscription_usd)}</small>}
+            </dd>
+          </div>
         </dl>
       )}
       {ordered.length ? (
@@ -159,13 +207,44 @@ export function SessionsPage() {
                   {STATE_LABELS[name]} <span className="count">{formatNumber(counts[name])}</span>
                 </button>
               ))}
+            <span className="chip-gap" />
+            <span className="subtle">Sort by</span>
+            {(Object.keys(SORT_LABELS) as SessionSort[]).map((name) => (
+              <button key={name} type="button" aria-pressed={sort === name} onClick={() => setSort(name)}>
+                {SORT_LABELS[name]}
+              </button>
+            ))}
           </div>
+          {shown.length > 0 && (
+            // The columns' names, laid out as a row is so they sit above its figures.
+            <div className="xrow-head session-columns" aria-hidden="true">
+              <span className="xrow-toggle">
+                <span className="xrow-caret">▸</span>
+                <span className="xrow-summary">
+                  <span className="xrow-main">Session</span>
+                  <span className="xrow-meta session-cols">
+                    <span className="session-state">Status</span>
+                    <span className="session-count">Requests</span>
+                    <span className="session-tokens">Tokens in</span>
+                    <span className="session-tokens">Tokens out</span>
+                    <span className="session-cost">Cost</span>
+                    <span className="session-when">Last traffic</span>
+                  </span>
+                </span>
+              </span>
+              <span className="xrow-actions">
+                <span className="button">Open</span>
+              </span>
+            </div>
+          )}
           {shown.length ? (
             <ul className="xlist" aria-label="Sessions">
               {shown.map((session) => {
                 const state = stateOf(session);
                 const inFlight = state === "streaming";
                 const path = `/sessions/${encodeURIComponent(session.session_id)}`;
+                const used = usage[session.session_id];
+                const cost = costOf(used);
                 return (
                   <ExpandRow
                     key={session.session_id}
@@ -195,8 +274,23 @@ export function SessionsPage() {
                               <span className="pill good">Open</span>
                             )}
                           </span>
-                          <span className="session-count">
-                            {formatNumber(session.request_count)} {session.request_count === 1 ? "request" : "requests"}
+                          <span className="session-count" title={used ? `${formatNumber(used.model_calls)} of them model calls that used tokens` : undefined}>
+                            {formatNumber(session.request_count)}
+                            <span className="session-unit"> {session.request_count === 1 ? "request" : "requests"}</span>
+                          </span>
+                          <span className={used ? "session-tokens" : "session-tokens is-empty"} title={used ? `${formatNumber(used.input_tokens)} tokens in` : undefined}>
+                            {used ? formatCompact(used.input_tokens) : "–"}
+                            <span className="session-unit"> in</span>
+                          </span>
+                          <span className={used ? "session-tokens" : "session-tokens is-empty"} title={used ? `${formatNumber(used.output_tokens)} tokens out` : undefined}>
+                            {used ? formatCompact(used.output_tokens) : "–"}
+                            <span className="session-unit"> out</span>
+                          </span>
+                          <span className={used && used.priced > 0 ? "session-cost" : "session-cost is-empty"} title={costTitle(used)}>
+                            {!used || used.priced === 0 ? "–" : used.usd > 0 ? formatUsd(cost) : `≈ ${formatUsd(cost)}`}
+                            <span className="session-cost-bar" aria-hidden="true">
+                              <span style={{ width: `${topCost > 0 ? (cost / topCost) * 100 : 0}%` }} />
+                            </span>
                           </span>
                           <span className="session-when subtle" title={session.last_activity_at ? formatDate(session.last_activity_at) : undefined}>
                             {lastTraffic(session)}

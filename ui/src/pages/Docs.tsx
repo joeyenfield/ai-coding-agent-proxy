@@ -37,6 +37,7 @@ export const DOC_SECTIONS: { title: string; pages: { id: string; label: string }
     pages: [
       { id: "accounts", label: "Accounts and sharing" },
       { id: "peering", label: "Peering" },
+      { id: "analytics", label: "Analytics and costs" },
       { id: "usage-limits", label: "Usage limits" },
       { id: "retention", label: "Retention" },
       { id: "audit", label: "Audit log" },

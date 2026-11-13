@@ -75,7 +75,7 @@ Every agent takes one of three routes. Mix them as you like; all of them are rec
 | ![A model call streaming live, with its reasoning, timings and speed](docs/screenshots/live-dark.png) **Watch a session live.** Reasoning, reply and tool calls as they stream. | ![A recorded session read back as a conversation](docs/screenshots/session-chat.png) **Every request, every token.** Sessions read back as conversations, sub-agents included. |
 | ![The fleet: machines, their model servers and what each permits](docs/screenshots/machines.png) **Your machines, their models.** Start, stop and pull models from the console. | ![A machine sharing MCP servers with agents](docs/screenshots/machine-mcp.png) **Shared MCP tools.** Register them once on a machine; grant them per team. |
 
-There is more: usage limits, retention and legal holds, an audit log, [subscriptions](docs/subscriptions.md), and [peering](docs/peering.md), which links two servers so an organization on each can use chosen providers, MCP servers and machines of the other's.
+There is more: [analytics](docs/analytics.md) (usage and estimated cost by day, person, model and provider), usage limits, retention and legal holds, an audit log, [subscriptions](docs/subscriptions.md), and [peering](docs/peering.md), which links two servers so an organization on each can use chosen providers, MCP servers and machines of the other's.
 
 ## Quick start
 
@@ -163,7 +163,7 @@ Start at the [documentation's overview](docs/index.md). The pages, by section:
 | --- | --- |
 | Start here | [How it works](docs/how-it-works.md) · [Run it on your own computer](docs/local.md) · [Quickstart with Docker or Podman](docs/quickstart.md) · [Quickstart on Kubernetes](docs/quickstart-kubernetes.md) · [Getting started](docs/getting-started.md) |
 | Use it | [Agents](docs/running-agents.md) · [The console](docs/console.md) · [Machines](docs/machines.md) · [Providers](docs/providers.md) · [GPUs in containers](docs/gpu.md) · [MCP servers](docs/mcp.md) · [Subscriptions](docs/subscriptions.md) |
-| People and data | [Accounts and sharing](docs/accounts.md) · [Peering](docs/peering.md) · [Usage limits](docs/usage-limits.md) · [Retention](docs/retention.md) · [The audit log](docs/audit.md) |
+| People and data | [Accounts and sharing](docs/accounts.md) · [Peering](docs/peering.md) · [Analytics and costs](docs/analytics.md) · [Usage limits](docs/usage-limits.md) · [Retention](docs/retention.md) · [The audit log](docs/audit.md) |
 | Run a server | [Deployment](docs/deployment.md) · [Several server processes](docs/scaling.md) · [Configuration](docs/configuration.md) · [Security](docs/security.md) · [OIDC authentication](docs/oidc.md) · [Using API credentials](docs/api-credentials.md) |
 | Technical overview | [Architecture](docs/architecture.md) · [Flows](docs/flows.md) · [Networking and protocols](docs/networking.md) · [Peering internals](docs/peering-internals.md) · [Scaling internals](docs/scaling-internals.md) · [Local instance internals](docs/local-internals.md) · [API](docs/api.md) |
 | Contribute | [Development](docs/development.md) · [Local releases and snapshots](docs/releases.md) · [Marketing website](docs/website.md) |

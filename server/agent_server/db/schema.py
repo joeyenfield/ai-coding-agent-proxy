@@ -112,6 +112,10 @@ requests = Table(
     Column("input_tokens", BigInteger, nullable=False, default=0),
     Column("output_tokens", BigInteger, nullable=False, default=0),
     Column("record", JSON, nullable=False),
+    # The record's cost estimate (pricing.cost_columns), apart from the document so a session's cost is a sum
+    # in the database (API step 10): dollars, and "api" (money spent) or "subscription" (at API prices).
+    Column("cost_usd", Float),
+    Column("cost_basis", String(16)),
     Index("requests_timestamp", "timestamp"),
 )
 
