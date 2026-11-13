@@ -266,6 +266,9 @@ export interface ReviewFinding {
   impact_tokens: number | null;
 }
 
+/** A model's tier by its list price for input, as the server sorts it; local is a machine's own model, unpriced a paid one with no price. */
+export type ModelTier = "frontier" | "mid" | "small" | "local" | "unpriced";
+
 /** An AI review of a session: a session of its own (client console-review). */
 export interface ReviewRun {
   session_id: string;
@@ -319,7 +322,15 @@ export interface SessionReview {
     incomplete_calls: number;
     median_first_token_ms: number | null;
     duration_seconds: number;
+    /** Estimated dollars: paid by the token, and an account agent's calls at API prices. */
+    usd: number;
+    subscription_usd: number;
+    models: { model: string | null; tier: ModelTier; calls: number; input_tokens: number; output_tokens: number; usd: number }[];
+    /** The model calls by tier, most expensive tier first; share is of the session's model calls. */
+    tiers: { tier: ModelTier; calls: number; share: number; input_tokens: number; output_tokens: number; usd: number; models: string[] }[];
   };
+  /** How many checks the server ran; findings holds the ones that found something. */
+  checks: number;
   /** The main chat's context call by call (every model call's when its payloads weren't captured). */
   timeline: { calls: number; growth_per_call: number; points: { call: number; request_id: string; tokens: number; output_tokens: number }[] };
   context: { part: string; tokens: number; share: number }[] | null;

@@ -531,7 +531,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         reviewers are the backends an AI review can be sent to, and reviews the ones made so far."""
         session = viewable(session_id, request)
         # Off the event loop: it reads the session's conversations from its traces.
-        found = await asyncio.to_thread(lambda: review.report(runtime.sessions, runtime.chats, session, runtime.records(session)))
+        found = await asyncio.to_thread(lambda: review.report(runtime.sessions, runtime.chats, session, runtime.records(session), settings.prices()))
         return {
             **found, "reviewers": review.reviewers(settings, usable(request)),
             "prompts": [prompt.public() for prompt in review_prompts.prompts(settings.reviews())],
@@ -564,7 +564,7 @@ def register(app: FastAPI, runtime: Runtime) -> None:
         limit = runtime.fleet.model_limit(identity, backend)
         if limit is not None and not shared_model(limit, model):
             raise HTTPException(status_code=403, detail=f"{model} isn't shared with your organization on {name}")
-        found = await asyncio.to_thread(lambda: review.report(runtime.sessions, runtime.chats, session, runtime.records(session)))
+        found = await asyncio.to_thread(lambda: review.report(runtime.sessions, runtime.chats, session, runtime.records(session), settings.prices()))
         try:
             # Private to whoever asked, whatever the reviewed session's sharing: it holds excerpts of it.
             tags = {**access.sharing_tags(identity, {}), review.REVIEW_TAG: session.session_id, "review_prompt": prompt.title}

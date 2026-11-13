@@ -149,6 +149,7 @@ def test_checks_fire_at_their_thresholds():
         "requests": 500, "model_calls": 420, "input_tokens": 900_000, "output_tokens": 1, "cache_read_tokens": 90_000, "cache_write_tokens": 0,
         "cached_share": 0.1, "idle_rewrites": 6, "idle_rewrite_tokens": 600_000, "peak_context_tokens": 95_000, "context_window": 100_000, "failed_calls": 0, "rate_limited_calls": 2,
         "incomplete_calls": 2, "median_first_token_ms": 20_000, "duration_seconds": 60, "usd": 0, "subscription_usd": 0, "models": [],
+        "tiers": [{"tier": "frontier", "calls": 400, "share": 0.952, "usd": 0, "models": ["claude-fable-5"]}, {"tier": "small", "calls": 20, "share": 0.048, "usd": 0, "models": ["claude-haiku-5"]}],
     }
     tools = {
         "calls": 100, "errors": 40, "result_tokens": 0, "by_category": {"search": 70, "read": 30},
@@ -164,11 +165,11 @@ def test_checks_fire_at_their_thresholds():
     assert found == {
         "tool-definitions": "high", "unused-tools": "low", "peak-context": "high", "context-growth": "medium", "images": "low", "compactions": "high", "long-session": "high",
         "searching": "high", "tool-errors": "high", "repeated-calls": "medium", "subagents": "medium", "short-prompt": "low",
-        "steering": "low", "rate-limited": "medium", "incomplete": "low", "caching": "medium", "idle-cache": "medium", "slow": "low",
+        "steering": "low", "rate-limited": "medium", "incomplete": "low", "model-tiers": "high", "caching": "medium", "idle-cache": "medium", "slow": "low",
     }
     quiet = {
         "traced_calls": 5, "tools": {**tools, "calls": 10, "errors": 0, "by_category": {"edit": 10}, "repeated_calls": []},
-        "traffic": {**traffic, "model_calls": 5, "cached_share": 0.95, "peak_context_tokens": 20_000, "rate_limited_calls": 0, "incomplete_calls": 0, "median_first_token_ms": 900, "idle_rewrites": 0},
+        "traffic": {**traffic, "model_calls": 5, "cached_share": 0.95, "peak_context_tokens": 20_000, "rate_limited_calls": 0, "incomplete_calls": 0, "median_first_token_ms": 900, "idle_rewrites": 0, "tiers": []},
         "conversation": {**chat, "subagents": 0, "compactions": 0, "images": 0, "prompts": 2, "first_prompt_chars": 400},
         "prompt": {**prompt, "tools_defined": 12, "tool_definition_tokens": 3_000, "tools_unused": []},
         "timeline": {"calls": 5, "points": [], "growth_per_call": 900},
@@ -176,6 +177,47 @@ def test_checks_fire_at_their_thresholds():
     assert [check(quiet) for check in review.CHECKS if check(quiet)] == []
     # Every check has a name the prompts can list.
     assert set(found) | {"system-prompt", "rereads", "large-results", "failed-calls", "untraced"} == set(review_prompts.METRICS)
+
+
+def test_model_calls_are_counted_by_tier_and_a_session_all_on_frontier_models_is_a_high_finding():
+    from agent_server import pricing
+
+    def record(number: int, model: str, cost: bool = True, **more) -> dict:
+        priced = pricing.estimate(pricing.DEFAULT_PRICES, {"model": model, "input_tokens": 1_000, "output_tokens": 100}, "subscription") if cost else None
+        return {"request_id": f"{number:06d}", "timestamp": "2026-11-13T10:00:00Z", "model": model, "endpoint": "/v1/messages", "status": 200,
+                "input_tokens": 1_000, "output_tokens": 100, **({"cost": priced} if priced else {}), **more}
+
+    def tiers(records: list[dict]) -> dict:
+        return {item["tier"]: item for item in review._traffic(records, records, pricing.DEFAULT_PRICES)["tiers"]}
+
+    # A tier is the model's list price for input: frontier from $4 a million tokens, small under $1.50.
+    mixed = [record(1, "claude-fable-5-2"), record(2, "claude-opus-5-5"), record(3, "claude-sonnet-5-5"), record(4, "claude-haiku-5"),
+             record(5, "qwen3:8b", cost=False), record(6, "new-model", cost=False, unpriced=True)]
+    found = tiers(mixed)
+    assert list(found) == ["frontier", "mid", "small", "local", "unpriced"]
+    assert found["frontier"]["calls"] == 2 and found["frontier"]["models"] == ["claude-fable-5-2", "claude-opus-5-5"] and found["frontier"]["share"] == 0.333
+    assert found["frontier"]["usd"] > found["mid"]["usd"] > found["small"]["usd"] > 0 == found["local"]["usd"]
+    # A gateway's own price, which the server's table doesn't know: the rate it charged for input.
+    own = record(7, "house-model", cost=False)
+    own["cost"] = {"usd": 0.02, "input_usd": 0.02, "price": "house-*", "basis": "api"}
+    assert list(tiers([own])) == ["frontier"]
+
+    def finding(records: list[dict]) -> dict | None:
+        traffic = review._traffic(records, records, pricing.DEFAULT_PRICES)
+        return review._model_tiers({"traffic": traffic})
+
+    everything = finding([record(n, "claude-fable-5-2") for n in range(12)])
+    assert everything["severity"] == "high" and everything["area"] == "cost" and "12 of 12 model calls (100%)" in everything["detail"]
+    assert "No call used a cheaper model" in everything["detail"] and "claude-fable-5-2" in everything["detail"]
+    most = finding([record(n, "claude-opus-5-5") for n in range(8)] + [record(n, "claude-haiku-5") for n in range(8, 12)])
+    assert most["severity"] == "medium" and "small 4" in most["detail"]
+    # Half the calls on a cheaper tier, a session on local models, or a short one: nothing to say.
+    assert finding([record(n, "claude-fable-5-2") for n in range(6)] + [record(n, "claude-sonnet-5-5") for n in range(6, 12)]) is None
+    assert finding([record(n, "qwen3:8b", cost=False) for n in range(12)]) is None
+    assert finding([record(n, "claude-fable-5-2") for n in range(9)]) is None
+    # A call refused before the model used no tokens: it's in no tier, and doesn't water the share down.
+    refused = {**record(20, "claude-fable-5-2", cost=False), "input_tokens": 0, "output_tokens": 0, "status": 429}
+    assert list(tiers([record(1, "claude-fable-5-2"), refused])) == ["frontier"] and tiers([record(1, "claude-fable-5-2"), refused])["frontier"]["share"] == 1
 
 
 def test_each_prompt_sends_its_own_data_and_findings():

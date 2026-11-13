@@ -39,7 +39,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from agent_server.sessions import SessionStore
 from agent_server.auth import UserStore
-from agent_server import config_io, defaults
+from agent_server import config_io, defaults, pricing
 from agent_server.config import Settings
 from agent_server.db import Database, schema
 from agent_server.issuer import Issuer
@@ -246,6 +246,14 @@ ANSWER = (
     "3. Give up after five attempts and log the final error with the event id.\n\n"
     "Let me read `payments/webhooks.py` first."
 )
+# What a thinking model says before a review's answer: the console's Review tab shows it while it waits.
+REVIEW_REASONING = (
+    "The engineer wants the few changes that would save the most. The score is low and the findings overlap, so group them by cause. "
+    "Twenty-four of forty tool calls were searches: the first prompt was one line and named no file, so the agent had to find the test. "
+    "The largest results are four runs of the whole test suite, verbose, about 37,000 tokens each: that is most of the context's growth. "
+    "The system prompt and the unused MCP tools cost the same on every call, which adds up over the session. "
+    "Six failed edits on one file look like one cause, not six. I'll order the suggestions by what each saves and quote the commands. "
+)
 REVIEW_ANSWER = (
     "## Summary\n"
     "A one-line prompt sent the agent hunting: most of its tool calls were searches for a test it was never pointed at, "
@@ -314,7 +322,7 @@ def ollama_app(models: list[tuple[str, float, str, str]], loaded: dict[str, floa
         reviewing = first.get("role") == "system" and str(first.get("content") or "").startswith("You review one recorded session")
 
         async def stream():
-            words = (REASONING if think and not reviewing else "").split(" ")
+            words = ((REVIEW_REASONING if reviewing else REASONING) if think else "").split(" ")
             await asyncio.sleep(delay * 12)  # prompt evaluation
             count = 0
             for word in words:
@@ -492,6 +500,10 @@ class Seeder:
             prompt_tps=round(record["input_tokens"] * 1000 / ttft, 3) if ttft else None,
             error_type="upstream_error" if status >= 400 else None,
         )
+        # An account agent's model calls are priced as the server prices them: at API prices, on a subscription.
+        cost = pricing.estimate(pricing.DEFAULT_PRICES, record, "subscription") if model and usage else None
+        if cost is not None:
+            record["cost"] = cost
         self.store.append_request(session, record)
         scheme_host = f"https://{host}{path}"
         http = {

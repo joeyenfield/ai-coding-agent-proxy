@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, askModel, preferredModel, providerModels, type ReviewFinding, type Session, type SessionReview as Review } from "../api";
-import { formatCompact, formatDate, formatNumber } from "../format";
+import { api, preferredModel, providerModels, type ModelTier, type ReviewFinding, type Session, type SessionReview as Review } from "../api";
+import { formatCompact, formatDate, formatDuration, formatNumber, formatUsd } from "../format";
 import { useModels, useToast } from "../hooks";
+import { reviewBusy, startReviewRun, stopReviewRun, useReviewPhase, useReviewRun, useReviewRunId } from "../reviewRuns";
 import { providerLabel } from "../routes";
 import { Prose } from "./SessionChat";
 
@@ -24,10 +25,23 @@ const AREA: Record<ReviewFinding["area"], string> = {
   cost: "Cost",
 };
 
+const TIER: Record<ModelTier, { label: string; pill: string; color: string }> = {
+  frontier: { label: "Frontier", pill: "pill bad", color: "var(--bad)" },
+  mid: { label: "Mid-range", pill: "pill accent", color: "var(--accent)" },
+  small: { label: "Small", pill: "pill good", color: "var(--good)" },
+  local: { label: "Local", pill: "pill good", color: "var(--series-3)" },
+  unpriced: { label: "No price", pill: "pill", color: "var(--line-strong)" },
+};
+
+const GRADE_CLASS: Record<string, string> = { Efficient: "good", "Some waste": "fair", Wasteful: "poor", "Very wasteful": "bad" };
+
+const jump = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+
 /**
  * The Review tab of a session: what the server's checks found in it (measured there, never here), the
  * numbers behind them, and an AI review by a model you pick. The AI review is a session of its own, sent
  * through the server like any model call: the server writes its messages, this page only carries them.
+ * A review under way lives in reviewRuns.ts, not here, so leaving the tab doesn't stop it.
  */
 export function SessionReview({ session }: { session: Session }) {
   const id = session.session_id;
@@ -53,18 +67,11 @@ export function SessionReview({ session }: { session: Session }) {
   const [focus, setFocus] = useState("");
   const prompt = review.data?.prompts.find((item) => item.id === focus) ?? review.data?.prompts[0];
   const [question, setQuestion] = useState("");
-  const [run, setRun] = useState<{ id: string; title: string; model: string; text: string; busy: boolean; failed?: string } | null>(null);
   const [shown, setShown] = useState<string | null>(null);
-  const stop = useRef<AbortController | null>(null);
-  const running = useRef<string | null>(null);
-  // Leaving the tab stops a review under way and ends its session.
-  useEffect(
-    () => () => {
-      stop.current?.abort();
-      if (running.current) api.endSession(running.current, { keepalive: true }).catch(() => undefined);
-    },
-    [],
-  );
+  // Only the run's phase and session here: its text changes with every word, and LiveReview reads that.
+  const phase = useReviewPhase(id);
+  const runId = useReviewRunId(id);
+  const busy = phase === "starting" || phase === "waiting" || phase === "thinking" || phase === "writing";
   const past = useQuery({
     queryKey: ["session-review-text", id, shown],
     queryFn: () => api.readReview(id, shown!),
@@ -72,62 +79,74 @@ export function SessionReview({ session }: { session: Session }) {
     retry: false,
   });
 
-  const start = async () => {
-    if (!choice || !prompt || run?.busy) return;
-    const controller = new AbortController();
-    stop.current = controller;
+  const [area, setArea] = useState<ReviewFinding["area"] | "all">("all");
+  // Which findings are open, where someone chose; the rest follow their level (FindingList).
+  const [opened, setOpened] = useState<Record<string, boolean>>({});
+
+  const start = () => {
+    if (!choice || !prompt || busy) return;
     setShown(null);
-    setRun({ id: "", title: prompt.title, model: choice.model, text: "", busy: true });
-    let opened: string | null = null;
-    try {
-      const made = await api.startReview(id, { ...choice, prompt: prompt.id, question: question.trim() || undefined });
-      opened = running.current = made.session.session_id;
-      setRun({ id: opened, title: prompt.title, model: made.model, text: "", busy: true });
-      await askModel(
-        opened,
-        { model: made.model, messages: made.messages },
-        (piece) => piece.content && setRun((current) => (current ? { ...current, text: current.text + piece.content } : current)),
-        controller.signal,
-      );
-      setRun((current) => (current ? { ...current, busy: false } : current));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      setRun((current) => (current ? { ...current, busy: false, failed: controller.signal.aborted ? undefined : message } : current));
-      if (!controller.signal.aborted) notify(message);
-    } finally {
-      stop.current = null;
-      running.current = null;
-      if (opened) await api.endSession(opened).catch(() => undefined);
-      client.invalidateQueries({ queryKey: ["session-review", id] });
-      client.invalidateQueries({ queryKey: ["sessions"] });
-    }
-  };
-  const stopRun = () => {
-    stop.current?.abort();
-    if (running.current) api.stopReplies(running.current).catch(() => undefined);
+    void startReviewRun(id, choice, prompt, question, client, notify);
   };
 
   if (review.isError) return <p className="bad">{review.error.message}</p>;
   if (!review.data) return <p className="empty">Checking the session…</p>;
-  const { traffic, prompt: sent, tools, findings, reviews, prompts, score, grade } = review.data;
+  const { traffic, prompt: sent, tools, findings, reviews, prompts, score, grade, checks } = review.data;
   if (!traffic.model_calls) return <p className="empty">No model calls yet. A review needs some: come back once the agent has talked to its model.</p>;
   const value = choice ? `${choice.backend}\n${choice.model}` : "";
+  // A note (payloads not captured) isn't a finding against the session.
+  const counted = findings.filter((item) => item.severity !== "info");
+  const levels = (["high", "medium", "low"] as const).map((level) => ({ level, count: counted.filter((item) => item.severity === level).length })).filter((item) => item.count);
+  const impact = findings.reduce((sum, item) => sum + (item.impact_tokens ?? 0), 0);
+  const areas = (Object.keys(AREA) as ReviewFinding["area"][]).map((name) => ({ name, count: findings.filter((item) => item.area === name).length })).filter((item) => item.count);
+  const listed = area === "all" ? findings : findings.filter((item) => item.area === area);
+  const isOpen = (finding: ReviewFinding, index: number) => opened[finding.id] ?? (finding.severity === "high" || index === 0);
+  const allOpen = listed.every((finding, index) => isOpen(finding, index));
+  const cost = traffic.usd + traffic.subscription_usd;
+  const frontier = traffic.tiers.find((item) => item.tier === "frontier");
 
   return (
     <div className="review">
-      <dl className="stat-cards" aria-label="What the review measured">
+      <section className={`review-verdict grade-${GRADE_CLASS[grade ?? ""] ?? "none"}`} aria-label="The review in short">
         {score != null && (
-          <div>
-            <dt>Score</dt>
-            <dd title="100, less 18 for each high finding, 9 for each medium and 3 for each low">
-              {score}
-              <small> {grade}</small>
-            </dd>
+          <div className="review-score" title="100, less 18 for each high finding, 9 for each medium and 3 for each low">
+            <strong>{score}</strong>
+            <span>of 100</span>
           </div>
         )}
+        <div className="review-verdict-text">
+          <h2>{grade ?? "Not scored"}</h2>
+          <p>
+            {counted.length ? (
+              <>
+                {counted.length} of {checks} checks found something: {levels.map((item) => `${item.count} ${item.level}`).join(", ")}.
+                {impact > 0 && ` The ones that can say what they cost add up to about ${formatCompact(impact)} tokens.`}
+              </>
+            ) : (
+              `None of the ${checks} checks found anything to change.`
+            )}
+          </p>
+          <nav className="chip-bar" aria-label="Parts of the review">
+            <button type="button" onClick={() => jump("review-checks")}>
+              Checks{findings.length ? ` (${findings.length})` : ""}
+            </button>
+            <button type="button" onClick={() => jump("review-measured")}>
+              What was measured
+            </button>
+            <button type="button" onClick={() => jump("review-ai")}>
+              AI review{busy ? " (running)" : reviews.length ? ` (${reviews.length})` : ""}
+            </button>
+          </nav>
+        </div>
+      </section>
+
+      <dl className="stat-cards review-stats" aria-label="What the review measured">
         <div>
           <dt>Model calls</dt>
-          <dd>{formatNumber(traffic.model_calls)}</dd>
+          <dd>
+            {formatNumber(traffic.model_calls)}
+            {traffic.duration_seconds > 0 && <small> in {formatDuration(traffic.duration_seconds * 1000)}</small>}
+          </dd>
         </div>
         <div>
           <dt>Tokens read</dt>
@@ -161,42 +180,84 @@ export function SessionReview({ session }: { session: Session }) {
             </dd>
           </div>
         )}
+        {cost > 0 && (
+          <div>
+            <dt>{traffic.usd === 0 ? "Cost at API prices" : "Estimated cost"}</dt>
+            <dd title={`${formatUsd(traffic.usd)} paid by the token, ${formatUsd(traffic.subscription_usd)} at API prices on a subscription`}>{formatUsd(cost)}</dd>
+          </div>
+        )}
+        {traffic.tiers.length > 0 && (
+          <div>
+            <dt>Frontier models</dt>
+            <dd>
+              {Math.round((frontier?.share ?? 0) * 100)}%<small> of calls</small>
+            </dd>
+          </div>
+        )}
       </dl>
 
-      <section className="review-part">
+      <section className="review-part" id="review-checks">
         <div className="section-head">
           <h2>Checks</h2>
-          <button type="button" className="small" onClick={() => review.refetch()} disabled={review.isFetching}>
-            {review.isFetching ? "Checking…" : "Check again"}
-          </button>
+          <div className="review-actions">
+            {listed.length > 1 && (
+              <button type="button" className="small" onClick={() => setOpened(Object.fromEntries(listed.map((finding) => [finding.id, !allOpen])))}>
+                {allOpen ? "Collapse all" : "Expand all"}
+              </button>
+            )}
+            <button type="button" className="small" onClick={() => review.refetch()} disabled={review.isFetching}>
+              {review.isFetching ? "Checking…" : "Check again"}
+            </button>
+          </div>
         </div>
+        {areas.length > 1 && (
+          <div className="chip-bar" role="group" aria-label="Findings by area">
+            <button type="button" aria-pressed={area === "all"} onClick={() => setArea("all")}>
+              All ({findings.length})
+            </button>
+            {areas.map((item) => (
+              <button key={item.name} type="button" aria-pressed={area === item.name} onClick={() => setArea(item.name)}>
+                {AREA[item.name]} ({item.count})
+              </button>
+            ))}
+          </div>
+        )}
         {findings.length ? (
           <ul className="review-findings">
-            {findings.map((finding) => (
-              <li key={finding.id} className={`review-finding severity-${finding.severity}`}>
-                <div className="review-finding-head">
-                  <span className={SEVERITY[finding.severity].pill}>{SEVERITY[finding.severity].label}</span>
-                  <strong>{finding.title}</strong>
-                  <span className="subtle">
-                    {finding.impact_tokens ? `about ${formatCompact(finding.impact_tokens)} tokens · ` : ""}
-                    {AREA[finding.area]}
-                  </span>
-                </div>
-                <p>{finding.detail}</p>
-                <p className="review-suggestion">
-                  <strong>Try:</strong> {finding.suggestion}
-                </p>
+            {listed.map((finding, index) => (
+              <li key={finding.id}>
+                <details
+                  className={`review-finding severity-${finding.severity}`}
+                  open={isOpen(finding, index)}
+                  onToggle={(event) => {
+                    const now = event.currentTarget.open;
+                    if (now !== isOpen(finding, index)) setOpened((current) => ({ ...current, [finding.id]: now }));
+                  }}
+                >
+                  <summary className="review-finding-head">
+                    <span className={SEVERITY[finding.severity].pill}>{SEVERITY[finding.severity].label}</span>
+                    <strong>{finding.title}</strong>
+                    <span className="subtle">
+                      {finding.impact_tokens ? `about ${formatCompact(finding.impact_tokens)} tokens · ` : ""}
+                      {AREA[finding.area]}
+                    </span>
+                  </summary>
+                  <p>{finding.detail}</p>
+                  <p className="review-suggestion">
+                    <strong>Try:</strong> {finding.suggestion}
+                  </p>
+                </details>
               </li>
             ))}
           </ul>
         ) : (
-          <p className="empty">Nothing stood out. The checks look at the context's size, how tools were used, how the session went, failures and caching.</p>
+          <p className="empty">Nothing stood out. The checks look at the context's size, how tools were used, how the session went, failures, caching and which models did the work.</p>
         )}
       </section>
 
       <Evidence review={review.data} />
 
-      <section className="review-part">
+      <section className="review-part" id="review-ai">
         <h2>AI review</h2>
         <p className="subtle">
           A model reads what was measured and suggests what to change. Choose what it should look at: each review has its own
@@ -204,7 +265,7 @@ export function SessionReview({ session }: { session: Session }) {
         </p>
         <div className="chip-bar" role="group" aria-label="What to review">
           {prompts.map((item) => (
-            <button key={item.id} type="button" aria-pressed={item.id === prompt?.id} disabled={run?.busy} onClick={() => setFocus(item.id)}>
+            <button key={item.id} type="button" aria-pressed={item.id === prompt?.id} disabled={busy} onClick={() => setFocus(item.id)}>
               {item.title}
             </button>
           ))}
@@ -230,7 +291,7 @@ export function SessionReview({ session }: { session: Session }) {
               <span>Review with</span>
               <select
                 value={value}
-                disabled={run?.busy}
+                disabled={busy}
                 onChange={(event) => {
                   const [backend, ...rest] = event.target.value.split("\n");
                   setPicked({ backend, model: rest.join("\n") });
@@ -249,15 +310,15 @@ export function SessionReview({ session }: { session: Session }) {
             </label>
             <label className="review-question">
               <span>Anything else to ask (optional)</span>
-              <input value={question} maxLength={500} disabled={run?.busy} onChange={(event) => setQuestion(event.target.value)} placeholder="Would a smaller model have done?" />
+              <input value={question} maxLength={500} disabled={busy} onChange={(event) => setQuestion(event.target.value)} placeholder="Would a smaller model have done?" />
             </label>
-            {run?.busy ? (
-              <button type="button" onClick={stopRun}>
+            {busy ? (
+              <button type="button" onClick={() => stopReviewRun(id)}>
                 Stop
               </button>
             ) : (
               <button type="button" className="primary" onClick={start}>
-                {reviews.length || run ? "Review again" : "Review this session"}
+                {reviews.length || phase ? "Review again" : "Review this session"}
               </button>
             )}
           </div>
@@ -267,46 +328,33 @@ export function SessionReview({ session }: { session: Session }) {
             {!models.isLoading && <Link to="/providers">Providers</Link>}
           </p>
         )}
-        {run && !shown && (
-          <article className="review-answer">
-            <header>
-              <strong>
-                {run.title}, {run.model}
-              </strong>
-              {run.busy && (
-                <span className="chat-typing" aria-label="writing">
-                  <i />
-                  <i />
-                  <i />
-                </span>
-              )}
-              {run.id && (
-                <Link className="subtle" to={`/sessions/${run.id}`}>
-                  Open as a session
-                </Link>
-              )}
-            </header>
-            {run.text ? <Prose text={spaced(run.text)} /> : !run.busy && !run.failed && <p className="subtle">The model answered nothing.</p>}
-            {run.failed && <p className="bad">{run.failed}</p>}
-          </article>
-        )}
+        {phase && (busy || !shown) && <LiveReview reviewed={id} />}
         {reviews.length > 0 && (
           <>
             <h3 className="review-earlier">Earlier reviews</h3>
             <ul className="review-runs">
-              {reviews.map((item) => (
-                <li key={item.session_id}>
-                  <button type="button" className="link" aria-expanded={shown === item.session_id} onClick={() => setShown(shown === item.session_id ? null : item.session_id)}>
-                    {formatDate(item.started_at)}
-                  </button>
-                  <span>{item.prompt}</span>
-                  <span>{item.model}</span>
-                  <span className="subtle">
-                    on {item.backend}
-                    {item.by ? `, by ${item.by}` : ""}
-                  </span>
-                </li>
-              ))}
+              {reviews.map((item) => {
+                const running = busy && item.session_id === runId;
+                return (
+                  <li key={item.session_id}>
+                    <button
+                      type="button"
+                      className="link"
+                      aria-expanded={running ? !shown : shown === item.session_id}
+                      onClick={() => setShown(running || shown === item.session_id ? null : item.session_id)}
+                    >
+                      {formatDate(item.started_at)}
+                    </button>
+                    <span>{item.prompt}</span>
+                    <span>{item.model}</span>
+                    <span className="subtle">
+                      on {item.backend}
+                      {item.by ? `, by ${item.by}` : ""}
+                    </span>
+                    {running ? <span className="pill live">Running</span> : !item.ended_at && <span className="pill">Not finished</span>}
+                  </li>
+                );
+              })}
             </ul>
           </>
         )}
@@ -314,7 +362,7 @@ export function SessionReview({ session }: { session: Session }) {
           <article className="review-answer">
             <header>
               <strong>{past.data ? [past.data.prompt, past.data.model].filter(Boolean).join(", ") : "Review"}</strong>
-              <Link className="subtle" to={`/sessions/${shown}`}>
+              <Link className="subtle" to={`/sessions/${shown}?view=chat`}>
                 Open as a session
               </Link>
             </header>
@@ -325,12 +373,105 @@ export function SessionReview({ session }: { session: Session }) {
             ) : past.data.text ? (
               <Prose text={spaced(past.data.text)} />
             ) : (
-              <p className="subtle">This review has no saved answer: it was stopped, or its payloads weren't kept.</p>
+              <p className="subtle">
+                This review has no saved answer: it was stopped before the model began its answer, or its payloads weren't kept. Open it as a session to see
+                what the model got as far as.
+              </p>
             )}
           </article>
         )}
       </section>
     </div>
+  );
+}
+
+const STEPS = ["Sent", "Thinking", "Writing", "Finished"] as const;
+
+/**
+ * The review this page started, as it goes: where it stands, how long it has taken, the model's thinking
+ * while there's no answer yet, then the answer. It reads the run from reviewRuns.ts, so it shows the same
+ * run after the tab was left and opened again.
+ */
+function LiveReview({ reviewed }: { reviewed: string }) {
+  const run = useReviewRun(reviewed);
+  const busy = reviewBusy(run);
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!busy) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [busy]);
+  // The thinking is open while it's all there is, and folds away once the answer starts, unless someone chose.
+  const [fold, setFold] = useState<boolean | null>(null);
+  const pane = useRef<HTMLPreElement>(null);
+  useEffect(() => {
+    const element = pane.current;
+    if (element && busy) element.scrollTop = element.scrollHeight;
+  }, [run?.reasoning, busy]);
+  if (!run) return null;
+
+  const seconds = Math.max(0, Math.round(((run.endedAt ?? now) - run.startedAt) / 1000));
+  const clock = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  const thought = Math.round(run.reasoning.length / 4);
+  // How far it got: 0 sent, 1 thinking, 2 writing, 3 finished.
+  const reached = run.phase === "done" ? 3 : run.text ? 2 : run.reasoning ? 1 : 0;
+  const showThinking = fold ?? (run.phase === "thinking" || (!run.text && !busy));
+  const status = {
+    starting: "Opening the review's session…",
+    waiting: `Sent to ${run.model}. Waiting for it to read the session's data…`,
+    thinking: `${run.model} is thinking: about ${formatNumber(thought)} tokens so far. The answer comes after, which can take a minute or more.`,
+    writing: "Writing the answer…",
+    done: `Finished in ${clock}. It's kept under Earlier reviews.`,
+    stopped: `Stopped after ${clock}.${run.text ? "" : " The model hadn't begun its answer."}`,
+    failed: `Failed after ${clock}.`,
+  }[run.phase];
+
+  return (
+    <article className={`review-answer review-run phase-${run.phase}`} aria-busy={busy}>
+      <header>
+        <strong>
+          {run.title}, {run.model}
+        </strong>
+        {run.id && (
+          <Link className="subtle" to={`/sessions/${run.id}?view=chat`} title={busy ? "The review keeps running while you look" : undefined}>
+            Open as a session
+          </Link>
+        )}
+      </header>
+      <ol className="review-steps" aria-hidden="true">
+        {STEPS.map((name, index) => {
+          const skipped = index === 1 && reached > 1 && !run.reasoning;
+          const state = skipped ? "skipped" : index < reached || run.phase === "done" ? "done" : index === reached && busy && run.phase !== "starting" ? "now" : "";
+          return (
+            <li key={name} className={state}>
+              {name}
+            </li>
+          );
+        })}
+      </ol>
+      <p className="review-status" role="status">
+        {busy && (
+          <span className="chat-typing" aria-hidden="true">
+            <i />
+            <i />
+            <i />
+          </span>
+        )}
+        <span>{status}</span>
+        {busy && <span className="review-clock">{clock}</span>}
+      </p>
+      {run.failed && <p className="bad">{run.failed}</p>}
+      {run.reasoning && (
+        <div className="review-thinking">
+          <button type="button" className="link" aria-expanded={showThinking} onClick={() => setFold(!showThinking)}>
+            {showThinking ? "Hide" : "Show"} the model's thinking (about {formatNumber(thought)} tokens)
+          </button>
+          {showThinking && <pre ref={pane}>{run.reasoning}</pre>}
+        </div>
+      )}
+      {run.text ? <Prose text={spaced(run.text)} /> : run.phase === "done" && <p className="subtle">The model answered nothing.</p>}
+      {busy && <p className="subtle review-note">It keeps running if you leave this tab or open it as a session. Closing or reloading the console stops it.</p>}
+    </article>
   );
 }
 
@@ -342,7 +483,7 @@ function Evidence({ review }: { review: Review }) {
   // The context's size call by call, as a line across a 600 by 120 box.
   const line = points.map((point, index) => `${(points.length > 1 ? (index / (points.length - 1)) * 600 : 300).toFixed(1)},${(118 - (point.tokens / top) * 114).toFixed(1)}`).join(" ");
   return (
-    <section className="review-part">
+    <section className="review-part" id="review-measured">
       <h2>What was measured</h2>
       <div className="review-evidence">
         {points.length > 1 && (
@@ -376,7 +517,43 @@ function Evidence({ review }: { review: Review }) {
             </ul>
           </figure>
         )}
+        {traffic.tiers.length > 0 && (
+          <figure className="review-figure">
+            <figcaption>Model calls by tier, from each model's list price for input.</figcaption>
+            <div className="review-bar-parts" role="img" aria-label={traffic.tiers.map((item) => `${TIER[item.tier].label} ${Math.round(item.share * 100)}%`).join(", ")}>
+              {traffic.tiers.map((item) => (
+                <span key={item.tier} style={{ flexGrow: item.share, background: TIER[item.tier].color }} title={`${TIER[item.tier].label}: ${formatNumber(item.calls)} calls`} />
+              ))}
+            </div>
+            <ul className="review-legend">
+              {traffic.tiers.map((item) => (
+                <li key={item.tier}>
+                  <i style={{ background: TIER[item.tier].color }} />
+                  {TIER[item.tier].label}{" "}
+                  <span className="subtle">
+                    {formatNumber(item.calls)} calls · {Math.round(item.share * 100)}%{item.usd > 0 ? ` · ${formatUsd(item.usd)}` : ""}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </figure>
+        )}
       </div>
+      {traffic.models.length > 0 && (
+        <Table
+          title={`Models: ${formatNumber(traffic.models.length)}`}
+          head={["Model", "Tier", "Calls", "Tokens read", "Tokens written", "Estimated cost"]}
+          rows={traffic.models.map((item) => [
+            item.model ?? "unknown",
+            TIER[item.tier].label,
+            formatNumber(item.calls),
+            formatNumber(item.input_tokens),
+            formatNumber(item.output_tokens),
+            item.tier === "local" ? "none" : item.tier === "unpriced" ? "no price" : formatUsd(item.usd),
+          ])}
+          note="A tier comes from the model's list price for input in the server's price table: frontier is the most expensive, then mid-range and small. Local is a machine's own model."
+        />
+      )}
       {prompt && prompt.sections.length > 1 && (
         <Table
           title={`The system prompt's sections (${formatCompact(prompt.system_tokens)} tokens)`}

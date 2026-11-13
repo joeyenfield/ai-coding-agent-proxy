@@ -27,7 +27,7 @@ ALL = "all"
 DATA = {
     "session": "The agent, model and length",
     "tokens": "Tokens, cache and the largest call",
-    "cost": "Estimated cost, calls and tokens by model",
+    "cost": "Estimated cost, calls and tokens by model and tier",
     "reliability": "Failures and waiting times",
     "timeline": "The context's size call by call",
     "context": "What the context is made of",
@@ -53,7 +53,7 @@ METRICS = {
     "compactions": "Compactions", "long-session": "Session length",
     "searching": "Searching for files", "rereads": "Files read again", "large-results": "Large tool results", "tool-errors": "Failed tool calls",
     "repeated-calls": "Repeated tool calls", "subagents": "Sub-agents", "short-prompt": "First prompt", "steering": "Messages typed",
-    "failed-calls": "Failed model calls", "rate-limited": "Rate limits", "incomplete": "Replies cut off", "caching": "Cache use",
+    "failed-calls": "Failed model calls", "rate-limited": "Rate limits", "incomplete": "Replies cut off", "model-tiers": "Model tiers", "caching": "Cache use",
     "idle-cache": "Cache lost to idle time", "slow": "Time to first token", "untraced": "Payload capture",
 }
 

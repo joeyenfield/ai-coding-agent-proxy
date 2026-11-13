@@ -11,7 +11,7 @@
 #   data         the parts of the session the model is sent, in this order, or "all". The names:
 #                  session        the agent, model, how long it ran, how many requests
 #                  tokens         tokens read and written, the cache, the largest call, idle rewrites
-#                  cost           estimated cost, and calls and tokens by model
+#                  cost           estimated cost, and calls and tokens by model and by model tier
 #                  reliability    failed, rate-limited and cut-off calls, the wait for the first token
 #                  timeline       the context's size call by call
 #                  context        what the newest call's context is made of, by kind
@@ -117,11 +117,11 @@ prompts:
       Look only at tokens and money: which calls and models the cost came from, how much of the
       prompt came from the cache, and what was paid for twice (idle gaps, cut-off replies, a context
       grown too large). Say which habits or settings would lower the cost of a session like this
-      one, and by roughly how much. Say whether a smaller model would have done for part of the
-      work, and which part.
+      one, and by roughly how much. From the calls by model tier, say whether a smaller model would
+      have done for part of the work, and which part.
     summary: where the tokens and money went.
     data: [session, tokens, cost, timeline, context, threads, reliability]
-    metrics: [caching, idle-cache, peak-context, context-growth, long-session, subagents, incomplete]
+    metrics: [model-tiers, caching, idle-cache, peak-context, context-growth, long-session, subagents, incomplete]
 
   - id: reliability
     title: Failures and speed

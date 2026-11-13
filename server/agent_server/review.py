@@ -80,6 +80,15 @@ IDLE_SECONDS = 300
 IDLE_REWRITE_SHARE = 0.5
 IDLE_REWRITES = (2, 6)
 IMAGES = (5, 20)
+# A model's tier, from its list price for a million input tokens in the server's price table: small below
+# the first, frontier from the second, mid-range between. A machine's own model is local; a paid one the
+# table doesn't know is unpriced.
+TIER_INPUT_USD = (1.5, 4.0)
+TIERS = ("frontier", "mid", "small", "local", "unpriced")
+TIER_LABELS = {"frontier": "frontier", "mid": "mid-range", "small": "small", "local": "local", "unpriced": "no price"}
+# The share of a session's model calls on frontier models that says something, over at least this many calls.
+TIER_SHARE = (0.6, 0.9)
+TIER_CALLS = 10
 # How much of the report a brief carries, so it fits a small local model's context too.
 BRIEF_LIMIT = 16_000
 QUESTION_LIMIT = 500
@@ -107,12 +116,13 @@ CATEGORIES = (
 )
 
 
-def report(sessions: SessionStore, chats: Any, session: Session, records: list[dict[str, Any]]) -> dict[str, Any]:
+def report(sessions: SessionStore, chats: Any, session: Session, records: list[dict[str, Any]], prices: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """The session measured and checked: traffic and the timeline (from its records, always), and prompt,
     context, conversation and tools (only for model calls whose payloads were captured), then the findings,
-    worst first, and the score they leave."""
+    worst first, and the score they leave. prices is the server's price table (Settings.prices()), which
+    says each model's tier."""
     calls = sorted((record for record in records if _is_model_call(record)), key=lambda record: str(record.get("request_id") or ""))
-    traffic = _traffic(records, calls)
+    traffic = _traffic(records, calls, prices if prices is not None else pricing.DEFAULT_PRICES)
     threads = chats.conversations(session, records) if calls else []
     main = next((item for item in threads if item["main"]), None)
     request = {}
@@ -133,27 +143,60 @@ def report(sessions: SessionStore, chats: Any, session: Session, records: list[d
         "tools": tools if threads else None,
     }
     found = [finding for check in CHECKS for finding in [check(measured)] if finding]
-    found.sort(key=lambda item: SEVERITIES.index(item["severity"]))
+    # Worst first, and within a level the one that cost most.
+    found.sort(key=lambda item: (SEVERITIES.index(item["severity"]), -(item["impact_tokens"] or 0)))
     score = max(0, 100 - sum(PENALTIES[item["severity"]] for item in found)) if calls else None
     return {
-        "session_id": session.session_id, **measured, "findings": found, "score": score,
+        "session_id": session.session_id, **measured, "findings": found, "checks": len(CHECKS), "score": score,
         "grade": next(label for floor, label in GRADES if score >= floor) if score is not None else None,
     }
 
 
-def _traffic(records: list[dict[str, Any]], calls: list[dict[str, Any]]) -> dict[str, Any]:
+def _tier(record: dict[str, Any], prices: list[dict[str, Any]]) -> str:
+    """The tier of the model a call went to (TIERS), by its list price for input."""
+    cost = record.get("cost")
+    if not isinstance(cost, dict):
+        # No cost: a machine's own model server, or a paid model the table has no price for.
+        return "unpriced" if record.get("unpriced") else "local"
+    price = pricing.price_for(prices, record.get("upstream_model") or record.get("model"))
+    if price is not None:
+        rate = float(price["input"])
+    else:
+        # Priced by its provider's own table: the rate it was charged for new input, where it read any.
+        fresh = int(record.get("input_tokens") or 0) - (int(record.get("cache_read_tokens") or 0) if record.get("cached_in_input") else 0)
+        if fresh <= 0 or not cost.get("input_usd"):
+            return "unpriced"
+        rate = float(cost["input_usd"]) / fresh * pricing.MILLION
+    return "frontier" if rate >= TIER_INPUT_USD[1] else "small" if rate < TIER_INPUT_USD[0] else "mid"
+
+
+def _traffic(records: list[dict[str, Any]], calls: list[dict[str, Any]], prices: list[dict[str, Any]]) -> dict[str, Any]:
     contexts = [_context(record) for record in calls]
     cache_read = sum(int(record.get("cache_read_tokens") or 0) for record in calls)
     cache_write = sum(int(record.get("cache_creation_tokens") or 0) for record in calls)
     first_tokens = [float(record["ttft_ms"]) for record in calls if isinstance(record.get("ttft_ms"), (int, float))]
     windows = [int(record["context_size"]) for record in calls if isinstance(record.get("context_size"), (int, float)) and record["context_size"] > 0]
     models: dict[str, dict[str, Any]] = {}
+    tiers: dict[str, dict[str, Any]] = {}
     for record, context in zip(calls, contexts):
-        entry = models.setdefault(str(record.get("model") or ""), {"model": record.get("model") or None, "calls": 0, "input_tokens": 0, "output_tokens": 0, "usd": 0.0})
-        entry["calls"] += 1
-        entry["input_tokens"] += context
-        entry["output_tokens"] += int(record.get("output_tokens") or 0)
-        entry["usd"] = round(entry["usd"] + float((record.get("cost") or {}).get("usd") or 0), 6)
+        # A call that used no tokens (refused, failed before the model) has no cost to sort it by: it's in no tier.
+        used = context + int(record.get("output_tokens") or 0) > 0
+        tier = _tier(record, prices) if used else None
+        entry = models.setdefault(str(record.get("model") or ""), {"model": record.get("model") or None, "tier": tier, "calls": 0, "input_tokens": 0, "output_tokens": 0, "usd": 0.0})
+        entry["tier"] = entry["tier"] or tier
+        level = tiers.setdefault(tier, {"tier": tier, "calls": 0, "share": 0.0, "input_tokens": 0, "output_tokens": 0, "usd": 0.0, "models": []}) if tier else None
+        if level is not None and entry["model"] and entry["model"] not in level["models"]:
+            level["models"].append(entry["model"])
+        for item in (entry, level):
+            if item is None:
+                continue
+            item["calls"] += 1
+            item["input_tokens"] += context
+            item["output_tokens"] += int(record.get("output_tokens") or 0)
+            item["usd"] = round(item["usd"] + float((record.get("cost") or {}).get("usd") or 0), 6)
+    sorted_calls = sum(level["calls"] for level in tiers.values())
+    for level in tiers.values():
+        level["share"] = round(level["calls"] / sorted_calls, 3)
     stamps = [stamp for stamp in (_time(record.get("timestamp")) for record in records) if stamp is not None]
     rewrites = rewritten = 0
     for before, record, context in zip(calls, calls[1:], contexts[1:]):
@@ -185,6 +228,8 @@ def _traffic(records: list[dict[str, Any]], calls: list[dict[str, Any]]) -> dict
         "usd": cost["usd"],
         "subscription_usd": cost["subscription_usd"],
         "models": sorted(models.values(), key=lambda item: -item["calls"]),
+        # The model calls by tier, most expensive tier first: how much of the session ran on which kind of model.
+        "tiers": sorted(tiers.values(), key=lambda item: TIERS.index(item["tier"])),
     }
 
 
@@ -662,6 +707,29 @@ def _incomplete(m: dict[str, Any]) -> dict[str, str] | None:
     )
 
 
+def _model_tiers(m: dict[str, Any]) -> dict[str, str] | None:
+    traffic = m["traffic"]
+    tiers = {item["tier"]: item for item in traffic.get("tiers") or []}
+    frontier = tiers.get("frontier")
+    # Of the calls that used tokens: one refused before the model is in no tier.
+    calls = sum(item["calls"] for item in tiers.values())
+    level = _level(frontier["share"], TIER_SHARE) if frontier and calls >= TIER_CALLS else None
+    if not level:
+        return None
+    rest = ", ".join(f"{TIER_LABELS[name]} {_n(item['calls'])}" for name, item in tiers.items() if name != "frontier")
+    total = traffic["usd"] + traffic["subscription_usd"]
+    return _finding(
+        "model-tiers", "cost", level, "Almost every call went to a frontier model" if level == "high" else "Most calls went to a frontier model",
+        f"{_n(frontier['calls'])} of {_n(calls)} model calls ({frontier['share']:.0%}) used a frontier model, the most expensive tier "
+        f"({', '.join(frontier['models'][:4])})"
+        + (f": about ${frontier['usd']:,.2f} of the session's ${total:,.2f} at API prices." if total else ".")
+        + (f" Other tiers: {rest}." if rest else " No call used a cheaper model.")
+        + " Routine steps (searches, small edits, test runs, summaries) cost the same there as the hard ones.",
+        "Keep the frontier model for planning, hard debugging and the final check. Set the agent's everyday model a tier down and switch up only when a task "
+        "needs it, and give sub-agents and background work a mid-range or small model. On a subscription this is what uses up the plan's limits.",
+    )
+
+
 def _caching(m: dict[str, Any]) -> dict[str, str] | None:
     traffic = m["traffic"]
     share = traffic["cached_share"]
@@ -743,7 +811,7 @@ CHECKS: tuple[Callable[[dict[str, Any]], dict[str, str] | None], ...] = (
     _system_prompt, _tool_definitions, _unused_tools, _peak_context, _context_growth, _images, _compactions, _long_session,
     _searching, _rereads, _large_results, _tool_errors, _repeated_calls,
     _subagents, _short_prompt, _steering,
-    _failed_calls, _rate_limited, _incomplete, _caching, _idle_cache, _slow, _untraced,
+    _failed_calls, _rate_limited, _incomplete, _model_tiers, _caching, _idle_cache, _slow, _untraced,
 )
 
 def _session_lines(session: Session, found: dict[str, Any]) -> list[str]:
@@ -767,10 +835,13 @@ def _token_lines(session: Session, found: dict[str, Any]) -> list[str]:
 
 def _cost_lines(session: Session, found: dict[str, Any]) -> list[str]:
     traffic = found["traffic"]
+    tiers = traffic.get("tiers") or []
     return [
         f"Estimated cost: ${traffic['usd']:.2f} paid by the token, ${traffic['subscription_usd']:.2f} at API prices on a subscription.",
         "By model (calls, tokens read, tokens written, estimated dollars): "
         + "; ".join(f"{item['model'] or 'unknown'} ({item['calls']}, {item['input_tokens']:,}, {item['output_tokens']:,}, ${item['usd']:.2f})" for item in traffic["models"][:8]),
+        "By model tier, from list prices (calls, share of calls, estimated dollars): "
+        + "; ".join(f"{TIER_LABELS[item['tier']]} ({item['calls']}, {item['share']:.0%}, ${item['usd']:.2f})" for item in tiers) if tiers else "",
     ]
 
 

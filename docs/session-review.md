@@ -10,6 +10,8 @@ A session's **Review** tab looks at what one agent session spent its tokens, tim
 
 Open a session from **Sessions** and choose **Review**. The checks run when the tab opens; **Check again** runs them once more on a session that is still going.
 
+The top of the tab says it in short: the score, how many of the checks found something at each level, and about how many tokens the findings add up to. The buttons under it jump to **Checks**, **What was measured** and **AI review**.
+
 ## What the checks need
 
 The checks on a session's numbers (tokens, failures, caching, timings) always run: the server records those for every request. The checks on the system prompt, the conversation and the tools read the session's payloads, so they need payload capture: start the agent with `--trace`, or turn on **Capture full request and response payloads** on the session. A session without payloads says so in a note, and is checked on its numbers only.
@@ -19,6 +21,8 @@ Token counts of payloads (the system prompt, tool definitions, tool results) are
 ## The checks
 
 Each finding has a level (**High**, **Medium**, **Low**, or a **Note**), what was seen, and what to try. Where the server can work it out, a finding also says about how many tokens it cost over the session: a system prompt's tokens beyond 8,000 on every call, unused tool definitions on every call, the size of the large results, the tokens written to the cache again after idle gaps.
+
+Findings are listed worst first, and within a level the one that cost most first. High findings start open; choose any other to open it, or **Expand all**. With findings in more than one area, the buttons above the list show one area at a time: **Context**, **Tools**, **How it went**, **Reliability** or **Cost**.
 
 **The score** starts at 100 and loses 18 for each high finding, 9 for each medium and 3 for each low: **Efficient** from 85, **Some waste** from 65, **Wasteful** from 40, **Very wasteful** below. It compares sessions roughly; the findings say what to do.
 
@@ -43,16 +47,21 @@ Each finding has a level (**High**, **Medium**, **Low**, or a **Note**), what wa
 | **Model calls failed** | 3 or more failed and they are over 5% of model calls | Open the failed requests on the **Requests** tab |
 | **Calls were rate limited** | Any model call was refused with `429` | Fewer agents at once, a smaller model, or another provider |
 | **Replies were cut off** | 2 or more replies stopped before the model finished | A plan agreed first saves interrupted calls |
+| **Most calls went to a frontier model** | Over 10 or more model calls, 60% or more went to frontier models (high from 90%: **Almost every call went to a frontier model**) | Keep the frontier model for planning and hard problems; a tier down for everyday work, sub-agents and background calls |
 | **Little of the prompt came from the cache** | Under half the tokens read were cached, over 10 calls and 200,000 tokens, on a provider that reports caching | Don't switch models or tool sets mid-session; finish a task in one sitting |
 | **The cache ran out while the session sat idle** | Twice or more a call came over 5 minutes after the one before and wrote most of its prompt to the cache again (medium from 6) | Come back to a waiting agent within minutes, or start a new session later |
 | **Slow to start answering** | Half the calls waited over 15 seconds for the first token | On a local model: fewer tools, a shorter prompt, shorter sessions |
 | **Payloads weren't captured** | Some or all model calls have no payloads (a note) | Turn on payload capture |
 
+**Model tiers.** Each model call is put in a tier by its model's list price for a million input tokens in the server's price table (**Server settings** › **Model prices**): **frontier** from $4, **small** under $1.50, **mid-range** between. With the shipped prices, Claude Fable, Mythos and Opus and GPT-5.5 are frontier; Claude Sonnet and GPT-5.4 are mid-range; Claude Haiku and the mini and nano models are small. A machine's own model is **local**, and a paid model the table has no price for is **no price**; neither counts as frontier. An account agent's calls are sorted the same way: on a subscription a frontier model uses up the plan's limits rather than money.
+
 Searches and reads made through a shell count as what they do: `rg`, `grep`, `find` and `ls` are searches, `cat`, `head` and `tail` are reads. A sub-agent's copy of its parent's conversation is counted once, in the parent.
 
 ## What was measured
 
-Under the checks are the numbers they were made from. Two pictures: **the context, call by call** (the main chat's calls, so sub-agents don't blur it) and **what the main chat's context holds**, split into the system prompt, tool definitions, tool results, tool calls, the agent's replies, its thinking, the messages typed and the notes the agent adds. Then tables that open:
+Under the checks are the numbers they were made from. Three pictures: **the context, call by call** (the main chat's calls, so sub-agents don't blur it), **what the main chat's context holds**, split into the system prompt, tool definitions, tool results, tool calls, the agent's replies, its thinking, the messages typed and the notes the agent adds, and **model calls by tier**. Then tables that open:
+
+- **Models**: each model the session called, its tier, its calls, the tokens it read and wrote, and its estimated cost.
 
 - **The system prompt's sections**: each Markdown heading or XML-style tag starts a section; the largest twelve, with their sizes. This is where to look before trimming an instruction file.
 - **Tool definitions**: the largest ones, how many were never called, and each MCP server's tools and calls.
@@ -66,6 +75,15 @@ Under the checks are the numbers they were made from. Two pictures: **the contex
 ## The AI review
 
 Under **AI review**, choose what the model should look at, pick a provider and model in **Review with**, optionally type something of your own to ask, and choose **Review this session**. The answer streams in: a summary, numbered suggestions with the most valuable first, and what went well. **Stop** ends it early.
+
+While a review runs, its box shows where it stands and how long it has taken:
+
+- **Sent**: the model has the data and is reading it. Nothing has come back yet.
+- **Thinking**: a thinking model reasons before it answers, often for a minute or more. Its thinking shows as it arrives, with about how many tokens it has used, so a quiet minute isn't mistaken for a review that hung. **Hide the model's thinking** folds it away.
+- **Writing**: the answer is arriving. The thinking folds away.
+- **Finished**: the review is kept, and listed under **Earlier reviews**.
+
+A review keeps running if you leave the tab: choose **Open as a session** to watch it in the chat view, or go anywhere else in the console, and come back to find it where it has got to. Closing or reloading the console stops it, because the page is what reads the reply. A review that was stopped before the model began its answer has no saved answer, and says so.
 
 Each prompt asks its own question, is sent only the parts of the session it lists, and gets the findings of the checks in its area. The line under the buttons opens to show the data sent, the checks and the whole prompt.
 
@@ -115,7 +133,7 @@ prompts:
 | --- | --- |
 | `session` | The agent, model, length, requests and the score |
 | `tokens` | Tokens read and written, the cached share, the largest call, idle cache rewrites |
-| `cost` | Estimated cost, and calls, tokens and cost by model |
+| `cost` | Estimated cost, and calls, tokens and cost by model and by model tier |
 | `reliability` | Failed, rate-limited and cut-off calls, the wait for the first token |
 | `timeline` | The context's size call by call, and its growth a call |
 | `context` | What the main chat's context holds, by kind |
@@ -133,7 +151,7 @@ prompts:
 | `edits` | The files it changed |
 | `errors` | Failed tool calls with how each error starts |
 
-The `metrics` names are the checks: `system-prompt`, `tool-definitions`, `unused-tools`, `peak-context`, `context-growth`, `images`, `compactions`, `long-session`, `searching`, `rereads`, `large-results`, `tool-errors`, `repeated-calls`, `subagents`, `short-prompt`, `steering`, `failed-calls`, `rate-limited`, `incomplete`, `caching`, `idle-cache`, `slow`, `untraced`.
+The `metrics` names are the checks: `system-prompt`, `tool-definitions`, `unused-tools`, `peak-context`, `context-growth`, `images`, `compactions`, `long-session`, `searching`, `rereads`, `large-results`, `tool-errors`, `repeated-calls`, `subagents`, `short-prompt`, `steering`, `failed-calls`, `rate-limited`, `incomplete`, `model-tiers`, `caching`, `idle-cache`, `slow`, `untraced`.
 
 ## From the API
 
