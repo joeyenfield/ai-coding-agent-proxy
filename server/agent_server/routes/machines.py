@@ -291,16 +291,21 @@ def register(app: FastAPI, runtime: Runtime) -> None:
 
     @app.get("/api/machines/{machine_id}/files/content")
     async def file_content(machine_id: str, request: Request, path: str = "") -> dict[str, Any]:
-        """One file's text, as the machine reads it: at most its first MiB, and none for a binary file."""
+        """One file's text (first MiB) or raster image (complete, up to 10 MiB), read by the machine."""
         target = files_target(machine_id, request, path)
         if not path:
             raise HTTPException(status_code=400, detail="Name a file inside one of the machine's launch folders.")
         answer = await ask(target, "read", timeout=30, channel="files", path=path)
-        return {
+        result = {
             "path": path, "name": str(answer.get("name") or ""), "size": int(answer.get("size") or 0), "modified": answer.get("modified"),
             "binary": bool(answer.get("binary")), "truncated": bool(answer.get("truncated")),
             "content": None if answer.get("binary") else str(answer.get("content") or ""),
         }
+        image = answer.get("image")
+        if answer.get("binary") and not answer.get("truncated") and isinstance(image, dict):
+            if image.get("media_type") in {"image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp", "image/x-icon"} and isinstance(image.get("data"), str):
+                result["image"] = {"media_type": image["media_type"], "data": image["data"]}
+        return result
 
     @app.get("/api/machines/{machine_id}/files")
     async def files(machine_id: str, request: Request, path: str = "") -> dict[str, Any]:

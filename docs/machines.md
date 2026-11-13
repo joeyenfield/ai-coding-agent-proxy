@@ -302,13 +302,13 @@ With `agent-machine commands on`, **Open a terminal** on the machine's page star
 
 ### Files
 
-With `agent-machine files on`, the machine's **Files** tab in the console browses its launch folders and shows a file's text, with Markdown files rendered. It only reads; nothing is changed on the machine.
+With `agent-machine files on`, the machine's **Files** tab in the console browses its launch folders, shows text and images, and renders Markdown files. It only reads; nothing is changed on the machine.
 
 - It needs the `files` feature (the owner, or organizations and teams granted it) and `files on`. Launches and terminals don't turn it on.
 - The server and the machine both check that the path is inside a root, and the machine checks again after following links.
 - Hidden files and folders (a name starting with a dot, such as `.env` or `.git`) are listed and read like any other, so anyone who can browse the files can read secrets kept in them. Grant `files` only to who should see them.
 - A listing shows folders first, then files with their size, at most 1000 entries. **Up** stops at a root.
-- A file shows at most its first 1 MB. A file that isn't text (it has a NUL byte or isn't UTF-8) is reported as binary, and its bytes stay on the machine.
+- Text shows at most its first 1 MiB. PNG, JPEG, GIF, WebP, BMP and ICO images up to 10 MiB open as previews, fitted to the space available. Larger images aren't sent. Image formats are detected from their bytes; SVG files stay text. Other files that aren't text (a NUL byte or not UTF-8) are reported as binary, and their bytes stay on the machine. Image previews need an updated agent-machine; older machines still show text.
 
 ### Remote updates
 

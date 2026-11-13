@@ -47,7 +47,7 @@ export function resolveLink(file: string, root: string, href: string, separator:
 
 /**
  * A Markdown file as HTML. Raw HTML in it is shown as text, links to other files open them here, and only
- * https pictures are loaded (the machine only sends text, so its own pictures are named instead).
+ * https pictures are loaded inline. Pictures on the machine link to their preview in this viewer.
  */
 function renderMarkdown(text: string, file: string, root: string, separator: string): string {
   const markdown = new Marked({
@@ -76,7 +76,12 @@ function renderMarkdown(text: string, file: string, root: string, separator: str
         return `<a href="?${escapeHtml(query.toString())}" data-${folder ? "folder" : "file"}="${escapeHtml(path)}" data-anchor="${escapeHtml(fragment)}"${titled}>${inner}</a>`;
       },
       image({ href, title, text }: Tokens.Image) {
-        if (!/^https:/i.test(href)) return `<span class="file-md-picture" title="${escapeHtml(href)}">${escapeHtml(text || href)}</span>`;
+        if (!/^https:/i.test(href)) {
+          if (!href || href.startsWith("//") || /^[a-z][a-z0-9+.-]*:/i.test(href)) return `<span class="file-md-picture" title="${escapeHtml(href)}">${escapeHtml(text || href)}</span>`;
+          const path = resolveLink(file, root, href.split("#")[0], separator);
+          const query = new URLSearchParams({ path: dirOf(path, separator), file: path });
+          return `<a class="file-md-picture" href="?${escapeHtml(query.toString())}" data-file="${escapeHtml(path)}" title="Open image: ${escapeHtml(href)}">${escapeHtml(text || href)}</a>`;
+        }
         return `<img src="${escapeHtml(href)}" alt="${escapeHtml(text)}"${title ? ` title="${escapeHtml(title)}"` : ""} loading="lazy" referrerpolicy="no-referrer">`;
       },
     },
@@ -84,9 +89,20 @@ function renderMarkdown(text: string, file: string, root: string, separator: str
   return markdown.parse(text) as string;
 }
 
+function ImagePreview({ image, name }: { image: { media_type: string; data: string }; name: string }) {
+  const [failed, setFailed] = useState(false);
+  return failed ? (
+    <p className="empty">This image could not be displayed. It may be damaged or unsupported by your browser.</p>
+  ) : (
+    <div className="file-image">
+      <img src={`data:${image.media_type};base64,${image.data}`} alt={name} onError={() => setFailed(true)} />
+    </div>
+  );
+}
+
 /**
  * The machine's file viewer: open the folders inside its launch folders and read their files. The
- * machine lists and reads them itself (agent-machine files on), hidden names included, and only text.
+ * machine lists and reads them itself (agent-machine files on), including hidden names and raster images.
  * The open folder and file are in the address (?path=, ?file=, ?view=source), so a link opens the same view.
  */
 export function MachineFiles({ machine }: { machine: FleetMachine }) {
@@ -284,7 +300,7 @@ export function MachineFiles({ machine }: { machine: FleetMachine }) {
           )}
         </div>
         {!file ? (
-          <p className="empty">Choose a file to read it.</p>
+          <p className="empty">Choose a file to view it.</p>
         ) : content.isPending ? (
           <p className="subtle">Reading {file}…</p>
         ) : content.isError ? (
@@ -294,8 +310,10 @@ export function MachineFiles({ machine }: { machine: FleetMachine }) {
               Open it as a folder
             </button>
           </p>
+        ) : content.data.image ? (
+          <ImagePreview key={`${file}:${content.dataUpdatedAt}`} image={content.data.image} name={content.data.name} />
         ) : content.data.binary ? (
-          <p className="empty">It isn't text, so it isn't shown.</p>
+          <p className="empty">{content.data.truncated ? "This binary file is too large to preview. Images must be 10 MiB or smaller." : "This file isn't text or a supported image, so it isn't shown."}</p>
         ) : (
           <>
             {content.data.truncated && <p className="subtle">It's longer than 1 MB: only the start is shown.</p>}

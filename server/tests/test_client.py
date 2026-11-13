@@ -961,7 +961,10 @@ def test_a_fleet_machine_shows_its_files_only_when_files_are_on(tmp_path, agent_
     (work / "src" / "main.go").write_text("package main\n")
     (work / "README.md").write_bytes(b"# Hello\n")
     (work / ".env").write_text("SECRET=1")
-    (work / "logo.png").write_bytes(b"\x89PNG\x00\x01")
+    import base64
+
+    png = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a3ioAAAAASUVORK5CYII=")
+    (work / "logo.png").write_bytes(png)
     with machine(tmp_path, agent_binary) as m, fleet_machine(m, machine_binary, tmp_path, ["roots", "add", str(work)], ["launches", "on"]) as fleet:
         base = f"{m.server}/api/machines/{fleet.box['id']}"
         # Launches alone don't share files.
@@ -983,6 +986,15 @@ def test_a_fleet_machine_shows_its_files_only_when_files_are_on(tmp_path, agent_
         assert (read["content"], read["binary"], read["truncated"], read["size"]) == ("# Hello\n", False, False, 8)
         image = httpx.get(f"{base}/files/content", headers=m.headers, params={"path": str(work / "logo.png")}, timeout=30).json()
         assert image["binary"] is True and image["content"] is None
+        assert image["image"]["media_type"] == "image/png"
+        assert base64.b64decode(image["image"]["data"]) == png
+        # Images can exceed the text limit, but incomplete images never leave the machine.
+        (work / "logo.png").write_bytes(png + b"\x00" * (1 << 20))
+        large = httpx.get(f"{base}/files/content", headers=m.headers, params={"path": str(work / "logo.png")}, timeout=30).json()
+        assert not large["truncated"] and len(base64.b64decode(large["image"]["data"])) == len(png) + (1 << 20)
+        (work / "logo.png").write_bytes(png + b"\x00" * (10 << 20))
+        oversized = httpx.get(f"{base}/files/content", headers=m.headers, params={"path": str(work / "logo.png")}, timeout=30).json()
+        assert oversized["truncated"] and oversized["content"] is None and "image" not in oversized
         # Hidden files are shown like any other; anything outside the launch folders stays on the machine.
         hidden = httpx.get(f"{base}/files/content", headers=m.headers, params={"path": str(work / ".env")}, timeout=30).json()
         assert hidden["content"] == "SECRET=1"

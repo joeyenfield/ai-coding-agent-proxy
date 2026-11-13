@@ -1240,7 +1240,7 @@ export interface MachineFiles {
   truncated?: boolean;
 }
 
-/** /api/machines/{id}/files/content: one file's text (at most its first MiB), or none for a binary file. */
+/** Text (first MiB), or a complete raster image up to 10 MiB. Other binary bytes stay on the machine. */
 export interface MachineFileContent {
   path: string;
   name: string;
@@ -1249,6 +1249,7 @@ export interface MachineFileContent {
   binary: boolean;
   truncated: boolean;
   content: string | null;
+  image?: { media_type: string; data: string };
 }
 
 export interface FleetLaunch {

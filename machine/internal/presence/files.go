@@ -1,7 +1,9 @@
 package presence
 
 import (
+	"bufio"
 	"bytes"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -21,8 +23,11 @@ const FilesLimit = 1000
 // FileReadLimit is the most of a file one read sends; a longer file says it's truncated.
 const FileReadLimit = 1 << 20
 
+// ImageReadLimit leaves room for base64 and JSON inside the fleet's 16 MiB message limit.
+const ImageReadLimit = 10 << 20
+
 // FilesRequest is the server's {"type": "files"}: op "list" (the folders and files inside one
-// folder) or "read" (one file's text), for the console's file viewer.
+// folder) or "read" (one file's text or an image), for the console's file viewer.
 type FilesRequest struct {
 	Type string `json:"type"`
 	ID   string `json:"request"`
@@ -144,23 +149,62 @@ func readFile(path string, machine *settings.Machine, answer map[string]any) err
 		return fmt.Errorf("couldn't read %s: %v", path, err)
 	}
 	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, FileReadLimit+1))
+	reader := bufio.NewReader(file)
+	header, err := reader.Peek(512)
+	if err != nil && err != io.EOF {
+		return fmt.Errorf("couldn't read %s: %v", path, err)
+	}
+	mediaType := imageMediaType(header)
+	limit := FileReadLimit
+	if mediaType != "" {
+		limit = ImageReadLimit
+	}
+	data, err := io.ReadAll(io.LimitReader(reader, int64(limit)+1))
 	if err != nil {
 		return fmt.Errorf("couldn't read %s: %v", path, err)
 	}
-	truncated := len(data) > FileReadLimit
+	truncated := len(data) > limit
 	if truncated {
-		data = data[:FileReadLimit]
+		data = data[:limit]
 	}
 	answer["path"], answer["name"], answer["size"], answer["modified"], answer["truncated"] = path, filepath.Base(path), info.Size(), info.ModTime().Unix(), truncated
+	if mediaType != "" {
+		answer["binary"] = true
+		// An incomplete image cannot be previewed; don't send a large unusable prefix.
+		if !truncated {
+			answer["image"] = map[string]string{"media_type": mediaType, "data": base64.StdEncoding.EncodeToString(data)}
+		}
+		return nil
+	}
 	text, ok := textOf(data, truncated)
 	if !ok {
-		// Its bytes stay here: the viewer shows text only.
+		// Other binary formats stay on the machine.
 		answer["binary"] = true
 		return nil
 	}
 	answer["binary"], answer["content"] = false, text
 	return nil
+}
+
+// Inspect bytes rather than extensions, so HTML named .png never becomes an image preview.
+// SVG stays text: only these raster formats are sent as image data.
+func imageMediaType(data []byte) string {
+	switch {
+	case bytes.HasPrefix(data, []byte("\x89PNG\r\n\x1a\n")):
+		return "image/png"
+	case bytes.HasPrefix(data, []byte("\xff\xd8\xff")):
+		return "image/jpeg"
+	case bytes.HasPrefix(data, []byte("GIF87a")), bytes.HasPrefix(data, []byte("GIF89a")):
+		return "image/gif"
+	case len(data) >= 12 && string(data[:4]) == "RIFF" && string(data[8:12]) == "WEBP":
+		return "image/webp"
+	case bytes.HasPrefix(data, []byte("BM")):
+		return "image/bmp"
+	case bytes.HasPrefix(data, []byte("\x00\x00\x01\x00")):
+		return "image/x-icon"
+	default:
+		return ""
+	}
 }
 
 // textOf is data as text, or false when it isn't: a NUL byte, or bytes that aren't UTF-8. A

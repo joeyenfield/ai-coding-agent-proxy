@@ -199,6 +199,8 @@ Managed API credentials use the issuer's `client` records, not API settings or s
 - **Retention and audit**: new recordings go through `SessionStore` (and `blobs`) so retention covers them. Changes under `/api/` are audited by `AuditMiddleware`; a WebSocket or non-HTTP action records its own event (`runtime.audit.record(runtime.audit.event(...))`). Only `SAFE_FIELDS` values are kept from bodies.
 - **Python style**: `from __future__ import annotations`, a module docstring saying what the module is for, dataclasses and type hints, comments that explain why. No formatter or linter; match the surrounding code.
 
+The existing machine `/files/content` response has an optional `image: {media_type, data}` for complete raster images up to 10 MiB (base64 from the machine). It retains `binary: true` and `content: null`. The route forwards only PNG/JPEG/GIF/WebP/BMP/ICO MIME types and never an image marked `truncated`; text responses and older machines keep their existing shape. The `files` feature and root checks apply to image reads too; no new endpoint or protocol version is needed.
+
 ## Several processes
 
 `agent-server` is one program; `AI_PROXY_ROLES` (`roles.py`) says what a process serves, and `AI_PROXY_REDIS_URL` makes processes one server (`cluster.py`). Without Redis, everything stays as described above (memory is authoritative), and `app.single_node` holds a PostgreSQL advisory lock (`SINGLE_NODE_LOCK`) so a second such process refuses to start; roles other than `all` and `AI_PROXY_WORKERS>1` are refused (`roles.check`). With Redis (`cluster.scaled`):

@@ -364,6 +364,7 @@ await shot("add-machine", "/machines#add", { height: 1100 });
 await shot("machine-agents", "/machines/build-box/agents", { fullPage: true });
 await shot("machine-terminal", "/machines/build-box/terminal", { fullPage: true });
 await shot("machine-files", "/machines/build-box/files?path=/home/joey/code/api&file=/home/joey/code/api/README.md", { fullPage: true });
+await shot("machine-file-image", "/machines/build-box/files?path=/home/joey/code/api&file=/home/joey/code/api/logo.png", { fullPage: true });
 await shot("machine-model-servers", "/machines/ai-desktop/providers", { fullPage: true });
 await shot("ollama-server", "/machines/ai-desktop/providers/ollama/server", { fullPage: true });
 await shot("containers", "/machines/ai-desktop/providers/containers", { fullPage: true });

@@ -1,14 +1,15 @@
 """The machine's file viewer: the server's {"type": "files"} requests, op "list" (the folders and
-files inside one folder) and op "read" (one file's text), as the Go agent-machine's presence/files.go.
+files inside one folder) and op "read" (text or an image), as the Go agent-machine's presence/files.go.
 
 Only while files are on (`agent-machine files on`) and only inside the roots (checked here after
 resolving links, whatever the server allowed). Hidden names (.env, .git) are shown like any other:
 who may browse a machine's files is already limited to its owner and the teams it grants files to.
-Binary files are reported, never sent.
+Supported raster images are sent as base64; other binary files are reported, never sent.
 """
 
 from __future__ import annotations
 
+import base64
 import os
 from typing import Any, Dict, List, Optional
 
@@ -18,6 +19,8 @@ from . import settings
 FILES_LIMIT = 1000
 # The most of a file one read sends; a longer file says it's truncated.
 FILE_READ_LIMIT = 1 << 20
+# Leaves room for base64 and JSON inside the fleet's 16 MiB message limit.
+IMAGE_READ_LIMIT = 10 << 20
 
 
 class Refused(Exception):
@@ -106,21 +109,44 @@ def read_file(path: str, machine: settings.Machine) -> Dict[str, Any]:
     try:
         info = os.stat(resolved)
         with open(resolved, "rb") as file:
-            data = file.read(FILE_READ_LIMIT + 1)
+            media_type = image_media_type(file.read(512))
+            file.seek(0)
+            limit = IMAGE_READ_LIMIT if media_type else FILE_READ_LIMIT
+            data = file.read(limit + 1)
     except OSError as error:
         raise Refused(f"couldn't read {path}: {error}")
-    truncated = len(data) > FILE_READ_LIMIT
-    data = data[:FILE_READ_LIMIT]
+    truncated = len(data) > limit
+    data = data[:limit]
     result: Dict[str, Any] = {
         "path": path, "name": os.path.basename(path), "size": info.st_size, "modified": int(info.st_mtime), "truncated": truncated,
     }
+    if media_type:
+        result["binary"] = True
+        # An incomplete image cannot be previewed; don't send a large unusable prefix.
+        if not truncated:
+            result["image"] = {"media_type": media_type, "data": base64.b64encode(data).decode("ascii")}
+        return result
     text = text_of(data, truncated)
     if text is None:
-        # Its bytes stay here: the viewer shows text only.
+        # Other binary formats stay on the machine.
         result["binary"] = True
     else:
         result.update(binary=False, content=text)
     return result
+
+
+def image_media_type(data: bytes) -> str:
+    """Inspect bytes rather than extensions. SVG stays text; only these raster formats are sent."""
+    for signature, media_type in (
+        (b"\x89PNG\r\n\x1a\n", "image/png"), (b"\xff\xd8\xff", "image/jpeg"),
+        (b"GIF87a", "image/gif"), (b"GIF89a", "image/gif"),
+        (b"BM", "image/bmp"), (b"\x00\x00\x01\x00", "image/x-icon"),
+    ):
+        if data.startswith(signature):
+            return media_type
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return ""
 
 
 def text_of(data: bytes, truncated: bool) -> Optional[str]:

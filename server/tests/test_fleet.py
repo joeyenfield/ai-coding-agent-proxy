@@ -529,6 +529,18 @@ def test_the_owner_reads_files_only_on_a_machine_that_shares_them(tmp_path):
         assert answer["response"].status_code == 200, answer["response"].text
         assert answer["response"].json() == {"path": ROOT + "\\a.txt", "name": "a.txt", "size": 2, "modified": 1, "binary": False, "truncated": False, "content": "hi"}
 
+        # Only complete raster images are forwarded; older machines may omit the image field.
+        for media_type, truncated, expected in (("image/png", False, True), ("image/svg+xml", False, False), ("image/png", True, False), (None, False, False)):
+            thread = threading.Thread(target=lambda: answer.update(response=alice.get("/api/machines/m1/files/content", params={"path": ROOT + "\\logo.png"})))
+            thread.start()
+            request = json.loads(socket.receive_text())
+            image = {"media_type": media_type, "data": "iVBORw0KGgo="} if media_type else None
+            socket.send_text(json.dumps({"type": "files_result", "request": request["request"], "ok": True, "binary": True, "truncated": truncated, "image": image}))
+            thread.join(timeout=10)
+            result = answer["response"].json()
+            assert ("image" in result) is expected
+            assert result["content"] is None
+
         # Checked on the server before anything reaches the machine.
         for path in ("C:\\Windows\\win.ini", ROOT + "\\..\\secrets.txt"):
             assert alice.get("/api/machines/m1/files/content", params={"path": path}).status_code == 400, path

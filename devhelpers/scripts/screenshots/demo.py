@@ -18,6 +18,7 @@ Stop it with Ctrl+C, --stop or SIGTERM; each stops the server and issuer it star
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 import random
@@ -1110,6 +1111,7 @@ def fake_folders(request: dict, roots: list[str]) -> dict:
 FILES = {
     "/home/joey/code/api/README.md": (
         "# api\n\nThe billing and accounts service. To put it on a server, see [Deploying](docs/deploy.md).\n\n"
+        "![Project logo](logo.png)\n\n"
         "## Running it\n\n```bash\ngo run ./cmd/api --config config.yaml\n```\n\n"
         "It listens on **:8080** and keeps its data in PostgreSQL. The [`Makefile`](Makefile) builds and tests it.\n\n"
         "| Setting | Default | What it does |\n| --- | --- | --- |\n| `listen` | `:8080` | The address it serves |\n"
@@ -1123,10 +1125,17 @@ FILES = {
 }
 
 
+FILE_IMAGES = {"/home/joey/code/api/logo.png": (ROOT / "site/assets/icon-192.png").read_bytes()}
+
+
 def fake_files(request: dict, roots: list[str]) -> dict:
-    """The files_result agent-machine sends: a folder's folders and files, or one file's text."""
+    """The files_result agent-machine sends: a folder listing, text, or a complete raster image."""
     path = str(request.get("path") or "").rstrip("/")
     if request.get("op") == "read":
+        if path in FILE_IMAGES:
+            data = FILE_IMAGES[path]
+            return {"ok": True, "path": path, "name": path.rsplit("/", 1)[-1], "size": len(data), "modified": int(time.time()) - 3600,
+                    "binary": True, "truncated": False, "image": {"media_type": "image/png", "data": base64.b64encode(data).decode("ascii")}}
         if path not in FILES:
             return {"ok": False, "error": f"couldn't read {path}"}
         text = FILES[path]
@@ -1137,6 +1146,9 @@ def fake_files(request: dict, roots: list[str]) -> dict:
         {"name": name.rsplit("/", 1)[-1], "path": name, "kind": "file", "size": len(text.encode()), "modified": int(time.time()) - 3600}
         for name, text in sorted(FILES.items(), key=lambda item: item[0].lower()) if name.rsplit("/", 1)[0] == path
     ]
+    entries += [{"name": name.rsplit("/", 1)[-1], "path": name, "kind": "file", "size": len(data), "modified": int(time.time()) - 3600}
+                for name, data in FILE_IMAGES.items() if name.rsplit("/", 1)[0] == path]
+    entries.sort(key=lambda entry: (entry["kind"] != "folder", entry["name"].lower()))
     return {"ok": True, "path": path, "parent": folders["parent"], "entries": entries, "truncated": False}
 
 

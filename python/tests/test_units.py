@@ -441,6 +441,40 @@ def test_files_reads_at_most_the_limit(tmp_path):
     assert answer["ok"] and answer["truncated"] and answer["binary"] is False and len(answer["content"]) == files.FILE_READ_LIMIT - 1
 
 
+def test_files_read_images_by_signature_within_the_limit(tmp_path):
+    import base64
+    from agent_py.machine import files
+
+    machine = machine_settings.Machine(id="m1", files=True, roots=[str(tmp_path)])
+    for name, data, media_type in (
+        ("png", b"\x89PNG\r\n\x1a\n\x00", "image/png"),
+        ("jpeg", b"\xff\xd8\xff\x00", "image/jpeg"),
+        ("gif87", b"GIF87a\x00", "image/gif"), ("gif89", b"GIF89a\x00", "image/gif"),
+        ("webp", b"RIFF\x00\x00\x00\x00WEBP", "image/webp"),
+        ("bmp", b"BM\x00", "image/bmp"), ("ico", b"\x00\x00\x01\x00", "image/x-icon"),
+    ):
+        path = tmp_path / (name + ".bin")
+        path.write_bytes(data)
+        answer = files.answer({"op": "read", "path": str(path)}, machine)
+        assert answer["ok"] and answer["binary"] and not answer["truncated"]
+        assert answer["image"] == {"media_type": media_type, "data": base64.b64encode(data).decode("ascii")}
+    path = tmp_path / "large.png"
+    for size in (files.FILE_READ_LIMIT + 1, files.IMAGE_READ_LIMIT, files.IMAGE_READ_LIMIT + 1):
+        data = b"\x89PNG\r\n\x1a\n" + b"\x00" * (size - 8)
+        path.write_bytes(data)
+        answer = files.answer({"op": "read", "path": str(path)}, machine)
+        assert answer["ok"] and answer["truncated"] == (size > files.IMAGE_READ_LIMIT)
+        if size > files.IMAGE_READ_LIMIT:
+            assert "image" not in answer and "content" not in answer
+        else:
+            assert base64.b64decode(answer["image"]["data"]) == data
+    path.write_text("<svg><script>alert(1)</script></svg>")
+    answer = files.answer({"op": "read", "path": str(path)}, machine)
+    assert "image" not in answer and not answer["binary"]
+    machine.files = False
+    assert not files.answer({"op": "read", "path": str(path)}, machine)["ok"]
+
+
 # machine/internal/mcp/bridge_test.go and command/mcp_test.go
 
 def test_a_broken_mcp_json_shares_nothing_and_says_why(tmp_path, monkeypatch, capsys):
