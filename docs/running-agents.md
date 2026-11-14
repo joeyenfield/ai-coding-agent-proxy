@@ -72,6 +72,8 @@ Privacy and security:
 
 To start coding agents on a computer through a server that runs somewhere else, that computer needs only the `agent` command (with its `agent-proxy`), signed in to the server. It doesn't need `agent-machine`, and it doesn't join the server's fleet.
 
+This does not install a server on your computer. Use your existing server's API address and an account on that deployment. Native builds need no Docker or Python. Add `--no-tray` on Linux/macOS/FreeBSD or `-NoTray` on Windows to skip the optional desktop tray helper too.
+
 One command does it. It downloads the server's build for the computer, checks it, installs `agent` and `agent-proxy`, and signs them in (it prints a link and a code to approve):
 
 ```bash

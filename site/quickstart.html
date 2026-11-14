@@ -48,8 +48,30 @@
   </header>
 <main id="main" class="detail-page quickstart-page">
 
-  <section class="page-intro wrap"><p class="eyebrow">Quickstart / On your computer</p><h1>Run your first agent.<br><span>See it in the console.</span></h1><p class="hero-lede">Choose a setup for your computer or cluster. The local guides walk you through signing in, connecting a model provider, starting an agent and inspecting its requests. Start with Basic for one computer; choose Professional for production deployment guidance.</p></section>
-  <nav class="page-nav wrap" aria-label="On this page"><a href="#quickstart">Pick a level</a><a href="#steps">Your guide</a></nav>
+  <section class="page-intro wrap"><p class="eyebrow">Quickstart / On your computer</p><h1>Run your first agent.<br><span>See it in the console.</span></h1><p class="hero-lede">Connect your computer to an existing server with just the agent command, or host your own mesh. The server setup guides walk you through signing in, connecting a model provider, starting an agent and inspecting its requests. Start with Basic for one computer; choose Professional for production deployment guidance.</p></section>
+  <nav class="page-nav wrap" aria-label="On this page"><a href="#agent-only">Install only the agent</a><a href="#quickstart">Set up a server</a><a href="#steps">Your guide</a></nav>
+
+  <section class="quickstart section wrap" id="agent-only" aria-labelledby="agent-only-title">
+    <div class="quickstart-copy">
+      <p class="eyebrow">Already have a server?</p>
+      <h2 id="agent-only-title">Install just the <code>agent</code> command.</h2>
+      <p>Run coding agents from your own project folders and send their traffic to an existing AI Control Mesh server. Install the launcher and its local proxy on your laptop or desktop. The server, console and model providers stay on your existing deployment.</p>
+      <p>Replace <code>https://api.example.com</code> with your server's API address. The installer checks the download and prints a sign-in link and code. You need an account on that server.</p>
+      <p class="qs-note">These commands skip the optional tray icon. They do not install the server or <code>agent-machine</code>, or register your computer in the fleet. Native builds need no Docker or Python.</p>
+      <p>After signing in, run <code>agent --list</code> to see the available agents. Install the coding agent you want to use, then launch it from a project folder, for example <code>agent codex-account .</code> with your own Codex sign-in.</p>
+      <a class="text-link" href="https://github.com/joeyenfield/ai-control-mesh/blob/master/docs/running-agents.md#installing-only-the-agent-command">Agent-only installation guide →</a>
+    </div>
+    <div class="quickstart-install">
+      <div class="code-window">
+        <div class="code-toolbar"><span class="mono">LINUX / MACOS / FREEBSD</span><button class="copy-button" type="button" data-copy="agent-only-unix" hidden>Copy command</button></div>
+        <pre tabindex="0" aria-label="Install only the agent command on Linux, macOS or FreeBSD"><code id="agent-only-unix">curl -fsSL https://api.example.com/install.sh | sh -s -- --only agent --no-tray</code></pre>
+        <div class="code-toolbar"><span class="mono">WINDOWS POWERSHELL</span><button class="copy-button" type="button" data-copy="agent-only-windows" hidden>Copy command</button></div>
+        <pre tabindex="0" aria-label="Install only the agent command on Windows"><code id="agent-only-windows">&amp; ([scriptblock]::Create((irm https://api.example.com/install.ps1))) -Only agent -NoTray</code></pre>
+      </div>
+      <p class="copy-status" role="status" aria-live="polite"></p>
+      <p class="qs-note">In your server's console, open <strong>Downloads → Only the agent command</strong> to get the command with the correct address. To sign in later, run <code>agent login https://api.example.com</code>.</p>
+    </div>
+  </section>
 
   <section class="section wrap qs-levels" id="quickstart" aria-labelledby="levels-title">
     <div class="section-heading"><p class="eyebrow">Start here</p><h2 id="levels-title">Pick your level.</h2><p>The guide below changes with your choice. Each one is numbered steps from the first command to an agent's answer.</p></div>

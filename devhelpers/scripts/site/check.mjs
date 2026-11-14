@@ -168,11 +168,16 @@ try {
     }
     if (pagePath === '/quickstart.html') {
     const pick = async (...ids) => { for (const id of ids) await page.locator(`label[for="${id}"]`).click(); };
-    const copy = page.locator('.copy-button:visible');
-    const status = page.locator('.copy-status:visible');
+    const copy = page.locator('[data-copy-shown]:visible');
+    const status = page.locator('.qs-guide:visible .copy-status');
     // The page opens on Basic, one container, Docker, Linux or macOS.
     // Verify both clipboard outcomes without depending on the OS clipboard.
     await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { window.copiedCommand = text; } } }));
+    for (const [id, option] of [['agent-only-unix', '--only agent --no-tray'], ['agent-only-windows', '-Only agent -NoTray']]) {
+      await page.locator(`[data-copy="${id}"]`).click();
+      assert.ok((await page.evaluate(() => window.copiedCommand)).includes(option));
+      assert.match(await page.locator('#agent-only .copy-status').textContent(), /Commands copied/);
+    }
     await copy.click();
     const copied = await page.evaluate(() => window.copiedCommand);
     assert.ok(copied.startsWith('docker run -d --name mesh --pull=always \\') && copied.endsWith('docker logs mesh'), copied);
@@ -206,7 +211,7 @@ try {
       assert.equal(await page.locator('.qs-guide:visible').count(), 1, `${name} shows one guide`);
       assert.equal(await page.locator(`.guide-${level}`).isVisible(), true, `${name} shows its own guide`);
       assert.equal(await page.locator('.qs-cmd:visible').count(), 1, `${name} shows one block`);
-      assert.equal(await page.locator('.quickstart-copy .text-link:visible').count(), 1, `${name} links one guide`);
+      assert.equal(await page.locator('.qs-guide:visible .quickstart-copy .text-link:visible').count(), 1, `${name} links one guide`);
       if (level === 'advanced') assert.equal(await page.locator('.qs-forward:visible').count(), 1, `${name} shows one pair of port-forwards`);
       // One numbered sequence: the list at the top names every step, in order, and links to it.
       const listed = await page.locator('.qs-guide:visible .qs-toc a').evaluateAll(links => links.map(link => link.hash));

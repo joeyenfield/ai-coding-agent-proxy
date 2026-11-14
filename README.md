@@ -34,7 +34,9 @@ Use agents such as **Claude Code, Codex, Copilot CLI, OpenCode, Qwen Code, Aider
 
 ## Quick start
 
-Pick one. All three run on your own computer, on loopback only.
+Already have access to a server? [Install only the `agent` command](docs/running-agents.md#installing-only-the-agent-command) on your computer and sign in to that server. You do not need to install the server or join your computer to its fleet.
+
+To host your own server, pick one of these three setups. All three run on your own computer, on loopback only.
 
 | | You need | You get |
 | --- | --- | --- |
