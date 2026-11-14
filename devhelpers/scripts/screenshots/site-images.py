@@ -48,12 +48,13 @@ SHOTS = (
     Shot("live-dark", box=(0.175, 0.0, 1.0, 0.95)),
     Shot("terminal-phone", widths=(400, 618)),
     # Three real agents' terminals side by side: OpenCode, GitHub Copilot CLI and Qwen Code started
-    # from the production console on a fleet machine, on its Ollama (gpt-oss:20b), captured from the
+    # from the current console on an isolated all-in-one container, on its Ollama, captured from the
     # console's terminal view (only the terminal, after Fit width). Not made by capture.mjs.
     Shot("real-opencode", widths=(666, 1333)),
     Shot("real-copilot", widths=(666, 1333)),
     Shot("real-qwen", widths=(666, 1333)),
     Shot("session-chat", box=NO_SIDEBAR),
+    Shot("session-review", box=NO_SIDEBAR),
     Shot("agents", box=NO_SIDEBAR),
     Shot("machines", box=NO_SIDEBAR),
     Shot("machine-mcp", box=NO_SIDEBAR),

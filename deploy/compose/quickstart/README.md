@@ -8,7 +8,7 @@ which uses the files in [`deploy/helm/quickstart/`](../../helm/quickstart/README
 From this folder, with Podman and a Compose provider:
 
 ```bash
-podman compose up -d
+podman compose up -d --pull always
 ```
 
 The server and the machines run the published images from the GitHub Container Registry
@@ -26,17 +26,16 @@ Docker Compose; it runs against the Podman engine through `podman compose`.
 Docker Compose with Linux containers also works:
 
 ```bash
-docker compose up -d
+docker compose up -d --pull always
 ```
 
 The examples below use `podman compose`; substitute `docker compose` when using Docker.
 
-The server provisions a random vault encryption key on first start at `/app/logs/private/vault-keys`, in the persistent `server-logs` volume. It enables saving provider API keys in the console and is reused after restarts. An explicit `AI_PROXY_VAULT_KEYS` in the environment or `.env` overrides generation. Back up the generated key along with the database, keeping it private; losing it makes previously saved API keys unreadable. This also applies to the from-source basic stack. After updating the helper, recreate the server with `podman compose up -d --force-recreate server`; no volume reset is needed.
+The server provisions a random vault encryption key on first start at `/app/logs/private/vault-keys`, in the persistent `server-logs` volume. It enables saving provider API keys in the console and is reused after restarts. An explicit `AI_PROXY_VAULT_KEYS` in the environment or `.env` overrides generation. Back up the generated key along with the database, keeping it private; losing it makes previously saved API keys unreadable. This also applies to the from-source basic stack. After updating the helper, recreate the server with `podman compose up -d --pull always --force-recreate server`; no volume reset is needed.
 
 Open **http://localhost:19999** and sign in with **admin** / **secret**. Use `localhost`,
 so the browser matches the registered callback. The first start downloads the images (about
-1 GB, most of it the coding agents) and Ollama; it can take a few minutes. `podman compose
-pull` then `podman compose up -d` moves to a newer release, keeping everything.
+1 GB, most of it the coding agents) and Ollama; it can take a few minutes. `podman compose up -d --pull always` checks for newer images at the configured tags and updates the containers, keeping their volumes.
 
 The stack has:
 
@@ -81,7 +80,7 @@ with both files (it recreates only Ollama when the stack is already running; mod
 their volume):
 
 ```bash
-podman compose -f compose.yaml -f compose.gpu.yaml up -d
+podman compose -f compose.yaml -f compose.gpu.yaml up -d --pull always
 ```
 
 It's a separate file because a container whose GPU isn't there won't start, so the plain
@@ -141,7 +140,7 @@ podman compose ps
 podman compose logs -f machine-1 machine-2
 podman compose logs -f server auth
 podman compose stop
-podman compose up -d
+podman compose up -d --pull always
 ```
 
 The database (configuration, accounts, recordings and auth state), the server's log, both
@@ -159,7 +158,7 @@ To delete **all quickstart state, workspaces and downloaded models** and start f
 
 ```bash
 podman compose down -v
-podman compose up -d
+podman compose up -d --pull always
 ```
 
 If you change the password after signing machines in, reset this demo or sign both
@@ -193,7 +192,7 @@ Use a rootless Podman machine (Podman's default). A rootful WSL machine publishe
 with nftables rules only and opens no socket, and WSL only forwards ports with a listening
 socket to Windows, so the browser can't reach the stack. Switch it with
 `podman machine stop`, `podman machine set --rootful=false` and `podman machine start`,
-then `podman compose up -d` again (rootless has its own images and volumes).
+then `podman compose up -d --pull always` again (rootless has its own images and volumes).
 
 If ports still refuse right after switching (`No route to host` from inside the VM), the
 rootful rules are still loaded: all WSL distributions share one kernel. Run `wsl --shutdown`

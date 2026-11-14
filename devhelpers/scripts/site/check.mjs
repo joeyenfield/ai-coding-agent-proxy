@@ -35,7 +35,7 @@ try {
   }
   console.log('PASS public assets');
   assert.equal((await fetch(`${url}/.env`)).status, 404);
-  const pagePaths = ['/', '/quickstart.html', '/teams.html', '/security.html'];
+  const pagePaths = ['/', '/quickstart.html', '/teams.html', '/security.html', '/coaching.html'];
   const pageSources = await Promise.all(pagePaths.map(page => readFile(path.join(root, 'site', page === '/' ? 'index.html' : page.slice(1)), 'utf8')));
   const html = pageSources.join('\n');
   // Cloudflare keeps the stylesheet, script and images for hours: each link must carry its file's
@@ -70,11 +70,11 @@ try {
   for (const service of ['server', 'auth', 'postgres', 'machine-1', 'machine-2', 'ollama']) assert.ok(compose.includes(`  ${service}:`));
   for (const port of ['127.0.0.1:19999:9999', '127.0.0.1:20000:10000']) assert.ok(compose.includes(port));
   assert.ok(compose.includes('QUICKSTART_ADMIN_PASSWORD:-secret'));
-  assert.ok(guide.includes('podman compose -f deploy/compose/quickstart/compose.yaml up -d'));
+  assert.ok(guide.includes('podman compose -f deploy/compose/quickstart/compose.yaml up -d --pull always'));
   // The commands and the step-by-step live on the quickstart page; the homepage links there.
   const quickstartPage = pageSources[pagePaths.indexOf('/quickstart.html')];
-  assert.ok(quickstartPage.includes('docker compose -f deploy/compose/quickstart/compose.yaml up -d'));
-  assert.ok(quickstartPage.includes('podman compose -f deploy/compose/quickstart/compose.yaml up -d'));
+  assert.ok(quickstartPage.includes('docker compose -f deploy/compose/quickstart/compose.yaml up -d --pull always'));
+  assert.ok(quickstartPage.includes('podman compose -f deploy/compose/quickstart/compose.yaml up -d --pull always'));
   assert.ok(pageSources[0].includes('href="/quickstart.html"'), 'The homepage links to the quickstart page');
   // Every step's screenshot is a real capture (devhelpers/scripts/screenshots/quickstart-steps.mjs): 13 for the
   // one container, 12 for the Compose stack (the ones docs/quickstart.md shows too), 14 for the Helm chart.
@@ -175,7 +175,7 @@ try {
     await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { window.copiedCommand = text; } } }));
     await copy.click();
     const copied = await page.evaluate(() => window.copiedCommand);
-    assert.ok(copied.startsWith('docker run -d --name mesh \\') && copied.endsWith('docker logs mesh'), copied);
+    assert.ok(copied.startsWith('docker run -d --name mesh --pull=always \\') && copied.endsWith('docker logs mesh'), copied);
     assert.equal(copied.split('\n').length, 6);
     assert.match(await status.textContent(), /Commands copied/);
     await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw Error('Denied'); } } }));
@@ -185,21 +185,21 @@ try {
     // A level shows one whole guide. In it, the tabs and switches (engine, where models run, your
     // terminal) show one command block, and Copy takes just that block.
     for (const [level, choices, first, last] of [
-      ['basic', ['b-one', 'b-podman', 'b-windows'], 'podman run -d --name mesh `', 'podman logs mesh'],
-      ['basic', ['b-one', 'b-podman', 'b-gpu', 'b-unix'], 'podman run -d --name mesh --device nvidia.com/gpu=all \\', 'podman logs mesh'],
-      ['basic', ['b-one', 'b-docker', 'b-gpu', 'b-windows'], 'docker run -d --name mesh --gpus all `', 'docker logs mesh'],
-      ['basic', ['b-one', 'b-docker', 'b-cpu', 'b-windows'], 'docker run -d --name mesh `', 'docker logs mesh'],
+      ['basic', ['b-one', 'b-podman', 'b-windows'], 'podman run -d --name mesh --pull=always `', 'podman logs mesh'],
+      ['basic', ['b-one', 'b-podman', 'b-gpu', 'b-unix'], 'podman run -d --name mesh --pull=always --device nvidia.com/gpu=all \\', 'podman logs mesh'],
+      ['basic', ['b-one', 'b-docker', 'b-gpu', 'b-windows'], 'docker run -d --name mesh --pull=always --gpus all `', 'docker logs mesh'],
+      ['basic', ['b-one', 'b-docker', 'b-cpu', 'b-windows'], 'docker run -d --name mesh --pull=always `', 'docker logs mesh'],
       ['basic', ['b-local', 'b-windows'], 'irm https://', 'install-local.ps1 | iex'],
       ['basic', ['b-local', 'b-unix'], 'curl -fsSL https://', 'install-local.sh | sh'],
-      ['intermediate', ['i-podman', 'i-cpu'], 'git clone ', 'podman compose -f deploy/compose/quickstart/compose.yaml up -d'],
-      ['intermediate', ['i-podman', 'i-gpu'], 'git clone ', 'podman compose -f deploy/compose/quickstart/compose.yaml -f deploy/compose/quickstart/compose.gpu.yaml up -d'],
-      ['intermediate', ['i-docker', 'i-cpu'], 'git clone ', 'docker compose -f deploy/compose/quickstart/compose.yaml up -d'],
+      ['intermediate', ['i-podman', 'i-cpu'], 'git clone ', 'podman compose -f deploy/compose/quickstart/compose.yaml up -d --pull always'],
+      ['intermediate', ['i-podman', 'i-gpu'], 'git clone ', 'podman compose -f deploy/compose/quickstart/compose.yaml -f deploy/compose/quickstart/compose.gpu.yaml up -d --pull always'],
+      ['intermediate', ['i-docker', 'i-cpu'], 'git clone ', 'docker compose -f deploy/compose/quickstart/compose.yaml up -d --pull always'],
       ['advanced', ['a-gpu', 'a-windows'], 'git clone ', 'kubectl -n mesh get pods -w'],
       ['advanced', ['a-cpu', 'a-unix'], 'git clone ', 'kubectl -n mesh get pods -w'],
       ['professional', ['p-cloud'], 'helm install mesh ', 'values-cloud.yaml'],
       ['professional', ['p-onprem'], 'helm install mesh ', 'values-onprem.yaml'],
       ['professional', ['p-single'], 'helm install mesh ', '--set auth.host=auth.example.com'],
-      ['basic', ['b-one', 'b-docker', 'b-unix'], 'docker run -d --name mesh \\', 'docker logs mesh'],
+      ['basic', ['b-one', 'b-docker', 'b-unix'], 'docker run -d --name mesh --pull=always \\', 'docker logs mesh'],
     ]) {
       const name = `${level}/${choices.join('/')}`;
       await pick(`lvl-${level}`, ...choices);

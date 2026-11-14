@@ -17,7 +17,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 SITE = ROOT / "site"
-PAGES = ("index.html", "quickstart.html", "teams.html", "security.html")
+PAGES = ("index.html", "quickstart.html", "teams.html", "security.html", "coaching.html")
 # A link to a file of the site's, with or without a ?v= already: the path from the site's root.
 LINK = re.compile(r'(?P<path>/(?:styles\.css|site\.js|assets/screens/[A-Za-z0-9._-]+\.webp))(?:\?v=[0-9A-Za-z._-]+)?(?=["\s])')
 

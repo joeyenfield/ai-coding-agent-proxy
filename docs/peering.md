@@ -47,7 +47,7 @@ machine:server-b/globex/gpu-box
 
 ## Linking two servers
 
-Each server needs a **mesh id** first: **Server settings › Links**, or `AI_PROXY_MESH_ID`. It can't change once the server has links. Each server must also be reachable at its address (`AI_PROXY_MESH_URL`, else the public address) by the other while you link.
+Each server needs a **mesh id** first: **Server settings › Links**, or `AI_PROXY_MESH_ID`. It can't change once the server has links. Each server must also be reachable at its address by the other while you link. The address is `AI_PROXY_MESH_URL`, then the public URL (`AI_PROXY_PUBLIC_URL` or `proxy.public_url`), then the configured server URL (`AI_PROXY_URL` or `proxy.url`), in that order.
 
 1. Both site admins open **Server settings › Links** and choose **New link code**. Each code works once, for an hour. The page shows this server's mesh id and **fingerprint**.
 2. Give each other the codes, and read each other the fingerprints (on a call, in a chat).

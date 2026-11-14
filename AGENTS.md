@@ -123,7 +123,7 @@ agent-auth                               # the OIDC issuer on 127.0.0.1:10000
 python devhelpers/scripts/screenshots/demo.py       # self-contained demo on :8199 for visual checks (--capture [names] takes screenshots and stops; --stop stops a leftover)
 node devhelpers/scripts/screenshots/capture.mjs <url> docs/screenshots [names]   # screenshots of any running console
 cd deploy/compose/server && docker compose up -d   # PostgreSQL, agent-auth and the server from ghcr.io (needs Docker: not on this machine)
-cd deploy/compose/quickstart && podman compose up -d   # the quickstart, from the published images (deploy/README.md)
+cd deploy/compose/quickstart && podman compose up -d --pull always   # the quickstart, from the published images (deploy/README.md)
 cd devhelpers/basic && podman compose up -d --build     # the same stack built from this checkout, to try changes (devhelpers/README.md)
 cd devhelpers/testdata && podman compose up -d --build  # test data: three organizations, people, a machine with Ollama and an MCP server each (console :49999, issuer :50000)
 cd deploy/compose/peer && podman compose up -d && python3 setup.py   # two linked servers, bridged (peering: docs/peering.md)

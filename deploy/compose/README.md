@@ -1,7 +1,7 @@
 # Compose
 
 Each folder here is a Compose project that runs the **published images** (`latest` unless
-`AI_PROXY_IMAGE_TAG` names another). Run `podman compose up -d` (or `docker compose up -d`) from
+`AI_PROXY_IMAGE_TAG` names another). Run `podman compose up -d --pull always` (or `docker compose up -d --pull always`) from
 the folder. To run this checkout's code instead, use the same stack in
 [`devhelpers/`](../../devhelpers/README.md), which builds it from source.
 

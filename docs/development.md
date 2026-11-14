@@ -244,3 +244,5 @@ A server with no price table of its own uses the new prices once it runs that ve
 - **Don't write backslash escapes through shell heredocs**; the tooling mangles them. Use an editor.
 - **Line endings.** Working copies use CRLF (`core.autocrlf=true`); keep a file's existing endings.
 - **Commit messages** are a short one-line summary.
+
+Published-image quickstart commands use `run --pull=always` for Docker/Podman containers and `compose up -d --pull always` for Compose, including CPU, GPU and PowerShell variants. This checks for the newest image at the configured tag; mesh images default to the last promoted `latest` build. From-source `--build` examples keep their existing behavior. The Kubernetes quickstart already sets the server image pull policy to `Always`.

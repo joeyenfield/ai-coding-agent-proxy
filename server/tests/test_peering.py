@@ -21,8 +21,31 @@ from agent_server.config import Backend, Settings, serves
 from agent_server.db import sqlite_url
 from agent_server.links import KINDS, Links, Refused, canonical, link_id
 
-from oidc_helpers import access_token
+from oidc_helpers import access_token, authenticated_client
 from test_client import free_port, serve
+
+
+# Advertised server address
+
+
+@pytest.mark.parametrize(("mesh_url", "public_url", "expected"), [
+    (None, None, "http://localhost:19999"),
+    (None, "https://console.example/", "https://console.example"),
+    ("https://mesh.example/", "https://console.example/", "https://mesh.example"),
+])
+def test_links_advertise_configured_server_url(tmp_path, monkeypatch, mesh_url, public_url, expected):
+    monkeypatch.delenv("AI_PROXY_MESH_ID", raising=False)
+    monkeypatch.delenv("AI_PROXY_MESH_URL", raising=False)
+    if mesh_url is not None:
+        monkeypatch.setenv("AI_PROXY_MESH_URL", mesh_url)
+    app = create_app(Settings(log_dir=tmp_path, proxy_url="http://localhost:19999/", public_url=public_url))
+    with authenticated_client(app) as client:
+        response = client.get("/api/links")
+        assert response.status_code == 200
+        assert response.json()["mesh"]["url"] == expected
+        assert response.json()["links"] == []
+        assert client.put("/api/links/mesh", json={"id": "quickstart-test"}).status_code == 200
+        assert client.get("/.well-known/mesh-link").json()["url"] == expected
 
 
 # Names

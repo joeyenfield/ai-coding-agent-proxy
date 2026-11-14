@@ -36,7 +36,7 @@ const password = process.env.QUICKSTART_ADMIN_PASSWORD ?? "secret";
 // Small enough to answer in seconds on a CPU, and it can call tools.
 const model = process.env.QUICKSTART_MODEL ?? "qwen3:1.7b";
 const out = process.argv[2] ?? "docs/screenshots";
-const question = "What model are you?";
+const question = "What model are you? Answer in one sentence without tools. /no_think";
 
 const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1.5, colorScheme: "light" });
@@ -147,6 +147,8 @@ try {
     await result.getByRole("button", { name: `Pull ${model.split(":")[1]}` }).click();
     await until(hasModel, "the model", 900);
   }
+  // Pulling can replace the provider view while its progress dialog closes.
+  await page.goto(`${base}/machines/${machine.id}/providers/ollama/ollama-11434`, { waitUntil: "networkidle" });
   await page.getByRole("tab", { name: /^Models/ }).click();
   await page.locator("td, .model-name, strong", { hasText: model }).first().waitFor({ timeout: 60000 });
   await shot("pulled");
@@ -156,6 +158,7 @@ try {
   const modelSelect = page.locator("select").filter({ has: page.locator("option", { hasText: model }) });
   await modelSelect.waitFor({ timeout: 60000 });
   await modelSelect.selectOption(model);
+  await page.getByLabel("Capture full request and response payloads").check();
   await shot("start-agent", { fullPage: true });
   await page.getByRole("button", { name: `Start on ${machine.name}` }).click();
   await page.waitForURL(/\/terminals\//, { timeout: 60000 });
@@ -175,8 +178,23 @@ try {
   await page.waitForTimeout(6000);
   await shot("answer");
 
-  // What was recorded: the session's requests.
-  await page.goto(`${base}/requests`, { waitUntil: "networkidle" });
+  // Show a captured model call from this run, not an empty inspector or unrelated history.
+  const recorded = await api(`/api/requests?session_id=${encodeURIComponent(session)}`);
+  // The earliest completed call is the answer; later calls may be background memory work.
+  const captured = recorded.findLast((item) => item.trace_available && item.status === 200 && !item.error_type && item.output_tokens > 0);
+  if (!captured) throw new Error("No successful model call with a captured payload for this session");
+  const query = new URLSearchParams({ session, request: `${session}:${captured.request_id}` });
+  await page.goto(`${base}/requests?${query}`, { waitUntil: "networkidle" });
+  const inspector = page.locator("section.inspector");
+  await inspector.getByRole("tab", { name: "Conversation", exact: true }).waitFor();
+  await inspector.getByRole("button", { name: "Full screen", exact: true }).click();
+  await page.locator("dialog[open] .conversation .turn-user").first().waitFor();
+  for (const system of await page.locator("dialog[open] .turn-system details[open]").all()) {
+    await system.locator("summary").click();
+  }
+  await page.setViewportSize({ width: 1100, height: 600 });
+  // Agent-added context can precede the task in a long user message. Show its end and the reply.
+  await page.locator("dialog[open] .payload-area").evaluate((area) => { area.scrollTop = area.scrollHeight; });
   await shot("requests");
 } finally {
   await browser.close();

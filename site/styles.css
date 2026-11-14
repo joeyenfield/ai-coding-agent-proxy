@@ -495,3 +495,133 @@ h1, h2 { letter-spacing: -.03em; }
   .pillars { grid-template-columns: 1fr; padding-bottom: 48px; }
   .quickstart-teaser { padding: 28px 20px; margin-bottom: 48px; }
 }
+
+/* Marketing layout: compact chapters, consistent surfaces and a product gallery. */
+:root { --bg: #0e1420; --surface: #151e2d; --line: #344156; --muted: #b5c0d1; }
+body { background: radial-gradient(900px 500px at 85% 0, #34346a40, transparent 70%), var(--bg); }
+.wrap { width: min(1240px, calc(100% - 64px)); }
+.site-header { min-height: 76px; background: #0e1420f2; }
+.site-header nav { gap: 17px; }
+.section { padding-block: 44px; }
+.eyebrow { margin-bottom: 14px; font-size: 11px; }
+h2 { font-size: clamp(28px, 3vw, 38px); }
+.section-heading { margin-bottom: 26px; }
+.section-heading > p:last-child { margin-top: 14px; }
+.split-heading { gap: 36px; grid-template-columns: 1.1fr 1fr; }
+.hero { padding-block: 36px 32px; gap: 36px; grid-template-columns: 1fr 1.1fr; }
+.hero h1 { font-size: clamp(38px, 4vw, 56px); letter-spacing: -.045em; }
+.hero-lede { font-size: 17px; line-height: 1.65; margin-top: 20px; }
+.hero .actions { margin-top: 22px; }
+.hero-note { font-size: 12px; margin-top: 14px; }
+.hero-product { box-shadow: 0 12px 40px #0004; border-color: #4a5974; }
+.agent-chips { margin-top: 16px; }
+.pillars { gap: 0; padding-block: 0 32px; }
+.pillars article { border-radius: 0; padding: 20px; border-right: 0; background: #151e2d; }
+.pillars article:first-child { border-radius: 10px 0 0 10px; }
+.pillars article:last-child { border-right: 1px solid var(--line); border-radius: 0 10px 10px 0; }
+.pillars article:hover { transform: none; border-color: var(--line); background: #1b2638; }
+.pillar-icon { width: 32px; height: 32px; padding: 6px; margin-bottom: 12px; }
+.pillars h2 { font-size: 18px; }
+.pillars p { font-size: 13px; }
+.how-steps { gap: 24px; margin-bottom: 24px; }
+.architecture-details { background: var(--surface); }
+.architecture-details summary { display: flex; justify-content: space-between; font-size: 14px; padding: 14px 20px; }
+.architecture-details .architecture-figure { padding: 20px; }
+.architecture-section .text-link { margin-top: 10px; }
+.term-grid { gap: 16px; }
+.term-card figcaption { font-size: 12px; padding: 10px 14px; }
+.term-shot { height: 190px; overflow: hidden; }
+.term-shot img { height: 100%; object-fit: cover; object-position: left top; }
+.term-shot[href*="real-qwen"] img { object-position: left 65%; }
+.term-shot[href*="real-copilot"] img { object-position: left bottom; }
+.any-grid { gap: 24px; margin-top: 24px; }
+.any-grid article, .trust-grid article { padding-top: 16px; border-top: 1px solid var(--line); }
+.any-grid h3, .trust-grid h3 { font-size: 18px; margin-bottom: 10px; }
+.any-grid p, .trust-grid p { margin-bottom: 10px; }
+.coaching-layout { display: grid; grid-template-columns: 1.45fr 1fr; gap: 30px; align-items: start; }
+.coaching-layout .detail-grid { gap: 20px 24px; }
+.coaching-layout .detail-grid article { padding-top: 16px; }
+.coaching-layout h3 { font-size: 18px; margin-bottom: 10px; }
+.coaching-layout p { font-size: 14px; line-height: 1.65; }
+.coaching-preview { overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: #0e1420; }
+.coaching-preview > a { display: block; height: 330px; overflow: hidden; }
+.coaching-preview img { width: 100%; height: 100%; object-fit: cover; object-position: center 20%; }
+.coaching-preview figcaption { padding: 12px 16px; font-size: 12px; color: var(--muted); }
+.coaching-preview figcaption a { color: var(--mint); display: inline-flex; min-height: 44px; align-items: center; }
+.callout { margin-top: 20px; }
+.tinted .section-note { margin-top: 20px; }
+.product-gallery { grid-template-columns: 1fr 1fr; gap: 20px; }
+.product-gallery .shot, .product-gallery .shot:nth-child(even) { display: flex; flex-direction: column; gap: 0; align-items: stretch; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); overflow: hidden; }
+.product-gallery .shot .shot-frame { order: 0; height: 260px; width: 100%; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; box-shadow: none; overflow: hidden; }
+.product-gallery .shot-frame:hover { transform: none; }
+.product-gallery .shot-frame img { width: 100%; height: 100%; object-fit: cover; object-position: top; }
+.product-gallery .shot-frame[href*="analytics.png"] img { object-position: center 45%; }
+.product-gallery .shot-frame[href*="session-chat.png"] img { object-position: center 25%; }
+.product-gallery .shot-frame[href*="machine-mcp.png"] img { object-position: center 30%; }
+.product-gallery .shot-phone .shot-frame { background: #0c111b; }
+.product-gallery .shot-phone .shot-frame img { object-fit: contain; }
+.product-gallery .shot figcaption { padding: 20px 24px; }
+.product-gallery .figure-number { display: inline-block; margin-bottom: 8px; font-size: 11px; }
+.product-gallery .shot h3 { font-size: 21px; margin-bottom: 10px; }
+.product-gallery .shot p, .product-gallery .shot ul { font-size: 14px; }
+.product-gallery .shot ul { margin-top: 10px; }
+.product-gallery .gallery-lead { grid-column: 1 / -1; display: grid; grid-template-columns: 1.25fr 1fr; align-items: center; }
+.product-gallery .gallery-lead .shot-frame { height: 340px; border-bottom: 0; border-right: 1px solid var(--line); }
+.runs-grid { gap: 16px; }
+.runs-grid article { padding: 20px; }
+.trust-grid { gap: 24px; }
+.contribute { margin-top: 24px; padding-block: 16px; }
+.quickstart-teaser { padding: 30px; margin-block: 16px 32px; border-radius: 12px; gap: 32px; }
+.site-footer { gap: 32px; padding-block: 24px; }
+.page-intro { padding-block: 40px 28px; }
+.detail-page .detail-grid { gap: 24px 32px; }
+@media (max-width: 1100px) {
+  .site-header nav { gap: 12px; font-size: 12px; }
+  .site-header .brand { font-size: 17px; }
+  .term-grid { grid-template-columns: repeat(3, minmax(0,1fr)); }
+  .term-card:last-child { grid-column: auto; }
+  .coaching-layout { grid-template-columns: 1.3fr 1fr; gap: 20px; }
+  .coaching-layout .detail-grid { grid-template-columns: 1fr; }
+  .coaching-preview > a { height: 460px; }
+}
+@media (max-width: 850px) {
+  .hero { grid-template-columns: 1fr; gap: 24px; padding-block: 28px; }
+  .hero-product { max-width: none; }
+  .hero h1 { font-size: clamp(36px, 6.5vw, 52px); }
+  .split-heading { grid-template-columns: 1fr; gap: 0; }
+  .coaching-layout { grid-template-columns: 1fr; }
+  .coaching-layout .detail-grid { grid-template-columns: 1fr 1fr; }
+  .coaching-preview > a { height: 300px; }
+  .product-gallery .gallery-lead { display: flex; }
+  .product-gallery .gallery-lead .shot-frame { height: 260px; border-right: 0; }
+  .any-grid { gap: 18px; }
+}
+@media (max-width: 550px) {
+  .wrap { width: calc(100% - 32px); }
+  .section { padding-block: 32px; }
+  .site-header { min-height: 72px; padding-block: 12px; }
+  .site-header .brand { font-size: 15px; }
+  .hero h1 { font-size: 36px; }
+  .hero-lede { font-size: 16px; }
+  .pillars { grid-template-columns: 1fr 1fr; padding-bottom: 24px; }
+  .pillars article, .pillars article:first-child, .pillars article:last-child { border-radius: 0; padding: 16px; border: 1px solid var(--line); }
+  .pillars h2 { font-size: 16px; }
+  .pillars a { font-size: 12px; }
+  .term-grid, .product-gallery, .coaching-layout .detail-grid { grid-template-columns: 1fr; }
+  .product-gallery .shot .shot-frame { height: 230px; }
+  .product-gallery .shot figcaption { padding: 18px; }
+  .quickstart-teaser { padding: 24px 20px; }
+  .section-heading { margin-bottom: 22px; }
+  .page-intro h1 { font-size: 34px; }
+}
+
+.coaching-evidence { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.coaching-evidence figure { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--surface); }
+.coaching-evidence figure > a { display: block; height: 390px; overflow: hidden; }
+.coaching-evidence img { height: 100%; object-fit: cover; object-position: top; }
+.coaching-evidence .review-top img { object-position: center 22%; }
+.coaching-evidence .review-bottom img { object-position: bottom; }
+.coaching-evidence figcaption { padding: 16px 20px; }
+.coaching-evidence figcaption p { font-size: 12px; margin-top: 6px; }
+.coaching-evidence figcaption a { display: inline-flex; min-height: 44px; align-items: center; color: var(--mint); }
+@media (max-width: 550px) { .coaching-evidence { grid-template-columns: 1fr; } .coaching-evidence figure > a { height: 320px; } }

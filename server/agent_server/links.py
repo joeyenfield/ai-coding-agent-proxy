@@ -325,7 +325,7 @@ class Links:
     def url(self) -> str:
         import os
 
-        return (os.getenv("AI_PROXY_MESH_URL") or self.settings.public_url or self.settings.url or "").rstrip("/")
+        return (os.getenv("AI_PROXY_MESH_URL") or self.settings.public_url or self.settings.proxy_url or "").rstrip("/")
 
     def well_known(self) -> dict[str, Any]:
         keys = self.keys.public()

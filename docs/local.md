@@ -47,7 +47,7 @@ The installer only trusts the SHA-256 of each download that was written into it 
 With Docker or Podman, one container holds the whole system: the server, sign-in and console, and a machine of its own fleet with the coding agents installed and Ollama to start from the console.
 
 ```bash
-docker run -d --name mesh -p 127.0.0.1:19999:19999 -p 127.0.0.1:20000:20000 \
+docker run -d --name mesh --pull=always -p 127.0.0.1:19999:19999 -p 127.0.0.1:20000:20000 \
   -v mesh-data:/data -v mesh-home:/home/agent -v mesh-workspace:/workspace \
   ghcr.io/joeyenfield/ai-control-mesh
 docker logs mesh

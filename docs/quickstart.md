@@ -46,7 +46,7 @@ You need:
 From the repository root:
 
 ```bash
-podman compose -f deploy/compose/quickstart/compose.yaml up -d
+podman compose -f deploy/compose/quickstart/compose.yaml up -d --pull always
 podman compose -f deploy/compose/quickstart/compose.yaml ps      # all six services say healthy (the machines take half a minute longer)
 ```
 
@@ -54,12 +54,12 @@ podman compose -f deploy/compose/quickstart/compose.yaml ps      # all six servi
 
 ```bash
 curl -fsSLO https://raw.githubusercontent.com/joeyenfield/ai-control-mesh/master/deploy/compose/quickstart/compose.yaml
-podman compose up -d
+podman compose up -d --pull always
 ```
 
 The commands on this page then work without their `-f deploy/compose/quickstart/compose.yaml`, from that folder. The GPU file is a second download from the same place (`compose.gpu.yaml`). This needs images newer than 2.1.57, which `latest` is.
 
-The first start downloads about 1 GB of images, most of it the machines' coding agents, so it takes a few minutes. Later starts take seconds.
+The first start downloads about 1 GB of images, most of it the machines' coding agents, so it takes a few minutes. Later starts check for newer images with `--pull always` and reuse layers already downloaded. By default, the mesh images use `latest`; a tag set with `AI_PROXY_IMAGE_TAG` is respected.
 
 - **Another version.** The images use the last promoted build (`latest`). Set `AI_PROXY_IMAGE_TAG` to a release (`2.1.20`) or a locally published snapshot (`snapshot-<timestamp>-g<commit>`, built with both server and sandbox), in your shell or a `.env` file beside `deploy/compose/quickstart/compose.yaml`.
 - **Your own changes.** `devhelpers/basic` is the same stack built from your checkout: the server, the console, the Go programs and the coding agents. Run `podman compose up -d --build` in that folder instead (the first build takes several minutes), and stop this one first: they use the same ports. See [Developer helpers](../devhelpers/README.md).
@@ -112,7 +112,7 @@ The download shows its progress at the top of the tab. When it's done, the model
 
 ### 5. Start Qwen Code on machine-1
 
-Choose **Start an agent** (at the top of machine-1's page, or in the menu). Pick **machine-1** under **Where should it run?** and **Qwen Code** under **Which agent?**. **Own provider** is already **machine-1**, the folder is `/workspace`, and the model is the one you pulled. Choose **Start on machine-1**. (**Capture full request and response payloads** keeps the whole conversation; tick it to read it back afterwards.)
+Choose **Start an agent** (at the top of machine-1's page, or in the menu). Pick **machine-1** under **Where should it run?** and **Qwen Code** under **Which agent?**. **Own provider** is already **machine-1**, the folder is `/workspace`, and the model is the one you pulled. Enable **Capture full request and response payloads**, then choose **Start on machine-1**. Capture must be on before a request is made to inspect its payload afterwards.
 
 ![Start an agent: machine-1, Qwen Code, provider machine-1, model qwen3:1.7b](screenshots/quickstart-09-start-agent.png)
 
@@ -124,15 +124,15 @@ The agent starts on machine-1 in a terminal it shares with the server, and the c
 
 Type *What model are you?* in **Message for the agent** and choose **Send**. The keys underneath answer the agent's menus and prompts (Esc, Enter, the arrows, y and n), and when it asks you something, a banner shows the question on every page.
 
-The first answer takes longest: Ollama loads the model into memory on the first request, which on a CPU can take a minute or two. Here Qwen Code thought for 44 seconds and then answered.
+The first answer takes longest: Ollama loads the model into memory on the first request, which on a CPU can take a minute or two. Timing varies with the model, context size and hardware.
 
 ![Qwen Code's answer to "What model are you?", on qwen3:1.7b](screenshots/quickstart-11-answer.png)
 
 ### 7. See what it sent
 
-Open **Requests**. Every request the agent made is there, with the model, the provider, the time it took and the tokens it produced. Select one for the full request, the reply and the exact payload the server sent to Ollama. One question can take several requests: agents also ask the model for titles, summaries and the next step. The first one here says **Client hung up**: Qwen Code gave up waiting while Ollama loaded the model, and asked again.
+Open **Requests**. Every request the agent made is there, with the model, the provider, the time it took and the tokens it produced. Select a successful captured call, then choose **Full screen**. **Conversation** shows the prompt and reply; **Request** shows the request JSON and **Sent to Ollama** shows the translated upstream payload when available. One question can take several requests: agents also ask the model for titles, summaries and the next step. The inspector example below comes from the one-container demo; the controls are the same in the Compose stack.
 
-![Request history: five qwen3:1.7b requests from Qwen Code on machine-1](screenshots/quickstart-12-requests.png)
+![Example: a captured Qwen Code request with its prompt and reply open in the inspector](screenshots/quickstart-12-requests.png)
 
 From here:
 
@@ -155,8 +155,8 @@ Then try the rest:
 
 ```bash
 podman compose -f deploy/compose/quickstart/compose.yaml stop          # stop, keeping everything
-podman compose -f deploy/compose/quickstart/compose.yaml up -d         # start again
-podman compose -f deploy/compose/quickstart/compose.yaml pull          # a newer release's images; then up -d, keeping everything
+podman compose -f deploy/compose/quickstart/compose.yaml up -d --pull always         # start again
+podman compose -f deploy/compose/quickstart/compose.yaml pull          # a newer release's images; then up -d --pull always, keeping everything
 podman compose -f deploy/compose/quickstart/compose.yaml logs -f server auth machine-1
 podman compose -f deploy/compose/quickstart/compose.yaml down -v       # delete ALL of it, models and workspaces included
 ```
