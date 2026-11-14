@@ -83,7 +83,7 @@ install_termux() {
     say "This uses PRoot-Distro, not Docker or Podman. Keep this Termux session open."
     command -v pkg >/dev/null 2>&1 || fail "Termux needs pkg on PATH"
     pkg install -y proot-distro curl || fail "run pkg update, then retry installing proot-distro and curl"
-    proot-distro kill --help >/dev/null 2>&1 || fail "update proot-distro with pkg upgrade proot-distro, then retry"
+    proot-distro install --help >/dev/null 2>&1 || fail "couldn't run proot-distro; check proot-distro install --help"
     state="${XDG_DATA_HOME:-$HOME/.local/share}/ai-control-mesh-termux"
     mkdir -p "$state/home" "$state/bin"
     chmod 700 "$state" "$state/home"
@@ -126,8 +126,17 @@ if [ -s /root/.config/agent-machine/credentials.json ]; then
     agent-machine start </dev/null || printf 'Start or sign in the machine from mesh-termux shell.\n'
 fi
 printf 'Full server running. Keep this session open; Ctrl+C stops it.\n'
-while :; do sleep 60; done
+while agent-server local status >/dev/null 2>&1; do sleep 2; done
 TERMUX_SESSION
+    cat > "$state/home/.mesh-termux-stop.sh" <<'TERMUX_STOP'
+#!/bin/sh
+set -eu
+prefix=$(cat /root/.mesh-termux-prefix)
+export PATH="$prefix:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+agent-machine stop >/dev/null 2>&1 || true
+agent proxy stop >/dev/null 2>&1 || true
+agent-server local stop
+TERMUX_STOP
     cat > "$state/bin/mesh-termux" <<'TERMUX_CONTROL'
 #!/bin/sh
 set -eu
@@ -136,12 +145,12 @@ state=$(dirname "$(dirname "$(readlink -f "$0")")")
 case "${1:-start}" in
     start) exec proot-distro login ai-control-mesh --bind "$state/home:/root" -- /bin/sh /root/.mesh-termux-session.sh ;;
     status) exec proot-distro login ai-control-mesh --bind "$state/home:/root" -- /bin/sh -c 'prefix=$(cat /root/.mesh-termux-prefix); exec "$prefix/agent-server" local status' ;;
-    stop) exec proot-distro kill ai-control-mesh ;;
+    stop) exec proot-distro login ai-control-mesh --bind "$state/home:/root" -- /bin/sh /root/.mesh-termux-stop.sh ;;
     shell) exec proot-distro login ai-control-mesh --bind "$state/home:/root" ;;
     *) printf 'Usage: mesh-termux [start|stop|status|shell]\n' >&2; exit 2 ;;
 esac
 TERMUX_CONTROL
-    chmod 700 "$state/bin/mesh-termux" "$state/home/.mesh-termux-install.sh" "$state/home/.mesh-termux-session.sh"
+    chmod 700 "$state/bin/mesh-termux" "$state/home/.mesh-termux-install.sh" "$state/home/.mesh-termux-session.sh" "$state/home/.mesh-termux-stop.sh"
     ln -sf "$state/bin/mesh-termux" "$PREFIX/bin/mesh-termux"
     # These programs run inside Ubuntu. Use the portable clients and omit an Android tray.
     set -- --python --no-tray $ports

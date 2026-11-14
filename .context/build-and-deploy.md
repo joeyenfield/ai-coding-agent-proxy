@@ -74,6 +74,8 @@ The shared `deploy/compose/quickstart/start.py` server wrapper calls `configure_
 
 ## Scripts (`.sh`/`.ps1` pairs; change both)
 
+The Termux branch is Unix-only; its PowerShell twin has no PRoot flow. Probe `proot-distro install --help`, never `kill`: PRoot-Distro 5.3.0 has no `kill` command. The generated `.mesh-termux-stop.sh` uses the machine, proxy and local server stop commands inside Ubuntu. The foreground session polls local status and exits after shutdown; unrelated guest shells stay open.
+
 The release's `install-local.sh` detects native Termux by its prefix and shell path, before platform selection or Python dependency installation. A separate flow provisions the dedicated `ai-control-mesh` Ubuntu 24.04 guest through current PRoot-Distro, binds a private Termux data folder as its home, and invokes the same version's installer there with Python clients and no tray. Inherited Termux variables alone never trigger this inside a guest. `mesh-termux` manages foreground start, status, shell and stopping the guest's process tree. Generated guest scripts preserve installer options and reuse the private home on update. `server/tests/test_release.py` covers dispatch, guest failure, options, script parsing and lifecycle commands. Real Android execution remains experimental pending device validation; `docs/local.md` records the limits and storage paths.
 
 - `build-client`, `build-machine` (into `client/bin`, `machine/bin`), `build-dist` (wraps `tools/dist`; `PACKAGES=1` / `-Packages`), `agent` (build and run), `dev` (API with reload + Vite).

@@ -134,6 +134,8 @@ def test_termux_uses_a_separate_guest_and_preserves_installer_options(tmp_path, 
         "proot-distro": r'''printf 'proot:' >> "$RECORD"
 printf '<%s>' "$@" >> "$RECORD"
 printf '\n' >> "$RECORD"
+if [ "$1" = kill ]; then printf 'unknown command kill\n' >&2; exit 1; fi
+if [ "$1" = install ] && [ "${2:-}" = --help ]; then exit 0; fi
 if [ "$1" = login ] && [ "${4:-}" = /bin/true ]; then [ "${GUEST_EXISTS:-0}" = 1 ]; exit; fi
 if [ "$1" = install ] && [ "${FAIL_GUEST:-0}" = 1 ]; then exit 7; fi
 ''',
@@ -171,7 +173,57 @@ if [ "$1" = install ] && [ "${FAIL_GUEST:-0}" = 1 ]; then exit 7; fi
     control = prefix / "bin/mesh-termux"
     for mode in ("start", "status", "stop", "shell"):
         assert subprocess.run([str(control), mode], env=env, capture_output=True, timeout=10).returncode == 0
-    assert "<kill><ai-control-mesh>" in record.read_text()
+    assert "<kill>" not in record.read_text()
+    assert "</bin/sh></root/.mesh-termux-stop.sh>" in record.read_text()
+    stop_script = (state / "home/.mesh-termux-stop.sh").read_text()
+    # A missing optional client must not prevent the server from stopping.
+    fake_programs = tmp_path / "guest-bin"
+    fake_programs.mkdir()
+    for name in ("agent-machine", "agent", "agent-server"):
+        program = fake_programs / name
+        program.write_text(f'#!/bin/sh\nprintf "{name}:%s\\n" "$*" >> "$RECORD"\n'
+                           + ("exit 0\n" if name == "agent-server" else "exit 1\n"))
+        program.chmod(0o755)
+    guest_stop = stop_script.replace('prefix=$(cat /root/.mesh-termux-prefix)', f"prefix='{fake_programs}'")
+    stopped = subprocess.run(["sh"], input=guest_stop.encode(), env=env, capture_output=True, timeout=10)
+    assert stopped.returncode == 0, stopped.stderr.decode()
+    assert record.read_text().endswith("agent-machine:stop\nagent:proxy stop\nagent-server:local stop\n")
+    assert "while agent-server local status" in (state / "home/.mesh-termux-session.sh").read_text()
+    # Run the generated Ubuntu bootstrap too: packages, downloaded installer and
+    # foreground startup must all happen without asking for manual guest commands.
+    apt = fake_programs / "apt-get"
+    apt.write_text('#!/bin/sh\nprintf "apt:%s\\n" "$*" >> "$RECORD"\n')
+    apt.chmod(0o755)
+    curl = fake_programs / "curl"
+    curl.write_text('''#!/bin/sh
+printf 'curl:%s\\n' "$*" >> "$RECORD"
+cat > "$4" <<'INSTALLER'
+printf 'installer:%s\\n' "$*" >> "$RECORD"
+INSTALLER
+''')
+    curl.chmod(0o755)
+    guest_home = state / "home"
+    bootstrap = (guest_home / ".mesh-termux-install.sh").read_text().replace(
+        "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        f'PATH="{fake_programs}:/usr/bin:/bin"',
+    ).replace("/root/.mesh-termux-session.sh", f"'{guest_home / '.mesh-termux-session.sh'}'")
+    session = (guest_home / ".mesh-termux-session.sh").read_text().replace(
+        "/root/.mesh-termux-prefix", f"'{guest_home / '.mesh-termux-prefix'}'",
+    )
+    (guest_home / ".mesh-termux-prefix").write_text(str(fake_programs))
+    (guest_home / ".mesh-termux-session.sh").write_text(session)
+    # A stopped server lets the foreground supervisor exit and run cleanup.
+    (fake_programs / "agent-server").write_text(
+        '#!/bin/sh\nprintf "agent-server:%s\\n" "$*" >> "$RECORD"\n'
+        '[ "$*" != "local status" ]\n',
+    )
+    booted = subprocess.run(["sh", "-s", "--", f"{BASE}/install-local.sh", "--python", "--no-tray"],
+                            input=bootstrap.encode(), env=env, capture_output=True, timeout=10)
+    assert booted.returncode == 0, booted.stderr.decode()
+    calls = record.read_text()
+    assert "apt:update\napt:install -y ca-certificates curl python3 python3-venv\n" in calls
+    assert "installer:--python --no-tray\nagent-server:local start\n" in calls
+    assert calls.endswith("agent-server:local status\nagent-machine:stop\nagent:proxy stop\nagent-server:local stop\n")
     assert subprocess.run([str(control), "unknown"], env=env, capture_output=True).returncode == 2
 
 
