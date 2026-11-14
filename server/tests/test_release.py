@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import os
 import shutil
 import subprocess
 import sys
@@ -116,6 +117,80 @@ def test_the_filled_in_sh_installer_parses(tmp_path):
     for name, option in (("install-local.sh", "--no-client"), ("uninstall-local.sh", "--purge")):
         piped = subprocess.run(["sh", "-s", "--", "--help"], input=(out / name).read_bytes(), capture_output=True)
         assert piped.returncode == 0 and option in piped.stdout.decode()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Termux bootstrap needs POSIX shell paths")
+@pytest.mark.parametrize(("guest_exists", "fail_guest"), [(False, False), (True, False), (False, True)])
+def test_termux_uses_a_separate_guest_and_preserves_installer_options(tmp_path, guest_exists, fail_guest):
+    """Native Termux never starts the normal pip flow, and guest failure stops bootstrap."""
+    out = tmp_path / "out"
+    release.make(VERSION, BASE, built(tmp_path), out, checkout(tmp_path))
+    prefix = tmp_path / "Termux prefix"
+    (prefix / "bin").mkdir(parents=True)
+    (prefix / "bin" / "sh").symlink_to(shutil.which("sh"))
+    record = tmp_path / "commands"
+    for name, body in {
+        "pkg": 'printf "pkg:%s\\n" "$*" >> "$RECORD"\n',
+        "proot-distro": r'''printf 'proot:' >> "$RECORD"
+printf '<%s>' "$@" >> "$RECORD"
+printf '\n' >> "$RECORD"
+if [ "$1" = login ] && [ "${4:-}" = /bin/true ]; then [ "${GUEST_EXISTS:-0}" = 1 ]; exit; fi
+if [ "$1" = install ] && [ "${FAIL_GUEST:-0}" = 1 ]; then exit 7; fi
+''',
+    }.items():
+        program = prefix / "bin" / name
+        program.write_text("#!/bin/sh\n" + body, encoding="utf-8")
+        program.chmod(0o755)
+    data = tmp_path / "private data"
+    saved = data / "ai-control-mesh-termux/home/recordings.db"
+    saved.parent.mkdir(parents=True)
+    saved.write_text("existing data")
+    env = {**os.environ, "PREFIX": str(prefix), "TERMUX_VERSION": "test", "RECORD": str(record),
+           "PATH": str(prefix / "bin") + os.pathsep + os.environ["PATH"], "XDG_DATA_HOME": str(data),
+           "FAIL_GUEST": "1" if fail_guest else "0", "GUEST_EXISTS": "1" if guest_exists else "0"}
+    script = (out / "install-local.sh").read_bytes()
+    result = subprocess.run([shutil.which("sh"), "-s", "--", "--port", "35991", "--auth-port", "35992",
+                             "--prefix", "/opt/mesh bin", "--no-client", "--no-login"],
+                            input=script, env=env, capture_output=True, timeout=20)
+    calls = record.read_text()
+    assert "Termux detected" in result.stdout.decode()
+    assert "pkg:install -y proot-distro curl" in calls
+    assert ("<install><ubuntu:24.04><--name><ai-control-mesh>" in calls) is not guest_exists
+    assert saved.read_text() == "existing data"
+    if fail_guest:
+        assert result.returncode != 0 and "couldn't install Ubuntu" in result.stderr.decode()
+        assert ".mesh-termux-install.sh" not in calls
+        return
+    assert result.returncode == 0, result.stderr.decode()
+    assert f"<{BASE}/install-local.sh><--python><--no-tray><--port><35991><--auth-port><35992><--prefix></opt/mesh bin><--no-client><--no-login>" in calls
+    state = data / "ai-control-mesh-termux"
+    assert (state.stat().st_mode & 0o777) == 0o700
+    assert (state / "home/.mesh-termux-prefix").read_text().strip() == "/opt/mesh bin"
+    for generated in [state / "bin/mesh-termux", *list((state / "home").glob("*.sh")), *list((state / "home").glob(".*.sh"))]:
+        assert subprocess.run(["sh", "-n", str(generated)], capture_output=True).returncode == 0
+    control = prefix / "bin/mesh-termux"
+    for mode in ("start", "status", "stop", "shell"):
+        assert subprocess.run([str(control), mode], env=env, capture_output=True, timeout=10).returncode == 0
+    assert "<kill><ai-control-mesh>" in record.read_text()
+    assert subprocess.run([str(control), "unknown"], env=env, capture_output=True).returncode == 2
+
+
+@pytest.mark.skipif(shutil.which("sh") is None, reason="needs sh")
+def test_guest_termux_variables_do_not_reenter_bootstrap(tmp_path):
+    out = tmp_path / "out"
+    release.make(VERSION, BASE, built(tmp_path), out, checkout(tmp_path))
+    # An Ubuntu guest may inherit Termux's variables, but its shell is /bin/sh.
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    curl = fake_bin / "curl"
+    curl.write_text("#!/bin/sh\nprintf 'ordinary-flow\\n' >&2\nexit 97\n", encoding="utf-8")
+    curl.chmod(0o755)
+    env = {**os.environ, "TERMUX_VERSION": "test", "PREFIX": "/data/data/com.termux/files/usr",
+           "PATH": str(fake_bin) + os.pathsep + os.environ["PATH"], "AI_PROXY_LOCAL_HOME": str(tmp_path / "instance")}
+    result = subprocess.run(["sh", "-s", "--", "--no-client", "--no-login"], input=(out / "install-local.sh").read_bytes(),
+                            env=env, capture_output=True, timeout=10)
+    assert result.returncode != 0 and b"ordinary-flow" in result.stderr
+    assert b"Termux detected" not in result.stdout
 
 
 def local_install(tmp_path: Path, kind: str) -> tuple[Path, Path, Path]:

@@ -18,6 +18,7 @@
 #
 # Needs Python 3.11 or later (with venv) and curl or wget. Run it again to update. Every
 # download is checked against the SHA-256 written into this script when the release was made.
+# Native Termux uses a separate Ubuntu/PRoot flow; see docs/local.md#android-with-termux.
 # devhelpers/release_scripts/release/release.py fills it in.
 set -eu
 
@@ -46,6 +47,8 @@ Installs AI Control Mesh on this computer, for you alone, and starts it (docs/lo
                             starts and stops it, opens the console, and starts at sign-in)
 
 Needs Python 3.11 or later (with venv) and curl or wget. Run it again to update.
+On Android, run from Termux: a separate Ubuntu environment installs the full server.
+It installs proot-distro and curl with pkg; Docker and Podman are not needed.
 Pass options through the pipe with: curl -fsSL <url>/install-local.sh | sh -s -- --port 29999
 USAGE
 }
@@ -74,6 +77,87 @@ done
 
 say() { printf '%s\n' "$*"; }
 fail() { printf 'install-local: %s\n' "$*" >&2; exit 1; }
+
+install_termux() {
+    say "Termux detected: installing the full server in its own Ubuntu environment."
+    say "This uses PRoot-Distro, not Docker or Podman. Keep this Termux session open."
+    command -v pkg >/dev/null 2>&1 || fail "Termux needs pkg on PATH"
+    pkg install -y proot-distro curl || fail "run pkg update, then retry installing proot-distro and curl"
+    proot-distro kill --help >/dev/null 2>&1 || fail "update proot-distro with pkg upgrade proot-distro, then retry"
+    state="${XDG_DATA_HOME:-$HOME/.local/share}/ai-control-mesh-termux"
+    mkdir -p "$state/home" "$state/bin"
+    chmod 700 "$state" "$state/home"
+    printf '%s\n' "${prefix:-/usr/local/bin}" > "$state/home/.mesh-termux-prefix"
+    # A dedicated guest avoids changing an Ubuntu environment the user already has.
+    if ! proot-distro login ai-control-mesh -- /bin/true >/dev/null 2>&1; then
+        proot-distro install ubuntu:24.04 --name ai-control-mesh || fail "couldn't install Ubuntu for AI Control Mesh"
+    fi
+    cat > "$state/home/.mesh-termux-install.sh" <<'TERMUX_INSTALL'
+#!/bin/sh
+set -eu
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y ca-certificates curl python3 python3-venv
+installer=$(mktemp)
+trap 'rm -f "$installer"' EXIT
+curl -fsSL "$1" -o "$installer"
+shift
+sh "$installer" "$@"
+rm -f "$installer"
+printf '\nFull server installed. Keep this Termux session open.\n'
+printf 'From another Termux session: mesh-termux status, stop, start or shell.\n'
+exec /bin/sh /root/.mesh-termux-session.sh
+TERMUX_INSTALL
+    cat > "$state/home/.mesh-termux-session.sh" <<'TERMUX_SESSION'
+#!/bin/sh
+set -eu
+prefix=$(cat /root/.mesh-termux-prefix)
+export PATH="$prefix:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+cleanup() {
+    agent-machine stop >/dev/null 2>&1 || true
+    agent proxy stop >/dev/null 2>&1 || true
+    agent-server local stop >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+trap 'exit 0' INT TERM HUP
+agent-server local start
+if [ -s /root/.config/agent-machine/credentials.json ]; then
+    agent-machine start </dev/null || printf 'Start or sign in the machine from mesh-termux shell.\n'
+fi
+printf 'Full server running. Keep this session open; Ctrl+C stops it.\n'
+while :; do sleep 60; done
+TERMUX_SESSION
+    cat > "$state/bin/mesh-termux" <<'TERMUX_CONTROL'
+#!/bin/sh
+set -eu
+# Resolve the symlink in $PREFIX/bin without embedding shell-sensitive folder names.
+state=$(dirname "$(dirname "$(readlink -f "$0")")")
+case "${1:-start}" in
+    start) exec proot-distro login ai-control-mesh --bind "$state/home:/root" -- /bin/sh /root/.mesh-termux-session.sh ;;
+    status) exec proot-distro login ai-control-mesh --bind "$state/home:/root" -- /bin/sh -c 'prefix=$(cat /root/.mesh-termux-prefix); exec "$prefix/agent-server" local status' ;;
+    stop) exec proot-distro kill ai-control-mesh ;;
+    shell) exec proot-distro login ai-control-mesh --bind "$state/home:/root" ;;
+    *) printf 'Usage: mesh-termux [start|stop|status|shell]\n' >&2; exit 2 ;;
+esac
+TERMUX_CONTROL
+    chmod 700 "$state/bin/mesh-termux" "$state/home/.mesh-termux-install.sh" "$state/home/.mesh-termux-session.sh"
+    ln -sf "$state/bin/mesh-termux" "$PREFIX/bin/mesh-termux"
+    # These programs run inside Ubuntu. Use the portable clients and omit an Android tray.
+    set -- --python --no-tray $ports
+    if [ -n "$prefix" ]; then set -- "$@" --prefix "$prefix"; fi
+    if [ "$client" -eq 0 ]; then set -- "$@" --no-client; fi
+    if [ "$login" -eq 0 ]; then set -- "$@" --no-login; fi
+    exec proot-distro login ai-control-mesh --bind "$state/home:/root" -- /bin/sh /root/.mesh-termux-install.sh "$BASE/install-local.sh" "$@"
+}
+
+# Guest shells use /bin/sh even when Termux variables remain in their environment.
+# Check the resolved shell too, so the installer cannot recursively bootstrap its guest.
+if [ -n "${PREFIX:-}" ] && [ "$(command -v sh)" = "$PREFIX/bin/sh" ]; then
+    case "${TERMUX_VERSION:-}:$PREFIX" in
+        ?*:*|*:*/com.termux/files/usr) install_termux ;;
+    esac
+fi
 
 case "$(uname -s)" in
     Linux) os=linux ;;

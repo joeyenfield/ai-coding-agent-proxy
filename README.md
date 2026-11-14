@@ -44,6 +44,8 @@ To host your own server, pick one of these three setups. All three run on your o
 | [One container](#one-container) | Docker or Podman | The whole system in a single container, no checkout |
 | [No containers](#no-containers) | Python 3.11 or later | The server, `agent` and `agent-machine` installed for you alone |
 
+Android/Termux: the [experimental full-server setup](docs/local.md#android-with-termux) uses a dedicated Ubuntu environment through PRoot-Distro. It does not need Docker or Podman.
+
 ### The quickstart stack
 
 ```bash

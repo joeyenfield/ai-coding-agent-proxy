@@ -42,6 +42,31 @@ Pass options like this: `curl -fsSL <url>/install-local.sh | sh -s -- --port 299
 
 The installer only trusts the SHA-256 of each download that was written into it when the release was made. On Debian and Ubuntu, Python's environments need `sudo apt install python3-venv`.
 
+## Android with Termux
+
+The updated shell installer detects native Termux and takes a separate path: it installs Ubuntu 24.04 through [PRoot-Distro](https://github.com/termux/proot-distro), then runs the full installer inside Ubuntu. This includes the server, sign-in service, built console and Python client programs. It does not require root, Docker or Podman. Ubuntu provides the Linux environment for the server's native dependencies; installing directly into Android's Python is not supported.
+
+This path is available from release 2.1.64 and is experimental until it has been checked on an Android device. The installer and full-server startup have been tested in PRoot on Linux. Earlier releases, including 2.1.63, do not contain the Termux branch. Their `install-local.sh` attempts a native Python install and can fail building `cryptography`. Rerunning an older release will not fix it.
+
+Start with a current Termux installation and package repositories. Run `pkg update`, then run the shell installer above. It installs `proot-distro` and `curl` with Termux's package manager and creates a dedicated environment named `ai-control-mesh`. It installs Python and its environment support inside Ubuntu. Allow several GB of free space for Ubuntu, downloads and the server; model files need additional space. No model is downloaded automatically.
+
+Keep the installation session open. Once installation and sign-in finish, open **http://localhost:19999** in the phone's browser. Sign-in uses localhost port 20000. Other ports can be passed with `--port` and `--auth-port` as usual. Both ports must be free. `--prefix`, if supplied, names a folder inside Ubuntu.
+
+The installer adds a Termux command for managing the dedicated environment:
+
+```sh
+mesh-termux status   # server and issuer status
+mesh-termux stop     # stop the environment's processes
+mesh-termux start    # restart and keep this session open
+mesh-termux shell    # open a shell for agent, agent-machine and agent-server commands
+```
+
+Run `status`, `stop` or `shell` from another Termux session while `start` is running. Ctrl+C in the running session stops the local server, machine and proxy. `stop` terminates every process in the dedicated `ai-control-mesh` PRoot environment. On restart, the server and sign-in service start; a machine with saved credentials is started too. With `--no-login`, sign in later from `mesh-termux shell` using the commands the installer prints.
+
+The environment's home is bound to `${XDG_DATA_HOME:-$HOME/.local/share}/ai-control-mesh-termux/home` in Termux. It contains the database, accounts, keys, recordings, installed application and client credentials. Stopping keeps these files. Keep them private and back them up. Run the installer again from native Termux to update; it reuses this home and the dedicated Ubuntu environment. It does not reuse or delete files from an earlier failed native installation. To uninstall the application while keeping its data, open `mesh-termux shell` and run the release's normal uninstaller there. Keep the Termux home backup before removing the Ubuntu environment.
+
+Android can suspend or kill Termux. Keep its session open, allow background operation in the phone's battery settings and use `termux-wake-lock` when needed; a wake lock does not guarantee that Android will keep the app alive. PRoot shares Android's network and kernel. It does not provide the kernel features needed for Docker/Podman or GPU containers. Use hosted APIs or providers on other fleet machines; running a local model on the phone also depends on compatible binaries, memory and Android permissions. See [PRoot-Distro's limitations](https://github.com/termux/proot-distro#limitations).
+
 ## Try it in one container
 
 With Docker or Podman, one container holds the whole system: the server, sign-in and console, and a machine of its own fleet with the coding agents installed and Ollama to start from the console.

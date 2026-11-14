@@ -26,6 +26,7 @@ $ProgressPreference = "SilentlyContinue"
 $Base = '{{BASE}}'
 $Version = '{{VERSION}}'
 # The server bundle: name sha256.
+# Android/Termux has its own Ubuntu/PRoot flow in install-local.sh (docs/local.md#android-with-termux).
 $Bundle = '{{BUNDLE}}' -split " "
 # The Python agent and agent-machine, for any system: name sha256.
 $Wheel = '{{WHEEL}}' -split " "
